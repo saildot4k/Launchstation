@@ -147,29 +147,39 @@ static void openFolder(const DashApp *a)
 static void editMetadata(DashApp *a)
 {
 	char meta[MAX_PATH];
+	int fd;
 
 	if (dashLibMetadataPath(a, meta, sizeof(meta)) < 0)
 		return;
-	if (!(a->flags & DASH_APP_HAS_META)) {
-		/* create a starter sidecar the user can fill in */
-		char text[512];
+	/* Check title.cfg itself: metadata may have come from an ELF sidecar. */
+	if (!dashWorkerAwaitAll("Finishing up"))
+		return;
+	filerRootMcPollIdle();
+	fd = genOpen(meta, FIO_O_RDONLY);
+	if (fd >= 0)
+		genClose(fd);
+	else {
+		/* Create a starter title.cfg with the selected ELF boot entry. */
+		const char *file = strrchr(a->path, '/');
+		char text[DASH_PATH_MAX + DASH_TITLE_MAX + 320];
+
+		if (file == NULL)
+			file = strrchr(a->path, ':');
+		file = file ? file + 1 : a->path;
 		int len = snprintf(text, sizeof(text),
-		                   "# Launchstation dashboard metadata for %s\r\n"
+		                   "# Launchstation application metadata (title.cfg)\r\n"
 		                   "# Every key is optional. Lines starting with # are ignored.\r\n"
 		                   "title = %s\r\n"
+		                   "boot = %s\r\n"
 		                   "description = \r\n"
 		                   "author = \r\n"
 		                   "version = \r\n"
 		                   "category = \r\n"
 		                   "# cover = cover.png\r\n"
 		                   "# arg = first argument (one per line)\r\n",
-		                   a->path, a->title);
-		if (!dashModalConfirm("Create metadata file?", "A small text file describing this application will be created next to it. You can then edit it in the Text Editor.", "Create", 0))
+		                   a->title, file);
+		if (!dashModalConfirm("Create title.cfg?", "Create title.cfg beside this application, then edit it in the Text Editor.", "Create", 0))
 			return;
-		/* the UI thread writes directly: background work must finish first */
-		if (!dashWorkerAwaitAll("Finishing up"))
-			return;
-		filerRootMcPollIdle();
 		if (dashWriteFile(meta, text, len) != 0) {
 			dashModalMessage(DI_WARNING, "Could not create file", "The device may be read-only or full.", meta);
 			return;

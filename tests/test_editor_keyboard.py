@@ -425,6 +425,8 @@ int main(void) {
     /* Every real key and action is reachable; blank cells on partial pages never receive focus. */
     for(int layout=0;layout<VKEY_LAYOUT_COUNT;layout++) {
         setting->virtual_keyboard_layout=layout;dashKeyboardInit(&editor_keyboard,layout);
+        kb_act=KA_RETURN;draw();
+        Label fixed_space=*label("Space"),fixed_tab=*label("Tab");
         for(kb_page=0;kb_page<=kbSymbolPageCount();kb_page++) {
             checkReachability();
             for(int i=0;i<VKEY_LAYOUT_SIZE;i++) if(!kbIsKey(&editor_keyboard,i)) {
@@ -433,6 +435,8 @@ int main(void) {
             /* All themes/layouts fit the keyboard panel above the footer. */
             kb_act=KA_RETURN; draw();
             assert(label("Space") && label("Tab") && label("Del") && label("Return"));
+            assert(label("Space")->x==fixed_space.x && label("Space")->y==fixed_space.y);
+            assert(label("Tab")->x==fixed_tab.x && label("Tab")->y==fixed_tab.y);
             assert(!label("Enter") && !label("sp") && !label("Caps") && !label("Delete") && !label("Hide"));
             /* General text prompts keep every character, with no hidden actions in navigation. */
             DashKeyboard full=editor_keyboard;

@@ -39,6 +39,7 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 typedef struct { int r,g,b,a; } DashColor;
 #define DC(r,g,b,a) ((DashColor){r,g,b,a})
+#define DASH_FS_SMALL 0.66f
 typedef struct {
     int Width,Height,PSM,ClutPSM,ClutStorageMode,Filter,Delayed;
     u32 *Clut,*Mem;
@@ -47,15 +48,20 @@ enum { GS_PSM_T8, GS_PSM_CT32, GS_CLUT_STORAGE_CSM1, GS_FILTER_LINEAR, DASH_FONT
 static struct { int font,font_scale,bold,text_shadow; } dashTheme;
 static int cache_flushes,texture_setups,foreground,shadow;
 static DashColor batch_color;
+static GSTEXTURE *last_texture;
+static float last_left,last_right;
+static int literal_calls;
+static unsigned char literal_byte;
 static void SyncDCache(void *start,void *end) {
     assert((u8 *)end-(u8 *)start==1024);cache_flushes++;
 }
 static void gsKit_setup_tbw(GSTEXTURE *t) { assert(t->Clut && t->Mem);texture_setups++; }
 static float dashGfxTextY(float y) { return y; }
-static void dashSpriteBatchBegin(GSTEXTURE *tex,DashColor color) { assert(tex);batch_color=color; }
+static void dashSpriteBatchBegin(GSTEXTURE *tex,DashColor color) { assert(tex);batch_color=color;last_texture=tex; }
 static void dashSpriteBatchEnd(void) {}
 static void dashSpriteBatchAdd(float x1,float y1,float u1,float v1,float x2,float y2,float u2,float v2) {
     assert(x2>x1 && y2>y1 && u2>u1 && v2>v1);
+    last_left=x1;last_right=x2;
     if(batch_color.a==255) foreground++;
     else { assert(batch_color.a==89);shadow++; }
 }
@@ -73,10 +79,13 @@ static GlyphMetric metrics[FONT_GLYPHS];
 static GSTEXTURE font_tex,face_tex[DASH_FONT_FACES];
 static u32 face_clut[DASH_FONT_FACES][256];
 static int font_ready=1,faces_ready;
+static void dashFontByte(unsigned char c,float x,float y,DashColor color) {
+    assert(x>=10 && x<=10.5f && y==20 && color.a==255);literal_calls++;literal_byte=c;
+}
 '''
 for signature in ("static inline int clutSwizzle(", "static int nextGlyphs(", "static void facesInit(void)\n{",
                   "static float fontScale(", "static void pickFace(", "static float glyphAdv(",
-                  "float dashTextWidthN(", "static float drawRun(", "float dashTextS("):
+                  "float dashTextWidthN(", "static float drawRun(", "float dashTextS(", "void dashFontMonoByte("):
     code += function(signature)
 code += "static const int expected_gamma[] = {" + ",".join(str(round(gamma * 100)) for _, gamma in sizes) + "};\n"
 code += r'''
@@ -121,6 +130,25 @@ int main(void) {
         }
     }
     for(int face=0;face<DASH_FONT_FACES;face++) assert(used_faces[face]);
+    /* Editor text uses regular face glyphs on the same eight-pixel grid.
+     * Bold adds one stroke; System/extended bytes retain literal bitmap glyphs. */
+    for(int face=0;face<2;face++) for(int fs=0;fs<3;fs++) for(int bold=0;bold<2;bold++) {
+        dashTheme.font=face?DASH_FONT_SYSTEM:DASH_FONT_ROBOTO;
+        dashTheme.font_scale=scales[fs];dashTheme.bold=bold;
+        for(int c=0;c<256;c++) {
+            foreground=shadow=literal_calls=0;
+            dashFontMonoByte(c,10,20,colors[0]);
+            if(c<0x20 || c==' ') assert(!foreground && !literal_calls);
+            else if(face || c>0x7e) {
+                assert(!foreground && literal_calls==(bold?2:1) && literal_byte==c);
+            } else {
+                assert(!literal_calls && foreground==(bold?2:1) && !shadow);
+                assert(last_texture==&face_tex[0] && last_left>=10 && last_right<=18.0001f);
+                if(!bold) assert(fabsf((last_left+last_right)*0.5f-14)<0.0001f);
+            }
+        }
+    }
+    puts("PASS: editor regular/Bold glyph paths, eight-pixel cell bounds, theme fonts, font sizes and all literal special bytes");
     assert(cache_flushes==DASH_FONT_FACES && texture_setups==DASH_FONT_FACES);
     puts("PASS: regular alpha at all atlas sizes, Bold-only extra strokes, selected/normal text, Roboto/System, stable metrics and independent shadow");
 }

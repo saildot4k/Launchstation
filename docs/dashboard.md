@@ -282,8 +282,10 @@ pinned = 1                 # show on HOME
 
 Arguments: a classic `<ELFNAME>.arg` sidecar always wins; metadata `arg`
 lines are used only when no `.arg` exists. *Start with arguments...* uses
-the Text Editor's "Launch with args" flow. APPS > Triangle > *Edit metadata*
-creates a starter file and opens it in the Text Editor.
+the Text Editor's "Launch with args" flow. *Edit metadata* in Home or
+Applications options opens the app folder's `title.cfg` in the Text Editor.
+If it is missing, the action offers to create it with the current title and
+`boot = <ELF filename>`, even when an ELF-specific sidecar already exists.
 
 ## Artwork (optional)
 

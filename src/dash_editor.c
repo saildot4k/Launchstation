@@ -7,8 +7,8 @@
 //* Up to ED_MAX_DOCS documents; switch with the menu.
 //* Text is kept with '\n' line breaks; the file's own line endings
 //  (CR/LF, LF or CR) are remembered and written back on save.
-//* The wLaunchELF 8x16 font (built-in or .fnt) is used, so every byte of
-//  a configuration file stays visible and columns line up.
+//* Document text follows the theme font and Bold setting on a fixed 8px
+//  grid. Special bytes retain the built-in or .fnt bitmap glyphs.
 //* A docked on-screen keyboard (SELECT) uses the user's layout; a USB
 //  keyboard types directly.
 //* Files are read and written by the background worker.
@@ -785,11 +785,6 @@ static int editorMenu(EdDoc *d)
 #define ED_GUTTER 48.0f
 #define KB_H 147.0f
 
-static u64 gsCol(DashColor c)
-{
-	return GS_SETREG_RGBAQ(c.r, c.g, c.b, 0x80, 0x00);
-}
-
 static int visibleRows(void)
 {
 	float h = (kb_shown ? (DASH_VH - 64 - KB_H) : (DASH_VH - 70)) - ED_Y;
@@ -822,9 +817,8 @@ static void scrollToCursor(EdDoc *d, int rows, int cols)
 
 static void drawText(EdDoc *d, int rows, int cols)
 {
-	const float sy = dashGfxScaleY();
 	const float tx = ED_X + ED_GUTTER;
-	const u64 fg = gsCol(DASH_C_TEXT), dim = gsCol(DASH_C_TEXT3);
+	const DashColor fg = DASH_C_TEXT, dim = DASH_C_TEXT3;
 	int r, sa = 0, sb = 0, has_sel = selRange(d, &sa, &sb);
 	int cur_line = docLineOf(d, d->cur);
 	float h = rows * ED_ROW + 8;
@@ -861,8 +855,8 @@ static void drawText(EdDoc *d, int rows, int cols)
 			if (col >= d->left + cols)
 				break;
 			if (col >= d->left && ch != '\t' && ch != ' ')
-				dashFontLegacyChar(ch < 0x20 ? '.' : ch, (int)(tx + (col - d->left) * ED_CW),
-				                   (int)((y + 1) * sy), ch < 0x20 ? dim : fg);
+				dashFontMonoByte(ch < 0x20 ? '.' : ch, tx + (col - d->left) * ED_CW,
+				                 y + 1, ch < 0x20 ? dim : fg);
 			col = next;
 		}
 	}
@@ -991,7 +985,7 @@ int dashTextEditorEx(const char *path, int create_if_missing)
 	active = 0;
 	kb_shown = 0;
 	dashKeyboardInit(&editor_keyboard, setting->virtual_keyboard_layout);
-	dashFontInit(); /* the legacy glyph atlas draws the text */
+	dashFontInit(); /* special bytes and System font use the bitmap atlas */
 	dashPushSceneOverride(editorScene);
 	create_missing = create_if_missing;
 	if (path != NULL && path[0])

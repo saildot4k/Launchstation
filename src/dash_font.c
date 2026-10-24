@@ -633,6 +633,44 @@ void dashFontByte(unsigned char c, float x, float y, DashColor color)
 	dashSpriteBatchEnd();
 }
 
+/* Document text keeps an 8px column grid while using the selected font's
+ * regular glyphs. Extended bytes retain the active bitmap font's symbols. */
+void dashFontMonoByte(unsigned char c, float x, float y, DashColor color)
+{
+	FaceSel sel;
+	const DashGlyphData *g;
+	float sx, w, top, gx, gy, dx;
+	float bold_dx = dashTheme.bold ? 0.5f : 0.0f;
+
+	if (c < FONT_FIRST || c == ' ')
+		return;
+	if (dashTheme.font == DASH_FONT_SYSTEM || c > 0x7E) {
+		dashFontByte(c, x, y, color);
+		if (dashTheme.bold)
+			dashFontByte(c, x + bold_dx, y, color);
+		return;
+	}
+	facesInit();
+	pickFace(DASH_FS_SMALL, &sel);
+	g = &sel.f->glyphs[c - DASH_FONT_FIRST];
+	if (!g->w)
+		return;
+	/* Centre the ink in each cell; wide glyphs must not overlap neighbours. */
+	sx = sel.s;
+	if (g->w * sx > 7.0f)
+		sx = 7.0f / g->w;
+	w = g->w * sx;
+	gx = x + (8.0f - w) * 0.5f;
+	top = dashGfxTextY(y + 8.0f -
+	                   (sel.f->ascent16 - sel.f->xheight16 * 0.5f) / 16.0f * sel.s);
+	gy = top + g->yoff * sel.s;
+	dashSpriteBatchBegin(sel.tex, color);
+	for (dx = 0.0f; dx <= bold_dx; dx += bold_dx > 0.0f ? bold_dx : 1.0f)
+		dashSpriteBatchAdd(gx + dx, gy, g->x, g->y, gx + dx + w, gy + g->h * sel.s,
+		                   g->x + g->w, g->y + g->h);
+	dashSpriteBatchEnd();
+}
+
 //--------------------------------------------------------------
 // Themed classic screens: one 8x16 glyph at framebuffer coordinates.
 //--------------------------------------------------------------

@@ -2589,6 +2589,8 @@ static void browserDrawBody(void)
 {
 	int i, rows_total = fb.dir[0] ? fb.n : fb.ndevs;
 	const float status_y = FB_Y + FB_ROWS * FB_ROW_H + 10.0f;
+	const float path_panel_y = fb_tab_active ? 68.0f : 52.0f;
+	const float path_center_y = path_panel_y + 12.0f;
 	char info[64], display_path[MAX_PATH + 2];
 
 	/* Use numbered USB labels without changing the path used for I/O. */
@@ -2602,8 +2604,9 @@ static void browserDrawBody(void)
 		dashTextS(FB_X + 32, 20, "File Browser", DASH_FS_TITLE, DASH_C_TEXT);
 	}
 	/* Give the current folder its own aligned lane above the file list. */
-	dashDrawPanelBox(FB_X - 6, fb_tab_active ? 68 : 52, FB_W + 12, 24, 6);
-	dashTextScroll(FB_X + 6, fb_tab_active ? 74 : 58,
+	dashDrawPanelBox(FB_X - 6, path_panel_y, FB_W + 12, 24, 6);
+	/* Text uses y + 16 * scale as its visual centre for every theme font. */
+	dashTextScroll(FB_X + 6, path_center_y - 16.0f * DASH_FS_SMALL,
 	               fb_tab_active ? FB_W - 227 : FB_W - 162,
 	               fb.dir[0] ? display_path : "Choose a device", DASH_FS_SMALL, DASH_C_TEXT2);
 	if (fb.dir[0]) {
@@ -2618,7 +2621,7 @@ static void browserDrawBody(void)
 			snprintf(info, sizeof(info), "%d item%s   %s free", fb.n, fb.n == 1 ? "" : "s", space);
 		else
 			snprintf(info, sizeof(info), "%d item%s", fb.n, fb.n == 1 ? "" : "s");
-		dashTextRight(FB_X + FB_W, fb_tab_active ? 76 : 60, info, DASH_FS_CAPTION, DASH_C_TEXT3);
+		dashTextRight(FB_X + FB_W, path_center_y - 16.0f * DASH_FS_CAPTION, info, DASH_FS_CAPTION, DASH_C_TEXT3);
 	}
 	if (LaunchArgsPending()) {
 		snprintf(info, sizeof(info), "%d launch argument%s loaded: choose the application", LaunchArgsGetCount(),

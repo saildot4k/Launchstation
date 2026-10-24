@@ -30,7 +30,8 @@ assert "dashPushSceneOverride(browserScene)" in browser
 assert "dashPopSceneOverride();" in browser
 draw=browser[browser.index("static void browserDrawBody(void)"):browser.index("static void browserScene(void)")]
 assert "dashGfxBeginFrame" not in draw and "dashBgDraw()" not in draw
-assert "fb_tab_active ? 74 : 58" in draw
+assert "path_center_y - 16.0f * DASH_FS_SMALL" in draw
+assert "path_center_y - 16.0f * DASH_FS_CAPTION" in draw
 assert "dashDrawHeader(section, section_anim)" in main
 assert "if (setting->Misc[0] && !fb_tab_active)" in browser
 assert "dashHomeRebuild();" not in browser[browser.index("void dashFileBrowserTabClose(void)"):browser.index("int dashBrowserPadInputReady(void)")]

@@ -76,8 +76,7 @@ static int kbColumnCount(const DashKeyboard *kb)
 {
 	int ncols = getVirtualKeyboardLayoutColumnCount(kb->layout);
 
-	if (kb->page)
-		return KB_SYMBOL_COLS;
+	/* Keep the grid origin fixed when switching to narrower symbol pages. */
 	return ncols < 13 ? 13 : ncols;
 }
 
@@ -125,7 +124,7 @@ static int kbActionColumn(const DashKeyboard *kb, int action)
 			if (kbIsKey(kb, row * VKEY_LAYOUT_COLS + col))
 				return col + 1;
 	}
-	return kbColumnCount(kb);
+	return kb->page ? KB_SYMBOL_COLS : kbColumnCount(kb);
 }
 
 static int kbSelectInRow(DashKeyboard *kb, int row, int col)
