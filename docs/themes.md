@@ -179,6 +179,10 @@ The sample uses `wallpaper = off` so its static background stays visible.
   characters used by the language files, and at the dashboard's body size
   it maps almost 1:1 to screen pixels, which is crisp on a CRT.
 
+Bold off uses regular stroke weight at every dashboard text size. Small and
+medium Roboto atlases have their stored alpha boost corrected before drawing;
+only Bold adds an extra stroke pass. Text shadow is controlled separately.
+
 Arbitrary TTF files are not loaded on the console: a font engine and its
 glyph cache would cost too much memory and time. To use another typeface
 for *Roboto*, regenerate the atlas on a PC with `scripts/gen_dash_font.py`.

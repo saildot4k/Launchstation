@@ -55,6 +55,9 @@ int readVcdSystemCnf(int fd, char *buffer, size_t buffer_size);
 
 int buildPopstarterVcdGameID(const char *path, char *gameID, size_t gameID_len);
 
+int preparePopstarterElfLaunch(const char *path, char *fullpath, size_t fullpath_size,
+                                char *party, size_t party_size, int *exec_kind);
+
 int preparePopstarterCandidateLaunch(const POPSTARTER_CANDIDATE_LIST *candidates,
                                      char *selected_path, size_t selected_path_size,
                                      char *fullpath, size_t fullpath_size,

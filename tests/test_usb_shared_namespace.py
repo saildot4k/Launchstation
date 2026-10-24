@@ -29,14 +29,7 @@ program = r"""
 #define DASH_DEV_ABSENT 0
 #define DASH_DEV_PROBE 1
 #define SCECdNODISC 0
-#define DASH_DEVA_USB (1<<0)
-#define DASH_DEVA_HDD (1<<1)
-#define DASH_DEVA_ATA (1<<2)
-#define DASH_DEVA_MMCE (1<<3)
-#define DASH_DEVA_MX4SIO (1<<4)
-#define DASH_DEVA_ILINK (1<<5)
 
-static char LaunchElfBootDir[128], LaunchElfDir[128];
 static int vmcMounted[2], cdmode, uLE_cdmode;
 static int bdm_ready, usb_ready, usb_mask;
 
@@ -59,7 +52,6 @@ static int isPcCardCfOnline(void) {
 }
 """
 program += extract("int dashDevicePathReady(const char *path)\n{")
-program += extract("int dashBootDeviceBit(void)\n{")
 program += r"""
 int main(void) {
     bdm_ready=1; usb_ready=0; usb_mask=0;
@@ -73,16 +65,6 @@ int main(void) {
     assert(dashDevicePathReady("usb0:/APPS/one.elf"));
     assert(!dashDevicePathReady("usb1:/APPS/one.elf"));
     assert(dashDevicePathReady("mass:/APPS/one.elf"));
-    strcpy(LaunchElfBootDir,"mass0:/APP.ELF");
-    assert(dashBootDeviceBit()==0);
-    strcpy(LaunchElfBootDir,"mass9:/APP.ELF");
-    assert(dashBootDeviceBit()==0);
-    strcpy(LaunchElfBootDir,"usb0:/APP.ELF");
-    assert(dashBootDeviceBit()==DASH_DEVA_USB);
-    strcpy(LaunchElfBootDir,"mass:/APP.ELF");
-    assert(dashBootDeviceBit()==DASH_DEVA_USB);
-    strcpy(LaunchElfBootDir,"mc0:/APP.ELF");
-    assert(dashBootDeviceBit()==0);
     puts("PASS: numbered shared BDM slots are not misidentified as USB");
     return 0;
 }

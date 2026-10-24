@@ -143,7 +143,6 @@ device_types = header[header.index("enum DashDevState"):
                       header.index("void dashDevicesInit(void)")]
 symbols = sorted(set(re.findall(r"\b(?:DI_|DASH_SND_|SCECd)\w+", devices)))
 devcode = common + device_types + "enum { " + ",".join(symbols) + " };\n"
-devcode += "\n".join(re.findall(r"^#define DASH_DEVA_.*", header, re.M)) + "\n"
 devcode += r"""
 #define MMCE 1
 #define MX4SIO 1
@@ -154,7 +153,6 @@ static unsigned int reset_generation;
 static int cdmode, uLE_cdmode, vmcMounted[2], console_is_PSX;
 static unsigned int getIopResetGeneration(void) { return reset_generation; }
 static char LaunchElfBootDir[256], LaunchElfDir[256], netConfig[32];
-static struct { int dev_auto; int show_unavailable_devices; } dashCfg = {0,1};
 static int mc_present[2], usb_mask, usb_loaded, resident, media, loads, opens, closes;
 static int failed_load, reset_on_load, reset_on_type, usb_snapshot_valid=1;
 static u64 delayed_ata;
@@ -215,7 +213,6 @@ static int filerUsbRefreshDriveMask(void) {
 }
 static int isUsbMassStackLoaded(void) { return usb_loaded; }
 static void rebootIopAndReloadCoreStackSilent(void) { reset_generation++; resident=0; usb_loaded=0; }
-int dashBootDeviceBit(void);
 #define DPRINTF(...) ((void)0)
 static void loadUsbModules(void) { usb_loaded=1; }
 static int prepareUsbRootBrowse(void) { return usb_mask?0:-1; }
@@ -232,7 +229,6 @@ static void dashLoadingBegin(const char *t) { (void)t; }
 static void dashLoadingStatus(const char *t,int d,int n) { (void)t;(void)d;(void)n; }
 static void (*drawMsgOverride)(const char *msg);
 static void dashLoadingEnd(void) {}
-static void dashDevicesAutoProbe(void);
 static int boot_show_all_devices = 0;
 static int boot_safe_mode = 0;
 static int isPcCardCfPath(const char *p) { return p && !strncmp(p, "cf", 2); }
@@ -307,13 +303,27 @@ int main(void) {
     strcpy(LaunchElfBootDir,"mmce1:/BOOT/"); dashDevicesInit();
     assert(state("mmce1:")==DASH_DEV_READY && state("mmce0:")==DASH_DEV_PROBE);
     strcpy(LaunchElfBootDir,"usb0:/BOOT/"); strcpy(LaunchElfDir,"mc0:/SYS-CONF/");
-    assert(dashBootDeviceBit()==DASH_DEVA_USB);
     mc_present[0]=-1; assert(!dashMcPresent(0));
     mc_present[0]=1; assert(dashMcPresent(0));
     DashDevice ds[DASH_MAX_DEVICES]; dashDevicesList(ds,DASH_MAX_DEVICES);
     assert(strstr(ds[0].detail,"1.00 MB free"));
     int before=opens; dashDevicesList(ds,DASH_MAX_DEVICES); assert(opens==before);
-    puts("PASS: driver-only/failed/empty/late roots, MMCE units, reboot invalidation, boot source, no draw IO");
+    /* Listing unloaded/absent devices must preserve the lazy entry points
+     * without starting drivers or probing filesystem roots. */
+    reset_generation++; resident=media=usb_loaded=usb_mask=0;
+    mc_present[0]=mc_present[1]=0;
+    before=opens; int before_loads=loads;
+    assert(state("usb:")==DASH_DEV_PROBE);
+    assert(state("hdd0:")==DASH_DEV_PROBE);
+    assert(state("mmce0:")==DASH_DEV_PROBE);
+    assert(state("mx4sio:")==DASH_DEV_PROBE);
+    assert(state("mc0:")==DASH_DEV_ABSENT);
+    assert(opens==before && loads==before_loads);
+    probe("mx4sio:"); assert(!result);
+    before=opens; before_loads=loads;
+    assert(state("mx4sio:")==DASH_DEV_ABSENT); /* still listed after failure */
+    assert(opens==before && loads==before_loads);
+    puts("PASS: driver-only/failed/empty/late roots, lazy device entries, MMCE units, reboot invalidation, boot source, no draw IO");
 }
 """
 
@@ -345,21 +355,6 @@ int main(void) {
     now_ms=1000; settle=0; pad_reopen_active=0; legacy_reads=0;
     waitPadReady(0,0); assert(now_ms==1000 && legacy_reads==4);
     puts("PASS: runtime pad wait yields/expires; legacy ready/disconnected handling is preserved");
-}
-"""
-autocode = devcode[:devcode.index("int main(void)")] + r"""
-int main(void) {
-    strcpy(LaunchElfBootDir,"mc0:/BOOT/");
-    dashCfg.dev_auto=DASH_DEVA_USB|DASH_DEVA_HDD|DASH_DEVA_UDPFS;
-    usb_mask=1; media=S_HDD|S_UDPFS; reset_on_type=S_UDPFS;
-    dashDevicesAutoProbe();
-    assert(usb_loaded && filerUsbDriveMask()==1);
-    assert((resident&(S_HDD|S_UDPFS))==(S_HDD|S_UDPFS));
-    resident=0; usb_loaded=1; usb_snapshot_valid=1;
-    dashCfg.dev_auto=DASH_DEVA_USB|DASH_DEVA_MX4SIO; media=S_MX;
-    dashDevicesAutoProbe();
-    assert((resident&S_MX) && usb_loaded && filerUsbDriveMask()==1);
-    puts("PASS: startup restores devices lost to a later reset and refreshes USB after MX4SIO invalidation");
 }
 """
 art = read("src/dash_art.c")
@@ -398,7 +393,7 @@ int main(void) {
 }
 """
 with tempfile.TemporaryDirectory(prefix="wle-device-input-") as tmp:
-    for name, code in (("input", padcode), ("devices", devcode), ("pad-waits", waitcode), ("startup", autocode), ("theme-io", themecode)):
+    for name, code in (("input", padcode), ("devices", devcode), ("pad-waits", waitcode), ("theme-io", themecode)):
         source = Path(tmp) / f"{name}.c"
         exe = Path(tmp) / f"{name}.exe"
         source.write_text(code)

@@ -46,10 +46,6 @@ IMPORT_BIN2C(udptty_irx);
 #ifdef MX4SIO
 IMPORT_BIN2C(mx4sio_bd_irx);
 #endif
-#ifdef ILINK
-IMPORT_BIN2C(iLinkman_irx);
-IMPORT_BIN2C(IEEE1394_bd_irx);
-#endif
 
 #ifdef HOMEBREW_SIO2MAN
 IMPORT_BIN2C(sio2man_irx);
@@ -165,10 +161,6 @@ static u8 have_mmce = 0;
 #endif
 #ifdef MX4SIO
 static u8 have_mx4sio = 0;
-#endif
-#ifdef ILINK
-static u8 have_ilinkman = 0;
-static u8 have_ieee1394_bd = 0;
 #endif
 
 #ifdef DVRP
@@ -2074,57 +2066,6 @@ int loadMx4sioModules(void)
 }
 #endif
 
-#ifdef ILINK
-/* Match iLinkman's supported BIOS range. PSX exposes a camcorder-only
- * port. Unknown/malformed ROM versions must not trigger hardware probing. */
-int isIlinkConsoleSupported(void)
-{
-	int i, version = 0;
-	if (console_is_PSX)
-		return 0;
-	for (i = 0; i < 4; i++) {
-		if (ROMVER_data[i] < '0' || ROMVER_data[i] > '9')
-			return 0;
-		version = version * 10 + ROMVER_data[i] - '0';
-	}
-	return version >= 100 && version <= 160;
-}
-
-int loadIlinkModules(void)
-{
-	int ret, id __attribute__((unused));
-
-	if (!isIlinkConsoleSupported())
-		return 0;
-	if (!have_ilinkman || !have_ieee1394_bd)
-		showLoadingModulesMsg("iLink / FireWire");
-
-	/* iLink is an independent BDM transport, not an SIO2 storage mode:
-	 * it can coexist with USB/ATA and does not require the MMCE/MX4SIO
-	 * storage-stack switching path. Match RiptOPL's proven load order:
-	 * BDM/FatFs -> iLinkman -> IEEE1394_bd. */
-	ensureCoreIoStackReady();
-#ifdef EXFAT
-	if (!loadBdmCoreModules())
-		return 0;
-#else
-	return 0;
-#endif
-
-	if (!have_ilinkman) {
-		id = SifExecModuleBuffer(iLinkman_irx, size_iLinkman_irx, 0, NULL, &ret);
-		DPRINTF(" [ILINKMAN]: id=%d ret=%d\n", id, ret);
-		have_ilinkman = (id >= 0 && ret >= 0);
-	}
-	if (have_ilinkman && !have_ieee1394_bd) {
-		id = SifExecModuleBuffer(IEEE1394_bd_irx, size_IEEE1394_bd_irx, 0, NULL, &ret);
-		DPRINTF(" [IEEE1394_BD]: id=%d ret=%d\n", id, ret);
-		have_ieee1394_bd = (id >= 0 && ret >= 0);
-	}
-	return have_ilinkman && have_ieee1394_bd;
-}
-#endif
-
 #ifdef EXFAT
 static int loadBdmCoreModules(void)
 {
@@ -2528,10 +2469,6 @@ static void clearIopModuleState(void)
 	have_mx4sio = 0;
 	mx4sio_driver_running = 0;
 #endif
-#ifdef ILINK
-	have_ilinkman = 0;
-	have_ieee1394_bd = 0;
-#endif
 	resetDriverStackLoadTracking();
 	ps2dev9_loaded = 0;
 	ps2dev9_variant = DEV9_VARIANT_NONE;
@@ -2645,10 +2582,6 @@ int isPathDeviceStackLoaded(const char *path)
 #ifdef MX4SIO
 	if (!strncmp(path, "mx4sio", 6))
 		return have_mx4sio && storage_driver_stack_mode == STORAGE_STACK_MX4SIO;
-#endif
-#ifdef ILINK
-	if (!strncmp(path, "ilink", 5))
-		return have_ilinkman && have_ieee1394_bd && have_bdm && have_bdmfs;
 #endif
 #ifdef UDPFS
 	if (!strncmp(path, "udpfs", 5))

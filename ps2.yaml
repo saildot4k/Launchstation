@@ -263,8 +263,6 @@ targets:
       - bdmfs_fatfs
       - usbmass_bd
       - mx4sio_bd
-      - iLinkman
-      - IEEE1394_bd_mini:IEEE1394_bd
       - dev9:ps2dev9
       - ata_bd
       - ps2hdd_osd:ps2hdd
@@ -389,7 +387,6 @@ targets:
       - DVRP
       - MMCE
       - MX4SIO
-      - ILINK
       - HOMEBREW_SIO2MAN
       - ETH
       - WLE_NATIVE_CLOUD
@@ -445,8 +442,6 @@ targets:
       - dvrfile
       - mmceman
       - mx4sio_bd
-      - iLinkman
-      - IEEE1394_bd_mini:IEEE1394_bd
       - sio2man
       - padman
       - bdm

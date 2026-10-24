@@ -24,10 +24,6 @@ void loadDs34InputModules(void);
 #ifdef MMCE
 int loadMmceModulesForGameID(void);
 #endif
-#ifdef ILINK
-int isIlinkConsoleSupported(void);
-int loadIlinkModules(void);
-#endif
 void setupPowerOff(void);
 int isPowerOffReady(void);
 void closeAllAndPoweroff(void);

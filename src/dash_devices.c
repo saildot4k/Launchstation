@@ -22,7 +22,7 @@ extern int vmcMounted[2];
 
 /* Driver residency does not establish that a card, disk or server exists.
  * Cache explicit root checks; never do blocking device IO from drawing. */
-enum { PROBE_HDD, PROBE_ATA, PROBE_PCCF, PROBE_MX4SIO, PROBE_ILINK, PROBE_MMCE0, PROBE_MMCE1, PROBE_UDPFS };
+enum { PROBE_HDD, PROBE_ATA, PROBE_PCCF, PROBE_MX4SIO, PROBE_MMCE0, PROBE_MMCE1, PROBE_UDPFS };
 static u32 probe_checked, probe_present;
 static unsigned int probe_reset_generation = (unsigned int)-1;
 
@@ -38,7 +38,6 @@ static int probeIndex(const char *mount)
 	if (!strncmp(mount, "ata0:", 5)) return PROBE_ATA;
 	if (isPcCardCfPath(mount)) return PROBE_PCCF;
 	if (!strncmp(mount, "mx4sio", 6)) return PROBE_MX4SIO;
-	if (!strncmp(mount, "ilink", 5)) return PROBE_ILINK;
 	if (!strncmp(mount, "mmce", 4)) return mount[4] == '1' ? PROBE_MMCE1 : PROBE_MMCE0;
 	if (!strncmp(mount, "udpfs:", 6)) return PROBE_UDPFS;
 	return -1;
@@ -176,8 +175,8 @@ int dashDevicePathReady(const char *path)
 		       filerRootMcPresent(1, NULL, NULL) > 0;
 
 #ifdef EXFAT
-	/* Numbered massN: is the shared BDM namespace (USB, ATA, MX4SIO,
-	 * iLink), not a USB drive ID. Its transport must not be inferred
+	/* Numbered massN: is the shared BDM namespace (USB, ATA, MX4SIO),
+	 * not a USB drive ID. Its transport must not be inferred
 	 * from the spelling of the path. A subsequent open checks the medium. */
 	if (!strncmp(path, "mass", 4) && path[4] >= '0' && path[4] <= '9' && path[5] == ':')
 		return isPathDeviceStackLoaded(path);
@@ -283,15 +282,7 @@ static void addStorage(DashDevice *out, int *n, int max, int icon,
 const char *dashDeviceDisplayMount(const DashDevice *d, char *buf, int size)
 {
 	if (d != NULL && d->icon == DI_USB) {
-		int unit = 0;
-
-		if (!strncmp(d->mount, "usb", 3) &&
-		    d->mount[3] >= '0' && d->mount[3] <= '9' && d->mount[4] == ':')
-			unit = d->mount[3] - '0';
-		if (d->mount[3] == ':')
-			snprintf(buf, size, "mass:/");
-		else
-			snprintf(buf, size, "mass%d:/", unit);
+		snprintf(buf, size, "%s", d->browse);
 		return buf;
 	}
 	return (d != NULL) ? (d->mount[0] ? d->mount : d->browse) : "";
@@ -353,10 +344,6 @@ int dashDevicesList(DashDevice *out, int max)
 #endif
 #ifdef MX4SIO
 	addStorage(out, &n, max, DI_SDCARD, "MX4SIO SD Card", "mx4sio:", "mx4sio:/", "Ready (slot 2)", "No MX4SIO storage found");
-#endif
-#ifdef ILINK
-	if (isIlinkConsoleSupported())
-		addStorage(out, &n, max, DI_HDD, "iLink / FireWire", "ilink:", "ilink:/", "IEEE1394 storage ready", "No iLink storage found");
 #endif
 
 	if (filerShowHddUnit(0) && !console_is_PSX) {
@@ -426,16 +413,6 @@ int dashDevicesList(DashDevice *out, int max)
 			snprintf(browse, sizeof(browse), "vmc%d:/", i);
 			add(out, &n, max, DI_MC, DASH_DEV_READY, name, mount, browse, "Mounted image");
 		}
-	}
-	if (!dashCfg.show_unavailable_devices) {
-		int write = 0;
-		for (i = 0; i < n; i++)
-			if (out[i].state == DASH_DEV_READY) {
-				if (write != i)
-					out[write] = out[i];
-				write++;
-			}
-		n = write;
 	}
 	return n;
 }
@@ -553,12 +530,6 @@ static int probeMount(const char *m)
 		if (ok) ok = probeRoot("mx4sio:/", 2000);
 	}
 #endif
-#ifdef ILINK
-	else if (!strncmp(m, "ilink", 5)) {
-		ok = loadIlinkModules();
-		if (ok) ok = probeRoot("ilink:/", 3000);
-	}
-#endif
 #ifdef UDPFS
 	else if (!strncmp(m, "udpfs", 5)) {
 		ok = load_udpfs();
@@ -583,47 +554,6 @@ static int probeMount(const char *m)
 // (the worker only does file IO, like OPL's IO thread). Whatever the
 // worker is doing finishes first, so the two never overlap.
 //--------------------------------------------------------------
-static int safeAutoStartMask(void)
-{
-	int mask = dashCfg.dev_auto;
-
-	/* Defense in depth: these two are mutually exclusive even if some
-	 * caller bypassed settings validation or an old/corrupt config survived.
-	 * Never let the automatic startup walker switch between them mid-pass. */
-	if ((mask & (DASH_DEVA_MMCE | DASH_DEVA_MX4SIO)) ==
-	    (DASH_DEVA_MMCE | DASH_DEVA_MX4SIO)) {
-		if (dashBootDeviceBit() == DASH_DEVA_MX4SIO)
-			mask &= ~DASH_DEVA_MMCE;
-		else
-			mask &= ~DASH_DEVA_MX4SIO;
-	}
-	return mask;
-}
-
-static int autoStartNeeded(void)
-{
-	const int mask = safeAutoStartMask();
-
-	return ((mask & DASH_DEVA_USB) && !isUsbMassStackLoaded()) ||
-	       ((mask & DASH_DEVA_HDD) && !isPathDeviceStackLoaded("hdd0:"))
-#ifdef EXFAT
-	       || ((mask & DASH_DEVA_ATA) && !isPathDeviceStackLoaded("ata0:"))
-#endif
-#ifdef MMCE
-	       || ((mask & DASH_DEVA_MMCE) && !isPathDeviceStackLoaded("mmce0:"))
-#endif
-#ifdef MX4SIO
-	       || ((mask & DASH_DEVA_MX4SIO) && !isPathDeviceStackLoaded("mx4sio:"))
-#endif
-#ifdef ILINK
-	       || ((mask & DASH_DEVA_ILINK) && isIlinkConsoleSupported() && !isPathDeviceStackLoaded("ilink:"))
-#endif
-#ifdef UDPFS
-	       || ((mask & DASH_DEVA_UDPFS) && !isPathDeviceStackLoaded("udpfs:"))
-#endif
-	    ;
-}
-
 /* -1: the user backed out while background work finished */
 static int startSync(const char *mount, const char *title)
 {
@@ -657,33 +587,6 @@ int dashDevicesStart(const DashDevice *dev, DashProbeDone cb, void *user)
 	return 0;
 }
 
-/* Boot auto-start shows branded progress without driver or probe details.
- * Manually started devices retain their status and retry feedback. */
-static void quietDriverMsg(const char *msg)
-{
-	(void)msg;
-	dashLoadingStatus(NULL, 0, 0);
-}
-
-void dashDevicesAutoStart(void)
-{
-	void (*prev)(const char *msg);
-	int previous_quiet;
-
-	if (!autoStartNeeded() || !dashWorkerAwaitAll("Finishing up"))
-		return;
-	dashLoadingBegin("Starting Launchstation");
-	previous_quiet = isStartupDriverStatusQuiet();
-	setStartupDriverStatusQuiet(1);
-	prev = drawMsgOverride;
-	drawMsgOverride = quietDriverMsg;
-	dashDevicesAutoProbe();
-	drawMsgOverride = prev;
-	setStartupDriverStatusQuiet(previous_quiet);
-	dashLoadingEnd();
-	dashAppsRebuildView();
-}
-
 /* Starts the driver for the device a path lives on, if it is not running
  * (used before a full library refresh, which only reads running devices). */
 void dashDevicesStartForPath(const char *path)
@@ -714,10 +617,6 @@ void dashDevicesStartForPath(const char *path)
 	else if (!strncmp(path, "mx4sio", 6))
 		mount = "mx4sio:";
 #endif
-#ifdef ILINK
-	else if (!strncmp(path, "ilink", 5))
-		mount = "ilink:";
-#endif
 #ifdef UDPFS
 	else if (!strncmp(path, "udpfs", 5))
 		mount = "udpfs:";
@@ -726,72 +625,6 @@ void dashDevicesStartForPath(const char *path)
 		startSync(mount, "Starting devices");
 }
 
-/* Load the requested device families. A stack switch can reset earlier
- * loaders, so replay once after a changed IOP generation. USB discovery runs
- * last because another BDM loader may invalidate its mount cache. */
-void dashDevicesAutoProbe(void)
-{
-	const int mask = safeAutoStartMask();
-	int pass;
-
-	for (pass = 0; pass < 2; pass++) {
-		unsigned int generation = getIopResetGeneration();
-		if ((mask & DASH_DEVA_HDD) && !isPathDeviceStackLoaded("hdd0:"))
-			probeMount("hdd0:");
-#ifdef EXFAT
-		if ((mask & DASH_DEVA_ATA) && !isPathDeviceStackLoaded("ata0:"))
-			probeMount("ata0:");
-#endif
-#ifdef MMCE
-		if ((mask & DASH_DEVA_MMCE) && !isPathDeviceStackLoaded("mmce0:"))
-			probeMount("mmce0:");
-#endif
-#ifdef MX4SIO
-		if ((mask & DASH_DEVA_MX4SIO) && !isPathDeviceStackLoaded("mx4sio:"))
-			probeMount("mx4sio:");
-#endif
-#ifdef ILINK
-		if ((mask & DASH_DEVA_ILINK) && isIlinkConsoleSupported() && !isPathDeviceStackLoaded("ilink:"))
-			probeMount("ilink:");
-#endif
-#ifdef UDPFS
-		if ((mask & DASH_DEVA_UDPFS) && !isPathDeviceStackLoaded("udpfs:"))
-			probeMount("udpfs:");
-#endif
-		if (mask & DASH_DEVA_USB)
-			probeMount("usb:");
-		if (getIopResetGeneration() == generation)
-			break;
-	}
-}
-
-/* The DASH_DEVA_* bit of the device the ELF was launched from, 0 when it
- * has no toggle (memory cards, host) or cannot be determined. The boot
- * device is always available: its driver is already running. */
-int dashBootDeviceBit(void)
-{
-	const char *p = LaunchElfBootDir[0] ? LaunchElfBootDir : LaunchElfDir;
-
-#ifdef EXFAT
-	/* A numbered massN: boot path can be assigned by any BDM transport.
-	 * Do not force USB autostart merely because the namespace says mass. */
-	if (!strncmp(p, "mass", 4) && p[4] >= '0' && p[4] <= '9' && p[5] == ':')
-		return 0;
-#endif
-	if (!strncmp(p, "mass", 4) || !strncmp(p, "usb", 3))
-		return DASH_DEVA_USB;
-	if (!strncmp(p, "hdd", 3))
-		return DASH_DEVA_HDD;
-	if (!strncmp(p, "ata", 3))
-		return DASH_DEVA_ATA;
-	if (!strncmp(p, "mmce", 4))
-		return DASH_DEVA_MMCE;
-	if (!strncmp(p, "mx4sio", 6))
-		return DASH_DEVA_MX4SIO;
-	if (!strncmp(p, "ilink", 5))
-		return DASH_DEVA_ILINK;
-	return 0;
-}
 //--------------------------------------------------------------
 //End of file: dash_devices.c
 //--------------------------------------------------------------

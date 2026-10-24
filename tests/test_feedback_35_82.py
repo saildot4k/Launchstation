@@ -30,11 +30,10 @@ assert "Only these folders are scanned" in settings
 assert "mc:/APPS, mc:/BOOT, mass:/APPS and mass:/BOOT" in settings
 assert "this folder + one subfolder" in settings
 
-# 77/78: an unprobed APA/iLink device can be selected to invoke lazy loading.
+# 77/78: an unprobed APA device can be selected to invoke lazy loading.
 selectable = files[files.index("static int devSelectable"):files.index("static void devSelectFirst")]
 assert "DASH_DEV_PROBE" in selectable
 assert '"Internal HDD (APA)"' in devices
-assert '"iLink / FireWire"' in devices
 
 # 81/82: path context/page movement are visible and end navigation remains.
 assert "M_GOTO_END" in editor

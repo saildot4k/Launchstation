@@ -34,10 +34,8 @@ assert "dashDrawSectionTitle(ix, 82, c->name" in settings
 assert '"mc0 (Slot 1)"' in lib and '"mc1 (Slot 2)"' in lib
 assert '"Memory Card 1"' not in lib
 
-# #138: boot auto-start hides per-driver messages but keeps the overlay.
-auto = devices[devices.index("void dashDevicesAutoStart(void)"):]
-auto = auto[:auto.index("\n}\n")]
-assert "drawMsgOverride = quietDriverMsg;" in auto and "drawMsgOverride = prev;" in auto
+# Driver auto-start preferences and their startup probes were removed.
+assert "dashDevicesAutoStart" not in devices
 
 # #137: background-only mode still shows how to bring the UI back.
 assert '{-1, "R3", "Show interface"}' in main

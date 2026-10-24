@@ -21,8 +21,8 @@ assert "load_udpfs(" not in GAMEID
 assert "showNeutrinoLaunchOptions(&options)" in NEUTRINO
 assert "prepareNeutrinoGameID(opened_iso" in NEUTRINO
 assert "displayRetroGemGameID(gameID, 2);" in NEUTRINO
-assert "setNeutrinoMmceGameID(gameID, opened_iso, selected);" in NEUTRINO
-assert NEUTRINO.index("prepareNeutrinoGameID(opened_iso") < NEUTRINO.index("preparePopstarterCandidateLaunch(&candidates")
+assert "setNeutrinoMmceGameID(gameID, opened_iso, fullpath);" in NEUTRINO
+assert NEUTRINO.index("prepareNeutrinoGameID(opened_iso") < NEUTRINO.index("prepareNeutrinoCandidateLaunch(&candidates")
 assert NEUTRINO.index("setNeutrinoMmceGameID(gameID") < NEUTRINO.index("CleanUpForKeepIopExec(")
 assert NEUTRINO.index("displayRetroGemGameID(gameID, 2);") > NEUTRINO.index("CleanUpForKeepIopExec(")
 assert '"mmce:"' in GAMEID and '"mc:"' in GAMEID

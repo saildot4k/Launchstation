@@ -9,9 +9,9 @@ files=(root/"src/dash_files.c").read_text()
 devices=(root/"src/dash_devices.c").read_text()
 home=(root/"src/dash_home.c").read_text()
 
-for field in ("files_mode","home_shortcuts","icon_backing","show_unavailable_devices"):
+for field in ("files_mode","home_shortcuts","icon_backing"):
     assert field in hdr
-for key in ("Dash_FilesMode","Dash_HomeShortcuts","Dash_IconBacking","Dash_ShowUnavailableDevices"):
+for key in ("Dash_FilesMode","Dash_HomeShortcuts","Dash_IconBacking"):
     assert key in store
 
 assert "visible_sections[] = {DASH_SEC_HOME, DASH_SEC_FILES, DASH_SEC_TOOLS, DASH_SEC_SETTINGS}" in main
@@ -32,17 +32,15 @@ assert '"USB Mass Storage"' in devices
 assert '"USB Mass Storage"' in (root/"src/dash_lib.c").read_text()
 assert '"USB Storage"' not in (root/"src/dash_lib.c").read_text()
 assert '"MASS (USB)"' not in devices
-assert "mass%d:/" in devices  # keep path labels in device panels and picker
+assert "usb%d:/" in devices  # keep path labels in device panels and picker
 assert "No USB storage device was found." in files
 assert 'dashModalMessage(DI_WARNING, "Device not found", body, NULL);' in files  # no raw mount IDs in errors
 assert "Not connected" in devices
-assert "out[i].state == DASH_DEV_READY" in devices
 assert "devs[idx].state == DASH_DEV_READY" in files
 
 assert "Panel transparency" in settings
 assert "Control icon backings" in settings
 assert "Home quick-launch shortcuts" in settings
-assert "Show unavailable devices" in settings
 assert "dashCfg.icon_backing" in ui and "dashCfg.icon_backing" in home
 assert "dashCfg.home_shortcuts" in home
 print("zack structural feedback contract: OK")

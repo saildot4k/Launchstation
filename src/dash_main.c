@@ -26,7 +26,6 @@ static int section_dir = 1;
 static int background_only;
 static float anim_time;
 static float fade_in;
-static int autoprobe_pending;
 static u64 last_frame_ms;
 static float frame_dt;
 
@@ -248,7 +247,7 @@ int DashPrepareKeepIopHandoff(const char *title)
 }
 
 /* After a command that may have rebooted the IOP (network, reboot IOP, a
- * launch that failed): sound and the auto-started devices come back. */
+ * launch that failed): restore dashboard sound and refresh device availability. */
 static void afterMiscCommand(void)
 {
 	drawMsgOverride = dashMsgHook;
@@ -258,9 +257,6 @@ static void afterMiscCommand(void)
 	dashSoundMaintain(); /* recover only when the IOP actually changed */
 	dashSoundApplyVolume();
 	dashBgmStart();
-	/* Restart auto-start devices (an IOP reset may have dropped them) from
-	 * the main loop. */
-	autoprobe_pending = 1;
 	dashDevicesResetBaseline(); /* whatever is attached now stays silent */
 }
 
@@ -396,9 +392,8 @@ void dashOpenBrowser(const char *start_dir)
 		dashFileBrowser(start_dir); /* modal path for other callers */
 }
 
-/* Navigation shortcuts (Home Last folder and Apps file location) should
- * enter the actual Files tab. Keep dashOpenBrowser() for explicitly modal
- * Tool/MISC browser actions. */
+/* Navigation shortcuts (Home, Apps and Tools File Browser) enter the
+ * actual Files tab. Keep dashOpenBrowser() for explicitly modal actions. */
 void dashNavigateFilesTab(const char *start_dir)
 {
 	dashSwitchSection(DASH_SEC_FILES);
@@ -1055,14 +1050,10 @@ static void firstInit(void)
 		dashToast(DASH_TOAST_WARN,
 		          "Safe mode: DASHBOARD.CNF skipped for this boot; saved settings were not changed");
 	if (dashLibLoadCache() < 0 || (dashCfg.autoscan && dashAppCount >= 0)) {
-		/* First run (no cache) or auto-scan enabled: look at locations whose
-		 * drivers are already running, starting the auto-start devices first
-		 * so they contribute applications too. Drivers load here, on the UI
-		 * thread; the scan itself runs in the background. */
-		dashDevicesAutoStart();
+		/* Only scan locations whose drivers are already running. Other device
+		 * stacks start when a browser, application or tool needs them. */
 		dashRescanLibrary(0);
-	} else
-		dashDevicesAutoStart();
+	}
 #ifdef DASH_AUTOTEST
 	/* development-only sample library (see include/dash_autotest.h) */
 	{
@@ -1215,10 +1206,6 @@ void DashRun(const MainExecuteContext *ctx, int from_boot)
 			pollPcGameReceiver();
 			pollRemotePcCommand();
 			next_remote_poll = now + 500;
-		}
-		if (autoprobe_pending) {
-			autoprobe_pending = 0;
-			dashDevicesAutoStart();
 		}
 
 		/* Housekeeping is wall-clock throttled. The old per-frame device poll

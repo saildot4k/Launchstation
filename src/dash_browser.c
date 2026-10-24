@@ -26,8 +26,9 @@
 
 int IsTextEditorFileType(const char *path);
 
-#define FB_ROWS 10
-#define FB_ROW_H 25.0f
+/* Eleven rows leave room for status text above the shared footer hints. */
+#define FB_ROWS 11
+#define FB_ROW_H 24.0f
 #define FB_X 40.0f
 #define FB_Y 100.0f
 #define FB_W 560.0f
@@ -787,7 +788,7 @@ static void opRename(void)
 		return;
 	}
 	dashStrCopy(name, f->name, sizeof(name));
-	if (!dashModalKeyboard("New name", name, 36) || name[0] == '\0' || !strcmp(name, f->name))
+	if (!dashModalFilename("New name", name, 36) || name[0] == '\0' || !strcmp(name, f->name))
 		return;
 	if (!prepareOp())
 		return;
@@ -806,7 +807,7 @@ static void opNewFolder(void)
 	int ret;
 
 	name[0] = '\0';
-	if (!dashModalKeyboard("Folder name", name, 36) || name[0] == '\0')
+	if (!dashModalFilename("Folder name", name, 36) || name[0] == '\0')
 		return;
 	if (!prepareOp())
 		return;
@@ -2603,14 +2604,11 @@ static void fmtSize(char *out, int size, const FILEINFO *f)
 static void browserDrawBody(void)
 {
 	int i, rows_total = fb.dir[0] ? fb.n : fb.ndevs;
+	const float status_y = FB_Y + FB_ROWS * FB_ROW_H + 10.0f;
 	char info[64], display_path[MAX_PATH + 2];
 
-	/* Display the public MASS label without changing the path used for I/O. */
-	if (!strncmp(fb.dir, "usb:", 4))
-		snprintf(display_path, sizeof(display_path), "mass%s", fb.dir + 3);
-	else if (!strncmp(fb.dir, "usb", 3) && fb.dir[3] >= '0' && fb.dir[3] <= '9' && fb.dir[4] == ':')
-		snprintf(display_path, sizeof(display_path), "mass%s", fb.dir + 3);
-	else
+	/* Use numbered USB labels without changing the path used for I/O. */
+	if (!filerFormatUsbPathForDisplay(fb.dir, display_path, sizeof(display_path)))
 		dashStrCopy(display_path, fb.dir, sizeof(display_path));
 
 	/* A dashboard tab must not overwrite the shared header or render its
@@ -2644,14 +2642,14 @@ static void browserDrawBody(void)
 		if (!fb_tab_active)
 			dashTextRight(FB_X + FB_W, 42, info, DASH_FS_CAPTION, DASH_C_ACCENT);
 		else
-			dashText(FB_X, FB_Y + FB_ROWS * FB_ROW_H + 14, info, DASH_FS_CAPTION, DASH_C_ACCENT);
+			dashText(FB_X, status_y, info, DASH_FS_CAPTION, DASH_C_ACCENT);
 	}
 	if (nclipFiles > 0) {
 		snprintf(info, sizeof(info), "Clipboard: %d to %s", nclipFiles, browser_cut ? "move" : "copy");
 		if (!fb_tab_active)
 			dashTextRight(FB_X + FB_W, 26, info, DASH_FS_CAPTION, DASH_C_ACCENT);
 		else if (!LaunchArgsPending())
-			dashText(FB_X, FB_Y + FB_ROWS * FB_ROW_H + 14, info, DASH_FS_CAPTION, DASH_C_ACCENT);
+			dashText(FB_X, status_y, info, DASH_FS_CAPTION, DASH_C_ACCENT);
 	}
 
 	dashDrawPanelBox(FB_X - 6, FB_Y - 6, FB_W + 12, FB_ROWS * FB_ROW_H + 12, 14);
@@ -2670,11 +2668,11 @@ static void browserDrawBody(void)
 			const char *name = device_label;
 			if (d->state != DASH_DEV_READY && i != fb.sel)
 				col = DASH_C_TEXT3;
-			dashIcon(d->icon, FB_X + 10, y + 3, 16, col);
+			dashIcon(d->icon, FB_X + 10, y + 2, 16, col);
 			if (i == fb.sel)
-				dashTextScroll(FB_X + 36, y + 1, FB_W - 54, name, DASH_FS_SMALL, col);
+				dashTextScroll(FB_X + 36, y, FB_W - 54, name, DASH_FS_SMALL, col);
 			else
-				dashTextFit(FB_X + 36, y + 1, FB_W - 54, name, DASH_FS_SMALL, col);
+				dashTextFit(FB_X + 36, y, FB_W - 54, name, DASH_FS_SMALL, col);
 		} else {
 			FILEINFO *f = &fb.files[i];
 			char sz[24], date[40], label[MAX_NAME + 8];
@@ -2700,24 +2698,24 @@ static void browserDrawBody(void)
 					label_w = 72.0f;
 			}
 			if (fb.mark[i])
-				dashIcon(DI_CHECK, FB_X + 8, y + 3, 16, DASH_C_OK);
+				dashIcon(DI_CHECK, FB_X + 8, y + 2, 16, DASH_C_OK);
 			else
-				dashIcon(isMisc(fb.dir) ? DI_TOOLS : fileIcon(f), FB_X + 8, y + 3, 16, col);
+				dashIcon(isMisc(fb.dir) ? DI_TOOLS : fileIcon(f), FB_X + 8, y + 2, 16, col);
 			/* save titles are Shift-JIS; the dashboard font shows their ASCII */
 			if (fbShowsTitles(fb_show) && f->title[0])
 				transcpy_sjis(label, f->title);
 			else
 				dashStrCopy(label, getMiscEntryDisplayName(fb.dir, f->name), sizeof(label));
 			if (i == fb.sel)
-				dashTextScroll(FB_X + 34, y + 1, label_w, label, DASH_FS_SMALL, fb.mark[i] ? DASH_C_OK : col);
+				dashTextScroll(FB_X + 34, y, label_w, label, DASH_FS_SMALL, fb.mark[i] ? DASH_C_OK : col);
 			else
-				dashTextFit(FB_X + 34, y + 1, label_w, label, DASH_FS_SMALL, fb.mark[i] ? DASH_C_OK : col);
+				dashTextFit(FB_X + 34, y, label_w, label, DASH_FS_SMALL, fb.mark[i] ? DASH_C_OK : col);
 			if (details) {
 				if (date[0])
-					dashTextRight(meta_right, y + 2, date, DASH_FS_CAPTION, DASH_C_TEXT3);
+					dashTextRight(meta_right, y + 1, date, DASH_FS_CAPTION, DASH_C_TEXT3);
 				if (sz[0]) {
 					float size_right = date[0] ? meta_right - dashTextWidth(date, DASH_FS_CAPTION) - 16.0f : meta_right;
-					dashTextRight(size_right, y + 2, sz, DASH_FS_CAPTION, DASH_C_TEXT3);
+					dashTextRight(size_right, y + 1, sz, DASH_FS_CAPTION, DASH_C_TEXT3);
 				}
 			}
 		}
@@ -2743,12 +2741,13 @@ static void browserDrawBody(void)
 	}
 	/* Temporary hardware diagnostic for the completed USB listing/input-loss
 	 * report. Rendering uses the cached UI snapshot, never polls the IOP. */
-	if (fb.pad_snapshot_valid && isUsbBrowsePath(fb.dir)) {
+	if (fb.pad_snapshot_valid && isUsbBrowsePath(fb.dir) &&
+	    !LaunchArgsPending() && nclipFiles == 0) {
 		char status[96];
 		snprintf(status, sizeof(status), "PAD 0:%d/%d  1:%d/%d  IOP:%u  IO:%d",
 		         fb.pad_state[0], fb.pad_request[0], fb.pad_state[1], fb.pad_request[1],
 		         fb.pad_generation, dashWorkerIoBusy());
-		dashText(FB_X, FB_Y + FB_ROWS * FB_ROW_H + 20, status, DASH_FS_CAPTION, DASH_C_TEXT2);
+		dashText(FB_X, status_y, status, DASH_FS_CAPTION, DASH_C_TEXT2);
 	}
 }
 

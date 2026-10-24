@@ -1,4 +1,4 @@
-"""Execute ordinary-ELF namespace translation with mixed BDM mount identities."""
+"""Execute R3Z 4.80 ELF target/argv handling in exFAT and classic builds."""
 from pathlib import Path
 import shutil
 import subprocess
@@ -6,6 +6,7 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 source = (root / "src/elf.c").read_text()
+
 
 def function(signature, source=source):
     start = source.index(signature)
@@ -16,103 +17,120 @@ def function(signature, source=source):
         end += 1
     return source[start:end] + "\n"
 
+
 code = r"""
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdint.h>
 #define MAX_PATH 1025
-#define USB_MASS_MAX_DRIVES 10
-#define FIO_O_RDONLY 1
-#define USBMASS_IOCTL_GET_DRIVERNAME 3
-#define USBMASS_IOCTL_GET_DEVICE_NUMBER 6
-#define USBMASS_IOCTL_GET_LBA 2
-typedef uint32_t u32;
-typedef uint64_t u64;
-static struct { int modern_device_handoff; } settings;
-#define setting (&settings)
-#ifdef EXFAT
-static int unsupported, close_failure, opened, closed;
-static int fileXioOpen(const char *p, int mode, int perm) {
- (void)mode;(void)perm;
- if (!strcmp(p,"usb0:/APP.ELF") || !strcmp(p,"mass3:/APP.ELF")) {opened++;return 1;}
- if (!strcmp(p,"usb1:/APP.ELF") || !strcmp(p,"mass4:/APP.ELF")) {opened++;return 2;}
- if (!strcmp(p,"ata0:/APP.ELF") || !strcmp(p,"mass0:/APP.ELF")) {opened++;return 3;}
- if (!strcmp(p,"mx4sio0:/APP.ELF") || !strcmp(p,"mass2:/APP.ELF")) {opened++;return 4;}
- /* Same driver, same path and same LBA, different physical device. */
- if (!strcmp(p,"mass1:/APP.ELF")) {opened++;return 5;}
- /* Same driver and physical device, different partition/file LBA. */
- if (!strcmp(p,"mass5:/APP.ELF")) {opened++;return 6;}
- return -1;
+#define ELFLOAD_MAX_ARGC 15
+#define ELFLOAD_BASE_ARGC 3
+#define FIO_MT_RDONLY 1
+#define FIO_MT_RDWR 2
+#define WLE_PFS_WRITETHROUGH 4
+#define DPRINTF(...) ((void)0)
+static char target[MAX_PATH], child_arg0[MAX_PATH], mode[32];
+static int loader_calls;
+static int isPcCardCfPath(const char *p) { return p && !strncmp(p,"cf",2); }
+static int shutdownPcCardCf(void) { return 0; }
+static int fileXioMount(const char *a,const char *b,int flags) {
+ (void)a;(void)b;(void)flags;return 0;
 }
-static int fileXioIoctl2(int fd, int op, void *arg, int arglen, void *out, int size) {
- (void)arg;(void)arglen;(void)size;
- if (unsupported) return -1;
- if(op==3)strcpy(out,fd==3?"ata":fd==4?"sdc":"usb");
- if(op==6)*(u32*)out=fd==2?1:fd==5?8:0;
- if(op==2)*(u64*)out=fd==6?999:123;
- return 0;
+static void unmountParty(int p) {(void)p;}
+static int LaunchArgsPending(void) {return 0;}
+static int LaunchArgsCopyToArgv(char **args,int n) {(void)args;(void)n;return 0;}
+static void LaunchArgsClear(void) {}
+static void RunEmbeddedLoader(int argc,char **argv) {
+ assert(argc==3);loader_calls++;
+ snprintf(target,sizeof(target),"%s",argv[0]);
+ snprintf(child_arg0,sizeof(child_arg0),"%s",argv[1]);
+ snprintf(mode,sizeof(mode),"%s",argv[2]);
 }
-static int fileXioClose(int fd) {(void)fd;closed++;return close_failure?-1:0;}
 """
-start = source.index("typedef struct {\n\tchar driver[32];")
-end = source.index("\n#endif", start)
-code += source[start:end] + "\n#endif\n"
-code += "static int isHddBrowserPath(const char *p) { return !strncmp(p,\"hdd0:/\",6); }\n"
-code += function("static int parseUsbMassPathUnit(")
-code += function("static const char *normalizeExecArg0Path(")
-code += function("void PrepareElfHandoffPath(")
-code += function("static void formatBrowserPathForDisplay(", (root / "src/filer_browser.c").read_text())
+for sig in ("static int parseUsbMassPathUnit(", "static int isHddPartyPath(",
+            "static int isHddBrowserPath(", "static int isExplicitHddHandoffPath(",
+            "static const char *normalizeExecArg0Path(", "static void RunLoaderElfInternal(",
+            "void RunLoaderElf(", "void RunLoaderElfKeepIOPWithArgv0("):
+    code += function(sig)
+browser = (root / "src/filer_browser.c").read_text()
+code += function("int filerFormatUsbPathForDisplay(", browser)
+code += function("static void formatBrowserPathForDisplay(", browser)
+native = (root / "src/dash_browser.c").read_text()
+start = native.index("\tif (!filerFormatUsbPathForDisplay(", native.index("static void browserDrawBody("))
+end = native.index("\n\n", start)
+code += "static void dashStrCopy(char *out,const char *in,int cap) { snprintf(out,cap,\"%s\",in); }\n"
+code += "static void nativeDisplay(const char *path,char *out) { struct { const char *dir; } fb={path};char display_path[MAX_PATH+2];\n"
+code += native[start:end] + "\ndashStrCopy(out,display_path,MAX_PATH); }\n"
 code += r"""
-static void expect(const char *p,const char *wanted) {
- char out[MAX_PATH];PrepareElfHandoffPath(p,out,sizeof(out));assert(!strcmp(out,wanted));
+static void expect(const char *selected,const char *wanted) {
+ char load_path[MAX_PATH];snprintf(load_path,sizeof(load_path),"%s",selected);
+ for(int reboot=0;reboot<2;reboot++) {
+  int calls=loader_calls;
+  RunLoaderElf(load_path,"",selected,1,reboot);
+  assert(loader_calls==calls+1 && !strcmp(child_arg0,wanted));
+  assert(!strcmp(target,!strncmp(wanted,"mass",4)?wanted:selected));
+  assert(!strcmp(mode,reboot?"-la=AR":"-la=A"));
+ }
 }
 int main(void) {
  char display[MAX_PATH];
- formatBrowserPathForDisplay("usb1:/APPS/APP.ELF",display);assert(!strcmp(display,"mass1:/APPS/APP.ELF"));
- formatBrowserPathForDisplay("usb:/APPS/APP.ELF",display);assert(!strcmp(display,"mass:/APPS/APP.ELF"));
- formatBrowserPathForDisplay("mass3:/APPS/APP.ELF",display);assert(!strcmp(display,"mass3:/APPS/APP.ELF"));
- formatBrowserPathForDisplay("ata0:/APP.ELF",display);assert(!strcmp(display,"ata0:/APP.ELF"));
- settings.modern_device_handoff=0;
-#ifdef EXFAT
- expect("usb0:/APP.ELF","mass3:/APP.ELF");
- expect("mass:/APP.ELF","mass3:/APP.ELF");
- expect("usb1:/APP.ELF","mass4:/APP.ELF");
- expect("ata0:/APP.ELF","mass0:/APP.ELF");
- expect("mx4sio0:/APP.ELF","mass2:/APP.ELF");
- unsupported=1;expect("usb0:/APP.ELF","usb0:/APP.ELF");
- expect("mass:/APP.ELF","mass:/APP.ELF");unsupported=0;
- close_failure=1;expect("ata0:/APP.ELF","ata0:/APP.ELF");close_failure=0;
- settings.modern_device_handoff=1;
- expect("usb1:/APP.ELF","usb1:/APP.ELF");
- expect("mass:/APP.ELF","usb0:/APP.ELF");
- expect("ata0:/APP.ELF","ata0:/APP.ELF");
- expect("mass3:/APP.ELF","usb0:/APP.ELF");
- expect("mass4:/APP.ELF","usb1:/APP.ELF");
- expect("mass0:/APP.ELF","ata0:/APP.ELF");
- expect("mass2:/APP.ELF","mx4sio0:/APP.ELF");
+ const char *aliases[]={"mass:","mass:/", "usb:","usb:/"};
+ for(unsigned i=0;i<sizeof(aliases)/sizeof(aliases[0]);i++) {
+  char original[MAX_PATH];snprintf(original,sizeof(original),"%s",aliases[i]);
+  nativeDisplay(original,display);assert(!strcmp(display,"usb0:/") && !strcmp(original,aliases[i]));
+  formatBrowserPathForDisplay(original,display);assert(!strcmp(display,"usb0:/"));
+ }
+ for(int unit=0;unit<10;unit++) for(int slash=0;slash<2;slash++) {
+  char expected[MAX_PATH],path[MAX_PATH],original[MAX_PATH];
+  snprintf(expected,sizeof(expected),"usb%d:/Folder name/APP.ELF",unit);
+  for(int mass=0;mass<2;mass++) {
+   snprintf(path,sizeof(path),"%s%d:%sFolder name/APP.ELF",mass?"mass":"usb",unit,slash?"/":"");
+   strcpy(original,path);nativeDisplay(path,display);
+   assert(!strcmp(display,expected) && !strcmp(path,original));
+   formatBrowserPathForDisplay(path,display);assert(!strcmp(display,expected));
+  }
+ }
+ const char *others[]={"", "ata0:/GAMES/", "ata1:/", "mx4sio:/APPS/", "mmce0:/", "mc1:/BOOT/", "massBackup:/", "usb10:/"};
+ for(unsigned i=0;i<sizeof(others)/sizeof(others[0]);i++) {
+  nativeDisplay(others[i],display);assert(!strcmp(display,others[i]));
+ }
+ char short_display[4];
+ assert(filerFormatUsbPathForDisplay("mass9:/APPS/",short_display,sizeof(short_display)) && !strcmp(short_display,"usb"));
+ formatBrowserPathForDisplay("usb1:/APPS/APP.ELF",display);assert(!strcmp(display,"usb1:/APPS/APP.ELF"));
+ formatBrowserPathForDisplay("mass:/APPS/APP.ELF",display);assert(!strcmp(display,"usb0:/APPS/APP.ELF"));
+ formatBrowserPathForDisplay("mass3:/APPS/APP.ELF",display);assert(!strcmp(display,"usb3:/APPS/APP.ELF"));
+ formatBrowserPathForDisplay("ata1:/APP.ELF",display);assert(!strcmp(display,"ata1:/APP.ELF"));
+ expect("usb:/APP.ELF","mass0:/APP.ELF");
+ expect("usb0:APP.ELF","mass0:/APP.ELF");
+ expect("usb1:/APP.ELF","mass1:/APP.ELF");
+ expect("mass:/APP.ELF","mass0:/APP.ELF");
+ expect("mass0:APP.ELF","mass0:/APP.ELF");
  expect("mass9:/APP.ELF","mass9:/APP.ELF");
- assert(opened==closed);
-#else
- expect("usb1:/APP.ELF","mass1:/APP.ELF");
- settings.modern_device_handoff=1;
- expect("usb1:/APP.ELF","mass1:/APP.ELF");
-#endif
+ expect("ata0:/APP.ELF","ata0:/APP.ELF");
+ expect("ata1:/APP.ELF","ata1:/APP.ELF");
+ expect("mx4sio:/APP.ELF","mx4sio:/APP.ELF");
+ expect("mx4sio0:/APP.ELF","mx4sio0:/APP.ELF");
  expect("mc0:/BOOT/APP.ELF","mc0:/BOOT/APP.ELF");
- expect("hdd0:/+APPS/APP.ELF","hdd0:+APPS:pfs:/APP.ELF");
- expect("mmce0:/APP.ELF","mmce0:/APP.ELF");
+ expect("mmce1:/APP.ELF","mmce1:/APP.ELF");
+ RunLoaderElf("pfs0:/APP.ELF","hdd1:+APPS","hdd1:/+APPS/APP.ELF",1,1);
+ assert(!strcmp(target,"pfs0:/APP.ELF"));
+ assert(!strcmp(child_arg0,"hdd1:+APPS:pfs:/APP.ELF") && !strcmp(mode,"-la=ARH"));
+ RunLoaderElf("usb0:/APP.KELF","","usb:/APP.KELF",2,0);
+ assert(!strcmp(target,"usb0:/APP.KELF") && !strcmp(child_arg0,"mass0:/APP.KELF"));
+ RunLoaderElfKeepIOPWithArgv0("usb1:/ember.elf","","usb1:/ember.elf",1);
+ assert(!strcmp(child_arg0,"usb1:/ember.elf") && !strcmp(mode,"-la=A"));
  return 0;
 }
 """
-main = (root / "src/main_actions.c").read_text()
-assert main.index("PrepareElfHandoffPath(path, handoff") < main.index("RunLoaderElfWithHandoff(fullpath")
-segment = main[main.index("PrepareElfHandoffPath(path, handoff"):main.index("RunLoaderElfWithHandoff(fullpath")]
-assert "CleanUpForExec();" in segment
 config = (root / "src/config.c").read_text()
-assert "setting->modern_device_handoff = 0;" in config
-assert '"Modern_Device_Handoff = %d\\r\\n"' in config
-assert "setting->modern_device_handoff = (atoi(value) == 1);" in config
+settings = (root / "src/dash_settings.c").read_text()
+assert "Modern_Device_Handoff" not in config
+assert "modern_device_handoff" not in config + settings
+assert "S_MODERN_HANDOFF" not in settings
+assert "ElfBdmIdentity" not in source and "PrepareElfHandoffPath" not in source
+assert "RunLoaderElf(fullpath, party, path, t, x);" in (root / "src/main_actions.c").read_text()
 cc = shutil.which("gcc") or shutil.which("cc")
+assert cc, "Host C compiler required"
 with tempfile.TemporaryDirectory(prefix="device-handoff-") as folder:
     path = Path(folder)
     c = path / "test.c"
@@ -121,4 +139,4 @@ with tempfile.TemporaryDirectory(prefix="device-handoff-") as folder:
         exe = path / ("exfat.exe" if exfat else "classic.exe")
         subprocess.run([cc, "-std=c99", "-Wall", "-Wextra", "-Werror", *(["-DEXFAT"] if exfat else []), str(c), "-o", str(exe)], check=True)
         subprocess.run([str(exe)], check=True)
-print("PASS: legacy/modern handoffs preserve mixed BDM device and partition identity; classic fallback")
+print("PASS: fixed R3Z 4.80 loader targets, child argv[0], USB display and preserved Ember override")

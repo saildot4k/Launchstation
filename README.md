@@ -20,7 +20,7 @@ The full Launchstation reference is published as a PS2-styled GitHub Pages site:
 
 **Upgrading older builds:** Previous updaters expect standalone ELFs or two-file PSU packages and cannot install the new four-file PSU automatically. Install the matching complete ZIP/PSU package manually once (without deleting existing settings). The updated native updater verifies GitHub commit ancestry and the matching PSU's SHA-256 digest, extracts the correct ELF and preserves the controller variant. A stale, divergent or unverifiable release will not be offered as an automatic upgrade. On subsequent in-app updates, it restores **missing** `WLE-UPDATE-CA.PEM` and `BGM.ADP` from a verified four-file PSU before replacing the ELF. Existing sidecars, including custom BGM, are never overwritten; legacy two-file PSU updates remain ELF-only. Existing `LAUNCHSTATION.ELF.UPDATE` or `.PACKAGE` recovery artifacts are not overwritten by a retry; inspect and clear them manually once you have recovered anything important.
 
-The site covers installation, dashboard controls, File Browser, Apps, Text Editor, storage/device support, APA/PFS, iLink, MMCE, networking, POPStarter VCD launching, Ember PS1 image launching, Neutrino ISO launching, IGR/MMCE backups, native Google Drive sync, settings, configuration files, troubleshooting and developer notes.
+The site covers installation, dashboard controls, File Browser, Apps, Text Editor, storage/device support, APA/PFS, MMCE, networking, POPStarter VCD launching, Ember PS1 image launching, Neutrino ISO launching, IGR/MMCE backups, native Google Drive sync, settings, configuration files, troubleshooting and developer notes.
 
 **Neutrino per-game profiles (optional):** Valid PS2 ISO Game IDs can load a separately saved Neutrino compatibility/video preset from Launchstation's dashboard settings directory. Use **Save for this game** in the launch dialog; ordinary Run never persists edits. Two verified per-title slots preserve the last valid settings if writing is interrupted. Missing, corrupt or inaccessible profiles fall back to launch-only defaults, without rewriting any ISO, VMC or `LAUNCHELF.CNF`. The console may skip profile I/O when MMCE/MX4SIO currently owns incompatible memory-card access.
 
@@ -400,15 +400,11 @@ The four current dashboard tabs are **Home, Files, Tools, Settings**. The Applic
 
 For each project's exact role, paths, credit, bundled/unbundled status and license caveats, read [Third-Party Credits & License Inventory](docs/THIRD_PARTY_CREDITS.md) and the [website Credits page](https://nathanneurotic.github.io/Launchstation/credits.html). Original file-level notices remain authoritative; there is currently no single root LICENSE in the repository.
 
-### Software clock for consoles with a dead CMOS battery
+### PS2 hardware clock
 
-In **Settings > System**, choose **Set software clock...** and enter local time.
-Choose **Save** when leaving Settings to store a checkpoint in `DASHBOARD.CNF`.
-The clock advances while Launchstation runs. Before restarting, use **Settings
-changes > Save current clock** to retain additional runtime even when no other
-setting changed, and wait for the pending save to finish before cutting power.
-The next start resumes the last saved checkpoint.
-Time spent powered off or unplugged is unknown; a working RTC or Internet time
-source is required for accurate wall time across those intervals. **Use PS2
-hardware clock** restores the normal RTC source. Discard restores the previous
-clock setting along with the rest of the Settings session.
+In **Settings > System**, choose **Set PS2 clock manually...** and enter the
+local date and time as `YYYY-MM-DD HH:MM:SS`. Launchstation writes the hardware
+RTC, verifies the result, and refreshes the displayed clock immediately.
+**Settings > Network > Sync PS2 clock from Internet** can also update the RTC
+when network support is available. A dead CMOS battery may require setting
+the date and time again after power loss.

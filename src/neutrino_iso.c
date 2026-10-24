@@ -120,8 +120,6 @@ static const char *neutrinoBsdForPath(const char *path)
 		return "mx4sio";
 	if (!strncmp(path, "mmce", 4))
 		return "mmce";
-	if (!strncmp(path, "ilink", 5))
-		return "ilink";
 	if (!strncmp(path, "ata", 3))
 		return "ata";
 	if (!strncmp(path, "udpfs", 5))
@@ -188,6 +186,36 @@ static int buildArgs(const char *bsd, const char *dvd_path, const char *neutrino
 	if (LaunchArgsLoadFromBuffer("Neutrino ISO", buffer, n, message, message_size) <= 0)
 		return 0;
 	return 1;
+}
+
+/* R3Z 4.80 starts MMCE before preparing Neutrino. A previous MX4SIO
+ * session may still own SIO2 even when this launch uses USB/ATA/network.
+ * No launch file is open here; the loader is prepared after any IOP reset.
+ * Skip MMCE when either launch file needs the MX4SIO stack. */
+static int prepareNeutrinoCandidateLaunch(const POPSTARTER_CANDIDATE_LIST *candidates,
+                                         const char *iso_path,
+                                         char *selected, size_t selected_size,
+                                         char *fullpath, size_t fullpath_size,
+                                         char *party, size_t party_size, int *exec_kind)
+{
+	int i, ret = POPSTARTER_ERR_OPEN_POPSTARTER;
+
+#ifndef MMCE
+	(void)iso_path;
+#endif
+	for (i = 0; i < candidates->count; i++) {
+		snprintf(selected, selected_size, "%s", candidates->entry[i].path);
+#ifdef MMCE
+		/* Best effort: absent MMCE hardware must not prevent the game launch. */
+		if (strncmp(iso_path, "mx4sio", 6) && strncmp(selected, "mx4sio", 6))
+			loadMmceModules();
+#endif
+		ret = preparePopstarterElfLaunch(selected, fullpath, fullpath_size,
+		                                 party, party_size, exec_kind);
+		if (ret != POPSTARTER_ERR_OPEN_POPSTARTER)
+			break;
+	}
+	return ret;
 }
 
 int LaunchNeutrinoIso(const char *path, char *message, size_t message_size)
@@ -264,7 +292,7 @@ int LaunchNeutrinoIso(const char *path, char *message, size_t message_size)
 		setMessage(message, message_size, "Neutrino not found (set its path in Settings)", NULL);
 		return 0;
 	}
-	ret = preparePopstarterCandidateLaunch(&candidates, selected, sizeof(selected),
+	ret = prepareNeutrinoCandidateLaunch(&candidates, opened_iso, selected, sizeof(selected),
 	                                       fullpath, sizeof(fullpath), party, sizeof(party), &exec_kind);
 	if (ret != POPSTARTER_OK) {
 		setMessage(message, message_size, "Neutrino executable could not be prepared", selected);
@@ -276,10 +304,10 @@ int LaunchNeutrinoIso(const char *path, char *message, size_t message_size)
 	/* Neutrino consumes the already-mounted device stack. Drain every
 	 * dashboard RPC user and release libpad, but never reset that storage IOP. */
 #ifdef MMCE
-	/* Initialize MMCE without replacing the source stack, then protect any
-	 * slot holding the source ISO or Neutrino executable. */
+	/* Recheck MMCE after ELF preparation, protecting every slot that still
+	 * holds the source ISO or executable. Never replace the prepared stack. */
 	if (have_gameid)
-		setNeutrinoMmceGameID(gameID, opened_iso, selected);
+		setNeutrinoMmceGameID(gameID, opened_iso, fullpath);
 #endif
 	if (!CleanUpForKeepIopExec("Preparing Neutrino"))
 		return 0;

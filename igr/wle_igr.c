@@ -47,10 +47,6 @@ extern u8 usbmass_bd_irx[];
 extern int size_usbmass_bd_irx;
 extern u8 mx4sio_bd_irx[];
 extern int size_mx4sio_bd_irx;
-extern u8 iLinkman_irx[];
-extern int size_iLinkman_irx;
-extern u8 IEEE1394_bd_irx[];
-extern int size_IEEE1394_bd_irx;
 extern u8 ps2dev9_irx[];
 extern int size_ps2dev9_irx;
 extern u8 ata_bd_irx[];
@@ -224,7 +220,7 @@ int main(int argc, char *argv[])
 
     /* Load only the storage family needed to relaunch the configured
      * wLaunchELF path. OPL launches this helper from MC/USB; the target may
-     * live on MC, USB, MMCE, MX4SIO or iLink. */
+     * live on MC, USB, MMCE, MX4SIO, ATA or HDD. */
     if (!strncmp((const char *)wleIgrEmbeddedConfig.app, "mc", 2)) {
         start_module(mcman_irx, size_mcman_irx);
         start_module(mcserv_irx, size_mcserv_irx);
@@ -241,11 +237,6 @@ int main(int argc, char *argv[])
         start_module(bdm_irx, size_bdm_irx);
         start_module(bdmfs_fatfs_irx, size_bdmfs_fatfs_irx);
         start_module(mx4sio_bd_irx, size_mx4sio_bd_irx);
-    } else if (!strncmp((const char *)wleIgrEmbeddedConfig.app, "ilink", 5)) {
-        start_module(bdm_irx, size_bdm_irx);
-        start_module(bdmfs_fatfs_irx, size_bdmfs_fatfs_irx);
-        if (start_module(iLinkman_irx, size_iLinkman_irx) >= 0)
-            start_module(IEEE1394_bd_irx, size_IEEE1394_bd_irx);
     } else if (!strncmp((const char *)wleIgrEmbeddedConfig.app, "ata", 3)) {
         if (start_module(ps2dev9_irx, size_ps2dev9_irx) >= 0) {
             start_module(bdm_irx, size_bdm_irx);

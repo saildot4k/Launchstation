@@ -322,7 +322,6 @@ typedef struct
 	int usbkbd_used;
 	int language;
 	int reboot_iop_elf_load;
-	int modern_device_handoff;
 	int virtual_keyboard_layout;
 	int Hide_Hdd;
 	int Hide_MCMMCE;
@@ -425,8 +424,6 @@ int loadAtaModules(void);
 /* elf.c */
 int checkELFheader(char *filename);
 void RunLoaderElf(char *filename, char *party, const char *selected_path, int exec_kind, int reboot_iop_elf_load);
-void PrepareElfHandoffPath(const char *path, char *out, int size);
-void RunLoaderElfWithHandoff(char *filename, char *party, const char *handoff, int exec_kind, int reboot_iop_elf_load);
 void RunLoaderElfKeepIOP(char *filename, char *party, const char *selected_path, int exec_kind);
 void RunLoaderElfKeepIOPWithArgv0(char *filename, char *party, const char *child_argv0, int exec_kind);
 void RunLoaderMemory(const char *arg0, const char *mem_arg, int reboot_iop);
@@ -574,6 +571,8 @@ char *makeHostPath(char *dp, char *sp);
 int ynDialog(const char *message);
 void nonDialog(char *message);
 int keyboard(char *out, int max);
+/* Filename entry omits forward/back slashes. */
+int filenameKeyboard(char *out, int max);
 void filerPasteInto(char *mess, char *path);
 void filerPasteModeInto(char *mess, char *path, int rename);
 void filerPsuPasteInto(char *mess, char *path);
@@ -583,10 +582,12 @@ int filerUnmountVmc(int slot);
 int filerCreateFolderIcon(const char *path, const char *title, const char *text, char *msg, int msg_size);
 int filerFreeSpace(const char *path, u64 *out);
 void filerLaunchElfFolder(char *out, int size);
+/* Presentation only: USB/MASS aliases become numbered usbN:/ paths. */
+int filerFormatUsbPathForDisplay(const char *path, char *out, int size);
 /* dashboard replacements for the three dialogs above (NULL = classic) */
 extern int (*ynDialogOverride)(const char *message);
 extern void (*nonDialogOverride)(const char *message);
-extern int (*keyboardOverride)(char *out, int max);
+extern int (*keyboardOverride)(char *out, int max, int filename);
 void genLimObjName(char *uLE_path, int reserve);
 int genFixPath(const char *inp_path, char *gen_path);
 /* mode must use fileXio-compatible flags (FIO_O_*). */

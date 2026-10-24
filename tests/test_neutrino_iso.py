@@ -43,7 +43,7 @@ for form in (
     assert form in launcher
 
 # Backends that Neutrino understands from File Browser paths.
-for token in ('return "usb"', 'return "mx4sio"', 'return "mmce"', 'return "ilink"', 'return "ata"', 'return "udpfs"'):
+for token in ('return "usb"', 'return "mx4sio"', 'return "mmce"', 'return "ata"', 'return "udpfs"'):
     assert token in launcher
 
 for arg in ('"-bsd=%s', '-dvd=%s', '-qb', '-cwd=%s'):

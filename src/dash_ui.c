@@ -716,13 +716,14 @@ int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *i
 {
 	int sel = initial, top = 0, i, previewed = -1;
 	void (*preview)(int) = modal_preview;
-	/* Eight subtitled rows left only 3 logical pixels above the popup.
-	 * Keep a full safe margin for rounded corners on 4:3/interlaced TVs. */
-	const int max_rows = 7;
+	/* Match Settings row spacing and typography. Nine compact rows still
+	 * leave safe margins for a subtitle and footer on 4:3/interlaced TVs. */
+	const int max_rows = 9;
 	float sel_anim, open = 0.0f;
-	float w = 400.0f, row_h = 38.0f;
+	float w = 400.0f, row_h = 29.0f;
 	int rows = (n < max_rows) ? n : max_rows;
-	float h = 76.0f + rows * row_h + 44.0f + (subtitle ? 18.0f : 0.0f);
+	float list_y = subtitle ? 74.0f : 54.0f;
+	float h = list_y + rows * row_h + 48.0f;
 	float x = (DASH_VW - w) * 0.5f, y;
 	DashInput in;
 
@@ -812,22 +813,20 @@ int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *i
 		}
 		dashTextS(x + 24, y + 18, title, DASH_FS_LABEL, DASH_C_TEXT);
 		{
-			float ly = y + 54;
-			if (subtitle) {
+			float ly = y + list_y;
+			if (subtitle)
 				dashTextFit(x + 24, y + 44, w - 48, subtitle, DASH_FS_CAPTION, DASH_C_TEXT3);
-				ly += 16;
-			}
 			dashGfxScissor(x + 8, ly - 2, w - 16, rows * row_h + 4);
 			{
 				float fy = ly + (sel_anim - top) * row_h;
-				dashDrawSelection(x + 14, fy + 2, w - 28, row_h - 4, 10, 1.0f);
+				dashDrawSelection(x + 14, fy + 2, w - 28, row_h - 5, 9, 1.0f);
 			}
 			for (i = top; i < n && i < top + rows; i++) {
 				float ry = ly + (i - top) * row_h;
 				DashColor c = items[i].disabled ? DASH_C_TEXT3 : dashItemColor(i == sel);
 				float tx = x + 28;
 				if (items[i].icon >= 0) {
-					dashIcon(items[i].icon, x + 26, ry + 6, 18, c);
+					dashIcon(items[i].icon, x + 26, ry + 5, 18, c);
 					tx = x + 54;
 				}
 				{
@@ -836,19 +835,19 @@ int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *i
 					 * two can never overlap. */
 					float avail = w - (tx - x) - 30.0f, label_w = avail;
 					if (items[i].detail) {
-						float dw = dashTextWidth(items[i].detail, DASH_FS_SMALL), detail_w;
-						label_w = dashTextWidth(items[i].label, DASH_FS_BODY * 0.92f);
+						float dw = dashTextWidth(items[i].detail, DASH_FS_CAPTION), detail_w;
+						label_w = dashTextWidth(items[i].label, DASH_FS_SMALL);
 						if (label_w > avail * 0.6f)
 							label_w = avail * 0.6f;
 						detail_w = avail - label_w - 14.0f;
 						if (dw <= detail_w)
-							dashTextRight(x + w - 28, ry + 8, items[i].detail, DASH_FS_SMALL, DASH_C_TEXT3);
+							dashTextRight(x + w - 28, ry + 4.5f, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
 						else if (i == sel)
-							dashTextScroll(x + w - 28 - detail_w, ry + 8, detail_w, items[i].detail, DASH_FS_SMALL, DASH_C_TEXT3);
+							dashTextScroll(x + w - 28 - detail_w, ry + 4.5f, detail_w, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
 						else
-							dashTextFit(x + w - 28 - detail_w, ry + 8, detail_w, items[i].detail, DASH_FS_SMALL, DASH_C_TEXT3);
+							dashTextFit(x + w - 28 - detail_w, ry + 4.5f, detail_w, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
 					}
-					dashTextFit(tx, ry + 7, label_w, items[i].label, DASH_FS_BODY * 0.92f, c);
+					dashTextFit(tx, ry + 4.0f, label_w, items[i].label, DASH_FS_SMALL, c);
 				}
 			}
 			dashGfxScissorReset();
@@ -885,6 +884,7 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 	int sel = default_sel;
 	float open = 0.0f, sel_anim = (float)default_sel, title_age = 0.0f;
 	float w = 440.0f, h;
+	const float button_h = 28.0f;
 	float x = (DASH_VW - w) * 0.5f, y;
 	int body_lines;
 	char countdown[64];
@@ -893,7 +893,7 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 	body_lines = 1;
 	if (body) {
 		const char *p;
-		float tw = dashTextWidth(body, DASH_FS_BODY * 0.9f);
+		float tw = dashTextWidth(body, DASH_FS_SMALL);
 		body_lines = (int)(tw / (w - 60)) + 1;
 		for (p = body; *p; p++)
 			if (*p == '\n')
@@ -901,7 +901,7 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 		if (body_lines > 6)
 			body_lines = 6;
 	}
-	h = 92.0f + body_lines * 24.0f + (detail ? 26.0f : 0.0f) + 50.0f;
+	h = 92.0f + body_lines * 22.0f + (detail ? 24.0f : 0.0f) + 44.0f;
 	y = (DASH_VH - h) * 0.5f;
 	dashInputFlush();
 
@@ -955,42 +955,42 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 		dashIcon(icon, x + 26, y + 24, 36, icon_col);
 		dashTextScrollTimed(x + 76, y + 28, w - 106, title, DASH_FS_LABEL, DASH_C_TEXT, title_age);
 		if (body)
-			dashTextWrap(x + 30, y + 78, w - 60, 6, body, DASH_FS_BODY * 0.9f, DASH_C_TEXT2, 24);
+			dashTextWrap(x + 30, y + 78, w - 60, 6, body, DASH_FS_SMALL, DASH_C_TEXT2, 22);
 		if (detail) {
-			float dy = y + 84 + body_lines * 24.0f;
+			float dy = y + 84 + body_lines * 22.0f;
 			dashTextScrollTimed(x + 30, dy, w - 60, detail, DASH_FS_CAPTION, DASH_C_TEXT3, title_age);
 		}
 		{
-			float by = y + h - 50;
+			float by = y + h - 44;
 			float bw = (cancel_label != NULL) ? 150.0f : 180.0f;
 			float bx0 = (cancel_label != NULL) ? x + w * 0.5f - bw - 10 : x + (w - bw) * 0.5f;
 			float bx1 = x + w * 0.5f + 10;
 			float fx = dashLerpf(bx0, bx1, sel_anim);
 
-			dashPanel(bx0, by, bw, 34, 12, DC(255, 255, 255, 18));
+			dashPanel(bx0, by, bw, button_h, 9, DC(255, 255, 255, 18));
 			if (cancel_label != NULL)
-				dashPanel(bx1, by, bw, 34, 12, DC(255, 255, 255, 18));
+				dashPanel(bx1, by, bw, button_h, 9, DC(255, 255, 255, 18));
 			if (sel == 0 && icon == DI_WARNING && cancel_label) {
 				DashColor dz = dashColorScale(DASH_C_DANGER, 0.78f);
 				dz.a = 170;
-				dashPanel(fx, by, bw, 34, 12, dz);
-				dashPanelBorder(fx, by, bw, 34, 12, DASH_C_SELEDGE);
+				dashPanel(fx, by, bw, button_h, 9, dz);
+				dashPanelBorder(fx, by, bw, button_h, 9, DASH_C_SELEDGE);
 			} else if (dashTheme.highlight == DASH_HL_TEXT) {
 				/* buttons need a visible focus even in text-only themes */
-				dashPanelBorder(fx, by, bw, 34, 12, dashColorA(DASH_C_ACCENT, 0.8f));
+				dashPanelBorder(fx, by, bw, button_h, 9, dashColorA(DASH_C_ACCENT, 0.8f));
 			} else
-				dashDrawSelection(fx, by, bw, 34, 12, 1.0f);
+				dashDrawSelection(fx, by, bw, button_h, 9, 1.0f);
 			/* Confirmation actions use exactly the same sized glyph/badge
 			 * renderer as the dashboard footer and modal hints (#158). */
 			dashGfxPushAlpha(sel == 0 ? 1.0f : 0.55f);
-			drawButton(bx0 + 12, by + 6, dashOkIcon(), NULL);
+			drawButton(bx0 + 12, by + 3, dashOkIcon(), NULL);
 			dashGfxPopAlpha();
-			dashTextCenter(bx0 + bw * 0.5f + 10, by + 10.0f, ok_label, DASH_FS_BODY * 0.9f, dashItemColor(sel == 0));
+			dashTextCenter(bx0 + bw * 0.5f + 10, by + 4.0f, ok_label, DASH_FS_SMALL, dashItemColor(sel == 0));
 			if (cancel_label != NULL) {
 				dashGfxPushAlpha(sel == 1 ? 1.0f : 0.55f);
-				drawButton(bx1 + 12, by + 6, dashBackIcon(), NULL);
+				drawButton(bx1 + 12, by + 3, dashBackIcon(), NULL);
 				dashGfxPopAlpha();
-				dashTextCenter(bx1 + bw * 0.5f + 10, by + 10.0f, cancel_label, DASH_FS_BODY * 0.9f, dashItemColor(sel == 1));
+				dashTextCenter(bx1 + bw * 0.5f + 10, by + 4.0f, cancel_label, DASH_FS_SMALL, dashItemColor(sel == 1));
 			}
 		}
 		dashGfxPopOffset();

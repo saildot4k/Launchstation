@@ -91,16 +91,7 @@ enum SetId {
 	/* devices */
 	S_HIDE_HDD,
 	S_HIDE_MC,
-	S_SHOW_UNAVAILABLE,
 	S_REBOOT_ELF,
-	S_MODERN_HANDOFF,
-	S_DEVA_USB,
-	S_DEVA_HDD,
-	S_DEVA_ATA,
-	S_DEVA_MMCE,
-	S_DEVA_MX4SIO,
-	S_DEVA_ILINK,
-	S_DEVA_UDPFS,
 	S_MMCE_BACKUP_PATH,
 	S_MMCE_BACKUP_KEEP,
 	S_MMCE_BACKUP_FORMAT,
@@ -124,8 +115,6 @@ enum SetId {
 	S_HOSTWRITE,
 	S_NET_LEGACY,
 	S_CLOCK_MANUAL,
-	S_CLOCK_SOFTWARE,
-	S_CLOCK_HARDWARE,
 	S_CLOCK_SYNC,
 	/* advanced */
 	S_LANGUAGE,
@@ -206,7 +195,7 @@ enum SetPageId {
 	P_ROOT, P_APPEARANCE, P_SCREEN, P_THEME,
 	P_APPS, P_LIBRARY, P_SOUND, P_INPUT, P_KEYBOARD,
 	P_LAUNCH, P_BOOT, P_LKEY, P_LOADERS, P_GAMEID,
-	P_DEVICES, P_AUTOSTART, P_MMCE_BACKUP, P_NETWORK, P_SYSTEM, P_LANGUAGE, P_PSU,
+	P_DEVICES, P_MMCE_BACKUP, P_NETWORK, P_SYSTEM, P_LANGUAGE, P_PSU,
 	/* Keep these in DashThemeGroup order for group resets. */
 	P_THEME_BG, P_THEME_COLORS, P_THEME_STYLE, P_THEME_TEXT,
 	P_THEME_ICONS, P_THEME_CLOCK, P_THEME_WALL, P_THEME_MANAGE,
@@ -219,7 +208,7 @@ static const SetItem root_items[] = {
     {ST_PAGE, P_SOUND, "Sound", "Interface effects, background music and their volumes."},
     {ST_PAGE, P_INPUT, "Input", "Confirm button, on-screen keyboard and USB keyboard."},
     {ST_PAGE, P_LAUNCH, "Launching", "Automatic start, button shortcuts, loaders and compatibility."},
-    {ST_PAGE, P_DEVICES, "Storage & devices", "Device visibility and which devices start automatically."},
+    {ST_PAGE, P_DEVICES, "Storage & devices", "Device visibility and MMCE backup preferences."},
     {ST_PAGE, P_NETWORK, "Network", "Console address and network write access."},
     {ST_PAGE, P_SYSTEM, "System", "Language, save-file options and configuration locations."},
 };
@@ -284,7 +273,6 @@ static const SetItem launch_items[] = {
     {ST_CHOICE, S_PATHPAD_LOCK, "Lock shortcuts & bookmarks", "Prevents editing launch keys and File Browser bookmarks."},
     {ST_PAGE, P_LOADERS, "Disc & image loaders", "ESR, OSDSYS, POPStarter, Ember and Neutrino paths."},
     {ST_CHOICE, S_REBOOT_ELF, "Reset IOP before launch", "Recommended: gives launched ELFs a clean IOP."},
-    {ST_CHOICE, S_MODERN_HANDOFF, "ELF handoff paths", "Select application path names, not storage drivers. Legacy mass is the compatibility default; Device-specific uses usb, ata, mx4sio and ilink paths."},
     {ST_PAGE, P_GAMEID, "Game ID output", "Game IDs for RetroGem and compatible OSD/HDMI adapters."},
 };
 
@@ -323,20 +311,6 @@ static const SetItem device_items[] = {
     {ST_PAGE, P_MMCE_BACKUP, "MMCE backups", "Versioned backup history, output format and automatic IGR backup preferences."},
     {ST_CHOICE, S_HIDE_HDD, "Internal HDD / ATA units", "Which HDD and exFAT units appear in the File Browser."},
     {ST_CHOICE, S_HIDE_MC, "Hide empty memory card slots", "Also hides unused MMCE entries in the File Browser."},
-    {ST_CHOICE, S_SHOW_UNAVAILABLE, "Show unavailable devices", "On keeps disconnected/probe-only device families visible; Off shows only devices that are ready."},
-    {ST_PAGE, P_AUTOSTART, "Start devices automatically", "The boot device always stays enabled. Starting other drivers takes effect immediately."},
-};
-
-static const SetItem autostart_items[] = {
-    {ST_CHOICE, S_DEVA_USB, "Auto-start USB storage", "Load the USB drivers when the dashboard starts. Off: load manually from DEVICES."},
-    {ST_CHOICE, S_DEVA_HDD, "Auto-start internal HDD", "Load the HDD drivers when the dashboard starts."},
-    {ST_CHOICE, S_DEVA_ATA, "Auto-start exFAT HDD", "Load the exFAT/ATA drivers when the dashboard starts."},
-    {ST_CHOICE, S_DEVA_MMCE, "Auto-start MMCE SD card", "Load the MMCE drivers when the dashboard starts."},
-    {ST_CHOICE, S_DEVA_MX4SIO, "Auto-start MX4SIO", "Load the MX4SIO drivers when the dashboard starts."},
-#ifdef ILINK
-    {ST_CHOICE, S_DEVA_ILINK, "Auto-start iLink / FireWire", "Load the IEEE1394 storage drivers when the dashboard starts. Leave off unless this console has a physical i.Link port."},
-#endif
-    {ST_CHOICE, S_DEVA_UDPFS, "Auto-start network (UDPFS)", "Start the UDPFS network client when the dashboard starts."},
 };
 
 static const SetItem mmce_backup_items[] = {
@@ -389,8 +363,6 @@ static const SetItem psu_items[] = {
 static const SetItem system_items[] = {
     {ST_PAGE, P_LANGUAGE, "Language", "Built-in language and external translations for file operations and tools."},
     {ST_PAGE, P_PSU, "Memory card backup files", "PSU naming and overwrite rules used by File Browser operations."},
-    {ST_ACTION, S_CLOCK_SOFTWARE, "Set software clock...", "Works without a CMOS battery. Restarts at the last saved time; save again before power-off to retain elapsed runtime."},
-    {ST_ACTION, S_CLOCK_HARDWARE, "Use PS2 hardware clock", "Stop the software clock and use the console RTC again."},
     {ST_ACTION, S_CLOCK_MANUAL, "Set PS2 clock manually...", "Enter the local date and time as YYYY-MM-DD HH:MM:SS; the hardware RTC is written and verified."},
     {ST_PATH, S_CNF_PATH, "Configuration folder", "Load and save LAUNCHELF.CNF in this folder instead of the default places."},
     {ST_ACTION, S_SAVE_AS, "Save launch & tool settings to...", "Writes LAUNCHELF.CNF immediately to another location; dashboard and network settings are saved separately."},
@@ -488,8 +460,7 @@ static const SetPage pages[P_COUNT] = {
     [P_LKEY] = PAGE("Launch keys", DI_KEY, "Hold a button at boot, or hold SELECT and press it in the dashboard.", lkey_items),
     [P_LOADERS] = PAGE("Disc & PS1 loaders", DI_DISC, "Programs used by disc, OSDSYS and PS1 launch commands.", loader_items),
     [P_GAMEID] = PAGE("Game ID output", DI_APP, "Identification for compatible OSD/HDMI adapters.", gameid_items),
-    [P_DEVICES] = PAGE("Storage & devices", DI_DEVICES, "Visible devices and driver startup preferences.", device_items),
-    [P_AUTOSTART] = PAGE("Start devices automatically", DI_DEVICES, "Drivers start immediately when enabled. Discard restores preferences, not driver state.", autostart_items),
+    [P_DEVICES] = PAGE("Storage & devices", DI_DEVICES, "Device visibility and MMCE backup preferences.", device_items),
     [P_MMCE_BACKUP] = PAGE("MMCE backup & sync", DI_MC, "Backup, cloud, IGR return and maintenance controls in one place.", mmce_backup_items),
     [P_NETWORK] = PAGE("Network", DI_NETWORK, "Console address for FTP, PS2Link and UDPFS.", net_items),
     [P_SYSTEM] = PAGE("System", DI_TOOLS, "Language, backup file rules and settings locations.", system_items),
@@ -669,40 +640,8 @@ static int choiceInfo(int id, int *cur, const char *const **names, const char **
 		case S_HIDE_MC:
 			*cur = setting->Hide_MCMMCE ? 1 : 0;
 			return 2;
-		case S_SHOW_UNAVAILABLE:
-			*cur = dashCfg.show_unavailable_devices;
-			return 2;
-		case S_MODERN_HANDOFF: {
-			static const char *const handoff_names[] = {"Legacy mass (default)", "Device-specific"};
-			*names = handoff_names;
-			*cur = setting->modern_device_handoff ? 1 : 0;
-			return 2;
-		}
 		case S_REBOOT_ELF:
 			*cur = setting->reboot_iop_elf_load ? 1 : 0;
-			return 2;
-		case S_DEVA_USB:
-			*cur = (dashCfg.dev_auto & DASH_DEVA_USB) || dashBootDeviceBit() == DASH_DEVA_USB ? 1 : 0;
-			return 2;
-		case S_DEVA_HDD:
-			*cur = (dashCfg.dev_auto & DASH_DEVA_HDD) || dashBootDeviceBit() == DASH_DEVA_HDD ? 1 : 0;
-			return 2;
-		case S_DEVA_ATA:
-			*cur = (dashCfg.dev_auto & DASH_DEVA_ATA) || dashBootDeviceBit() == DASH_DEVA_ATA ? 1 : 0;
-			return 2;
-		case S_DEVA_MMCE:
-			*cur = (dashCfg.dev_auto & DASH_DEVA_MMCE) || dashBootDeviceBit() == DASH_DEVA_MMCE ? 1 : 0;
-			return 2;
-		case S_DEVA_MX4SIO:
-			*cur = (dashCfg.dev_auto & DASH_DEVA_MX4SIO) || dashBootDeviceBit() == DASH_DEVA_MX4SIO ? 1 : 0;
-			return 2;
-#ifdef ILINK
-		case S_DEVA_ILINK:
-			*cur = (dashCfg.dev_auto & DASH_DEVA_ILINK) || dashBootDeviceBit() == DASH_DEVA_ILINK ? 1 : 0;
-			return 2;
-#endif
-		case S_DEVA_UDPFS:
-			*cur = (dashCfg.dev_auto & DASH_DEVA_UDPFS) ? 1 : 0;
 			return 2;
 		case S_MMCE_BACKUP_FORMAT:
 			*names = mmce_backup_format_names, *cur = dashCfg.mmce_backup_format;
@@ -1044,7 +983,7 @@ static void colorEditor(const char *title, int id)
 	classic = isClassicColor(id);
 	orig = *c;
 	nrows = (alpha ? 4 : 3) + 1; /* channels + swatch row */
-	h = 94.0f + nrows * 34.0f + 40.0f;
+	h = 94.0f + nrows * 29.0f + 40.0f;
 	y = (DASH_VH - h) * 0.5f + 10.0f;
 	for (i = 0; i < NSWATCH; i++)
 		if (swatches[i].r == c->r && swatches[i].g == c->g && swatches[i].b == c->b)
@@ -1135,10 +1074,10 @@ static void colorEditor(const char *title, int id)
 				snprintf(hex, sizeof(hex), "#%02X%02X%02X", c->r, c->g, c->b);
 			dashText(x + 20, y + 46, hex, DASH_FS_SMALL, DASH_C_TEXT2);
 
-			for (i = 0; i < nrows; i++, ry += 34.0f) {
+			for (i = 0; i < nrows; i++, ry += 29.0f) {
 				int on = (i == row);
 				if (on)
-					dashDrawSelection(x + 12, ry - 4, w - 24, 30, 8, 1.0f);
+					dashDrawSelection(x + 12, ry + 2, w - 24, 24, 9, 1.0f);
 				if (i < nrows - 1) {
 					int v = (i == 0) ? c->r : (i == 1) ? c->g : (i == 2) ? c->b : c->a;
 					DashColor lo = DC(c->r, c->g, c->b, 255), hi = lo;
@@ -1152,18 +1091,18 @@ static void colorEditor(const char *title, int id)
 						lo.b = 0, hi.b = 255;
 					else
 						lo = DC(40, 40, 40, 255), hi = DC(230, 230, 230, 255);
-					dashText(x + 24, ry + 2, ch_names[i], DASH_FS_SMALL, dashItemColor(on));
-					dashRectGradH(bx, ry + 6, bw, 10, lo, hi);
-					dashRect(bx + bw * v / 255.0f - 1.5f, ry + 1, 3, 20, on ? DASH_C_TEXT : DASH_C_TEXT2);
+					dashText(x + 24, ry + 4.0f, ch_names[i], DASH_FS_SMALL, dashItemColor(on));
+					dashRectGradH(bx, ry + 9, bw, 10, lo, hi);
+					dashRect(bx + bw * v / 255.0f - 1.5f, ry + 4, 3, 20, on ? DASH_C_TEXT : DASH_C_TEXT2);
 					snprintf(num, sizeof(num), "%d", v);
-					dashTextRight(x + w - 24, ry + 2, num, DASH_FS_SMALL, dashItemColor(on));
+					dashTextRight(x + w - 24, ry + 4.0f, num, DASH_FS_SMALL, dashItemColor(on));
 				} else {
 					int k;
 					float sx = x + 24, ssz = (w - 48) / NSWATCH;
 					for (k = 0; k < NSWATCH; k++) {
-						dashRect(sx + k * ssz + 1, ry + 1, ssz - 2, 20, swatches[k]);
+						dashRect(sx + k * ssz + 1, ry + 4, ssz - 2, 20, swatches[k]);
 						if (on && k == sw)
-							dashPanelBorder(sx + k * ssz - 1, ry - 1, ssz + 2, 24, 3, DASH_C_TEXT);
+							dashPanelBorder(sx + k * ssz - 1, ry + 2, ssz + 2, 24, 3, DASH_C_TEXT);
 					}
 				}
 			}
@@ -1250,46 +1189,6 @@ static void setChoice(int id, int v)
 			dashCfg.bgm_vol = v * 10;
 			dashBgmSetVolume();
 			break;
-		case S_DEVA_USB:
-		case S_DEVA_HDD:
-		case S_DEVA_ATA:
-		case S_DEVA_MMCE:
-		case S_DEVA_MX4SIO:
-#ifdef ILINK
-		case S_DEVA_ILINK:
-#endif
-		case S_DEVA_UDPFS: {
-			const int bit = (id == S_DEVA_USB) ? DASH_DEVA_USB :
-			                (id == S_DEVA_HDD) ? DASH_DEVA_HDD :
-			                (id == S_DEVA_ATA) ? DASH_DEVA_ATA :
-			                (id == S_DEVA_MMCE) ? DASH_DEVA_MMCE :
-			                (id == S_DEVA_MX4SIO) ? DASH_DEVA_MX4SIO :
-			                (id == S_DEVA_ILINK) ? DASH_DEVA_ILINK : DASH_DEVA_UDPFS;
-			const int boot_bit = dashBootDeviceBit();
-
-			/* MMCE and MX4SIO cannot coexist in one IOP storage stack. Never
-			 * switch away from either one when it is the device we booted
-			 * from; otherwise enabling one disables the other's auto-start. */
-			if (v && ((bit == DASH_DEVA_MMCE && boot_bit == DASH_DEVA_MX4SIO) ||
-			          (bit == DASH_DEVA_MX4SIO && boot_bit == DASH_DEVA_MMCE))) {
-				dashToast(DASH_TOAST_WARN,
-				          "MMCE and MX4SIO cannot auto-start together while booted from this device");
-				break;
-			}
-			if (v && bit == DASH_DEVA_MMCE)
-				dashCfg.dev_auto &= ~DASH_DEVA_MX4SIO;
-			else if (v && bit == DASH_DEVA_MX4SIO)
-				dashCfg.dev_auto &= ~DASH_DEVA_MMCE;
-
-			/* the boot device is always started: its driver is already running */
-			if (v || boot_bit == bit)
-				dashCfg.dev_auto |= bit;
-			else
-				dashCfg.dev_auto &= ~bit;
-			if (v)
-				dashDevicesAutoStart(); /* start it right away if it is off */
-			break;
-		}
 		case S_START:
 			dashCfg.start_section = (v == 1) ? DASH_SEC_FILES :
 			                        (v == 2) ? DASH_SEC_TOOLS :
@@ -1304,9 +1203,6 @@ static void setChoice(int id, int v)
 			break;
 		case S_ICON_BACKING:
 			dashCfg.icon_backing = v;
-			break;
-		case S_SHOW_UNAVAILABLE:
-			dashCfg.show_unavailable_devices = v;
 			break;
 		case S_VIEW:
 			dashCfg.view = v;
@@ -1383,9 +1279,6 @@ static void setChoice(int id, int v)
 					break;
 				case S_HIDE_MC:
 					setting->Hide_MCMMCE = v;
-					break;
-				case S_MODERN_HANDOFF:
-					setting->modern_device_handoff = v;
 					break;
 				case S_REBOOT_ELF:
 					setting->reboot_iop_elf_load = v;
@@ -1927,7 +1820,6 @@ static void snapshotTexts(void)
 
 static void sessionSnapshot(void)
 {
-	menuTitleClockSnapshot();
 	/* byte copies, so the comparison in refreshDirty() never sees padding */
 	memcpy(&snap_dash, &dashCfg, sizeof(snap_dash));
 	memcpy(&snap_theme, &dashTheme, sizeof(snap_theme));
@@ -1950,18 +1842,13 @@ static void sessionBegin(void)
 	sessionSnapshot();
 }
 
-static int softwareClockCheckpointAvailable(void)
-{
-	return dashCfg.software_clock[0] && menuTitleSoftwareClockActive();
-}
-
-/* Writes explicit settings saves, including the current software time. */
+/* Writes explicit settings saves. */
 static void settingsCommit(void)
 {
 	int cnf_failed = 0, net_failed = 0;
 
 	refreshDirty(1);
-	if (dash_dirty || dashStoreSettingsFailed() || softwareClockCheckpointAvailable()) {
+	if (dash_dirty || dashStoreSettingsFailed()) {
 		session_saves |= SESSION_SAVE_DASH;
 		dashStoreSaveSettings();
 	}
@@ -1979,29 +1866,10 @@ static void settingsCommit(void)
 
 static void settingsSaveAction(void)
 {
-	if (!anyDirty() && !failedSaves() && !softwareClockCheckpointAvailable())
+	if (!anyDirty() && !failedSaves())
 		dashToast(DASH_TOAST_INFO, "Nothing to save");
 	else
 		settingsCommit();
-}
-
-static int settingsSaveSoftwareClock(const char *timestamp)
-{
-	if (!dashModalConfirm("Save clock and settings?",
-	                      "Save this time and your current Settings changes before starting the software clock?",
-	                      "Save", 0))
-		return 0;
-	dashStrCopy(dashCfg.software_clock, timestamp, sizeof(dashCfg.software_clock));
-	menuTitleUpdateAsync(1);
-	settingsCommit();
-	if (!dashStoreFlushWait("Saving clock") || dashStoreSettingsPending() || dashStoreSettingsFailed()) {
-		dashModalMessage(DI_WARNING, "Clock not saved",
-		                 "The clock is running, but its time could not be saved. Keep the storage connected and retry Save changes before restarting.", NULL);
-		return 0;
-	}
-	dashModalMessage(DI_CHECK, "Clock saved",
-	                 "After restarting, the clock resumes this saved checkpoint. Use Save current clock to keep later runtime; time spent unplugged cannot be measured.", NULL);
-	return 1;
 }
 
 /* Puts back what was there when SETTINGS was opened. */
@@ -2032,7 +1900,6 @@ static void settingsRevert(void)
 		int art = dashCfg.artwork != snap_dash.artwork;
 
 		dashCfg = snap_dash;
-		menuTitleClockRestore();
 		dashThemeRestore(&snap_theme, snap_theme_preset, snap_theme_custom);
 		DashThemeSetLegacyEnabled(1);
 		if (dashCfg.sound || dashCfg.bgm)
@@ -2696,11 +2563,6 @@ static void runAction(int id)
 		case S_ABOUT_PROJECT:
 			dashShowAbout();
 			break;
-		case S_CLOCK_HARDWARE:
-			dashCfg.software_clock[0] = '\0';
-			menuTitleUpdateAsync(1);
-			break;
-		case S_CLOCK_SOFTWARE:
 		case S_CLOCK_MANUAL: {
 			char input[24];
 			char result[160];
@@ -2715,25 +2577,12 @@ static void runAction(int id)
 			else
 				snprintf(input, sizeof(input), "2000-01-01 00:00:00");
 
-			if (!dashModalKeyboard(id == S_CLOCK_SOFTWARE ? "Set software clock: YYYY-MM-DD HH:MM:SS" : "Set PS2 clock: YYYY-MM-DD HH:MM:SS", input, sizeof(input)))
+			if (!dashModalKeyboard("Set PS2 clock: YYYY-MM-DD HH:MM:SS", input, sizeof(input)))
 				break;
 			if (sscanf(input, "%4d-%2d-%2d %2d:%2d:%2d",
 			           &year, &month, &day, &hour, &minute, &second) != 6) {
 				dashModalMessage(DI_WARNING, "Invalid date / time",
 				                 "Use YYYY-MM-DD HH:MM:SS, for example 2026-10-07 15:30:00.", input);
-				break;
-			}
-			if (id == S_CLOCK_SOFTWARE) {
-				int days = 0;
-				static const int mdays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
-				if (month >= 1 && month <= 12)
-					days = mdays[month - 1] + (month == 2 && (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)));
-				if (year < 2000 || year > 2099 || day < 1 || day > days || hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) {
-					dashModalMessage(DI_WARNING, "Invalid date / time", "Enter a valid date from 2000 to 2099 and a 24-hour time.", NULL);
-					break;
-				}
-				snprintf(input, sizeof(input), "%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
-				settingsSaveSoftwareClock(input);
 				break;
 			}
 			ok = dashClockSetManual(year, month, day, hour, minute, second, result, sizeof(result));
@@ -2794,10 +2643,6 @@ static int itemDisabled(const SetItem *it)
 {
 	if (it->type == ST_PAGE)
 		return 0;
-#ifdef ILINK
-	if (it->id == S_DEVA_ILINK && !isIlinkConsoleSupported())
-		return 1;
-#endif
 	switch (it->id) {
 		case S_SVOL: return !dashCfg.sound;
 		case S_BGMVOL: return !dashCfg.bgm;
@@ -2819,9 +2664,6 @@ static int itemDisabled(const SetItem *it)
 static const char *disabledHelp(const SetItem *it)
 {
 	switch (it->id) {
-#ifdef ILINK
-		case S_DEVA_ILINK: return "This console has no supported PS2 i.Link storage port.";
-#endif
 		case S_SVOL: return "Enable Interface sounds to adjust their volume.";
 		case S_BGMVOL: return "Enable Background music to adjust its volume.";
 		case S_USBKBD_FILE:
@@ -2843,12 +2685,11 @@ static void settingsMenu(void)
 {
 	int changed = anyDirty();
 	int failed = failedSaves();
-	int clock_save = softwareClockCheckpointAvailable();
 	DashMenuItem menu[] = {
-	    {DI_CHECK, !changed && failed ? "Retry failed saves" : !changed && clock_save ? "Save current clock" : "Save changes", "Save settings and current software time", !(changed || failed || clock_save)},
+	    {DI_CHECK, !changed && failed ? "Retry failed saves" : "Save changes", "Save current settings", !(changed || failed)},
 	    {DI_CLOSE, "Discard changes", "Undo edits since opening Settings or choosing Save", !changed},
 	    {DI_BACK, "Keep editing", NULL, 0}};
-	int r = dashModalMenu("Settings changes", changed ? "Changes preview immediately" : failed ? "An earlier save failed; retry is optional" : clock_save ? "Save the current clock before restarting" : "No unsaved changes", menu, NITEMS(menu), (changed || failed || clock_save) ? 0 : 2);
+	int r = dashModalMenu("Settings changes", changed ? "Changes preview immediately" : failed ? "An earlier save failed; retry is optional" : "No unsaved changes", menu, NITEMS(menu), (changed || failed) ? 0 : 2);
 	if (r == 0)
 		runAction(S_SAVE_CLASSIC);
 	else if (r == 1)

@@ -144,7 +144,7 @@ A confirmation warns that the console can lock up within this synchronous
 request; no timeout or automatic IOP reset can recover a wedged RPC. The
 diagnostic shows which request begins before it enters the RPC and displays
 its return code if it completes. It does **not** rescan both units, change
-auto-start settings, reset the IOP, write to USB, or alter the cached device
+device visibility settings, reset the IOP, write to USB, or alter the cached device
 list. A successful root stat alone is not a completed file-read test.
 
 For two attached drives, first capture the cache, then probe logical unit 0
@@ -171,7 +171,7 @@ first/last row. The breadcrumb shows where the page lives.
 | Sound | Interface effects, music and their separate volumes. |
 | Input | Confirm button, on-screen keyboard and USB keyboard (driver and map). |
 | Launching | Automatic start & boot, Launch keys, shortcut/bookmark lock, disc/PS1 loaders, IOP reset and game IDs. |
-| Storage & devices | Browser visibility and device auto-start preferences. |
+| Storage & devices | Browser visibility and MMCE backup preferences. |
 | Network | IP address, netmask, gateway and network write access. |
 | System | Language, memory card backup-file rules, configuration folder, alternate launch/tool settings save location and welcome message. |
 
@@ -194,8 +194,7 @@ during the current visit still keep that visit unsaved until retried or
 discarded; Discard does not claim the failed write succeeded.
 
 Clearing history and refreshing the library are immediate maintenance actions;
-Discard does not undo them. Discard restores device startup preferences but
-does not unload drivers that have already started.
+Discard does not undo them or unload drivers started by an operation.
 
 ## Controls
 
@@ -446,23 +445,26 @@ Driver residency alone does not mean that storage is attached. Optional
 HDD/ATA, MMCE (each slot separately), MX4SIO and UDPFS cards are dimmed and
 marked *Not checked yet* until a root check succeeds. Failed explicit
 checks remain dimmed and hide that storage's cached applications. Checks
-are user/auto-start initiated; there are no blocking root probes during
+run when a browser or operation needs the device; there are no blocking root probes during
 drawing. Results expire on IOP reset, but are not continuous hotplug
 monitoring for these optional families: select *Check again* after changing
 the attached device/server. USB and memory cards retain their existing
 live discovery. Storage free-space labels use MB/GB; file sizes still use
 B/KB where appropriate.
 
-Settings > Storage & devices > Start devices automatically has an *Auto-start*
-switch per device family (USB
-storage, internal HDD, exFAT HDD, MMCE SD, MX4SIO, UDPFS network): ON
-loads that device's drivers when the dashboard starts, so the device is
-ready immediately and its applications are found by the startup scan
-(`Dash_DevAuto` bitmask, all off by default). OFF never loads the driver
-by itself — the DEVICES screen can still start it manually, and drivers
-already loaded stay loaded until the next IOP reboot. The device the ELF
-booted from is always on (its driver is already running) and cannot be
-switched off.
+Storage drivers load on demand when opening a device, launching an application,
+or using a tool that needs it. Startup scans only devices whose drivers are
+already running. There are no per-device driver auto-start switches; old
+`Dash_DevAuto` and `Dash_ShowUnavailableDevices` entries are ignored and omitted
+when saving `DASHBOARD.CNF`. Eligible device families remain listed; opening
+an unprobed device starts the existing lazy driver stack.
+
+Neutrino launches initialize MMCE before preparing the loader, then request
+the ISO's game-ID VMC on responding MMCE adapters just before handoff. This
+follows R3Z 4.80 without requiring a storage preference. MMCE initialization
+and card switching are skipped when the ISO or loader uses MX4SIO. Slots
+holding the ISO or Neutrino executable are left unchanged; absent hardware
+or a rejected switch does not prevent launching the game.
 
 On APPS, the *Show* choice (Triangle menu) filters the list — All,
 **Favorites**, Memory Cards, USB, HDD, Other devices — and the choice is
@@ -531,31 +533,25 @@ to be shortened to fit. The dashboard browser can sort by name, game title,
 size, date-time, or kind, in ascending or descending order; folders remain
 grouped first for predictable navigation.
 
-Demand-loaded storage such as the internal APA HDD and iLink/FireWire is
+Demand-loaded storage such as the internal APA HDD is
 selectable while its state is `Not checked`. Opening it runs the existing
 lazy loader/probe. Only a device that was explicitly checked and found absent
 is skipped by navigation.
 
 ### Device names and ELF handoffs
 
-USB devices are named **USB Mass Storage**. The File Browser and device panels
-show legacy `mass:` / `mass0:` / `mass1:` labels while browsing keeps the exact
-USB device mapping internally.
+USB devices are named **USB Mass Storage** and display `usb:/`, `usb0:/`,
+`usb1:/` and so on. Current-folder paths use numbered `usbN:/` labels;
+legacy `mass:/` and `massN:/` aliases are formatted only for display.
+Ordinary ELF launches follow the fixed
+[wLaunchELF R3Z 4.80 policy](https://github.com/saildot4k/wLaunchELF_R3Z/blob/4.80/src/elf.c):
+`usb:` and `mass:` paths become `mass0:/...`, and numbered `usbN:` / `massN:`
+paths become `massN:/...`. ATA (`ata0:/`, `ata1:/`) and MX4SIO (`mx4sio:/`)
+keep their selected device paths. There is no configurable handoff namespace.
 
-**Settings > Launching > ELF handoff paths** defaults to **Legacy mass (default)** and is saved
-as `Modern_Device_Handoff = 0` in `LAUNCHELF.CNF`. With the default choice, ordinary ELF
-launches use a verified legacy `massN:` alias where available. Turn it on for
-applications that support device-specific `usbN:`, `ataN:`, `mx4sioN:` and
-`ilinkN:` paths. It changes the path handed to the application, not the device
-shown in the browser or the IOP reset option.
-
-A numbered `massN:` slot may belong to any BDM device; its number is not a USB
-unit number. Before translating, Launchstation matches the driver, physical
-device number and file LBA. If a driver lacks these identity queries or no
-matching alias is available, it retains the selected live path. Classic USB
-builds retain their mass aliases. Ember, POPStarter and Neutrino keep their
-own loader-specific handoff rules. Console validation is still required for
-applications that use the modern aliases.
+The old `Modern_Device_Handoff` key is ignored when loading an existing
+`LAUNCHELF.CNF` and is omitted on save. Ember, POPStarter and Neutrino retain
+their loader-specific arguments. The IOP reset option remains independent.
 
 ### Video mode preview and browser navigation
 

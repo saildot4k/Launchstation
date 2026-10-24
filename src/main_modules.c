@@ -37,8 +37,8 @@ void initializeRuntimeInputModules(enum BOOT_DEVICE boot_device)
 	waitAnyPadReady();
 	if (readpad_no_KB() && (new_pad & PAD_SELECT)) {
 		/* Recovery boot: keep legacy "show all devices" behavior, but also
-		 * ignore DASHBOARD.CNF for this session. That file owns device
-		 * auto-start, so a bad saved stack combination can never trap boot. */
+		 * ignore DASHBOARD.CNF for this session. This allows recovery from
+		 * a bad saved theme or display preference. */
 		boot_show_all_devices = 1;
 		boot_safe_mode = 1;
 	} else {

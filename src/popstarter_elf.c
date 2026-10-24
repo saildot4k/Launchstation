@@ -41,7 +41,7 @@ static int prepareHddPfsElfLaunch(const char *path, char *fullpath, size_t fullp
 	return POPSTARTER_OK;
 }
 
-static int preparePopstarterElfLaunch(const char *path, char *fullpath, size_t fullpath_size, char *party, size_t party_size, int *exec_kind)
+int preparePopstarterElfLaunch(const char *path, char *fullpath, size_t fullpath_size, char *party, size_t party_size, int *exec_kind)
 {
 	char tmp[MAX_PATH];
 	char *p;

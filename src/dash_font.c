@@ -12,6 +12,7 @@
 //--------------------------------------------------------------
 #include "dash_internal.h"
 #include "dash_font_data.h"
+#include <math.h>
 
 #define FONT_CELL_W 16
 #define FONT_CELL_H 32
@@ -243,6 +244,7 @@ static int nextGlyphs(const unsigned char **s, unsigned int out[2])
 #define DASH_FONT_UNIT 20.0f
 
 static GSTEXTURE face_tex[DASH_FONT_FACES];
+static u32 face_clut[DASH_FONT_FACES][256] __attribute__((aligned(128)));
 static int faces_ready;
 
 static void facesInit(void)
@@ -254,6 +256,20 @@ static void facesInit(void)
 	for (i = 0; i < DASH_FONT_FACES; i++) {
 		const DashFaceData *f = &dash_font_faces[i];
 		GSTEXTURE *t = &face_tex[i];
+		int alpha;
+
+		/* Small/medium atlases store boosted alpha. Restore regular coverage
+		 * for every size; dashTheme.bold alone adds heavier strokes below. */
+		for (alpha = 0; alpha < 256; alpha++) {
+			float coverage = alpha / 255.0f;
+			int a;
+
+			if (f->alpha_gamma100 > 0 && f->alpha_gamma100 != 100)
+				coverage = powf(coverage, 100.0f / f->alpha_gamma100);
+			a = (int)(coverage * 128.0f + 0.5f);
+			face_clut[i][clutSwizzle(alpha)] = 0x00808080 | ((u32)a << 24);
+		}
+		SyncDCache(face_clut[i], (u8 *)face_clut[i] + sizeof(face_clut[i]));
 
 		memset(t, 0, sizeof(*t));
 		t->Width = f->tex_w;
@@ -261,7 +277,7 @@ static void facesInit(void)
 		t->PSM = GS_PSM_T8;
 		t->ClutPSM = GS_PSM_CT32;
 		t->ClutStorageMode = GS_CLUT_STORAGE_CSM1;
-		t->Clut = font_clut;
+		t->Clut = face_clut[i];
 		/* read-only, 128-byte aligned .rodata: DMA'd straight from the ELF */
 		t->Mem = (u32 *)f->pixels;
 		t->Filter = GS_FILTER_LINEAR;
@@ -596,6 +612,25 @@ int dashTextWrap(float x, float y, float w, int max_lines, const char *str, floa
 			p++;
 	}
 	return lines;
+}
+
+/* Literal 8x16 byte glyph for keyboard symbols and names. Unlike dashboard
+ * text, 0xFF is a character here rather than a controller-icon prefix. */
+void dashFontByte(unsigned char c, float x, float y, DashColor color)
+{
+	int gi;
+	float u0, v0;
+
+	if (!font_ready || c < FONT_FIRST || c == ' ')
+		return;
+	gi = c - FONT_FIRST;
+	u0 = (float)((gi % FONT_COLS) * FONT_SLOT_W);
+	v0 = (float)((gi / FONT_COLS) * FONT_SLOT_H);
+	y = dashGfxTextY(y - 1.5f) + 1.5f;
+	dashSpriteBatchBegin(&font_tex, color);
+	dashSpriteBatchAdd(x - 0.5f, y - 1.5f, u0, v0, x + 8.5f, y + 15.5f,
+	                   u0 + FONT_SLOT_W, v0 + FONT_SLOT_H);
+	dashSpriteBatchEnd();
 }
 
 //--------------------------------------------------------------

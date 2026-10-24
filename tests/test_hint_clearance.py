@@ -32,3 +32,15 @@ assert border_rule.count("if (panelBorderVisible())") == 2
 header = ui[ui.index("void dashDrawHeader("):ui.index("void dashDrawSectionTitle(")]
 assert "if (DASH_C_PANEL.a && !DASH_C_BORDER.a && dashTheme.glow)" in header
 print("PASS: panel borders disappear with transparent panels")
+
+# The extra file row must leave a full status line above the same footer.
+browser = (root / "src/dash_browser.c").read_text(encoding="utf-8")
+file_rows = int(re.search(r"#define FB_ROWS (\d+)", browser).group(1))
+file_y = float(re.search(r"#define FB_Y ([\d.]+)f", browser).group(1))
+file_row_h = float(re.search(r"#define FB_ROW_H ([\d.]+)f", browser).group(1))
+status_gap = float(re.search(r"status_y = FB_Y \+ FB_ROWS \* FB_ROW_H \+ ([\d.]+)f", browser).group(1))
+status_y = file_y + file_rows * file_row_h + status_gap
+assert file_rows == 11
+assert file_y + file_rows * file_row_h + 6 < status_y
+assert status_y + 20 * 0.60 * 1.3 <= bar_top, (status_y, bar_top)
+print("PASS: eleven file rows and footer status fit above the hint bar")

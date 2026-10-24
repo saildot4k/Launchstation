@@ -795,11 +795,6 @@ int genFixPath(const char *inp_path, char *gen_path)
 		if ((part_ix >= 0) && pathSep && (pathSep - uLE_path < 10) && pathSep[-1] == ':')
 			strcpy(gen_path + (pathSep - uLE_path), pathSep + 1);
 #endif
-#ifdef ILINK
-	} else if (!strncmp(uLE_path, "ilink", 5)) {
-		if (!loadIlinkModules())
-			part_ix = -1;
-#endif
 #ifdef MMCE
 	} else if (!strncmp(uLE_path, "mmce", 4)) {
 		loadMmceModules();
@@ -1829,24 +1824,6 @@ int getDir(const char *path, FILEINFO *info)
 		}
 	}
 #endif
-#ifdef ILINK
-	else if (!strncmp(path, "ilink", 5)) {
-		/*
-		 * The iLink stack mounts a normal BDM/FatFs filesystem, but this
-		 * dispatcher previously had no iLink case at all. The DEVICES
-		 * screen could successfully probe ilink:/ and then File Browser
-		 * immediately fell through to "return 0", making a mounted disk
-		 * look empty.
-		 *
-		 * Keep classic-browser demand loading, while the dashboard path
-		 * normally arrives here with the stack already prepared on the UI
-		 * thread by filerPrepareDirRead().
-		 */
-		if (!isPathDeviceStackLoaded(path) && !loadIlinkModules())
-			return 0;
-		n = readGENERICWithFirstOpenRetry(path, info, max, 3000);
-	}
-#endif
 	else if (isPcCardCfPath(path)) {
 		char cf_path[MAX_PATH];
 		const char *read_path = canonicalizePcCardCfPath(path, cf_path);
@@ -1906,12 +1883,6 @@ int setFileList(const char *path, const char *ext, FILEINFO *files, int cnfmode)
 #ifdef MX4SIO
 		if (allow_usb_devices) {
 			strcpy(files[nfiles].name, "mx4sio:");
-			files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
-		}
-#endif
-#ifdef ILINK
-		if (allow_usb_devices && isIlinkConsoleSupported()) {
-			strcpy(files[nfiles].name, "ilink:");
 			files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
 		}
 #endif

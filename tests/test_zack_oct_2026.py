@@ -21,9 +21,13 @@ embed = read("embed.make")
 blobs = read("src/embed_blobs.S")
 header = read("include/dash_internal.h")
 
-# Eight subtitled menu rows previously left just three pixels at the top.
-rows = int(re.search(r"const int max_rows = ([0-9]+);", ui).group(1))
-tallest_menu = 76 + rows * 38 + 44 + 18
+# Measure the current row/subtitle/footer layout instead of the former 38px rows.
+menu = ui[ui.index("int dashModalMenu("):ui.index("int dashModalChoice(")]
+rows = int(re.search(r"const int max_rows = ([0-9]+);", menu).group(1))
+row_h = float(re.search(r"row_h = ([\d.]+)f", menu).group(1))
+list_y = max(map(float, re.search(r"list_y = subtitle \? ([\d.]+)f : ([\d.]+)f", menu).groups()))
+footer = float(re.search(r"float h = list_y \+ rows \* row_h \+ ([\d.]+)f", menu).group(1))
+tallest_menu = list_y + rows * row_h + footer
 assert (448 - tallest_menu) / 2 >= 20, (rows, tallest_menu)
 assert "dashGfxScissor(" in ui and "dashGfxScissorReset()" in ui
 

@@ -87,11 +87,6 @@
           "hdd"
         ],
         [
-          "ilink",
-          "iLink / FireWire",
-          "usb"
-        ],
-        [
           "network",
           "Network & PC",
           "netboot"

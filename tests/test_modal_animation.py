@@ -253,11 +253,14 @@ if len(sys.argv) == 1:
 menu = function(ui, "int dashModalMenu(")
 assert "detail ? 90" not in menu
 assert "detail_w = avail - label_w - 14.0f;" in menu
-assert "dashTextFit(tx, ry + 7, label_w," in menu
+assert "dashTextFit(tx, ry + 4.0f, label_w, items[i].label, DASH_FS_SMALL," in menu
 key_icon = function(ui, "static int keyIcon(")
 assert '"START"' in key_icon and '"L1"' in key_icon and '"R3"' in key_icon
 assert "dashIconsPadPng()" not in key_icon
 assert "return DI_BTN_START;" in key_icon
-assert "const int max_rows = 7;" in menu
-assert 76 + 7 * 38 + 44 + 18 <= 448 - 40  # 20px safe margin on each side
+rows = int(re.search(r"const int max_rows = (\d+);", menu).group(1))
+row_h = float(re.search(r"row_h = ([\d.]+)f", menu).group(1))
+list_y = max(map(float, re.search(r"list_y = subtitle \? ([\d.]+)f : ([\d.]+)f", menu).groups()))
+footer = float(re.search(r"float h = list_y \+ rows \* row_h \+ ([\d.]+)f", menu).group(1))
+assert list_y + rows * row_h + footer <= 448 - 40  # 20px safe margin on each side
 print("PASS: menus fit inside 4:3 safe area; controller hints use vector glyphs")

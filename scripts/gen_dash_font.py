@@ -19,7 +19,8 @@ import sys
 
 from PIL import Image, ImageDraw, ImageFont
 
-SIZES = [(14, 0.80), (20, 0.88), (32, 1.0)]  # (em px, alpha gamma: <1 thickens)
+SIZES = [(14, 0.80), (20, 0.88), (32, 1.0)]  # (em px, stored alpha gamma)
+# Record gamma in the face metadata; runtime palettes undo it before Bold.
 SS = 4                                      # supersampling factor
 ATLAS_W = 256
 PAD = 2
@@ -122,8 +123,8 @@ def main():
                 px, py = places[code]
                 parts.append("    {%d, %d, %d, %d, %d, %d, %d}," % (px, py, img.size[0], img.size[1], ox, oy, int(round(adv * 16))))
         parts.append("};")
-        faces.append("    {%d, %d, %d, %d, %d, %d, %s_px, %s_glyphs}," % (
-            em, int(round(ascent * 16)), int(round(descent * 16)), int(round(xheight * 16)),
+        faces.append("    {%d, %d, %d, %d, %d, %d, %d, %s_px, %s_glyphs}," % (
+            em, int(round(gamma * 100)), int(round(ascent * 16)), int(round(descent * 16)), int(round(xheight * 16)),
             atlas.width, atlas.height, name, name))
         print("em %d: atlas %dx%d" % (em, atlas.width, atlas.height))
     parts.append("const DashFaceData dash_font_faces[DASH_FONT_FACES] = {")

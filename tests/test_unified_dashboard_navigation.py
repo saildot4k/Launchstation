@@ -37,6 +37,8 @@ defs=main[main.index("static const int visible_sections[]"):main.index("const ch
 code=String = r'''
 #include <assert.h>
 #include <stdio.h>
+#include <stddef.h>
+#include <string.h>
 typedef struct { void (*enter)(void); } DashScreen;
 enum { DASH_SEC_HOME=0, DASH_SEC_APPS, DASH_SEC_FILES, DASH_SEC_DEVICES,
        DASH_SEC_TOOLS, DASH_SEC_SETTINGS, DASH_SEC_COUNT };
@@ -59,6 +61,23 @@ for fn in ("int dashVisibleSectionCount(void)","int dashVisibleSectionAt(int ind
            "int dashVisibleSectionIndex(int s)","int dashAdjacentSection(int s, int direction)",
            "void dashSwitchSection(int s)"):
     code+=function(main,fn)
+code += r'''
+typedef struct { char Misc[32],Misc_PS2Browser[32],Misc_OSDSYS[32]; } SETTING;
+static SETTING config,*setting=&config;
+static int modal_opens,tab_opens;
+static void dashFileBrowserTabOpen(const char *path) {assert(path && *path);tab_opens++;}
+static void dashOpenBrowser(const char *path) {(void)path;modal_opens++;}
+static void dashRunMisc(const char *path) {(void)path;}
+static int dashOpenTextEditor(const char *path) {(void)path;return 0;}
+static int dashModalConfirm(const char *t,const char *b,const char *a,int d) {
+ (void)t;(void)b;(void)a;(void)d;return 1;
+}
+static void dashToolsUsbUnitDiagnostics(void) {}
+static void dashToolsIgrBackupSetup(void) {}
+'''
+code += tools[tools.index("enum ToolAction {"):tools.index("static const Tool tools[]")]
+code += function(main,"void dashNavigateFilesTab(")
+code += function(tools,"static void runTool(")
 code+=r'''
 int main(void) {
     assert(dashVisibleSectionCount()==4);
@@ -96,7 +115,18 @@ int main(void) {
     assert(section==DASH_SEC_SETTINGS && enter_count==5);
     dashSwitchSection(DASH_SEC_SETTINGS);
     assert(enter_count==5);
-    puts("PASS: unified Home, Files as real tab, shoulder cycling, cancel and cleanup");
+    /* Tools > Essentials > File Browser enters Files and resumes its state. */
+    dashSwitchSection(DASH_SEC_TOOLS);
+    int before=enter_count;
+    Tool browser={0};browser.action=TA_BROWSER;
+    runTool(&browser);
+    assert(section==DASH_SEC_FILES && enter_count==before+1);
+    assert(!modal_opens && !tab_opens); /* no modal or forced root navigation */
+    dashNavigateFilesTab("usb0:/APPS/");assert(tab_opens==1);
+    dashSwitchSection(DASH_SEC_TOOLS);before=enter_count;leave_ok=0;
+    runTool(&browser);
+    assert(section==DASH_SEC_TOOLS && enter_count==before && !modal_opens);
+    puts("PASS: unified tab navigation, Tools File Browser shortcut, resume, cancel and cleanup");
 }
 '''
 compiler=shutil.which("gcc") or shutil.which("clang")

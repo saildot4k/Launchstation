@@ -28,7 +28,7 @@ def function(source, signature):
 declarations = settings[settings.index("enum SetType"):settings.index("/* Unsaved-changes session:")]
 icons = sorted(set(re.findall(r"\bDI_\w+", settings)))
 code = "#include <assert.h>\n#include <stdio.h>\n#include <string.h>\n"
-code += "#define ETH 1\n#define WLE_NATIVE_CLOUD 1\n#define UDPFS 1\nstatic int isIlinkConsoleSupported(void) { return 1; }\n#define ILINK 1\n#define MAX_PATH 1024\n#define DASH_FONT_SYSTEM 1\n"
+code += "#define ETH 1\n#define WLE_NATIVE_CLOUD 1\n#define UDPFS 1\n#define MAX_PATH 1024\n#define DASH_FONT_SYSTEM 1\n"
 code += "static void dashToolsPrepareMmceStatus(void);\n"
 code += "enum { " + ", ".join(icons) + " };\n"
 code += classic[classic.index("enum SETTING_LK {"):classic.index("};", classic.index("enum SETTING_LK {")) + 2]
@@ -49,15 +49,13 @@ static struct { int usbkbd_used; char LK_Path[SETTING_LK_COUNT][MAX_PATH]; } con
 static __typeof__(config) *setting = &config;
 static int session, begins, home, saves, reverts, changes, resets, edits, toast;
 static int modal_result = -1, dirty = 1, failed;
-static int clock_save;
-static int softwareClockCheckpointAvailable(void) { return clock_save; }
 typedef struct { int icon; const char *label, *detail; int disabled; } DashMenuItem;
 static void sessionBegin(void) { if (!session) { session = 1; begins++; } }
 static int anyDirty(void) { return dirty; }
 static int failedSaves(void) { return failed; }
 static int dashModalMenu(const char *t,const char *d,DashMenuItem *m,int n,int s) {
     (void)t; (void)d; (void)s; assert(n == 3); changes++;
-    assert(m[0].disabled == !(dirty || failed || clock_save) && m[1].disabled == !dirty);
+    assert(m[0].disabled == !(dirty || failed) && m[1].disabled == !dirty);
     return modal_result;
 }
 static void runAction(int id) { if(id==S_SAVE_CLASSIC) saves++; else if(id==S_REVERT) reverts++; }
@@ -102,8 +100,7 @@ S_DISPLAY_THEME_RESET S_SOUND S_SVOL S_BGM S_BGMVOL S_START S_VIEW
 S_ARTWORK S_RECENT S_AUTOSCAN S_SCANPATHS S_RESCAN S_CLEAR_RECENT S_INTRO
 S_CONFIRM S_VKEY S_USBKBD S_USBKBD_FILE S_KBDMAP_FILE S_PATHPAD_LOCK
 S_INIT_DELAY S_TIMEOUT S_CNF_PATH S_LANG_FILE S_FONT_FILE S_ESR_PATH
-S_OSDSYS_PATH S_POPS_PATH S_EMBER_DIR S_NEUTRINO_PATH S_HIDE_HDD S_HIDE_MC S_REBOOT_ELF S_DEVA_USB
-S_DEVA_HDD S_DEVA_ATA S_DEVA_MMCE S_DEVA_MX4SIO S_DEVA_ILINK S_DEVA_UDPFS
+S_OSDSYS_PATH S_POPS_PATH S_EMBER_DIR S_NEUTRINO_PATH S_HIDE_HDD S_HIDE_MC S_REBOOT_ELF
 S_MMCE_BACKUP_PATH S_MMCE_BACKUP_KEEP S_MMCE_BACKUP_FORMAT S_MMCE_SYNC_ALL S_IGR_SYNC_MODE S_IGR_HELPER S_IGR_AFTER S_IGR_AFTER_APP S_MMCE_LANGUAGE S_GOOGLE_ACCOUNT S_CHECK_UPDATES S_ABOUT_PROJECT S_NET_IP
 S_NET_NM S_NET_GW S_HOSTWRITE S_NET_LEGACY S_LANGUAGE S_GAMEID S_GAMEID_DISC
 S_PSU_HUGE S_PSU_DATE S_PSU_NOOVER S_SAVE_AS S_T_PRESET S_T_LOAD S_T_SAVE
@@ -112,7 +109,7 @@ S_T_TEXT S_T_TEXT2 S_T_TEXT3 S_T_SELTEXT S_T_ACCENT S_T_SELECT S_T_PANEL
 S_T_BORDER S_T_WARN S_T_HL S_T_CORNER S_T_TILE S_T_GLOW S_T_FONT
 S_T_FSCALE S_T_BOLD S_T_SHADOW S_T_ICONTINT S_T_APPICON S_T_APPICON_IMG
 S_T_CLOCK S_T_CLOCKPOS S_T_HOURS S_T_SECONDS S_T_DATE S_T_WALL S_T_WALLDIM
-S_T_RENAME S_T_RESTORE_PRESET
+S_T_RENAME S_T_RESTORE_PRESET S_CLOCK_MANUAL S_CLOCK_SYNC
 """.split()
 code += "static const int expected[] = {" + ",".join(expected) + "};\n"
 code += r"""
@@ -164,9 +161,7 @@ int main(void) {
     modal_result=1; press(DASH_IN_MENU); assert(reverts==1);
     modal_result=-1; dirty=0; press(DASH_IN_MENU); assert(saves==P_COUNT && reverts==1);
     failed=1; modal_result=0; press(DASH_IN_MENU); assert(saves==P_COUNT+1 && reverts==1);
-    failed=0; clock_save=1; modal_result=0; press(DASH_IN_MENU);
-    assert(saves==P_COUNT+2 && reverts==1);
-    clock_save=0; modal_result=-1;
+    failed=0; modal_result=-1;
     select_id(P_SOUND,S_SVOL); edits=0; press(DASH_IN_RIGHT); assert(!edits && toast);
     dashCfg.sound=1; press(DASH_IN_RIGHT); assert(edits==1);
     select_id(P_BOOT,S_TIMEOUT); press(DASH_IN_RIGHT); assert(edits==1);

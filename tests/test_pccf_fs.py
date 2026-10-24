@@ -247,13 +247,12 @@ int main(void) {
     assert(transferUsesPcCardCfAndDev9("udpfs:/PS2", "cf:/PS2"));
     assert(transferUsesPcCardCfAndDev9("xfrom0:/DATA", "cf:/DATA"));
 
-    // Transfer stack compatibility: CF <-> USB/MC/MMCE/MX4SIO/iLink allowed
+    // Transfer stack compatibility: CF <-> USB/MC/MMCE/MX4SIO allowed
     assert(!transferUsesPcCardCfAndDev9("cf0:/GAME.ISO", "mass0:/GAMES/GAME.ISO"));
     assert(!transferUsesPcCardCfAndDev9("cf0:/GAME.ISO", "usb0:/GAMES/GAME.ISO"));
     assert(!transferUsesPcCardCfAndDev9("mc0:/BWNETCNF", "cf0:/BACKUP/BWNETCNF"));
     assert(!transferUsesPcCardCfAndDev9("mmce0:/SLOT1.MCD", "cf0:/MMCE_BACKUPS/SLOT1.MCD"));
     assert(!transferUsesPcCardCfAndDev9("mx4sio:/GAME.ISO", "cf0:/GAME.ISO"));
-    assert(!transferUsesPcCardCfAndDev9("ilink:/GAME.ISO", "cf0:/GAME.ISO"));
 
     // 64-bit size calculation verification (>4 GiB)
     u32 hisize = 1; // 4 GiB

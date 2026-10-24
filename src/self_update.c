@@ -45,7 +45,6 @@ static int supported_boot_path(const char *path)
            device_path(path, "usb", 1) ||
            device_path(path, "mmce", 0) ||
            device_path(path, "mx4sio", 0) ||
-           device_path(path, "ilink", 0) ||
            device_path(path, "ata", 0) ||
            device_path(path, "hdd", 0);
 }

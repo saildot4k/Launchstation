@@ -28,7 +28,6 @@ helpers = [
     "static int isBootUsbMassPath(const char *path)\\n{",
     "static int isBootUsbStackPath(const char *path)\\n{",
     "static int isBootAtaPath(const char *path)\\n{",
-    "static int isBootIlinkPath(const char *path)\\n{",
     "static int isBootHddPath(const char *path)\\n{",
     "static int isBootXfromPath(const char *path)\\n{",
     "static int isSlashRootedBootPathDevice(const char *path)\\n{",

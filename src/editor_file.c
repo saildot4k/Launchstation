@@ -274,7 +274,7 @@ void editorSaveAs(int Win)
 
 	drawMsg(LNG(Enter_File_Name));
 
-	if (keyboard(tmp, 36) > 0) {
+	if (filenameKeyboard(tmp, 36) > 0) {
 		//strcat(Path[Win], tmp); //This is what we want, but malfunctions for MC!
 		//sprintf(&Path[Win][strlen(Path[Win])], "%s", tmp); //This always works
 		strcpy(&Path[Win][strlen(Path[Win])], tmp);  //And this one works too

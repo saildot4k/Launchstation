@@ -4,6 +4,7 @@ Source contracts accompany a host-compiled orb overlap-weight test. Console
 acceptance is still necessary for CRT visuals and theme-specific rendering.
 """
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -27,8 +28,8 @@ assert "!(paddata & PAD_SELECT)" in main
 
 # The same glyph drawing path must serve modal actions and normal hints.
 modal = ui[ui.index("static int modalButtons("):ui.index("int dashModalConfirm(")]
-assert "drawButton(bx0 + 12, by + 6, dashOkIcon(), NULL);" in modal
-assert "drawButton(bx1 + 12, by + 6, dashBackIcon(), NULL);" in modal
+assert re.search(r"drawButton\(bx0 \+ 12, by \+ \d+, dashOkIcon\(\), NULL\);", modal)
+assert re.search(r"drawButton\(bx1 \+ 12, by \+ \d+, dashBackIcon\(\), NULL\);", modal)
 assert "dashIcon(dashOkIcon(), bx0" not in modal
 assert "dashIcon(dashBackIcon(), bx1" not in modal
 

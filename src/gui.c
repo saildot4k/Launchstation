@@ -5,7 +5,7 @@
  * NULL: the classic dialogs below. */
 int (*ynDialogOverride)(const char *message) = NULL;
 void (*nonDialogOverride)(const char *message) = NULL;
-int (*keyboardOverride)(char *out, int max) = NULL;
+int (*keyboardOverride)(char *out, int max, int filename) = NULL;
 
 int ynDialog(const char *message)
 {
@@ -140,8 +140,34 @@ void nonDialog(char *message)
 	}
 }
 
+/* Filename prompts keep path separators out of drawing, focus and input. */
+static int keyboardIsKey(int index, int caps, int filename)
+{
+	char c;
+
+	if (!isVirtualKeyboardLayoutKey(setting->virtual_keyboard_layout, index))
+		return 0;
+	c = getVirtualKeyboardLayoutChar(setting->virtual_keyboard_layout, index, caps);
+	return !filename || (c != '/' && c != '\\');
+}
+
+static int keyboardNextKey(int index, int dx, int dy, int caps, int filename)
+{
+	int tries;
+
+	index = getVirtualKeyboardLayoutNextKey(setting->virtual_keyboard_layout, index, dx, dy);
+	for (tries = 0; tries < VKEY_LAYOUT_SIZE; tries++) {
+		if (keyboardIsKey(index, caps, filename))
+			return index;
+		/* With no requested direction, repair focus within the same row. */
+		index = getVirtualKeyboardLayoutNextKey(setting->virtual_keyboard_layout, index,
+		                                       dx ? dx : !dy, dy);
+	}
+	return 4 * VKEY_LAYOUT_COLS + 4; /* Space is available in every mode. */
+}
+
 // keyboard returns string length, or -1 when cancelled.
-int keyboard(char *out, int max)
+static int keyboardImpl(char *out, int max, int filename)
 {
 	int event, post_event = 0;
 	const int
@@ -161,7 +187,7 @@ int keyboard(char *out, int max)
 	const char *key_label;
 
 	if (keyboardOverride != NULL)
-		return keyboardOverride(out, max);
+		return keyboardOverride(out, max, filename);
 	p = strrchr(out, '.');
 	if (p == NULL)
 		cur = strlen(out);
@@ -178,6 +204,7 @@ int keyboard(char *out, int max)
 	key_grid_area_w = KEY_BACKING_GRID_W + KEY_COL_W;
 	KEY_GRID_X = key_grid_area_x + ((key_grid_area_w - key_grid_visible_w) / 2) - key_grid_first_col * KEY_COL_W;
 
+	sel = keyboardNextKey(sel, 0, 0, caps, filename);
 	event = 1;
 	while (1) {
 		waitPadReady(0, 0);
@@ -187,15 +214,15 @@ int keyboard(char *out, int max)
 			if (new_pad & PAD_UP) {
 				if (sel <= KEY_LAST) {
 					if (sel >= WFONTS)
-						sel = getVirtualKeyboardLayoutNextKey(setting->virtual_keyboard_layout, sel, 0, -1);
+						sel = keyboardNextKey(sel, 0, -1, caps, filename);
 					else if (sel < 5)
 						sel = KEY_OK;
 					else
 						sel = KEY_CANCEL;
 				} else if (sel == KEY_OK)
-					sel = getVirtualKeyboardLayoutNextKey(setting->virtual_keyboard_layout, WFONTS * (HFONTS - 1), 0, 0);
+					sel = keyboardNextKey(WFONTS * (HFONTS - 1), 0, 0, caps, filename);
 				else
-					sel = getVirtualKeyboardLayoutNextKey(setting->virtual_keyboard_layout, KEY_LAST, 0, 0);
+					sel = keyboardNextKey(KEY_LAST, 0, 0, caps, filename);
 			} else if (new_pad & PAD_DOWN) {
 				if (sel <= KEY_LAST) {
 					if (sel / WFONTS == HFONTS - 1) {
@@ -204,21 +231,21 @@ int keyboard(char *out, int max)
 						else
 							sel = KEY_CANCEL;
 					} else if (sel / WFONTS <= HFONTS - 2)
-						sel = getVirtualKeyboardLayoutNextKey(setting->virtual_keyboard_layout, sel, 0, 1);
+						sel = keyboardNextKey(sel, 0, 1, caps, filename);
 				} else if (sel == KEY_OK)
-					sel = getVirtualKeyboardLayoutNextKey(setting->virtual_keyboard_layout, 0, 0, 0);
+					sel = keyboardNextKey(0, 0, 0, caps, filename);
 				else
-					sel = getVirtualKeyboardLayoutNextKey(setting->virtual_keyboard_layout, WFONTS - 1, 0, 0);
+					sel = keyboardNextKey(WFONTS - 1, 0, 0, caps, filename);
 			} else if (new_pad & PAD_LEFT) {
 				if (sel <= KEY_LAST) {
-					sel = getVirtualKeyboardLayoutNextKey(setting->virtual_keyboard_layout, sel, -1, 0);
+					sel = keyboardNextKey(sel, -1, 0, caps, filename);
 				} else if (sel == KEY_OK)
 					sel = KEY_CANCEL;
 				else
 					sel = KEY_OK;
 			} else if (new_pad & PAD_RIGHT) {
 				if (sel <= KEY_LAST) {
-					sel = getVirtualKeyboardLayoutNextKey(setting->virtual_keyboard_layout, sel, 1, 0);
+					sel = keyboardNextKey(sel, 1, 0, caps, filename);
 				} else if (sel == KEY_OK)
 					sel = KEY_CANCEL;
 				else
@@ -243,9 +270,11 @@ int keyboard(char *out, int max)
 				}
 			} else if (new_pad & PAD_SQUARE) {
 				caps = !caps;
+				if (sel <= KEY_LAST)
+					sel = keyboardNextKey(sel, 0, 0, caps, filename);
 			} else if ((swapKeys && new_pad & PAD_CROSS) || (!swapKeys && new_pad & PAD_CIRCLE)) {
 				i = strlen(out);
-				if (sel <= KEY_LAST && isVirtualKeyboardLayoutKey(setting->virtual_keyboard_layout, sel)) {
+				if (sel <= KEY_LAST && keyboardIsKey(sel, caps, filename)) {
 					if (i < max && i < 33) {
 						strcpy(tmp, out);
 						out[cur] = getVirtualKeyboardLayoutChar(setting->virtual_keyboard_layout, sel, caps);
@@ -305,7 +334,7 @@ int keyboard(char *out, int max)
 					break;
 				} else {
 					i = strlen(out);
-					if (i < max && i < 33) {
+					if (i < max && i < 33 && (!filename || (KeyPress != '/' && KeyPress != '\\'))) {
 						strcpy(tmp, out);
 						out[cur] = KeyPress;
 						out[cur + 1] = 0;
@@ -341,7 +370,7 @@ int keyboard(char *out, int max)
 				             KEY_Y + LINE_THICKNESS + 2 + (FONT_HEIGHT - 2) - 1);
 			}
 			for (i = 0; i < KEY_LEN; i++) {
-				if (!isVirtualKeyboardLayoutKey(setting->virtual_keyboard_layout, i))
+				if (!keyboardIsKey(i, caps, filename))
 					continue;
 				x = KEY_GRID_X + (i % WFONTS) * KEY_COL_W;
 				y = KEY_Y + LINE_THICKNESS + 1 + FONT_HEIGHT + 1 + LINE_THICKNESS + 8 + (i / WFONTS) * FONT_HEIGHT;
@@ -403,4 +432,14 @@ int keyboard(char *out, int max)
 		event = 0;
 	}
 	return strlen(out);
+}
+
+int keyboard(char *out, int max)
+{
+	return keyboardImpl(out, max, 0);
+}
+
+int filenameKeyboard(char *out, int max)
+{
+	return keyboardImpl(out, max, 1);
 }

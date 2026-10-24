@@ -482,7 +482,7 @@ void dashToolsPrepareMmceStatus(void)
 
 	/* Entering the MMCE management page is an explicit request for live
 	 * status. Start the stack on demand here rather than leaving useful
-	 * fields at "Not checked" merely because MMCE auto-start is disabled. */
+	 * fields at "Not checked" before the first on-demand MMCE operation. */
 	if (dashCfg.igr_backup_path[0] != '\0' && !loaded) {
 		if (mmce_status_job && !dashWorkerAwaitAll("Finishing previous MMCE status check"))
 			return;
@@ -1371,7 +1371,7 @@ void dashToolsCloudBackup(void)
 #endif
 
 /* Explicit hardware diagnostic for two connected USB drives. Never called by
- * startup/device auto-probe and never modifies global USB mount discovery.
+ * normal device discovery and never modifies global USB mount discovery.
  * A wedged IOP fileXio RPC cannot be cancelled; warn before every probe. */
 static void dashToolsUsbUnitDiagnostics(void)
 {
@@ -1459,7 +1459,7 @@ static void runTool(const Tool *t)
 			dashRunMisc((const char *)setting + t->misc_offset);
 			break;
 		case TA_BROWSER:
-			dashOpenBrowser("");
+			dashNavigateFilesTab(NULL);
 			break;
 		case TA_BROWSER_AT:
 			dashOpenBrowser(t->path ? t->path : "");

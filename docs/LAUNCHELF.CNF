@@ -345,7 +345,7 @@ EMBER_DIR =
 # A complete install needs a valid neutrino.elf plus config/system.toml
 # (legacy system.toml beside the ELF is also accepted), matching RiptOPL's
 # current Neutrino install probing.
-# Supported ISO source backends are USB/mass, MX4SIO, MMCE, iLink,
+# Supported ISO source backends are USB/mass, MX4SIO, MMCE,
 # ATA/exFAT and UDPFS. The launcher preserves the live IOP/device stack,
 # passes -bsd, the full -dvd path, -qb, and an automatic -cwd.
 # ----------------------------------------------------------------------

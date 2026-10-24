@@ -1,5 +1,6 @@
 """Navigation wrap-around contracts for dashboard list controllers (#189)."""
 from pathlib import Path
+import re
 
 root = Path(__file__).resolve().parents[1]
 
@@ -100,6 +101,7 @@ static int sel, norder;
 static float sel_anim, grid_cam;
 static void dashUiFocusPoke(void) {}
 """
+code = re.sub(r"^#define FB_ROWS \d+$", re.search(r"^#define FB_ROWS \d+$", browser, re.M).group(0), code, flags=re.M)
 code += function(browser, "static int wrapIndex(") + "\n"
 code += function(browser, "static int pageIndex(") + "\n"
 code += function(browser, "static void revealSelection(") + "\n"
@@ -137,8 +139,9 @@ int main(void) {
  for(int n=0;n<=127;n++) {
   DashInput left={DASH_IN_LEFT}, right={DASH_IN_RIGHT};
   for(int i=0;i<n;i++) {
-   assert(pickerMove(i,n,left)==pageIndex(i,n,-1));
-   assert(pickerMove(i,n,right)==pageIndex(i,n,1));
+   /* The separate path picker still pages ten rows; Files now pages eleven. */
+   assert(pickerMove(i,n,left)==(i==0?n-1:(i<10?0:i-10)));
+   assert(pickerMove(i,n,right)==(i==n-1?0:(i+10>=n?n-1:i+10)));
    assert(pickerMove(i,n,up)==(i?i-1:n-1));
    assert(pickerMove(i,n,down)==(i<n-1?i+1:0));
   }

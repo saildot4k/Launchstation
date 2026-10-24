@@ -25,6 +25,7 @@ typedef struct
 typedef struct
 {
 	int em;                        /* pixel size the face was rendered at */
+	int alpha_gamma100;            /* atlas alpha exponent, multiplied by 100 */
 	int ascent16, descent16;       /* 1/16 px */
 	int xheight16;                 /* 1/16 px */
 	int tex_w, tex_h;

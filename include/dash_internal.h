@@ -397,6 +397,8 @@ void dashTextScrollCenter(float cx, float y, float maxw, const char *s, float sc
 int dashTextWrap(float x, float y, float w, int max_lines, const char *s, float scale, DashColor c, float line_h);
 /* Legacy 8px monospace glyph (for the themed classic screens). */
 void dashFontLegacyChar(unsigned int c, int x, int y, u64 gs_color);
+/* Literal byte glyph with dashboard clipping, fade and modal offsets. */
+void dashFontByte(unsigned char c, float x, float y, DashColor color);
 GSTEXTURE *dashFontTexture(void);
 
 //--------------------------------------------------------------
@@ -534,15 +536,12 @@ typedef struct
 	int intro_done;
 	int sound;
 	int sound_vol;
-	char software_clock[24]; /* optional local seed; resumes saved time without RTC */
 	int bgm;
 	int bgm_vol;
 	int app_filter;
 	int files_mode;              /* 0 = Files list, 1 = Devices cards */
 	int home_shortcuts;          /* HOME quick-launch row */
 	int icon_backing;            /* control/quick-action backing shapes */
-	int show_unavailable_devices;/* include disconnected/probe-only device cards */
-	int dev_auto; /* DASH_DEVA_* bitmask: drivers to load at startup */
 	int mmce_backup_keep;   /* 0 = all, otherwise 1..99 */
 	int mmce_backup_format; /* MMCE_BACKUP_FORMAT_* */
 	int igr_auto_backup;    /* run MMCE backup when entered through WLE-IGR */
@@ -553,16 +552,6 @@ typedef struct
 	int nscan;
 	char scan[DASH_MAX_SCAN][DASH_PATH_MAX];
 } DashSettings;
-
-/* per-device "auto-start at dashboard startup" bits (dev_auto) */
-#define DASH_DEVA_USB    (1 << 0)
-#define DASH_DEVA_HDD    (1 << 1)
-#define DASH_DEVA_ATA    (1 << 2) /* exFAT */
-#define DASH_DEVA_MMCE   (1 << 3)
-#define DASH_DEVA_MX4SIO (1 << 4)
-#define DASH_DEVA_UDPFS  (1 << 5)
-#define DASH_DEVA_ILINK  (1 << 6)
-#define DASH_DEVA_ALL    0x7F
 
 extern DashSettings dashCfg;
 
@@ -738,16 +727,13 @@ typedef struct
 #define DASH_MAX_DEVICES 24
 void dashDevicesInit(void);
 void dashDevicesPoll(void);
-void dashDevicesAutoProbe(void);
 void dashDevicesResetBaseline(void);
-int dashBootDeviceBit(void);
 const char *dashDeviceDisplayMount(const DashDevice *d, char *buf, int size);
 int dashDevicesList(DashDevice *out, int max);
 /* Starts a device's drivers (UI thread, loading overlay); `cb` is called
  * with ok = device usable. -1 = the user backed out of the wait. */
 typedef void (*DashProbeDone)(const char *mount, int ok, void *user);
 int dashDevicesStart(const DashDevice *dev, DashProbeDone cb, void *user);
-void dashDevicesAutoStart(void);                 /* auto-start devices that are off */
 void dashDevicesStartForPath(const char *path);  /* driver for a path's device */
 const char *dashDiscStatus(void);
 int dashMcPresent(int port);
@@ -845,9 +831,25 @@ void dashModalPanel(float x, float y, float w, float h, float k);
 void dashModalHintRow(float x, float y, int ok_icon, const char *ok, int back_icon, const char *back);
 float dashDrawButton(float x, float y, int icon, const char *key);
 
+/* Shared native keyboard for the editor and single-line naming dialogs. */
+enum { DASH_KB_DELETE = -1 };
+typedef struct
+{
+	int layout, selected, action, caps, page;
+	int single_line; /* text prompts expose only the Symbols action */
+	int filename; /* names omit actions and path separator keys */
+} DashKeyboard;
+
+void dashKeyboardInit(DashKeyboard *kb, int layout);
+void dashKeyboardMove(DashKeyboard *kb, int dx, int dy);
+int dashKeyboardPress(DashKeyboard *kb); /* byte, DASH_KB_DELETE, or 0 */
+void dashKeyboardDraw(const DashKeyboard *kb, float center_x, float y0);
+
 /* Native text entry (dash_widgets.c): the user's virtual keyboard layout,
  * USB keyboard typing. Edits `buf` in place; 1 = accepted, 0 = cancelled. */
 int dashModalKeyboard(const char *title, char *buf, int max_len);
+/* File/folder name entry: no Symbols switcher or path separators. */
+int dashModalFilename(const char *title, char *buf, int max_len);
 /* IPv4 editor for "a.b.c.d" strings; 1 = changed/accepted, 0 = cancelled. */
 int dashModalIp(const char *title, const char *help, char *ip_str, int size);
 
