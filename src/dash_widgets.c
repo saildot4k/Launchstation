@@ -602,6 +602,27 @@ void dashClassicUiDone(void)
 	classicProgress(NULL);
 }
 
+/* Shared by the Files browser and the file/folder picker. */
+void dashDrawDeviceRow(const DashDevice *d, float x, float y, float w, int selected)
+{
+	const float description_x = x + w * 0.5f;
+	DashColor color = dashItemColor(selected);
+	char mount[24];
+	const char *description = filerRootDeviceDescription(d->mount[0] ? d->mount : d->browse);
+
+	if (description == NULL)
+		description = d->name;
+	if (d->state != DASH_DEV_READY && !selected)
+		color = DASH_C_TEXT3;
+	dashIcon(d->icon, x + 10, y + 2, 16, color);
+	dashTextFit(x + 36, y, description_x - (x + 36) - 16,
+	            dashDeviceDisplayMount(d, mount, sizeof(mount)), DASH_FS_SMALL, color);
+	if (selected)
+		dashTextScroll(description_x, y, x + w - description_x - 18, description, DASH_FS_SMALL, color);
+	else
+		dashTextFit(description_x, y, x + w - description_x - 18, description, DASH_FS_SMALL, color);
+}
+
 //--------------------------------------------------------------
 // IPv4 address editor: four octets, D-pad to pick and change them.
 //--------------------------------------------------------------
@@ -1122,16 +1143,11 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 				float ry = ly + (i - top) * row_h;
 				DashColor c = dashItemColor(i == sel);
 				int icon;
-				const char *label, *detail = NULL;
-				char display_mount[24];
+				const char *label;
 
 				if (pk.dir[0] == '\0') {
-					DashDevice *d = &pk.devs[i];
-					icon = d->icon;
-					label = d->name;
-					detail = dashDeviceDisplayMount(d, display_mount, sizeof(display_mount));
-					if (d->state != DASH_DEV_READY && i != sel)
-						c = DASH_C_TEXT3;
+					dashDrawDeviceRow(&pk.devs[i], lx, ry + 1.0f, lw, i == sel);
+					continue;
 				} else if (has_use && i == 0) {
 					icon = DI_CHECK;
 					label = "Use this folder";
@@ -1144,9 +1160,7 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 					label = getMiscEntryDisplayName(pk.dir, e->name);
 				}
 				dashIcon(icon, lx + 10, ry + 3, 16, c);
-				dashTextFit(lx + 36, ry + 1.0f, lw - 60 - (detail ? 130 : 0), label, DASH_FS_SMALL, c);
-				if (detail)
-					dashTextRight(lx + lw - 12, ry + 1.5f, detail, DASH_FS_CAPTION, DASH_C_TEXT3);
+				dashTextFit(lx + 36, ry + 1.0f, lw - 60, label, DASH_FS_SMALL, c);
 			}
 			dashGfxScissorReset();
 			if (pk.loading || pk.starting) {

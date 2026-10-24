@@ -393,23 +393,7 @@ static void openDir(const char *dir, const char *select)
 		dashStrCopy(fb.want_sel, select, sizeof(fb.want_sel));
 	dashStrCopy(fb.dir, dir, sizeof(fb.dir));
 	if (dir[0] == '\0') {
-		fb.ndevs = dashDevicesList(fb.devs, DASH_MAX_DEVICES - 3);
-		/* memory card images mounted from the menu */
-		{
-			int v;
-			for (v = 0; v < 2; v++) {
-				DashDevice *d;
-				if (!vmcMounted[v])
-					continue;
-				d = &fb.devs[fb.ndevs++];
-				memset(d, 0, sizeof(*d));
-				d->icon = DI_MC;
-				d->state = DASH_DEV_READY;
-				snprintf(d->name, sizeof(d->name), "Memory card image %d", v);
-				snprintf(d->browse, sizeof(d->browse), "vmc%d:/", v);
-				dashStrCopy(d->status, "VMC", sizeof(d->status));
-			}
-		}
+		fb.ndevs = dashDevicesList(fb.devs, DASH_MAX_DEVICES - 1);
 		/* the built-in commands, like the classic device list */
 		if (setting->Misc[0] && !fb_tab_active) {
 			DashDevice *d = &fb.devs[fb.ndevs++];
@@ -2661,18 +2645,7 @@ static void browserDrawBody(void)
 		DashColor col = dashItemColor(i == fb.sel);
 
 		if (fb.dir[0] == '\0') {
-			DashDevice *d = &fb.devs[i];
-			char device_label[112], mount[24];
-			snprintf(device_label, sizeof(device_label), "%s  (%s)", d->name,
-			         dashDeviceDisplayMount(d, mount, sizeof(mount)));
-			const char *name = device_label;
-			if (d->state != DASH_DEV_READY && i != fb.sel)
-				col = DASH_C_TEXT3;
-			dashIcon(d->icon, FB_X + 10, y + 2, 16, col);
-			if (i == fb.sel)
-				dashTextScroll(FB_X + 36, y, FB_W - 54, name, DASH_FS_SMALL, col);
-			else
-				dashTextFit(FB_X + 36, y, FB_W - 54, name, DASH_FS_SMALL, col);
+			dashDrawDeviceRow(&fb.devs[i], FB_X, y, FB_W, i == fb.sel);
 		} else {
 			FILEINFO *f = &fb.files[i];
 			char sz[24], date[40], label[MAX_NAME + 8];

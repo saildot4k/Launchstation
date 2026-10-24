@@ -55,8 +55,8 @@ assert "((u64)stat.hisize << 32) | (u64)stat.size" in actions_c
 assert "isPcCardCfPath(path) && !isPcCardCfOnline()" in actions_c
 
 # Check filer_browser.c root label mapping, title.cfg, and menu disables
-assert 'if (!strcmp(name, "cf:") || !strcmp(name, "cf0:"))' in browser_c
-assert 'return "PC CARD CF (cf:/)";' in browser_c
+assert '{"cf:", "PC CARD CF"}' in browser_c
+assert '{"cf0:", "PC CARD CF"}' in browser_c
 assert 'isPcCardCfPath(path)' in browser_c
 assert 'enable[LAUNCH_ELF_ARGS] = FALSE;' in browser_c
 

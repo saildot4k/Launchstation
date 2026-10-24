@@ -724,11 +724,13 @@ typedef struct
 	float fill; /* 0..1 used space, <0 unknown */
 } DashDevice;
 
-#define DASH_MAX_DEVICES 24
+#define DASH_MAX_DEVICES 32
 void dashDevicesInit(void);
 void dashDevicesPoll(void);
 void dashDevicesResetBaseline(void);
 const char *dashDeviceDisplayMount(const DashDevice *d, char *buf, int size);
+/* Browser device rows: mount and description in two left-aligned columns. */
+void dashDrawDeviceRow(const DashDevice *d, float x, float y, float w, int selected);
 int dashDevicesList(DashDevice *out, int max);
 /* Starts a device's drivers (UI thread, loading overlay); `cb` is called
  * with ok = device usable. -1 = the user backed out of the wait. */

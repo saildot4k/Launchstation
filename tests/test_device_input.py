@@ -141,13 +141,16 @@ int main(void) {
 devices = read("src/dash_devices.c")
 device_types = header[header.index("enum DashDevState"):
                       header.index("void dashDevicesInit(void)")]
-symbols = sorted(set(re.findall(r"\b(?:DI_|DASH_SND_|SCECd)\w+", devices)))
+symbols = sorted(set(re.findall(r"\b(?:DI_|DASH_SND_|SCECd)\w+", devices)) | {"DI_TOOLS"})
 devcode = common + device_types + "enum { " + ",".join(symbols) + " };\n"
 devcode += r"""
 #define MMCE 1
 #define MX4SIO 1
 #define EXFAT 1
 #define UDPFS 1
+#define ETH 1
+#define XFROM 1
+#define DVRP 1
 typedef void (*DashProbeDone)(const char *,int,void *);
 static unsigned int reset_generation;
 static int cdmode, uLE_cdmode, vmcMounted[2], console_is_PSX;
@@ -183,13 +186,19 @@ static int loadAtaModules(void) { return load(S_ATA); }
 static int loadMx4sioModules(void) { usb_snapshot_valid=0; return load(S_MX); }
 static int loadMmceModules(void) { return load(S_MMCE0|S_MMCE1); }
 static int load_udpfs(void) { return load(S_UDPFS); }
+static int loadFlashModules(void) { return 1; }
+static int loadDVRPHddModules(void) { return 1; }
 #define MMCE_CMD_PING 1
 static int fileXioDevctl(const char *p,int cmd,void *arg,int len,void *out,int size) {
     assert(cmd==MMCE_CMD_PING && !arg && len==0 && !out && size==0);
     return (media & slot(p)) ? 0x100 : -1;
 }
+static int absent_hdd_units, absent_ata_units;
+static char last_open[32];
 static int fileXioDopen(const char *p) {
-    opens++; int s=slot(p);
+    opens++; int s=slot(p);snprintf(last_open,sizeof(last_open),"%s",p);
+    if(s==S_HDD && (absent_hdd_units & (1 << (p[3]=='1')))) return -1;
+    if(s==S_ATA && (absent_ata_units & (1 << (p[3]=='1')))) return -1;
     return (media&s) && (s!=S_ATA || now_ms>=delayed_ata)?0:-1;
 }
 static void fileXioDclose(int dd) { assert(dd==0); closes++; }
@@ -233,13 +242,26 @@ static int boot_show_all_devices = 0;
 static int boot_safe_mode = 0;
 static int isPcCardCfPath(const char *p) { return p && !strncmp(p, "cf", 2); }
 static int isPcCardCfOnline(void) { return 0; }
-static int isPcCardCfEligible(void) { return 0; }
+static int cf_eligible;
+static int isPcCardCfEligible(void) { return cf_eligible; }
 static int isPcCardCfBusBusy(void) { return 0; }
 static int isPcCardCfLoaded(void) { return 0; }
 static int getPcCardCfCapacitySectors(u32 *s) { (void)s; return -1; }
 static int loadPcCardCfModules(void) { return 0; }
 """
 devcode += re.sub(r"^#include[^\n]*\n", "", devices, flags=re.M)
+# Compile the browser's real root-list assembly to catch duplicate VMCs and capacity loss.
+browser = read("src/dash_browser.c")
+a = browser.index('		fb.ndevs = dashDevicesList(')
+b = browser.index('\n\tif (isMisc(dir))', a)
+root_body = browser[a:b].rstrip()
+assert root_body.endswith('}')
+devcode += r"""
+static struct { DashDevice devs[DASH_MAX_DEVICES];int ndevs,loading,sel; } fb;
+static struct { char Misc[24]; } cfg,*setting=&cfg;
+static int fb_tab_active;
+static void openRoot(const char *select) {
+""" + root_body[:-1] + "}\n"
 devcode += r"""
 static int state(const char *mount) {
     DashDevice ds[DASH_MAX_DEVICES]; int n=dashDevicesList(ds,DASH_MAX_DEVICES);
@@ -323,6 +345,30 @@ int main(void) {
     before=opens; before_loads=loads;
     assert(state("mx4sio:")==DASH_DEV_ABSENT); /* still listed after failure */
     assert(opens==before && loads==before_loads);
+    /* Disk units have separate probe results, and starting unit 1 probes unit 1. */
+    media=63;resident=0;reset_generation++;absent_hdd_units=1;absent_ata_units=2;
+    probe("hdd0:");assert(!result && state("hdd0:")==DASH_DEV_ABSENT);
+    probe("hdd1:");assert(result && !strcmp(last_open,"hdd1:") && state("hdd1:")==DASH_DEV_READY);
+    assert(state("hdd0:")==DASH_DEV_ABSENT);
+    probe("ata0:");assert(result && state("ata0:")==DASH_DEV_READY);
+    probe("ata1:");assert(!result && !strcmp(last_open,"ata1:/") && state("ata1:")==DASH_DEV_ABSENT);
+    assert(state("ata0:")==DASH_DEV_READY && state("hdd1:")==DASH_DEV_READY);
+    absent_hdd_units=absent_ata_units=0;resident=0;reset_generation++;
+    dashDevicesStartForPath("hdd1:/APPS/");assert(!strcmp(last_open,"hdd1:"));
+    dashDevicesStartForPath("ata1:/APPS/");assert(!strcmp(last_open,"ata1:/"));
+    /* Every supported root fits, including ten USB units, both VMCs and MISC. */
+    usb_loaded=usb_snapshot_valid=1;usb_mask=0x3ff;cf_eligible=boot_show_all_devices=1;
+    vmcMounted[0]=vmcMounted[1]=1;strcpy(setting->Misc,"MISC/");
+    before=opens;before_loads=loads;
+    for(int tab=0;tab<2;tab++) {
+        fb_tab_active=tab;openRoot("vmc1:/");
+        assert(fb.ndevs==28-tab && fb.ndevs<DASH_MAX_DEVICES);
+        assert(!strcmp(fb.devs[fb.sel].browse,"vmc1:/"));
+        for(int i=0;i<fb.ndevs;i++) for(int j=i+1;j<fb.ndevs;j++)
+            assert(strcmp(fb.devs[i].browse,fb.devs[j].browse));
+    }
+    assert(opens==before && loads==before_loads);
+    puts("PASS: both HDD units probe independently; every root fits without duplicate VMCs or enumeration IO");
     puts("PASS: driver-only/failed/empty/late roots, lazy device entries, MMCE units, reboot invalidation, boot source, no draw IO");
 }
 """

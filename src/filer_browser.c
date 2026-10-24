@@ -30,83 +30,62 @@ static int isGenericUsbRootPath(const char *path)
 	return (!strcmp(path, "usb:") || !strcmp(path, "usb:/"));
 }
 
-static const char *getUsbRootDeviceLabel(char unit)
+/* Shared browser descriptions; matching never probes or starts a device. */
+const char *filerRootDeviceDescription(const char *name)
 {
-	static char label[] = "usb0:/  USB Mass Storage";
+	static const struct { const char *mount, *description; } devices[] = {
+		{"mc0:", "Memory Card Slot 1"},
+		{"mc1:", "Memory Card Slot 2"},
+		{"mmce0:", "SD2PSX SD Card Slot 1"},
+		{"mmce1:", "SD2PSX SD Card Slot 2"},
+		{"mx4sio:", "MX4SIO SD Card"},
+		{"hdd0:", "APA HDD"},
+		{"hdd1:", "APA HDD 2"},
+		{"ata:", "exFAT HDD"},
+		{"ata0:", "exFAT HDD"},
+		{"ata1:", "exFAT HDD 2"},
+		{"cf:", "PC CARD CF"},
+		{"cf0:", "PC CARD CF"},
+		{"dvr_hdd0:", "PSX DVR"},
+		{"xfrom:", "PSX Internal Flash"},
+		{"xfrom0:", "PSX Internal Flash"},
+		{"cdfs:", "CDVD Drive"},
+		{"udpfs:", "UDPFS Network Server"},
+		{"host:", "PC Host Server"},
+		{"vmc0:", "Virtual Memory Card 1"},
+		{"vmc1:", "Virtual Memory Card 2"},
+	};
+	char mount[24];
+	size_t len;
+	unsigned int i;
 
-	if ((unit < '0') || (unit > '9'))
+	if (name == NULL)
 		return NULL;
-
-	label[3] = unit;
-	return label;
+	len = strlen(name);
+	if (len && name[len - 1] == '/')
+		len--;
+	if (len >= sizeof(mount))
+		return NULL;
+	memcpy(mount, name, len);
+	mount[len] = '\0';
+	for (i = 0; i < sizeof(devices) / sizeof(devices[0]); i++)
+		if (!strcmp(mount, devices[i].mount))
+			return devices[i].description;
+	if (!strcmp(mount, "usb:") || !strcmp(mount, "mass:") ||
+	    (!strncmp(mount, "usb", 3) && mount[3] >= '0' && mount[3] <= '9' && mount[4] == ':' && mount[5] == '\0') ||
+	    (!strncmp(mount, "mass", 4) && mount[4] >= '0' && mount[4] <= '9' && mount[5] == ':' && mount[6] == '\0'))
+		return "USB Storage";
+	if (!strcmp(mount, LNG(MISC)))
+		return "Built-in commands";
+	return NULL;
 }
 
-static const char *getRootDeviceLabel(const char *name)
+static void formatRootDeviceMountForDisplay(const char *name, char *out, int size)
 {
-	if (!strcmp(name, "mc0:"))
-		return "Memory card, Slot 1 (mc0:/)";
-	if (!strcmp(name, "mc1:"))
-		return "Memory card, Slot 2 (mc1:/)";
-	if (!strcmp(name, "mass:"))
-		return "usb:/  USB Mass Storage";
-	if (!strncmp(name, "mass", 4) && name[4] >= '0' && name[4] <= '9' && name[5] == ':' && name[6] == '\0')
-		return getUsbRootDeviceLabel(name[4]);
-	if (!strcmp(name, "usb:"))
-		return "usb:/  USB Mass Storage";
-	if (!strncmp(name, "usb", 3) && name[3] >= '0' && name[3] <= '9' && name[4] == ':' && name[5] == '\0')
-		return getUsbRootDeviceLabel(name[3]);
-#ifdef MMCE
-	if (!strcmp(name, "mmce0:"))
-		return "MMCE, Slot 1 (mmce0:/)";
-	if (!strcmp(name, "mmce1:"))
-		return "MMCE, Slot 2 (mmce1:/)";
-#endif
-#ifdef MX4SIO
-	if (!strcmp(name, "mx4sio:"))
-		return "MX4SIO SD Card (mx4sio:/)";
-#endif
-	if (!strcmp(name, "hdd0:"))
-		return "Internal HDD, APA (hdd0:/)";
-	if (!strcmp(name, "hdd1:"))
-		return "Internal HDD, APA (hdd1:/)";
-#ifdef EXFAT
-	if (!strcmp(name, "ata:"))
-		return "exFAT HDD (ata0:/)";
-	if (!strcmp(name, "ata0:"))
-		return "exFAT HDD (ata0:/)";
-	if (!strcmp(name, "ata1:"))
-		return "exFAT HDD (ata1:/)";
-	if (!strcmp(name, "cf:") || !strcmp(name, "cf0:"))
-		return "PC CARD CF (cf:/)";
-#endif
-	if (!strcmp(name, "cdfs:"))
-		return "Optical disc (cdfs:/)";
-#ifdef XFROM
-	if (!strcmp(name, "xfrom0:"))
-		return "PSX Flash (xfrom0:/)";
-	if (!strcmp(name, "xfrom:"))
-		return "PSX Flash (xfrom:/)";
-#endif
-#ifdef DVRP
-	if (!strcmp(name, "dvr_hdd0:"))
-		return "PSX DVR HDD (dvr_hdd0:/)";
-#endif
-#ifdef ETH
-	if (!strcmp(name, "host:"))
-		return "PS2Link host (host:/)";
-#endif
-#ifdef UDPFS
-	if (!strcmp(name, "udpfs:"))
-		return "UDP filesystem (udpfs:/)";
-#endif
-	if (!strcmp(name, "vmc0:"))
-		return "Memory card image 0 (vmc0:/)";
-	if (!strcmp(name, "vmc1:"))
-		return "Memory card image 1 (vmc1:/)";
-	if (!strcmp(name, LNG(MISC)))
-		return "Built-in commands (MISC/)";
+	size_t len = strlen(name);
 
-	return NULL;
+	if (!filerFormatUsbPathForDisplay(name, out, size))
+		snprintf(out, size, "%s%s", name, len && name[len - 1] == '/' ? "" : "/");
 }
 
 static void waitUntilTimer(u64 end_time)
@@ -1791,9 +1770,12 @@ int getFilePath(char *out, int cnfmode)
 			{
 				mcTitle = NULL;      //Assume that normal file/folder names are to be displayed
 				int name_limit = 0;  //Assume that no name length problems exist
+				const char *root_description = NULL;
 
 				if (top + i >= browser_nfiles)
 					break;
+				if (path[0] == '\0')
+					root_description = filerRootDeviceDescription(files[top + i].name);
 				if (isRootSpacerEntry(path, &files[top + i])) {
 					y += font_height;
 					continue;
@@ -1805,21 +1787,16 @@ int getFilePath(char *out, int cnfmode)
 				else
 					color = setting->color[COLOR_TEXT];
 
-				if (!strcmp(files[top + i].name, ".."))
+				if (root_description != NULL) {
+					formatRootDeviceMountForDisplay(files[top + i].name, tmp, sizeof(tmp));
+					name_limit = SCREEN_WIDTH / 2 - (x + 4) - 16;
+				} else if (!strcmp(files[top + i].name, ".."))
 					strcpy(tmp, "..");
 
 				else if (fileShowTitles() && files[top + i].title[0] != 0) {
 					mcTitle = files[top + i].title;
 				} else {  //Show normal file/folder names
-					const char *root_label;
-
-					root_label = NULL;
-					if (path[0] == 0)
-						root_label = getRootDeviceLabel(files[top + i].name);
-					if (root_label != NULL)
-						strcpy(tmp, root_label);
-					else
-						strcpy(tmp, getMiscEntryDisplayName(path, files[top + i].name));
+					strcpy(tmp, getMiscEntryDisplayName(path, files[top + i].name));
 					if (fileShowDetails()) {  //Does display mode include file details ?
 						name_limit = (details_column - 1) * FONT_WIDTH;
 					} else {  //Filenames are shown without file details
@@ -1843,7 +1820,9 @@ int getFilePath(char *out, int cnfmode)
 					printXY_sjis(mcTitle, x + 4, y, color, TRUE);
 				else
 					printXY(tmp, x + 4, y, color, TRUE, name_limit);
-				if (fileShowDetails()) {
+				if (root_description != NULL)
+					printXY(root_description, SCREEN_WIDTH / 2, y, color, TRUE, SCREEN_WIDTH / 2 - SCREEN_MARGIN);
+				if (fileShowDetails() && root_description == NULL) {
 					//					unsigned int size = files[top+i].stats.fileSizeByte;
 					u64 size = ((u64)files[top + i].stats.Reserve2 << 32) | files[top + i].stats.FileSizeByte;
 					int scale = 0;  //0==Bytes, 1==KBytes, 2==MBytes, 3==GB

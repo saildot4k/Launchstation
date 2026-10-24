@@ -49,6 +49,7 @@ jobs:
           python3 tests/test_settings_navigation.py
           python3 tests/test_navigation_wraparound.py
           python3 tests/test_device_handoff.py
+          python3 tests/test_browser_devices.py
           python3 tests/test_zack_feedback.py
           python3 tests/test_hardware_clock.py
           python3 tests/test_startup_status.py

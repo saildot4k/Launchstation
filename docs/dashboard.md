@@ -540,7 +540,7 @@ is skipped by navigation.
 
 ### Device names and ELF handoffs
 
-USB devices are named **USB Mass Storage** and display `usb:/`, `usb0:/`,
+USB devices in the browser are named **USB Storage** and display `usb:/`, `usb0:/`,
 `usb1:/` and so on. Current-folder paths use numbered `usbN:/` labels;
 legacy `mass:/` and `massN:/` aliases are formatted only for display.
 Ordinary ELF launches follow the fixed
@@ -557,4 +557,4 @@ their loader-specific arguments. The IOP reset option remains independent.
 
 Video mode changes require confirmation within **5 seconds**. Keep retains the mode in the current settings session; Cancel or timeout restores the previous mode and screen offsets. Settings are written only through the existing Save action. Physical-console timing and display compatibility still require testing.
 
-The native File Browser and path picker provide ten rows, centered scrolling, and endpoint-first Left/Right paging. A page that overshoots lands at the first/last item; the next press at that endpoint wraps. Device rows show friendly names and mount IDs, with USB displayed as USB Mass Storage and mass-style IDs. Diagnostic status remains in device tools and opening a device reports initialization/errors. MISC/Configure opens dashboard Settings while the dashboard owns the screen; its classic configuration behavior remains available outside the dashboard.
+The native File Browser provides eleven rows and the path picker ten, with centered scrolling and endpoint-first Left/Right paging. A page that overshoots lands at the first/last item; the next press at that endpoint wraps. USB entries appear immediately after Memory Card Slot 2. Device rows use two left-aligned columns: the browse path on the left and the device description on the right. Examples include `mc0:/` / Memory Card Slot 1, `mmce0:/` / SD2PSX SD Card Slot 1, and `usbN:/` / USB Storage. Both APA and exFAT HDD units are listed when enabled; mounted VMCs appear once each. PSX Internal Flash uses the driver’s `xfrom0:/` path. Diagnostic status remains in device tools and opening a device reports initialization/errors. MISC/Configure opens dashboard Settings while the dashboard owns the screen; its classic configuration behavior remains available outside the dashboard.

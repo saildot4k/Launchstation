@@ -22,7 +22,7 @@ extern int vmcMounted[2];
 
 /* Driver residency does not establish that a card, disk or server exists.
  * Cache explicit root checks; never do blocking device IO from drawing. */
-enum { PROBE_HDD, PROBE_ATA, PROBE_PCCF, PROBE_MX4SIO, PROBE_MMCE0, PROBE_MMCE1, PROBE_UDPFS };
+enum { PROBE_HDD, PROBE_HDD1, PROBE_ATA, PROBE_ATA1, PROBE_PCCF, PROBE_MX4SIO, PROBE_MMCE0, PROBE_MMCE1, PROBE_UDPFS };
 static u32 probe_checked, probe_present;
 static unsigned int probe_reset_generation = (unsigned int)-1;
 
@@ -35,7 +35,9 @@ static unsigned int probe_reset_generation = (unsigned int)-1;
 static int probeIndex(const char *mount)
 {
 	if (!strncmp(mount, "hdd0:", 5)) return PROBE_HDD;
+	if (!strncmp(mount, "hdd1:", 5)) return PROBE_HDD1;
 	if (!strncmp(mount, "ata0:", 5)) return PROBE_ATA;
+	if (!strncmp(mount, "ata1:", 5)) return PROBE_ATA1;
 	if (isPcCardCfPath(mount)) return PROBE_PCCF;
 	if (!strncmp(mount, "mx4sio", 6)) return PROBE_MX4SIO;
 	if (!strncmp(mount, "mmce", 4)) return mount[4] == '1' ? PROBE_MMCE1 : PROBE_MMCE0;
@@ -277,15 +279,18 @@ static void addStorage(DashDevice *out, int *n, int max, int icon,
 	    state == DASH_DEV_READY ? ready : state == DASH_DEV_ABSENT ? absent : "Not connected");
 }
 
-/* Keep human-readable mount labels for device panels and pickers. Only the
- * missing-device error modal suppresses these internal path identifiers. */
+/* Prefer the actual browse root and include the trailing slash for every device. */
 const char *dashDeviceDisplayMount(const DashDevice *d, char *buf, int size)
 {
-	if (d != NULL && d->icon == DI_USB) {
-		snprintf(buf, size, "%s", d->browse);
-		return buf;
-	}
-	return (d != NULL) ? (d->mount[0] ? d->mount : d->browse) : "";
+	const char *path;
+	size_t len;
+
+	if (d == NULL || buf == NULL || size <= 0)
+		return "";
+	path = d->browse[0] ? d->browse : d->mount;
+	len = strlen(path);
+	snprintf(buf, size, "%s%s", path, len && path[len - 1] == ':' ? "/" : "");
+	return buf;
 }
 
 int dashDevicesList(DashDevice *out, int max)
@@ -349,9 +354,15 @@ int dashDevicesList(DashDevice *out, int max)
 	if (filerShowHddUnit(0) && !console_is_PSX) {
 		addStorage(out, &n, max, DI_HDD, "Internal HDD (APA)", "hdd0:", "hdd0:/", "APA partitions", "No browsable APA storage found");
 	}
+	if (filerShowHddUnit(1) && !console_is_PSX) {
+		addStorage(out, &n, max, DI_HDD, "Internal HDD (APA) 2", "hdd1:", "hdd1:/", "APA partitions", "No browsable APA storage found");
+	}
 #ifdef EXFAT
 	if (filerShowAtaUnit(0) && !console_is_PSX) {
 		addStorage(out, &n, max, DI_HDD, "exFAT HDD", "ata0:", "ata0:/", "Ready", "No exFAT storage found");
+	}
+	if (filerShowAtaUnit(1) && !console_is_PSX) {
+		addStorage(out, &n, max, DI_HDD, "exFAT HDD 2", "ata1:", "ata1:/", "Ready", "No exFAT storage found");
 	}
 	if (isPcCardCfEligible() || boot_show_all_devices) {
 		if (!isPcCardCfEligible()) {
@@ -506,12 +517,12 @@ static int probeMount(const char *m)
 		ok = isUsbMassStackLoaded() && probeUsbMediaAnimated();
 	} else if (!strncmp(m, "hdd", 3)) {
 		ok = loadHddModules();
-		if (ok) ok = probeRoot("hdd0:", 0);
+		if (ok) ok = probeRoot(m[3] == '1' ? "hdd1:" : "hdd0:", 0);
 	}
 #ifdef EXFAT
 	else if (!strncmp(m, "ata", 3)) {
 		ok = loadAtaModules();
-		if (ok) ok = probeRoot("ata0:/", 2000);
+		if (ok) ok = probeRoot(m[3] == '1' ? "ata1:/" : "ata0:/", 2000);
 	}
 	else if (isPcCardCfPath(m)) {
 		ok = loadPcCardCfModules() && isPcCardCfOnline();
@@ -602,10 +613,10 @@ void dashDevicesStartForPath(const char *path)
 	if (!strncmp(path, "mass", 4) || !strncmp(path, "usb", 3))
 		mount = "usb:";
 	else if (!strncmp(path, "hdd", 3))
-		mount = "hdd0:";
+		mount = path[3] == '1' ? "hdd1:" : "hdd0:";
 #ifdef EXFAT
 	else if (!strncmp(path, "ata", 3))
-		mount = "ata0:";
+		mount = path[3] == '1' ? "ata1:" : "ata0:";
 	else if (isPcCardCfPath(path))
 		mount = "cf0:";
 #endif
