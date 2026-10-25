@@ -12,6 +12,7 @@ import tempfile
 root = Path(__file__).resolve().parents[1]
 filer = (root / "src/filer.c").read_text(encoding="utf-8")
 files = (root / "src/dash_files.c").read_text(encoding="utf-8")
+lib = (root / "src/dash_lib.c").read_text()
 devices = (root / "src/dash_devices.c").read_text(encoding="utf-8")
 
 
@@ -30,6 +31,32 @@ state = "\n".join(line for line in filer.splitlines()
 code = r'''
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <ctype.h>
+#define MAX_PATH 128
+#define MAX_NAME 64
+#define MAX_ENTRY 16
+#define DASH_PATH_MAX 128
+#define DASH_MAX_APPS 8
+#define DASH_MAX_SCAN 4
+#define SCAN_MAX_SUBDIRS 48
+#define DASH_APP_TRANSIENT 2
+#define MC_BROWSER_RETRY_COUNT 4
+#define MC_BROWSER_RETRY_DELAY_US 100000
+#define MX4SIO 1
+#define sceMcResSucceed 0
+#define sceMcResChangedCard -1
+#define sceMcResFailDetect -3
+#define sceMcFileAttrSubdir 0x20
+#define stricmp strcmp
+typedef struct { int AttrFile,FileSizeByte;char EntryName[32]; } sceMcTblGetDir;
+typedef struct { char name[MAX_NAME];sceMcTblGetDir stats; } FILEINFO;
+typedef struct { char path[DASH_PATH_MAX];int flags; } DashApp;
+static int mctype_PSx,time_valid,size_valid,mx4sio_loaded,card_result,changed_card;
+static int pending_result,dir_reads,prepared[2],retry_delays;
+static void ensureMemoryCardPortAccessible(int p) { assert(p!=1 || !mx4sio_loaded);prepared[p]++; }
+static void DelayThread(int us);
 #define TRUE 1
 #define FALSE 0
 typedef unsigned long long u64;
@@ -39,12 +66,20 @@ static int fail_port1_start, fail_port1_sync, pending_port = -1;
 static int mcGetInfo(int port, int slot, int *type, int *free, int *format) {
     (void)slot; (void)format;
     if (port == 1 && fail_port1_start) return -1;
-    *type = 2; *free = 4096; pending_port = port; return 0;
+    if(type)*type=2;if(free)*free=4096;pending_port=port;
+    pending_result=changed_card ? (changed_card--,-1) : card_result;return 0;
 }
 static int mcSync(int mode, int *cmd, int *result) {
     (void)mode; (void)cmd;
+    if(pending_port<0)return -1;
     if (pending_port == 1 && fail_port1_sync) { pending_port = -1; return -1; }
-    pending_port = -1; *result = 0; return 1;
+    pending_port = -1;if(result)*result=pending_result;return 1;
+}
+static void DelayThread(int us) { retry_delays++;now_ms+=us/1000; }
+static int mcGetDir(int p,int slot,const char *path,int mode,int max,sceMcTblGetDir *out) {
+    (void)slot;(void)mode;assert(max>0 && !strcmp(path,"/APPS/*"));
+    dir_reads++;memset(out,0,sizeof(*out));strcpy(out->EntryName,"BOOT.ELF");
+    out->FileSizeByte=4096;pending_port=p;pending_result=1;return 0;
 }
 static void DashStorageProbeStatus(const char *s) { (void)s; }
 #define DPRINTF(...) ((void)0)
@@ -55,6 +90,27 @@ code += function(filer, "static void rootMcPollFailed(")
 code += function(filer, "int pollRootMemoryCardDevices(")
 code += function(filer, "int filerRootMcPresent(")
 code += function(filer, "void filerRootMcPollIdle(void)\n{")
+code += function(filer, "static int waitMemoryCardReadyForBrowse(")
+code += function(filer, "int readMC(")
+code += lib[lib.index("typedef struct\n{\n\tDashApp *old;"):lib.index("#define SCAN_MAX_SUBDIRS")]
+job_end = lib.index("} ScanJob;") + len("} ScanJob;")
+job_start = lib.rfind("typedef struct", 0, job_end)
+code += lib[job_start:job_end] + "\n"
+code += r'''
+static void dashStrCopy(char *out,const char *in,int n) { snprintf(out,n,"%s",in); }
+static void dashWorkerStatus(const char *s,int done,int total) { (void)s;(void)done;(void)total; }
+static int isPathDeviceStackLoaded(const char *p) { return !strcmp(p,"mx4sio:/") && mx4sio_loaded; }
+static int genCmpFileExt(const char *p,const char *ext) { const char *dot=strrchr(p,'.');return dot && !strcmp(dot+1,ext); }
+static int wle_ascii_tolower(int c) { return tolower((unsigned char)c); }
+static int getDir(const char *p,FILEINFO *out) { return readMC(p,out,MAX_ENTRY); }
+static int titleCmp(const void *a,const void *b) { return strcmp(((const DashApp*)a)->path,((const DashApp*)b)->path); }
+static void scanAddElf(ScanCtx *sc,const char *dir,const char *name) {
+    assert(sc->nfresh<DASH_MAX_APPS);snprintf(sc->fresh[sc->nfresh++].path,DASH_PATH_MAX,"%s%s",dir,name);
+}
+'''
+for sig in ("static int isElfName(", "static void scanDir(", "static int cheapToScan(",
+            "static int prefixMatchNoCase(", "static int dirPrefixMatch(", "static void scanRun("):
+    code += function(lib, sig)
 code += r'''
 static void run(int steps) { int i; for (i = 0; i < steps; i++) { pollRootMemoryCardDevices(); now_ms += 600; } }
 int main(void) {
@@ -74,6 +130,36 @@ int main(void) {
     run(40);
     assert(filerRootMcPresent(0, NULL, NULL) == 1);
     assert(filerRootMcPresent(1, NULL, NULL) == 1); /* last known state kept */
+    /* Startup scans precede the first root-card poll. Read the real MC
+     * directory after the normal changed-card handshake and publish presence
+     * so the completed library is visible without a trip through Files. */
+    fail_port1_start=0;root_mc_polled[0]=root_mc_polled[1]=0;
+    root_mc_failures[0]=root_mc_failures[1]=0;root_mc_poll_active=0;
+    changed_card=1;ScanJob job;memset(&job,0,sizeof(job));
+    FILEINFO entries[MAX_ENTRY];DashApp fresh[DASH_MAX_APPS];memset(fresh,0,sizeof(fresh));
+    job.sc.files=entries;job.sc.fresh=fresh;job.ndirs=2;
+    strcpy(job.dirs[0],"mc0:/APPS/");strcpy(job.dirs[1],"usb0:/APPS/");
+    assert(filerRootMcPresent(0,NULL,NULL)==-1);scanRun(&job);
+    assert(job.ok && job.sc.nfresh==1 && dir_reads==1 && prepared[0]==1);
+    assert(!strcmp(fresh[0].path,"mc0:/APPS/BOOT.ELF"));
+    assert(filerRootMcPresent(0,NULL,NULL)==1 && root_mc_known_type[0]==2);
+    assert(!root_mc_failures[0] && !changed_card && retry_delays==1);
+
+    /* Draining an in-flight status request precedes an ordinary browser read. */
+    root_mc_poll_active=1;root_mc_poll_port=0;root_mc_poll_type=2;root_mc_poll_free=4096;
+    pending_port=0;pending_result=0;
+    assert(readMC("mc0:/APPS/",entries,MAX_ENTRY)==1 && !root_mc_poll_active);
+    assert(root_mc_known_free[0]==4096); /* browsing keeps valid free-space data */
+
+    /* A known absent card stays skipped; cold slot 2 must not reset an active
+     * MX4SIO session from the directory worker. Other drivers stay unloaded. */
+    int before=dir_reads;root_mc_polled[0]=1;root_mc_present[0]=0;
+    job.sc.nfresh=0;scanRun(&job);assert(!job.sc.nfresh && dir_reads==before);
+    mx4sio_loaded=1;strcpy(job.dirs[0],"mc1:/APPS/");
+    scanRun(&job);assert(!job.sc.nfresh && dir_reads==before && !prepared[1]);
+    mx4sio_loaded=0;card_result=sceMcResFailDetect;
+    scanRun(&job);assert(!job.sc.nfresh && filerRootMcPresent(1,NULL,NULL)<0);
+    puts("PASS: cold MC startup scan resolves presence, browser handshake/drain, absent cards, lazy USB and MX4SIO ownership");
     puts("PASS: an unresponsive memory-card slot cannot starve the other or stay Checking forever");
     return 0;
 }

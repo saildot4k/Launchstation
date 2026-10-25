@@ -306,6 +306,15 @@ static void appsMenu(void)
 }
 
 //--------------------------------------------------------------
+void dashAppsShowAll(void)
+{
+	/* Startup's Applications destination is the full library. Do not rewrite
+	 * the filter saved for ordinary visits through Home. */
+	filter = FILTER_ALL;
+	dashAppsRebuildView();
+	sel_anim = (float)sel;
+}
+
 static void appsEnter(void)
 {
 	filter = dashCfg.app_filter;
@@ -635,12 +644,18 @@ static void appsDraw(void)
 {
 	drawTitleBar();
 	if (norder == 0) {
-		if (dashAppCount == 0)
+		if (dashLibScanRunning())
+			dashDrawEmptyState(320, 238, DI_APPS, "Looking for applications...",
+			                   "Your application folders are being scanned.");
+		else if (dashAppCount == 0)
 			dashDrawEmptyState(320, 238, DI_APPS, "No applications found",
 				                   "Add a folder in Settings > Home & applications > Application library, or browse to an ELF in File Browser. "
 			                   "Press the confirm button to scan now.");
+		else if (filter == FILTER_ALL)
+			dashDrawEmptyState(320, 238, DI_APPS, "Application devices not ready",
+			                   "Open the device in Files, or press the confirm button to scan your application folders.");
 		else
-			dashDrawEmptyState(320, 238, DI_STAR, filter == FILTER_FAV ? "No favorites yet" : "Nothing to show",
+			dashDrawEmptyState(320, 238, filter == FILTER_FAV ? DI_STAR : DI_APPS, filter == FILTER_FAV ? "No favorites yet" : "Nothing to show",
 			                   filter == FILTER_FAV ? "Press Square on an application to add it to Favorites. Press SELECT to show all."
 			                                        : "No applications match this filter. Press SELECT to show all.");
 		return;
@@ -665,6 +680,8 @@ static void appsHints(void)
 	if (norder == 0) {
 		h[n].button = dashOkIcon(), h[n].key = NULL, h[n].label = "Scan now", n++;
 		h[n].button = DI_BTN_TRIANGLE, h[n].key = NULL, h[n].label = "Options", n++;
+		if (filter != FILTER_ALL)
+			h[n].button = -1, h[n].key = "SELECT", h[n].label = "All apps", n++;
 	} else {
 		h[n].button = dashOkIcon(), h[n].key = NULL, h[n].label = "Start", n++;
 		h[n].button = DI_BTN_SQUARE, h[n].key = NULL, h[n].label = "Favorite", n++;

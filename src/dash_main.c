@@ -681,6 +681,11 @@ static int dashboard_action = -1;
 static int dashboard_menu_open;
 static int dashboard_leave_guard;
 
+int dashDashboardMenuIsOpen(void)
+{
+	return dashboard_menu_open;
+}
+
 int dashDashboardPending(void)
 {
 	return dashboard_action >= 0 && !dashboard_leave_guard;
@@ -1177,8 +1182,10 @@ void DashRun(const MainExecuteContext *ctx, int from_boot)
 	if (screens[section]->enter)
 		screens[section]->enter();
 	dashAppsRebuildView();
-	if (section == DASH_SEC_HOME && dashCfg.start_section == DASH_SEC_APPS)
+	if (section == DASH_SEC_HOME && dashCfg.start_section == DASH_SEC_APPS) {
 		dashHomeOpenApplications();
+		dashAppsShowAll();
+	}
 	dashInputFlush();
 	/* Include the initial Files/Devices entry in startup presentation.
 	 * Runtime/manual device actions restore detailed feedback. */

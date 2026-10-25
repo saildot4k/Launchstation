@@ -943,9 +943,11 @@ const char *dashSectionName(int section);
 int dashSectionIcon(int section);
 void dashSwitchSection(int section);
 int dashConfirmLeave(void); /* asks the current section; 0 = stay */
-/* START opens Dashboard from any native screen. Actions wait for blocking
- * tools/dialogs to unwind; editor leave confirmation can cancel navigation. */
+/* START opens Dashboard from any native screen and closes it when open.
+ * Actions wait for blocking tools/dialogs to unwind; editor leave confirmation
+ * can cancel navigation. */
 void dashDashboardMenu(void);
+int dashDashboardMenuIsOpen(void);
 int dashDashboardPending(void);
 int dashDashboardConfirmLeave(int (*leave)(void));
 int dashCurrentSection(void);
@@ -1030,6 +1032,7 @@ void dashFilesPoll(void);
 /* Home/Apps shared helpers. */
 int dashAppsVisibleCount(void);
 void dashAppsRebuildView(void);
+void dashAppsShowAll(void);
 void dashAppsFocusPath(const char *path);
 
 /* Legacy integration hooks (draw.c). */

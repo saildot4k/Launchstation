@@ -705,8 +705,14 @@ static void scanDir(ScanCtx *sc, const char *dir, int depth)
  * without side effects. Anything else waits for an explicit scan. */
 static int cheapToScan(const char *dir)
 {
-	if (!strncmp(dir, "mc", 2))
+	if (!strncmp(dir, "mc", 2)) {
+#ifdef MX4SIO
+		/* A background scan cannot reset the IOP to reclaim slot 2. */
+		if (!strncmp(dir, "mc1:", 4) && isPathDeviceStackLoaded("mx4sio:/"))
+			return 0;
+#endif
 		return 1;
+	}
 	return isPathDeviceStackLoaded(dir);
 }
 
@@ -762,7 +768,11 @@ static void scanRun(void *arg)
 		 * (dashRescanLibrary does it first for a full refresh) */
 		if (!cheapToScan(j->dirs[i]))
 			continue;
-		if (!strncmp(j->dirs[i], "mc", 2) && !dashMcPresent(j->dirs[i][2] - '0'))
+		/* A cold card has not had its asynchronous presence poll yet. Let
+		 * readMC perform the same readiness handshake as browsing it; only
+		 * skip a card whose absence is already confirmed. */
+		if (!strncmp(j->dirs[i], "mc", 2) &&
+		    filerRootMcPresent(j->dirs[i][2] - '0', NULL, NULL) == 0)
 			continue;
 		scanDir(sc, j->dirs[i], 0);
 		dashStrCopy(scanned[nscanned++], j->dirs[i], DASH_PATH_MAX);

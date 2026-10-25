@@ -90,9 +90,15 @@ void dashInputPollEx(DashInput *in, int usb_kb_as_pad)
 		last_input_ms = Timer();
 	if (in->pressed & DASH_IN_START) {
 		/* Consume the entire chord: START cannot also type, accept a dialog
-		 * or trigger a SELECT launch key after the Dashboard popup closes. */
-		dashDashboardMenu();
+		 * or trigger a SELECT launch key after the Dashboard popup closes.
+		 * A second press cancels only the open Dashboard through normal Back. */
 		memset(in, 0, sizeof(*in));
+		if (dashDashboardMenuIsOpen()) {
+			in->pressed = DASH_IN_BACK;
+			in->any = 1;
+		} else {
+			dashDashboardMenu();
+		}
 	}
 }
 

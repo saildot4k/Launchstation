@@ -81,9 +81,9 @@ the Files tab. The popup closes before the selected command runs.
 | TOOLS | MISC commands, storage/device utilities, application and disc launch helpers, information and power commands. |
 | SETTINGS | Appearance, Home & applications, Sound, Input, Launching, Storage & devices, Network and System; unchanged save/discard behavior. |
 
-Startup can now select any of the four tabs, including Files. Older startup
-values pointing to the separate Apps page still open Home, and the old
-Devices page points to Files; no app metadata or favorites are rewritten.
+Start screen offers Home, Applications, Files, Tools and Settings.
+Applications opens the full library under Home with All selected. The old
+Devices startup value still opens Files.
 
 On HOME and the DEVICES grid, a small console label uses the ROM region already
 read at boot. It does not probe hardware while drawing. The DEVICES grid's
@@ -224,7 +224,7 @@ Input > Confirm button), as the classic browser did.
 | Square | Add to / remove from Favorites |
 | L1 / R1 | Previous / next section |
 | L2 / R2 | Page jump |
-| START | Dashboard menu (home, refresh library, File Browser, settings, reboot IOP, power off) |
+| START | Open / close the Dashboard menu (home, refresh library, File Browser, settings, reboot IOP, power off) |
 | SELECT | Tap: switch application view (APPS). Hold: your launch keys appear; press a button to start its application |
 
 Legacy boot behaviour is kept: `Init_Delay` is honoured,

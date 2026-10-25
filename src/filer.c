@@ -338,6 +338,7 @@ int readMC(const char *path, FILEINFO *info, int max)
 	if (port < 0 || port > 1)
 		return 0;
 
+	filerRootMcPollIdle();
 	ensureMemoryCardPortAccessible(port);
 
 	ret = waitMemoryCardReadyForBrowse(port);
@@ -346,6 +347,14 @@ int readMC(const char *path, FILEINFO *info, int max)
 	size_valid = 1;
 	if (ret != sceMcResSucceed)
 		return 0;
+	/* A successful read also resolves the dashboard's cold-card state.
+	 * Startup library scans can reach here before the periodic root poll. */
+	if (!root_mc_polled[port] || !root_mc_present[port] || root_mc_known_type[port] != mctype_PSx)
+		root_mc_known_free[port] = -1; /* the next root poll supplies free space */
+	root_mc_present[port] = 1;
+	root_mc_polled[port] = 1;
+	root_mc_failures[port] = 0;
+	root_mc_known_type[port] = mctype_PSx;
 
 	strcpy(dir, &path[4]);
 	strcat(dir, "*");

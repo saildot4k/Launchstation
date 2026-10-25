@@ -21,7 +21,7 @@ def function(source, signature):
 
 
 queue = "".join(function(main, name) for name in (
-    "int dashDashboardPending(", "int dashDashboardConfirmLeave(",
+    "int dashDashboardMenuIsOpen(", "int dashDashboardPending(", "int dashDashboardConfirmLeave(",
     "void dashDashboardMenu(", "static void globalMenu(",
 ))
 code = r'''
@@ -39,10 +39,11 @@ static int switched=-1,switches,rescans,runs,leave_ok=1,confirm_ok=1;
 static struct { const char *Misc_Reboot_IOP,*Misc_PS2PowerOff; } config={"reboot","off"},*setting=&config;
 enum { DASH_SEC_HOME=0,DASH_SEC_FILES,DASH_SEC_SETTINGS };
 void dashDashboardMenu(void);
+int dashDashboardMenuIsOpen(void);
 int dashDashboardPending(void);
 static int dashModalMenu(const char *title,const char *subtitle,const DashMenuItem *items,int n,int initial) {
     if(!strcmp(title,"Dashboard")) {
-        assert(!subtitle && n==6 && initial==0 && dashboard_menu_open);
+        assert(!subtitle && n==6 && initial==0 && dashDashboardMenuIsOpen());
         assert(!strcmp(items[0].label,"Home") && !strcmp(items[2].label,"File Browser"));
         assert(!strcmp(items[3].label,"Settings") && !dashDashboardPending());
         int before=++opens;dashDashboardMenu();assert(opens==before); /* no recursion */
@@ -69,7 +70,10 @@ code += "enum { " + ",".join(icons) + " };\n"
 code += function(editor, "static int confirmDiscard(") + function(editor, "static int leaveEditor(")
 code += queue
 code += r'''
-static void choose(int choice) { menu_choice=choice;dashDashboardMenu(); }
+static void choose(int choice) {
+    assert(!dashDashboardMenuIsOpen());menu_choice=choice;dashDashboardMenu();
+    assert(!dashDashboardMenuIsOpen());
+}
 int main(void) {
     dash_active=0;choose(0);assert(!opens && !dashDashboardPending());dash_active=1;
     background_only=1;boot_phase=2;ql_down=ql_used=1;

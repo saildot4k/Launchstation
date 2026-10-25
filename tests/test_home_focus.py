@@ -10,14 +10,15 @@ source = (subprocess.check_output(["git", "show", f"{sys.argv[1]}:src/dash_home.
           if len(sys.argv) > 1 else (root / "src/dash_home.c").read_text())
 
 
-def function(signature):
-    start = source.index(signature)
-    end = source.index("{", start) + 1
+def function(signature, text=None):
+    text = source if text is None else text
+    start = text.index(signature)
+    end = text.index("{", start) + 1
     depth = 1
     while depth:
-        depth += (source[end] == "{") - (source[end] == "}")
+        depth += (text[end] == "{") - (text[end] == "}")
         end += 1
-    return source[start:end] + "\n"
+    return text[start:end] + "\n"
 
 
 code = r"""
@@ -26,6 +27,14 @@ code = r"""
 #include <string.h>
 typedef unsigned char u8;
 #define DASH_PATH_MAX 128
+#define DASH_MAX_APPS 8
+#define DI_HDD 20
+#define DI_MC 21
+#define DI_USB 22
+#define DI_STAR 23
+#define DASH_VIEW_GRID 0
+#define DASH_VIEW_LIST 1
+#define DASH_VIEW_CAROUSEL 2
 #define DASH_TITLE_MAX 64
 #define HOME_MAX_APPS 24
 #define HOME_MAX_CHIPS 24
@@ -56,7 +65,7 @@ typedef struct { char path[DASH_PATH_MAX]; int flags; } DashApp;
 typedef struct { char pin[8][DASH_PATH_MAX], recent[8][DASH_PATH_MAX], fav[8][DASH_PATH_MAX]; int npin, nrecent, nfav; } Lists;
 typedef struct { char Misc_PS2Net[DASH_PATH_MAX]; char LK_Path[SETTING_LK_BTN_COUNT][DASH_PATH_MAX]; char LK_Title[SETTING_LK_BTN_COUNT][DASH_TITLE_MAX]; int LK_Flag[SETTING_LK_BTN_COUNT]; } Setting;
 static Lists dashLists;
-static struct { int recent_count; int home_shortcuts; int start_section; } dashCfg = {8,1,0};
+static struct { int recent_count; int home_shortcuts; int start_section; int app_filter; int view; } dashCfg = {8,1,0,0,0};
 static Setting setting_data;
 static Setting *setting = &setting_data;
 static char LastDir[DASH_PATH_MAX], last_chip_label[DASH_TITLE_MAX];
@@ -68,11 +77,23 @@ static const char *const lk_names[SETTING_LK_BTN_COUNT] = {"Auto", "Left", "Righ
 typedef struct { void (*enter)(void); } DashScreen;
 static void homeRebuild(void);
 static int apps_enters, focus_pokes;
-static void appsEntered(void) { apps_enters++;homeRebuild(); }
+static void appsEnter(void);
+static void appsEntered(void) { apps_enters++;appsEnter(); }
 static const DashScreen dashAppsScreen={appsEntered};
 static void dashUiFocusPoke(void) { focus_pokes++; }
 static void dashStrCopy(char *d, const char *s, int n) { snprintf(d, n, "%s", s); }
-static int dashDevicePathReady(const char *p) { (void)p; return 1; }
+static int device_ready=1,scan_running;
+static int dashDevicePathReady(const char *p) { (void)p; return device_ready; }
+static int dashLibDeviceIcon(const char *p) { return !strncmp(p,"mc",2)?DI_MC:DI_USB; }
+static int dashStoreIsFavorite(const char *p) {
+    for(int i=0;i<dashLists.nfav;i++)if(!strcmp(p,dashLists.fav[i]))return 1;
+    return 0;
+}
+static int dashStoreIsPinned(const char *p) {
+    for(int i=0;i<dashLists.npin;i++)if(!strcmp(p,dashLists.pin[i]))return 1;
+    return 0;
+}
+static void dashHomeRebuild(void) { homeRebuild(); }
 static DashApp *dashLibResolve(const char *p, DashApp *tmp) {
     int i;
     for (i = 0; i < dashAppCount; i++) if (!strcmp(dashApps[i].path, p)) return &dashApps[i];
@@ -98,7 +119,31 @@ set_end = settings.index("\t\tcase S_FILES_MODE:", set_start)
 code += "static void setStartChoice(int v) { switch(S_START) {\n" + settings[set_start:set_end] + "}}\n"
 code += "static int section,dash_inited;\nstatic const DashScreen home_screen={homeEnter};\n"
 code += "static const DashScreen *const screens[DASH_SEC_COUNT]={&home_screen,&dashAppsScreen,&dashAppsScreen,&dashAppsScreen,&dashAppsScreen,&dashAppsScreen};\n"
-code += "static void dashAppsRebuildView(void) { homeRebuild(); }\nstatic void startDashboard(void) {\n"
+apps = (root / "src/dash_apps.c").read_text()
+code += apps[apps.index("enum AppFilter"):apps.index("#define GRID_COLS")]
+for sig in ("static int matchFilter(", "void dashAppsRebuildView(",
+            "void dashAppsShowAll(", "static void appsEnter("):
+    code += function(sig, apps)
+code += r"""
+static int app_draws,empty_icon;
+static char empty_title[80],empty_body[256];
+static int dashLibScanRunning(void) { return scan_running; }
+static void drawTitleBar(void) { (void)filter_names;empty_title[0]=empty_body[0]=0;empty_icon=-1; }
+static void dashDrawEmptyState(int x,int y,int icon,const char *title,const char *body) {
+    (void)x;(void)y;empty_icon=icon;
+    snprintf(empty_title,sizeof(empty_title),"%s",title);snprintf(empty_body,sizeof(empty_body),"%s",body);
+}
+static void drawGrid(void) { (void)grid_cam;app_draws++; }
+static void drawList(void) { app_draws++; }
+static void drawCarousel(void) { app_draws++; }
+#define dashEaseOutCubic(x) (x)
+#define dashGfxPushAlpha(x) ((void)(x))
+#define dashGfxPushOffset(...) ((void)0)
+#define dashGfxPopAlpha(...) ((void)0)
+#define dashGfxPopOffset(...) ((void)0)
+"""
+code += function("static void appsDraw(", apps)
+code += "static void startDashboard(void) {\n"
 boot_start = main.index("section = dashCfg.start_section;", main.index("static void firstInit(void)"))
 boot_end = main.index("dash_inited = 1;", boot_start) + len("dash_inited = 1;")
 enter_start = main.index("\tif (screens[section]->enter)", main.index("void DashRun("))
@@ -173,8 +218,32 @@ int main(void) {
         apps_enters=0;setStartChoice(i);startDashboard();
         assert(section==DASH_SEC_HOME && library_open && apps_enters==1);
     }
+    /* Applications startup must not inherit an empty Favorites/device
+     * filter. Run the real Apps enter/filter/rebuild/render functions. */
+    dashCfg.recent_count=8;dashLists.nrecent=1;dashLists.npin=dashLists.nfav=0;
+    dashCfg.start_section=DASH_SEC_APPS;
+    for(int previous=0;previous<FILTER_COUNT;previous++) {
+        dashCfg.app_filter=previous;startDashboard();
+        assert(library_open && filter==FILTER_ALL && norder==3);
+        assert(dashCfg.app_filter==previous); /* leave the saved preference alone */
+        int drawn=app_draws;appsDraw();assert(!empty_title[0] && app_draws==drawn+1);
+    }
+    /* Cached apps on storage that is not ready do not masquerade as an
+     * empty Favorites list, including while the startup scan is running. */
+    device_ready=0;dashAppsRebuildView();assert(!norder && dashAppCount==3);
+    scan_running=1;appsDraw();assert(empty_icon==DI_APPS && !strcmp(empty_title,"Looking for applications..."));
+    scan_running=0;appsDraw();assert(empty_icon==DI_APPS && !strcmp(empty_title,"Application devices not ready"));
+    assert(strstr(empty_body,"Files") && !strstr(empty_body,"SELECT"));
+    device_ready=1;dashAppsRebuildView();appsDraw();assert(norder==3 && !empty_title[0]);
+    /* Ordinary entry still honors the filter; only Favorites uses a star. */
+    dashCfg.app_filter=FILTER_FAV;appsEnter();appsDraw();
+    assert(!norder && empty_icon==DI_STAR && !strcmp(empty_title,"No favorites yet"));
+    dashCfg.app_filter=FILTER_MC;appsEnter();appsDraw();
+    assert(!norder && empty_icon==DI_APPS && !strcmp(empty_title,"Nothing to show"));
+    dashCfg.recent_count=0;dashLists.nrecent=0;
     dashAppCount=0;dashLists.npin=dashLists.nfav=0;homeEnter();
     assert(library_open && nhome==0); /* empty library has its normal scan prompt */
+    appsDraw();assert(empty_icon==DI_APPS && !strcmp(empty_title,"No applications found"));
     return 0;
 }
 """
@@ -188,4 +257,4 @@ with tempfile.TemporaryDirectory() as temp:
     source_path.write_text(code)
     subprocess.run([cc, "-std=c99", "-Wall", "-Wextra", str(source_path), "-o", str(binary_path)], check=True)
     subprocess.run([str(binary_path)], check=True)
-print("PASS: Home favorites keep focus; empty disabled recents open Applications; all five startup choices map and enter correctly")
+print("PASS: Home favorites keep focus; empty disabled recents open Applications; all five startup choices, real application filters, startup All and readiness/scan empty states")

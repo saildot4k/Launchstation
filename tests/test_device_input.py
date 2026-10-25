@@ -83,9 +83,10 @@ static int readpad_noRepeat(void) {
 }
 static u64 last_input_ms;
 static u32 held_prev;
-static int dashboard_menus;
+static int dashboard_menus,dashboard_menu_open;
 static void dashDashboardMenu(void) { dashboard_menus++; }
 """
+padcode += function(read("src/dash_main.c"), "int dashDashboardMenuIsOpen(")
 padcode += function(ui, "void dashInputPollEx(") + function(ui, "void dashInputFlush(")
 padcode += r"""
 int main(void) {
@@ -132,6 +133,14 @@ int main(void) {
      * Holding it never reopens the popup through the repeat path. */
     keys[0]=PAD_START|PAD_SELECT|PAD_CROSS;clearPadPressState();held_prev=0;
     dashInputPollEx(&in,0);assert(dashboard_menus==1 && !in.any && !in.pressed && !in.raw_new);
+    dashboard_menu_open=1;
+    now_ms+=600;dashInputPollEx(&in,0);assert(dashboard_menus==1 && !in.any);
+    /* Release/repress closes via Back, even with Confirm and SELECT held.
+     * The whole chord is consumed so no selection or launch leaks through. */
+    keys[0]=0;dashInputPollEx(&in,0);keys[0]=PAD_START|PAD_SELECT|PAD_CROSS;
+    dashInputPollEx(&in,1);
+    assert(dashboard_menus==1 && in.any && in.pressed==DASH_IN_BACK && !in.raw_new);
+    dashboard_menu_open=0;dashInputFlush();
     now_ms+=600;dashInputPollEx(&in,0);assert(dashboard_menus==1 && !in.any);
     keys[0]=0;dashInputPollEx(&in,0);keys[0]=PAD_START;
     dashInputPollEx(&in,1);assert(dashboard_menus==2 && !in.any && !in.raw_new);
@@ -188,7 +197,7 @@ int main(void) {
         right_h=right_v=0x80;keys[port]=0;dashInputPollEx(&in,0);
         assert(!in.any && !in.raw_new);
     }
-    puts("PASS: failed/disconnected reads, both ports, flush timing, held actions, both sticks' direction/repeat/raw bits, right-stick activity, independent D-pad navigation and keyboard");
+    puts("PASS: failed/disconnected reads, both ports, flush timing, START open/close and chord/hold isolation, both sticks' direction/repeat/raw bits, right-stick activity, independent D-pad navigation and keyboard");
 }
 """
 
