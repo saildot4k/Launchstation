@@ -36,17 +36,20 @@ typedef unsigned char u8;
 #define DASH_PATH_MAX 256
 #define DASH_MAX_SCAN 12
 #define DASH_MAX_RECENT 16
-#define DASH_SEC_COUNT 5
-#define DASH_SEC_HOME 0
+#define DASH_MAX_FAV 48
 #define DASH_VIEW_COUNT 4
 #define DASH_VIEW_GRID 0
 '''
+code += header[header.index("enum DashSection"):header.index("enum DashView")]
 end = header.index("} DashSettings;") + len("} DashSettings;")
+code += header[header.rfind("typedef struct", 0, end):end]
+end = header.index("} DashUserLists;") + len("} DashUserLists;")
 code += header[header.rfind("typedef struct", 0, end):end]
 code += r'''
 static DashSettings dashCfg, persisted;
-#define SAVE_SETTINGS 0
-static int save_dirty[1];
+static DashUserLists dashLists;
+enum { SAVE_SETTINGS, SAVE_LISTS };
+static int save_dirty[2];
 typedef int (*DashKvCallback)(const char *, char *, void *);
 #define stricmp case_compare
 static int stricmp(const char *a, const char *b) {
@@ -72,6 +75,12 @@ for signature in (
     "char *dashStoreSettingsText(", "int dashStoreSaveSettings(", "int dashWriteFile(",
 ):
     code += function(signature)
+fileops = (root / "src/filer_fileops.c").read_text()
+start = fileops.index("int genCmpFileExt(")
+end = fileops.index("\n}\n", start) + 3
+code += fileops[start:end]
+for signature in ("static int listFind(", "int dashStoreSaveLists(", "void dashStorePushRecent("):
+    code += function(signature)
 code += r'''
 int main(void) {
     /* Old settings are ignored; saving removes them and keeps supported values. */
@@ -89,6 +98,7 @@ int main(void) {
         memset(&dashCfg,0,sizeof(dashCfg));
         assert(dashKvParse(config_text,settingsKv,&scan_reset)>0 && dashCfg.sound==1 && dashCfg.sound_vol==67);
         dashCfg.temp_fahrenheit=mask&1;
+        dashCfg.start_section=mask%DASH_SEC_COUNT;
         assert(!dashStoreSaveSettings() && save_dirty[SAVE_SETTINGS]);
         assert(persisted.sound==1 && persisted.sound_vol==67 && persisted.temp_fahrenheit==(mask&1));
         char *text=dashStoreSettingsText(&persisted,&length);
@@ -100,6 +110,7 @@ int main(void) {
         memset(&dashCfg,0,sizeof(dashCfg));
         assert(dashKvParse(text,settingsKv,&scan_reset)>0 && dashCfg.sound==1 && dashCfg.sound_vol==67);
         assert(dashCfg.temp_fahrenheit==(mask&1));
+        assert(dashCfg.start_section==mask%DASH_SEC_COUNT);
         free(text);
     }
     for(int units=-2;units<4;units++) {
@@ -109,6 +120,30 @@ int main(void) {
         assert(dashKvParse(text,settingsKv,&scan_reset)==1);
         assert(dashCfg.temp_fahrenheit==(units==1));
     }
+    /* Launching a game must not mutate lists or schedule the shared save,
+     * including an image manually favorited before this launch. */
+    dashCfg.recent_count=8;
+    dashLists.nfav=1;strcpy(dashLists.fav[0],"ata0:/DVD/Manhunt.iso");
+    dashStorePushRecent("mc0:/BOOT/BOOT.ELF");
+    assert(dashLists.nrecent==1 && save_dirty[SAVE_LISTS]);
+    save_dirty[SAVE_LISTS]=0;
+    DashUserLists before=dashLists;
+    const char *games[]={
+        "ata0:/DVD/Manhunt.iso", "ata1:/DVD/game.ISO", "usb0:/PS1/disc.bin",
+        "mass1:/PS1/game.BiN", "mmce0:/Ember/games/Game/disc.cue",
+        "mx4sio:/PS1/game.CUE", "udpfs:/POPS/Game.vcd", "mmce1:/POPS/Game.VCD"
+    };
+    for(unsigned i=0;i<sizeof(games)/sizeof(games[0]);i++) {
+        dashStorePushRecent(games[i]);
+        assert(!save_dirty[SAVE_LISTS] && !memcmp(&before,&dashLists,sizeof(before)));
+    }
+    dashCfg.recent_count=0;dashStorePushRecent("usb0:/APPS/APP.ELF");
+    assert(!save_dirty[SAVE_LISTS] && !memcmp(&before,&dashLists,sizeof(before)));
+    dashLists.nrecent=0;dashStorePushRecent("usb0:/APPS/APP.ELF");
+    assert(!save_dirty[SAVE_LISTS] && !dashLists.nrecent);
+    dashCfg.recent_count=8;dashStorePushRecent("usb0:/APPS/APP.ELF");
+    assert(save_dirty[SAVE_LISTS] && dashLists.nrecent==1);
+    assert(!strcmp(dashLists.recent[0],"usb0:/APPS/APP.ELF") && dashLists.nfav==1);
     const char data[]="Dash_Sound = 1\r\nDash_SoundVolume = 67\r\n";
     for(int scenario=0;scenario<8;scenario++) {
         opens=corrupt=short_write=read_error=fail_write_close=fail_read_close=open_error=0;
@@ -121,7 +156,7 @@ int main(void) {
         if(scenario==7)open_error=2;
         assert((dashWriteFile("DASHBOARD.CNF",data,sizeof(data)-1)==0)==(scenario==0));
     }
-    puts("PASS: removed settings ignored/omitted, MMCE backup/IGR keys discarded, settings round trips and file failures");
+    puts("PASS: removed settings ignored/omitted, MMCE backup/IGR keys discarded, settings round trips, game images skip history saves, disabled recents and file failures");
 }
 '''
 with tempfile.TemporaryDirectory(prefix="settings-persistence-") as folder:
