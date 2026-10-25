@@ -662,8 +662,6 @@ void dashDrawDeviceRow(const DashDevice *d, float x, float y, float w, int selec
 
 	if (description == NULL)
 		description = d->name;
-	if (d->state != DASH_DEV_READY && !selected)
-		color = DASH_C_TEXT3;
 	dashIcon(d->icon, x + 10, y + 2, 16, color);
 	dashTextFit(x + 36, y, description_x - (x + 36) - 16,
 	            dashDeviceDisplayMount(d, mount, sizeof(mount)), DASH_FS_SMALL, color);
@@ -942,7 +940,7 @@ static void pickOpen(const char *dir)
 	j->n = 0;
 	dashStrCopy(j->path, dir, sizeof(j->path));
 	pk.loading = 1;
-	if (dashWorkerSubmit("Reading folder", DASH_JOB_VISIBLE, pickListRun, pickListDone, j) < 0) {
+	if (dashWorkerSubmit("Reading folder", 0, pickListRun, pickListDone, j) < 0) {
 		free(j->files);
 		free(j);
 		pk.loading = 0;

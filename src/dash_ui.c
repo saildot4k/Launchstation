@@ -45,6 +45,7 @@ void dashInputPollEx(DashInput *in, int usb_kb_as_pad)
 	 * launch again or toggle a setting after its first press. */
 	np = ret ? new_pad & ((PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT |
 	                      PAD_L3_H0 | PAD_L3_H1 | PAD_L3_V0 | PAD_L3_V1 |
+	                      PAD_R3_H0 | PAD_R3_H1 | PAD_R3_V0 | PAD_R3_V1 |
 	                      PAD_L2 | PAD_R2) | ~(paddata & held_prev)) : 0;
 	if (paddata != held_prev)
 		last_input_ms = Timer();
@@ -84,7 +85,8 @@ void dashInputPollEx(DashInput *in, int usb_kb_as_pad)
 	if (np & PAD_R3)
 		in->pressed |= DASH_IN_R3;
 	in->any = (in->pressed != 0);
-	if (in->any)
+	/* The editor consumes right-stick directions directly from raw_new. */
+	if (in->any || (np & (PAD_R3_H0 | PAD_R3_H1 | PAD_R3_V0 | PAD_R3_V1)))
 		last_input_ms = Timer();
 }
 

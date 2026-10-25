@@ -75,7 +75,8 @@ input_start = dash_header.rfind("enum {", 0, dash_header.index("DASH_IN_UP"))
 code += dash_header[input_start:dash_header.index("};", input_start) + 2] + "\n"
 code += "#define PAD_UP DASH_IN_UP\n#define PAD_DOWN DASH_IN_DOWN\n"
 code += "#define PAD_LEFT DASH_IN_LEFT\n#define PAD_RIGHT DASH_IN_RIGHT\n"
-for name in ("PAD_L3_H0", "PAD_L3_H1", "PAD_L3_V0", "PAD_L3_V1"):
+for name in ("PAD_R3_H0", "PAD_R3_H1", "PAD_R3_V0", "PAD_R3_V1",
+             "PAD_L3_H0", "PAD_L3_H1", "PAD_L3_V0", "PAD_L3_V1"):
     code += re.search(rf"^#define {name} .+$", header, re.M).group() + "\n"
 input_start = source.index("else if (kb_shown) {") + len("else if (kb_shown) {")
 input_end = source.index("\n\t\t} else {", input_start)
@@ -451,28 +452,35 @@ static void checkCursorStick(void) {
         kb_shown=1;kb_page=page;kb_caps=1;
         DashKeyboard before=editor_keyboard;
         moveCursor(&d,4,0);
-        keyboardInputRaw(&d,DASH_IN_LEFT,PAD_L3_H0);assert(d.cur==3 && d.want_col==3);
-        keyboardInputRaw(&d,DASH_IN_RIGHT,PAD_L3_H1);assert(d.cur==4 && d.want_col==4);
+        keyboardInputRaw(&d,DASH_IN_LEFT,PAD_R3_H0);assert(d.cur==3 && d.want_col==3);
+        keyboardInputRaw(&d,DASH_IN_RIGHT,PAD_R3_H1);assert(d.cur==4 && d.want_col==4);
         /* Short lines and tabs retain the requested visual column. */
-        keyboardInputRaw(&d,DASH_IN_DOWN,PAD_L3_V1);assert(d.cur==9 && d.want_col==4);
-        keyboardInputRaw(&d,DASH_IN_DOWN,PAD_L3_V1);assert(d.cur==11 && d.want_col==4);
-        keyboardInputRaw(&d,DASH_IN_UP,PAD_L3_V0);assert(d.cur==9 && d.want_col==4);
-        keyboardInputRaw(&d,DASH_IN_UP,PAD_L3_V0);assert(d.cur==4 && d.want_col==4);
+        keyboardInputRaw(&d,DASH_IN_DOWN,PAD_R3_V1);assert(d.cur==9 && d.want_col==4);
+        keyboardInputRaw(&d,DASH_IN_DOWN,PAD_R3_V1);assert(d.cur==11 && d.want_col==4);
+        keyboardInputRaw(&d,DASH_IN_UP,PAD_R3_V0);assert(d.cur==9 && d.want_col==4);
+        keyboardInputRaw(&d,DASH_IN_UP,PAD_R3_V0);assert(d.cur==4 && d.want_col==4);
         assert(kb_shown && !memcmp(&before,&editor_keyboard,sizeof(before)));
         moveCursor(&d,0,0);
-        keyboardInputRaw(&d,DASH_IN_LEFT,PAD_L3_H0);
-        keyboardInputRaw(&d,DASH_IN_UP,PAD_L3_V0);assert(d.cur==0);
+        keyboardInputRaw(&d,DASH_IN_LEFT,PAD_R3_H0);
+        keyboardInputRaw(&d,DASH_IN_UP,PAD_R3_V0);assert(d.cur==0);
         moveCursor(&d,d.len,0);
-        keyboardInputRaw(&d,DASH_IN_RIGHT,PAD_L3_H1);
-        keyboardInputRaw(&d,DASH_IN_DOWN,PAD_L3_V1);assert(d.cur==d.len);
+        keyboardInputRaw(&d,DASH_IN_RIGHT,PAD_R3_H1);
+        keyboardInputRaw(&d,DASH_IN_DOWN,PAD_R3_V1);assert(d.cur==d.len);
         assert(!memcmp(&before,&editor_keyboard,sizeof(before)));
         /* D-pad only moves key focus; both controls can act in one poll. */
         keyboardInput(&d,DASH_IN_RIGHT);
         assert(d.cur==d.len && memcmp(&before,&editor_keyboard,sizeof(before)));
         before=editor_keyboard;moveCursor(&d,11,0);
-        keyboardInputRaw(&d,DASH_IN_UP|DASH_IN_RIGHT,PAD_L3_V0|PAD_RIGHT);
+        keyboardInputRaw(&d,DASH_IN_UP|DASH_IN_RIGHT,PAD_R3_V0|PAD_RIGHT);
         assert(d.cur==9 && memcmp(&before,&editor_keyboard,sizeof(before)));
-        /* L3 click/right-stick motion is not a cursor direction. */
+        /* Left-stick motion and stick clicks do not move the cursor. */
+        const int left_stick[][2]={{DASH_IN_LEFT,PAD_L3_H0},{DASH_IN_RIGHT,PAD_L3_H1},
+                                   {DASH_IN_UP,PAD_L3_V0},{DASH_IN_DOWN,PAD_L3_V1}};
+        for(int i=0;i<4;i++) {
+            int cur=d.cur;before=editor_keyboard;
+            keyboardInputRaw(&d,left_stick[i][0],left_stick[i][1]);
+            assert(d.cur==cur && !memcmp(&before,&editor_keyboard,sizeof(before)));
+        }
         int cur=d.cur;before=editor_keyboard;
         keyboardInputRaw(&d,DASH_IN_L3|DASH_IN_R3,0);
         assert(d.cur==cur && !memcmp(&before,&editor_keyboard,sizeof(before)));
@@ -481,14 +489,14 @@ static void checkCursorStick(void) {
     for(int i=0;i<40;i++) assert(docInsert(&d,"\nline",5));
     moveCursor(&d,0,0);
     for(int i=0;i<d.nlines+2;i++) {
-        keyboardInputRaw(&d,DASH_IN_DOWN,PAD_L3_V1);
+        keyboardInputRaw(&d,DASH_IN_DOWN,PAD_R3_V1);
         scrollToCursor(&d,visibleRows(),60);
         int line=docLineOf(&d,d.cur);
         assert(line>=d.top && line<d.top+visibleRows() && kb_shown);
     }
     assert(docLineOf(&d,d.cur)==d.nlines-1 && d.top==d.nlines-10);
     free(d.buf);free(d.lines);
-    puts("PASS: left-stick caret movement, tab/short-line columns, document bounds, independent D-pad focus, symbols pages and repeated viewport scrolling");
+    puts("PASS: right-stick caret movement, tab/short-line columns, document bounds, independent D-pad focus, symbols pages and repeated viewport scrolling");
 }
 int main(void) {
     EdDoc d={.mark=-1}; docRelines(&d);

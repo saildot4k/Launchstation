@@ -354,7 +354,7 @@ void dashRunMisc(const char *misc_path)
 		return;
 	}
 	if (!stricmp(misc_path, setting->Misc_FileBrowser)) {
-		dashOpenBrowser("");
+		dashNavigateFilesTab(NULL);
 		return;
 	}
 	if (!stricmp(misc_path, setting->Misc_TextEditor)) {

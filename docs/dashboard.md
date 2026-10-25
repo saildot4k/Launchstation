@@ -70,9 +70,9 @@ operations, browse/view/sort modes, copy/paste, VMC backup operations and
 PathPad features remain in the same browser. The directory reader keeps its
 USB/PAD serialization across all tabs (including reads started before a tab switch) and invalidates in-flight results when switching tabs.
 
-**MISC commands** live in **Tools > Storage > MISC commands** rather than
-being duplicated among the Files tab's device roots. Other launch actions
-that request an independent File Browser still use the modal implementation.
+**Tools > Storage > MISC commands** opens a popup menu of built-in commands.
+**Configure** switches to the Settings tab, and **File Browser** switches to
+the Files tab. The popup closes before the selected command runs.
 
 | Tab | Contents |
 | --- | --- |

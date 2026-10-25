@@ -446,7 +446,7 @@ static void openDir(const char *dir, const char *select)
 	j->free_valid = 0;
 	dashStrCopy(j->path, dir, sizeof(j->path));
 	fb.loading = 1;
-	if (dashWorkerSubmit("Reading folder", DASH_JOB_VISIBLE, listRun, listDone, j) < 0) {
+	if (dashWorkerSubmit("Reading folder", 0, listRun, listDone, j) < 0) {
 		free(j->files);
 		free(j);
 		fb.loading = 0;

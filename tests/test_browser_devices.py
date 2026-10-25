@@ -64,9 +64,9 @@ static void row(const char *mount,const char *path,const char *wanted,const char
     DashDevice d={.icon=DI_USB};
     snprintf(d.mount,sizeof(d.mount),"%s",mount);snprintf(d.browse,sizeof(d.browse),"%s",path);
     strcpy(d.name,"Fallback description");
-    for(int picker=0;picker<2;picker++) for(int selected=0;selected<2;selected++) for(int ready=0;ready<2;ready++) {
+    for(int picker=0;picker<2;picker++) for(int selected=0;selected<2;selected++) for(int state=DASH_DEV_READY;state<=DASH_DEV_BUSY;state++) {
         float x=picker?96:40,y=picker?81:100,w=picker?448:560;
-        d.state=ready?DASH_DEV_READY:DASH_DEV_ABSENT;DashDevice original=d;
+        d.state=state;DashDevice original=d;
         ntexts=icon_calls=0;dashDrawDeviceRow(&d,x,y,w,selected);
         assert(ntexts==2 && icon_calls==1 && icon_x==x+10 && icon_y==y+2);
         assert(!memcmp(&d,&original,sizeof(d)));
@@ -75,7 +75,7 @@ static void row(const char *mount,const char *path,const char *wanted,const char
         assert(texts[0].x+texts[0].w+16==texts[1].x && texts[1].x+texts[1].w<=x+w-12);
         assert(texts[0].size==DASH_FS_SMALL && texts[1].size==DASH_FS_SMALL);
         assert(!texts[0].scroll && texts[1].scroll==selected);
-        int color=selected?9:ready?7:DASH_C_TEXT3;
+        int color=selected?9:7;
         assert(texts[0].color==color && texts[1].color==color);
     }
 }
@@ -119,7 +119,7 @@ int main(void) {
     assert(!strcmp(dashDeviceDisplayMount(&d,tiny,sizeof(tiny)),"mmc"));
     assert(!strcmp(d.mount,"mmce1:") && !d.browse[0]);
     assert(!strcmp(dashDeviceDisplayMount(NULL,tiny,sizeof(tiny)),""));
-    puts("PASS: device paths/descriptions in two left-aligned columns, common fonts, picker/browser sizing, readiness, selection and aliases");
+    puts("PASS: device paths/descriptions in two left-aligned columns, common fonts, picker/browser sizing, consistent colors across device states, selection and aliases");
 }
 '''
 cc = shutil.which('gcc') or shutil.which('cc')

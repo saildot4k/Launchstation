@@ -914,7 +914,7 @@ static void editorScene(void)
 	drawText(d, rows, cols);
 	if (kb_shown) {
 		DashHint h[] = {{dashOkIcon(), NULL, "Type"}, {dashBackIcon(), NULL, "Delete"}, {DI_BTN_SQUARE, NULL, "Caps"},
-		                {DI_BTN_L3, NULL, "Cursor"}, {-1, "SELECT", "Hide keys"}, {-1, "START", "Menu"}};
+		                {DI_BTN_R3, NULL, "Cursor"}, {-1, "SELECT", "Hide keys"}, {-1, "START", "Menu"}};
 		drawKeyboard();
 		dashDrawHints(h, 6);
 	} else {
@@ -1015,7 +1015,7 @@ int dashTextEditorEx(const char *path, int create_if_missing)
 		else if (in.pressed & DASH_IN_SELECT)
 			kb_shown = !kb_shown;
 		else if (kb_shown) {
-			/* D-pad selects keys; the left stick moves the document cursor.
+			/* D-pad selects keys; the right stick moves the document cursor.
 			 * raw_new keeps these separate from the shared navigation mapping. */
 			if (in.raw_new & PAD_UP)
 				dashKeyboardMove(&editor_keyboard, 0, -1);
@@ -1025,13 +1025,13 @@ int dashTextEditorEx(const char *path, int create_if_missing)
 				dashKeyboardMove(&editor_keyboard, -1, 0);
 			if (in.raw_new & PAD_RIGHT)
 				dashKeyboardMove(&editor_keyboard, 1, 0);
-			if (in.raw_new & PAD_L3_H0)
+			if (in.raw_new & PAD_R3_H0)
 				moveCursor(d, d->cur - 1, 0);
-			if (in.raw_new & PAD_L3_H1)
+			if (in.raw_new & PAD_R3_H1)
 				moveCursor(d, d->cur + 1, 0);
-			if (in.raw_new & PAD_L3_V0)
+			if (in.raw_new & PAD_R3_V0)
 				moveLines(d, -1);
-			if (in.raw_new & PAD_L3_V1)
+			if (in.raw_new & PAD_R3_V1)
 				moveLines(d, 1);
 			if (in.pressed & DASH_IN_OK)
 				kbTypeKey(d);
