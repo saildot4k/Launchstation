@@ -8,6 +8,7 @@ import tempfile
 root = Path(__file__).resolve().parents[1]
 source = (root / "src/init.c").read_text()
 yaml = (root / "ps2.yaml").read_text()
+clock = (root / "src/dash_clock_sync.c").read_text()
 make = (root / "Makefile").read_text()
 embed = (root / "embed.make").read_text()
 assert "      - WLE_NETMAN_IP\n" in yaml
@@ -48,9 +49,13 @@ code = r'''
 typedef unsigned char u8;
 typedef unsigned int u32;
 typedef unsigned long long u64;
+/* CLOCK_QUERY_DECLARATIONS */
+static u64 Timer(void) { return 1000; }
 static int query_calls, clock_writes;
-static void dashLoadingFrame(const char *text,int done,int total) { (void)text;(void)done;assert(total==3); }
-static int sntpQuery(const char *host,u64 *out) { assert(host);query_calls++;*out=1700000000ULL;return 1; }
+static void dashLoadingFrame(const char *text,int done,int total) { (void)text;(void)done;assert(total==SNTP_ATTEMPTS); }
+static int sntpQuery(const char *host,SntpSample *out) {
+    assert(!strcmp(host,"0.pool.ntp.org"));query_calls++;out->unix_ms=1700000000000ULL;out->received_ms=1000;return SNTP_OK;
+}
 static int writePs2Clock(u64 stamp) { assert(stamp==1700000000ULL);clock_writes++;return 1; }
 static int menuTitleUpdateAsync(int force) { assert(force==1);return 0; }
 typedef struct { u32 addr; } DashboardDnsAddress;
@@ -182,7 +187,17 @@ code += "#ifdef UDPFS\n"
 for name in ("load_udpfs_stack", "load_udpfs", "reloadUdpfsModules"):
     code += function(name)
 code += "#endif\n"
-code += function("dashClockSyncInternet", (root / "src/dash_clock_sync.c").read_text())
+# This integration fixture mocks only the query; the packet/elapsed-time path
+# is exercised by test_clock_sync.py against the production socket functions.
+sample_end = clock.index("} SntpSample;") + len("} SntpSample;")
+sample = clock[clock.rfind("typedef struct", 0, sample_end):sample_end] + "\n"
+status_start = clock.index("enum {", sample_end)
+query_types = sample + clock[status_start:clock.index("};", status_start) + 2] + "\n"
+for constant in ("SNTP_ATTEMPTS",):
+    query_types += re.search(r"^#define " + constant + r" .+$", clock, re.M).group() + "\n"
+code = code.replace("/* CLOCK_QUERY_DECLARATIONS */", query_types)
+code += function("sntpStatusText", clock)
+code += function("dashClockSyncInternet", clock)
 code += r'''
 static void reset(void) {
     config.legacy_net_drivers=0;
@@ -270,7 +285,7 @@ int main(void) {
     assert(!ensureDashboardIpNetworkReady() && !network_calls && !dev9_calls && !client_calls);
     char clock_result[160];
     reset(); assert(dashClockSyncInternet(clock_result,sizeof(clock_result)));
-    assert(query_calls==3 && clock_writes==1 && strstr(clock_result,"synchronized"));
+    assert(query_calls==1 && clock_writes==1 && strstr(clock_result,"synchronized"));
     assert(dev9_calls==1 && network_calls==BASE_NETWORK_CALLS && client_calls==1 && socket_calls==1);
     /* Repeated clients share resident modules and preserve configured DNS. */
     assert(dns_writes==2 && !memcmp(&dns_servers[0].addr,"\xC0\xA8\x01\x01",4));

@@ -776,7 +776,7 @@ static int editorMenu(EdDoc *d)
 // Drawing
 //--------------------------------------------------------------
 #define ED_X 40.0f
-#define ED_Y 58.0f
+#define ED_Y 60.0f
 #define ED_W 560.0f
 #define ED_ROW 17.0f
 #define ED_CW 8.0f
@@ -870,9 +870,11 @@ static void drawText(EdDoc *d, int rows, int cols)
 
 static void drawKeyboard(void)
 {
-	float y0 = DASH_VH - 58 - KB_H + 6;
+	const float padding = 6.0f;
+	float y0 = DASH_VH - 58 - KB_H + padding;
 
-	dashDrawPanelBox(ED_X - 6, y0 - 6, ED_W + 12, KB_H - 4, 12);
+	dashDrawPanelBox(ED_X - 6, y0 - padding, ED_W + 12,
+	                 dashKeyboardHeight() + 2 * padding, 12);
 	dashKeyboardDraw(&editor_keyboard, DASH_VW * 0.5f, y0);
 }
 
@@ -912,7 +914,7 @@ static void editorScene(void)
 	drawText(d, rows, cols);
 	if (kb_shown) {
 		DashHint h[] = {{dashOkIcon(), NULL, "Type"}, {dashBackIcon(), NULL, "Delete"}, {DI_BTN_SQUARE, NULL, "Caps"},
-		                {-1, "L1/R1", "Move"}, {-1, "SELECT", "Hide keys"}, {-1, "START", "Menu"}};
+		                {DI_BTN_L3, NULL, "Cursor"}, {-1, "SELECT", "Hide keys"}, {-1, "START", "Menu"}};
 		drawKeyboard();
 		dashDrawHints(h, 6);
 	} else {
@@ -1013,14 +1015,24 @@ int dashTextEditorEx(const char *path, int create_if_missing)
 		else if (in.pressed & DASH_IN_SELECT)
 			kb_shown = !kb_shown;
 		else if (kb_shown) {
-			if (in.pressed & DASH_IN_UP)
+			/* D-pad selects keys; the left stick moves the document cursor.
+			 * raw_new keeps these separate from the shared navigation mapping. */
+			if (in.raw_new & PAD_UP)
 				dashKeyboardMove(&editor_keyboard, 0, -1);
-			if (in.pressed & DASH_IN_DOWN)
+			if (in.raw_new & PAD_DOWN)
 				dashKeyboardMove(&editor_keyboard, 0, 1);
-			if (in.pressed & DASH_IN_LEFT)
+			if (in.raw_new & PAD_LEFT)
 				dashKeyboardMove(&editor_keyboard, -1, 0);
-			if (in.pressed & DASH_IN_RIGHT)
+			if (in.raw_new & PAD_RIGHT)
 				dashKeyboardMove(&editor_keyboard, 1, 0);
+			if (in.raw_new & PAD_L3_H0)
+				moveCursor(d, d->cur - 1, 0);
+			if (in.raw_new & PAD_L3_H1)
+				moveCursor(d, d->cur + 1, 0);
+			if (in.raw_new & PAD_L3_V0)
+				moveLines(d, -1);
+			if (in.raw_new & PAD_L3_V1)
+				moveLines(d, 1);
 			if (in.pressed & DASH_IN_OK)
 				kbTypeKey(d);
 			if (in.pressed & DASH_IN_BACK)

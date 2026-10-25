@@ -23,6 +23,8 @@ enum {
 	KA_COUNT
 };
 
+#define KB_KEY_H 22.0f
+#define KB_KEY_GAP 3.0f
 #define KB_CHAR_ROWS 4
 #define KB_SYMBOL_COLS 11
 #define KB_SYMBOL_PAGE_SIZE (KB_CHAR_ROWS * KB_SYMBOL_COLS)
@@ -245,7 +247,7 @@ static float kbActionX(const DashKeyboard *kb, int action, float kw, float gap)
 	if (action == KA_TAB)
 		return -kbActionWidth(action) - gap;
 	if (action == KA_SYMBOLS)
-		return (2 - first_col) * (kw + gap) + kw * 0.5f - kbActionWidth(action) - gap;
+		return (3 - first_col) * (kw + gap) - kbActionWidth(action) - gap;
 	return (kbActionColumn(kb, action) - first_col) * (kw + gap);
 }
 
@@ -253,8 +255,8 @@ static float kbGridOrigin(const DashKeyboard *kb, float center_x, float kw, floa
 {
 	DashKeyboard normal = *kb;
 	int first_col = getVirtualKeyboardLayoutFirstColumn(kb->layout);
-	float left = (2 - first_col) * (kw + gap) + kw * 0.5f;
-	float right = left + 4 * (kw + gap);
+	float left = (3 - first_col) * (kw + gap);
+	float right = left + 6 * (kw + gap) + kw;
 	int key, a;
 
 	/* Measure the entire keyboard, including side keys. Use the same
@@ -284,12 +286,17 @@ static float kbGridOrigin(const DashKeyboard *kb, float center_x, float kw, floa
 	return center_x - (left + right) * 0.5f;
 }
 
+float dashKeyboardHeight(void)
+{
+	return VKEY_LAYOUT_ROWS * (KB_KEY_H + KB_KEY_GAP) - KB_KEY_GAP;
+}
+
 void dashKeyboardDraw(const DashKeyboard *kb, float center_x, float y0)
 {
 	const int layout = kb->layout;
 	const int first_col = getVirtualKeyboardLayoutFirstColumn(layout);
 	const int ncols = kbColumnCount(kb);
-	const float kw = 30.0f, kh = 22.0f, gap = 3.0f;
+	const float kw = 30.0f, kh = KB_KEY_H, gap = KB_KEY_GAP;
 	float gx = kbGridOrigin(kb, center_x, kw, gap);
 	int row, col, a;
 
@@ -303,10 +310,10 @@ void dashKeyboardDraw(const DashKeyboard *kb, float center_x, float y0)
 			if (!kbIsKey(kb, idx))
 				continue;
 			if (idx == KB_SPACE_KEY) {
-				/* QWERTY: centre of X (column 2) to centre of N (column 6).
+				/* QWERTY: left edge of C (column 3) to right edge of . (column 9).
 				 * Keep the same physical span for the other keyboard layouts. */
-				kx = gx + (2 - first_col) * (kw + gap) + kw * 0.5f;
-				key_w = 4 * (kw + gap);
+				kx = gx + (3 - first_col) * (kw + gap);
+				key_w = 6 * (kw + gap) + kw;
 			}
 			if (on)
 				dashDrawSelection(kx - 1, ky - 1, key_w + 2, kh + 2, 6, 1.0f);

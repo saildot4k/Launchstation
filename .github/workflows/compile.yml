@@ -52,6 +52,7 @@ jobs:
           python3 tests/test_browser_devices.py
           python3 tests/test_zack_feedback.py
           python3 tests/test_hardware_clock.py
+          python3 tests/test_clock_sync.py
           python3 tests/test_startup_status.py
           python3 tests/test_transition_latency.py
           python3 tests/test_native_four_browser_modes.py

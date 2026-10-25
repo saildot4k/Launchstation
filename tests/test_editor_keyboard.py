@@ -73,11 +73,18 @@ code += function("static void moveCursor(") + function("static void moveLines(")
 code += function("static int visibleRows(") + function("static void scrollToCursor(")
 input_start = dash_header.rfind("enum {", 0, dash_header.index("DASH_IN_UP"))
 code += dash_header[input_start:dash_header.index("};", input_start) + 2] + "\n"
+code += "#define PAD_UP DASH_IN_UP\n#define PAD_DOWN DASH_IN_DOWN\n"
+code += "#define PAD_LEFT DASH_IN_LEFT\n#define PAD_RIGHT DASH_IN_RIGHT\n"
+for name in ("PAD_L3_H0", "PAD_L3_H1", "PAD_L3_V0", "PAD_L3_V1"):
+    code += re.search(rf"^#define {name} .+$", header, re.M).group() + "\n"
 input_start = source.index("else if (kb_shown) {") + len("else if (kb_shown) {")
 input_end = source.index("\n\t\t} else {", input_start)
-code += "static void keyboardInput(EdDoc *d, int pressed) { struct { int pressed; } in={pressed};\n"
+code += "static void keyboardInputRaw(EdDoc *d, int pressed, int raw) { struct { int pressed,raw_new; } in={pressed,raw};\n"
 code += source[input_start:input_end] + "\n}\n"
 code += r'''
+static void keyboardInput(EdDoc *d,int pressed) {
+    keyboardInputRaw(d,pressed,pressed&(DASH_IN_UP|DASH_IN_DOWN|DASH_IN_LEFT|DASH_IN_RIGHT));
+}
 typedef struct { float x,y,w,h; int selected; } Box;
 typedef struct { float x,y; char text[40]; } Label;
 static Box boxes[128];
@@ -192,10 +199,6 @@ code += r'''
 #define COLOR_SELECT 3
 #define TRUE 1
 #define LNG(x) #x
-#define PAD_UP DASH_IN_UP
-#define PAD_DOWN DASH_IN_DOWN
-#define PAD_LEFT DASH_IN_LEFT
-#define PAD_RIGHT DASH_IN_RIGHT
 #define PAD_START DASH_IN_START
 #define PAD_L1 DASH_IN_L1
 #define PAD_R1 DASH_IN_R1
@@ -335,14 +338,22 @@ static Box *keyBox(const char *s) {
 static void draw(void) {
     nboxes=nlabels=0; drawKeyboard();
     /* No key extends outside the panel or overlaps any other key. */
+    float first_top=1000,last_bottom=0;
     for(int i=1;i<nboxes;i++) {
         Box a=boxes[i],panel=boxes[0];
         assert(a.x>=panel.x && a.x+a.w<=panel.x+panel.w && a.y>=panel.y && a.y+a.h<=panel.y+panel.h);
+        /* Focus adds one pixel outside the key on each edge. */
+        float top=a.y+a.selected,bottom=a.y+a.h-a.selected;
+        if(top<first_top)first_top=top;
+        if(bottom>last_bottom)last_bottom=bottom;
         for(int j=i+1;j<nboxes;j++) {
             Box b=boxes[j];
             assert(a.x+a.w<=b.x || b.x+b.w<=a.x || a.y+a.h<=b.y || b.y+b.h<=a.y);
         }
     }
+    float top_gap=first_top-boxes[0].y;
+    float bottom_gap=boxes[0].y+boxes[0].h-last_bottom;
+    assert(fabsf(top_gap-6)<0.01f && fabsf(bottom_gap-top_gap)<0.01f);
 }
 static int state(void) { return kb_act<0?kb_sel:VKEY_LAYOUT_SIZE+kb_act; }
 static void setState(int s) {
@@ -377,6 +388,11 @@ static void checkFilenameLayouts(void) {
         if(!caps)filename_space[layout]=*label("Space");
         else assert(label("Space")->x==filename_space[layout].x && label("Space")->y==filename_space[layout].y);
         assert(!label("Tab") && !label("Del") && !label("Return"));
+        if(layout==VKEY_LAYOUT_QWERTY && !caps) {
+            kb_sel=0;draw();
+            Box c=*keyBox("c"),period=*keyBox("."),space=*keyBox("Space");
+            assert(space.x==c.x && space.x+space.w==period.x+period.w);
+        }
         for(int i=0;i<VKEY_LAYOUT_SIZE;i++) {
             /* The entire key position stays hidden in both normal/Caps states. */
             int source=kbLayoutIndex(layout,i);
@@ -426,6 +442,53 @@ static void checkFilenameLayouts(void) {
     plan(DASH_IN_RIGHT);plan(DASH_IN_OK);plan(DASH_IN_START);plan(DASH_IN_OK);
     assert(filenameKeyboard(buf,255)==1 && !strcmp(buf,"`"));
     puts("PASS: filename keys/actions hidden and unreachable across all six layouts and Caps states; classic USB/pad input, rendering and native override");
+}
+static void checkCursorStick(void) {
+    const char *text="abcdef\nxy\n\t12345\nend";
+    EdDoc d={.mark=-1};docRelines(&d);assert(docInsert(&d,text,strlen(text)));
+    for(int page=0;page<=kbSymbolPageCount();page++) {
+        dashKeyboardInit(&editor_keyboard,VKEY_LAYOUT_QWERTY);
+        kb_shown=1;kb_page=page;kb_caps=1;
+        DashKeyboard before=editor_keyboard;
+        moveCursor(&d,4,0);
+        keyboardInputRaw(&d,DASH_IN_LEFT,PAD_L3_H0);assert(d.cur==3 && d.want_col==3);
+        keyboardInputRaw(&d,DASH_IN_RIGHT,PAD_L3_H1);assert(d.cur==4 && d.want_col==4);
+        /* Short lines and tabs retain the requested visual column. */
+        keyboardInputRaw(&d,DASH_IN_DOWN,PAD_L3_V1);assert(d.cur==9 && d.want_col==4);
+        keyboardInputRaw(&d,DASH_IN_DOWN,PAD_L3_V1);assert(d.cur==11 && d.want_col==4);
+        keyboardInputRaw(&d,DASH_IN_UP,PAD_L3_V0);assert(d.cur==9 && d.want_col==4);
+        keyboardInputRaw(&d,DASH_IN_UP,PAD_L3_V0);assert(d.cur==4 && d.want_col==4);
+        assert(kb_shown && !memcmp(&before,&editor_keyboard,sizeof(before)));
+        moveCursor(&d,0,0);
+        keyboardInputRaw(&d,DASH_IN_LEFT,PAD_L3_H0);
+        keyboardInputRaw(&d,DASH_IN_UP,PAD_L3_V0);assert(d.cur==0);
+        moveCursor(&d,d.len,0);
+        keyboardInputRaw(&d,DASH_IN_RIGHT,PAD_L3_H1);
+        keyboardInputRaw(&d,DASH_IN_DOWN,PAD_L3_V1);assert(d.cur==d.len);
+        assert(!memcmp(&before,&editor_keyboard,sizeof(before)));
+        /* D-pad only moves key focus; both controls can act in one poll. */
+        keyboardInput(&d,DASH_IN_RIGHT);
+        assert(d.cur==d.len && memcmp(&before,&editor_keyboard,sizeof(before)));
+        before=editor_keyboard;moveCursor(&d,11,0);
+        keyboardInputRaw(&d,DASH_IN_UP|DASH_IN_RIGHT,PAD_L3_V0|PAD_RIGHT);
+        assert(d.cur==9 && memcmp(&before,&editor_keyboard,sizeof(before)));
+        /* L3 click/right-stick motion is not a cursor direction. */
+        int cur=d.cur;before=editor_keyboard;
+        keyboardInputRaw(&d,DASH_IN_L3|DASH_IN_R3,0);
+        assert(d.cur==cur && !memcmp(&before,&editor_keyboard,sizeof(before)));
+    }
+    /* Repeated stick navigation scrolls the ten-line viewport to the caret. */
+    for(int i=0;i<40;i++) assert(docInsert(&d,"\nline",5));
+    moveCursor(&d,0,0);
+    for(int i=0;i<d.nlines+2;i++) {
+        keyboardInputRaw(&d,DASH_IN_DOWN,PAD_L3_V1);
+        scrollToCursor(&d,visibleRows(),60);
+        int line=docLineOf(&d,d.cur);
+        assert(line>=d.top && line<d.top+visibleRows() && kb_shown);
+    }
+    assert(docLineOf(&d,d.cur)==d.nlines-1 && d.top==d.nlines-10);
+    free(d.buf);free(d.lines);
+    puts("PASS: left-stick caret movement, tab/short-line columns, document bounds, independent D-pad focus, symbols pages and repeated viewport scrolling");
 }
 int main(void) {
     EdDoc d={.mark=-1}; docRelines(&d);
@@ -484,17 +547,17 @@ int main(void) {
         keyboardInput(&d,DASH_IN_OK); assert(d.buf[d.len-1]==expected);
         int before=d.len;keyboardInput(&d,DASH_IN_BACK);assert(d.len==before-1);
     }
-    /* Space spans the X/N centres, with one continuous focus bar. */
+    /* Space spans C's left edge to period's right edge, including its focus bar. */
     setting->virtual_keyboard_layout=VKEY_LAYOUT_QWERTY;dashKeyboardInit(&editor_keyboard,VKEY_LAYOUT_QWERTY);
     kb_page=kb_caps=0;kb_act=KA_RETURN;draw();
-    Label x=*label("x"),n=*label("n"),space=*label("Space"); int found=0;
-    for(int i=0;i<nboxes;i++) if(fabsf(boxes[i].x-x.x)<0.01f && fabsf(boxes[i].x+boxes[i].w-n.x)<0.01f) {
+    Box c=*keyBox("c"),period=*keyBox(".");Label space=*label("Space"); int found=0;
+    for(int i=0;i<nboxes;i++) if(fabsf(boxes[i].x-c.x)<0.01f && fabsf(boxes[i].x+boxes[i].w-(period.x+period.w))<0.01f) {
         assert(fabsf(space.x-(boxes[i].x+boxes[i].w/2))<0.01f);found++;
     }
     assert(found==1);
     kb_act=-1;kb_sel=KB_SPACE_KEY;draw();found=0;
     for(int i=0;i<nboxes;i++) if(boxes[i].selected) {
-        assert(fabsf(boxes[i].x-(x.x-1))<0.01f && fabsf(boxes[i].x+boxes[i].w-(n.x+1))<0.01f);found++;
+        assert(fabsf(boxes[i].x-(c.x-1))<0.01f && fabsf(boxes[i].x+boxes[i].w-(period.x+period.w+1))<0.01f);found++;
     }
     assert(found==1);
     kbTypeKey(&d); assert(d.buf[d.len-1]==' ');
@@ -545,7 +608,7 @@ int main(void) {
     assert(drawn[0xff]==1);
     kb_shown=1;keyboardInput(&d,DASH_IN_MENU);assert(!kb_shown);
     /* Two extra hidden-keyboard text rows, a shorter keyboard, and resize at EOF. */
-    assert(visibleRows()==18);
+    assert(ED_Y==60 && visibleRows()==18);
     assert(ED_Y-4+visibleRows()*ED_ROW+8<394);
     kb_shown=1;assert(visibleRows()==10 && KB_H==147);
     assert(ED_Y-4+visibleRows()*ED_ROW+8<DASH_VH-58-KB_H);
@@ -554,6 +617,7 @@ int main(void) {
     scrollToCursor(&long_doc,visibleRows(),60);assert(long_doc.top==long_doc.nlines-10);
     kb_shown=0;scrollToCursor(&long_doc,visibleRows(),60);assert(long_doc.top==long_doc.nlines-18);
     free(long_doc.buf);free(long_doc.lines);
+    checkCursorStick();
     checkFilenameLayouts();
     checkNamingDialogs();
     free(d.buf);free(d.lines);

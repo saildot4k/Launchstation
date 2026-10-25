@@ -62,11 +62,11 @@ enum { PAD_SELECT=1, PAD_L3=2, PAD_R3=4, PAD_START=8,
 #define PAD_L3_H1 0x800000
 struct padButtonStatus { u32 btns; int rjoy_h,rjoy_v,ljoy_h,ljoy_v; };
 static int connected[2]={1,0}, good[2]={1,1}, keys[2], kb, busy, swapKeys;
-static int left_v=0x80;
+static int left_h=0x80,left_v=0x80;
 static int padGetState(int p,int s) { (void)s; return connected[p]; }
 static int padRead(int p,int s,struct padButtonStatus *b) {
     (void)s; b->btns=0xffff ^ keys[p];
-    b->rjoy_h=b->rjoy_v=b->ljoy_h=0x80; b->ljoy_v=left_v; return good[p];
+    b->rjoy_h=b->rjoy_v=0x80; b->ljoy_h=left_h; b->ljoy_v=left_v; return good[p];
 }
 static void dashWorkerParkPoint(void) {}
 static int dashIopParked(void) { return 0; }
@@ -134,7 +134,30 @@ int main(void) {
         now_ms+=16; dashInputPollEx(&in,0); assert(!in.any);
     }
     now_ms=6401; dashInputPollEx(&in,0); assert(in.pressed==DASH_IN_DOWN);
-    puts("PASS: failed/disconnected reads, both ports, flush timing, held actions, navigation, keyboard");
+    /* Preserve each stick's raw direction for editor caret routing, with
+     * the same held/repeat timing as D-pad navigation, on either controller. */
+    const int sticks[][4]={
+        {0x40,0x80,DASH_IN_LEFT,PAD_L3_H0},
+        {0xbf,0x80,DASH_IN_RIGHT,PAD_L3_H1},
+        {0x80,0x40,DASH_IN_UP,PAD_L3_V0},
+        {0x80,0xbf,DASH_IN_DOWN,PAD_L3_V1}
+    };
+    for(int port=0;port<2;port++) for(int dir=0;dir<4;dir++) {
+        connected[0]=port==0;connected[1]=port==1;
+        keys[0]=keys[1]=0;padtype_t[port]=2;
+        left_h=sticks[dir][0];left_v=sticks[dir][1];
+        clearPadPressState();held_prev=0;now_ms+=1000;
+        dashInputPollEx(&in,0);
+        assert(in.pressed==(u32)sticks[dir][2] && in.raw_new==(u32)sticks[dir][3]);
+        now_ms+=16;dashInputPollEx(&in,0);assert(!in.any && !in.raw_new);
+        now_ms+=385;dashInputPollEx(&in,0);
+        assert(in.pressed==(u32)sticks[dir][2] && in.raw_new==(u32)sticks[dir][3]);
+        keys[port]=PAD_RIGHT;now_ms+=16;dashInputPollEx(&in,0);
+        assert(in.pressed==DASH_IN_RIGHT && in.raw_new==PAD_RIGHT);
+        left_h=left_v=0x80;keys[port]=0;dashInputPollEx(&in,0);
+        assert(!in.any && !in.raw_new);
+    }
+    puts("PASS: failed/disconnected reads, both ports, flush timing, held actions, all left-stick directions/repeat/raw bits, independent D-pad navigation and keyboard");
 }
 """
 

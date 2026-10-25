@@ -846,6 +846,7 @@ typedef struct
 void dashKeyboardInit(DashKeyboard *kb, int layout);
 void dashKeyboardMove(DashKeyboard *kb, int dx, int dy);
 int dashKeyboardPress(DashKeyboard *kb); /* typed byte, or 0 for a page change */
+float dashKeyboardHeight(void); /* first key top to Space bottom */
 void dashKeyboardDraw(const DashKeyboard *kb, float center_x, float y0);
 
 /* Native text entry (dash_widgets.c): the user's virtual keyboard layout,
