@@ -150,7 +150,7 @@ void dashShowAbout(void)
 	sheetAdd(&s, SL_MUTED, "commit %s", GIT_HASH);
 	sheetAdd(&s, SL_GAP, NULL);
 	sheetAdd(&s, SL_HEAD, "This build");
-	sheetAdd(&s, SL_TEXT, "Maintained by NathanNeurotic / Ripto");
+	sheetAdd(&s, SL_TEXT, "Maintained by NathanNeurotic/Ripto/Saildot4K");
 	sheetAdd(&s, SL_HEAD, "Direct base: wLaunchELF_R3Z");
 	sheetAdd(&s, SL_TEXT, "R3Z3N / Saildot4K");
 	sheetAdd(&s, SL_TEXT, "github.com/saildot4k/wLaunchELF_R3Z");
@@ -160,7 +160,7 @@ void dashShowAbout(void)
 	sheetAdd(&s, SL_TEXT, "Created this fork and handed it to Ripto");
 	sheetAdd(&s, SL_TEXT, "to maintain and continue improving");
 	sheetAdd(&s, SL_TEXT, "DS3/DS4 support by Alex Parrado");
-	sheetAdd(&s, SL_TEXT, "Thanks to TnA for all his insight and support");
+	sheetAdd(&s, SL_TEXT, "No thanks to TnA for all his discord and strife in the community");
 	sheetAdd(&s, SL_HEAD, "PC CARD CompactFlash reference");
 	sheetAdd(&s, SL_TEXT, "mihhru - PS2CF");
 	sheetAdd(&s, SL_TEXT, "github.com/mihhru/PS2CF");

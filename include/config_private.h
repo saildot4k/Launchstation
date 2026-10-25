@@ -29,7 +29,6 @@ enum {
 	DEF_MENU_FRAME = TRUE,
 	DEF_SWAPKEYS = FALSE,
 	DEF_HOSTWRITE = FALSE,
-	DEF_LEGACY_NET_DRIVERS = FALSE,
 	/* Color-bar Game ID output is opt-in for compatible display adapters. */
 	DEF_APP_GAMEID = FALSE,
 	DEF_CDROM_DISABLE_GAMEID = FALSE,

@@ -65,14 +65,14 @@ void Show_About_uLE(void)
 			PrintPos(01, hpos, TextRow, COLOR_SELECT);
 			sprintf(TextRow, " commit: %s", GIT_HASH);
 			PrintPos(02, hpos, TextRow, COLOR_TEXT);
-			PrintPos(03, hpos, "Maintained by: NathanNeurotic / Ripto", COLOR_TEXT);
+			PrintPos(03, hpos, "Maintained by NathanNeurotic/Ripto/Saildot4K", COLOR_TEXT);
 			PrintPos(-1, hpos, "Direct base: wLaunchELF_R3Z", COLOR_TEXT);
 			PrintPos(-1, hpos, "   by R3Z3N / Saildot4K", COLOR_TEXT);
 			PrintPos(-1, hpos, "Fork created by: johnson-cooper", COLOR_TEXT);
 			PrintPos(-1, hpos, "   github.com/johnson-cooper", COLOR_TEXT);
 			PrintPos(-1, hpos, "   handed to Ripto to maintain and improve", COLOR_TEXT);
 			PrintPos(-1, hpos, "DS3/DS4 support by Alex Parrado", COLOR_TEXT);
-			PrintPos(-1, hpos, "Thanks to TnA for all his insight and support", COLOR_TEXT);
+			PrintPos(-1, hpos, "No thanks to TnA for all his discord and strife in the community", COLOR_TEXT);
 			PrintPos(-1, hpos, "Project maintainers:  sp193 & AKuHAK", COLOR_TEXT);
 			PrintPos(-1, hpos, "CF driver reference: mihhru / PS2CF", COLOR_TEXT);
 			PrintPos(-1, hpos, "uLaunchELF Project maintainers:", COLOR_TEXT);

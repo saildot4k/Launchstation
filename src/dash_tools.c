@@ -509,7 +509,7 @@ static void runTool(const Tool *t)
 			dashNavigateFilesTab(NULL);
 			break;
 		case TA_BROWSER_AT:
-			dashOpenBrowser(t->path ? t->path : "");
+			dashNavigateFilesTab(t->path);
 			break;
 		case TA_MISC_MENU:
 			showMiscCommands();

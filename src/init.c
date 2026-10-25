@@ -23,10 +23,7 @@ IMPORT_BIN2C(ps2ip_irx);
 IMPORT_BIN2C(ps2ips_irx);
 #ifdef WLE_NETMAN_IP
 IMPORT_BIN2C(netman_irx);
-IMPORT_BIN2C(ps2smap_legacy_irx);
 #endif
-IMPORT_BIN2C(ps2dev9_v10_irx);
-IMPORT_BIN2C(ps2ip_v10_irx);
 IMPORT_BIN2C(ps2smap_irx);
 IMPORT_BIN2C(ps2host_irx);
 IMPORT_BIN2C(ps2netfs_irx);
@@ -278,12 +275,6 @@ static int network_stack_switching = 0;
 
 //State of whether DEV9 was successfully loaded or not.
 static u8 ps2dev9_loaded = 0;
-enum {
-	DEV9_VARIANT_NONE = 0,
-	DEV9_VARIANT_CURRENT,
-	DEV9_VARIANT_PS2SDK_V10
-};
-static u8 ps2dev9_variant = DEV9_VARIANT_NONE;
 
 /* Globals owned by main.c but needed by init flow. */
 extern u8 console_is_PSX;
@@ -443,46 +434,16 @@ static void resetUsbHostControllerBeforeIopReset(void)
 static int load_ps2dev9(void)
 {
 	int ID, rcode;
-	int desired_variant = DEV9_VARIANT_CURRENT;
-	const void *module = ps2dev9_irx;
-	int module_size = size_ps2dev9_irx;
 	if (pcCardCfOwnsBus()) return 0;
 
-#ifdef ETH
-	if (setting != NULL && setting->legacy_net_drivers) {
-		desired_variant = DEV9_VARIANT_PS2SDK_V10;
-		module = ps2dev9_v10_irx;
-		module_size = size_ps2dev9_v10_irx;
-	}
-#endif
-
-	/* DEV9 is shared by Ethernet and ATA/HDD. Switching driver families
-	 * requires a clean IOP instead of stacking a second DEV9. */
-	if (ps2dev9_loaded && ps2dev9_variant != desired_variant) {
-#ifdef UDPTTY
-		int previous_network_switch = network_stack_switching;
-		network_stack_switching = 1;
-#endif
-		resetRuntimeDeviceState(TRUE);
-#ifdef UDPTTY
-		network_stack_switching = previous_network_switch;
-#endif
-		/* A refused reset keeps the old DEV9 family resident. Its presence
-		 * is not permission to initialize consumers of the requested family. */
-		if (ps2dev9_loaded && ps2dev9_variant != desired_variant)
-			return 0;
-	}
-
+	/* Ethernet and ATA/HDD share the same resident DEV9 driver. */
 	if (!have_ps2dev9) {
-		ID = SifExecModuleBuffer(module, module_size, 0, NULL, &rcode);
-		DPRINTF(" [DEV9%s]: ID=%d, ret=%d\n",
-		        desired_variant == DEV9_VARIANT_PS2SDK_V10 ? " v1.0" : "",
-		        ID, rcode);
+		ID = SifExecModuleBuffer(ps2dev9_irx, size_ps2dev9_irx, 0, NULL, &rcode);
+		DPRINTF(" [DEV9]: ID=%d, ret=%d\n", ID, rcode);
 		ps2dev9_loaded = (ID >= 0 && rcode == 0);
 		have_ps2dev9 = ps2dev9_loaded;
-		ps2dev9_variant = ps2dev9_loaded ? desired_variant : DEV9_VARIANT_NONE;
 	}
-	return ps2dev9_loaded && ps2dev9_variant == desired_variant;
+	return ps2dev9_loaded;
 }
 //------------------------------
 //endfunc load_ps2dev9
@@ -578,7 +539,6 @@ static void stopUsbMassForPoweroff(void)
 static int load_ps2ip(void)
 {
 	int ret, ID __attribute__((unused));
-	int requested_mode = network_stack_mode;
 	if (pcCardCfOwnsBus()) {
 		dashboard_ip_error = "PC CARD CompactFlash is using the network adapter.";
 		return 0;
@@ -589,75 +549,56 @@ static int load_ps2ip(void)
 		DPRINTF(" [NET]: skipping PS2IP/SMAP because DEV9 failed to initialize\n");
 		return 0;
 	}
-	/* A DEV9-family change can reboot the IOP after the caller chose its mode. */
-	network_stack_mode = requested_mode;
 
 #ifdef WLE_NETMAN_IP
 	/* ps2build supplies the NetMan stack. Register the Ethernet interface
 	 * before PS2IP reads its MAC address and attaches the protocol stack. */
-	if (ps2dev9_variant != DEV9_VARIANT_PS2SDK_V10) {
+	if (!have_netman) {
+		ID = SifExecModuleBuffer(netman_irx, size_netman_irx, 0, NULL, &ret);
+		DPRINTF(" [NETMAN]: ID=%d, ret=%d\n", ID, ret);
+		have_netman = (ID >= 0 && ret == 0);
 		if (!have_netman) {
-			ID = SifExecModuleBuffer(netman_irx, size_netman_irx, 0, NULL, &ret);
-			DPRINTF(" [NETMAN]: ID=%d, ret=%d\n", ID, ret);
-			have_netman = (ID >= 0 && ret == 0);
-			if (!have_netman) {
-				dashboard_ip_error = "Network manager (NetMan) could not be loaded.";
-				return 0;
-			}
+			dashboard_ip_error = "Network manager (NetMan) could not be loaded.";
+			return 0;
 		}
+	}
+	if (!have_ps2smap) {
+		ID = SifExecModuleBuffer(ps2smap_irx, size_ps2smap_irx, 0, NULL, &ret);
+		DPRINTF(" [SMAP NetMan]: ID=%d, ret=%d\n", ID, ret);
+		have_ps2smap = (ID >= 0 && ret == 0);
 		if (!have_ps2smap) {
-			ID = SifExecModuleBuffer(ps2smap_irx, size_ps2smap_irx, 0, NULL, &ret);
-			DPRINTF(" [SMAP NetMan]: ID=%d, ret=%d\n", ID, ret);
-			have_ps2smap = (ID >= 0 && ret == 0);
-			if (!have_ps2smap) {
-				dashboard_ip_error = "Ethernet driver (SMAP) could not be loaded.";
-				return 0;
-			}
+			dashboard_ip_error = "Ethernet driver (SMAP) could not be loaded.";
+			return 0;
 		}
 	}
 #endif
 	if (!have_ps2ip) {
-		const void *ip_module = ps2ip_irx;
-		int ip_module_size = size_ps2ip_irx;
 		int ip_args_len = 0;
 		const char *ip_args = NULL;
 #ifdef WLE_NETMAN_IP
 		/* NetMan PS2IP owns IP/netmask/gateway; direct SMAP owns them in
-		 * the Makefile stack and in the legacy-network compatibility stack. */
+		 * the Makefile stack. */
 		ip_args_len = if_conf_len;
 		ip_args = &if_conf[0];
 #endif
-		if (ps2dev9_variant == DEV9_VARIANT_PS2SDK_V10) {
-			ip_module = ps2ip_v10_irx;
-			ip_module_size = size_ps2ip_v10_irx;
-			ip_args_len = 0;
-			ip_args = NULL;
-		}
-		ID = SifExecModuleBuffer(ip_module, ip_module_size, ip_args_len, ip_args, &ret);
-		DPRINTF(" [PS2IP%s]: ID=%d, ret=%d\n",
-		        ps2dev9_variant == DEV9_VARIANT_PS2SDK_V10 ? " v1.0" : "",
-		        ID, ret);
+		ID = SifExecModuleBuffer(ps2ip_irx, size_ps2ip_irx, ip_args_len, ip_args, &ret);
+		DPRINTF(" [PS2IP]: ID=%d, ret=%d\n", ID, ret);
 		have_ps2ip = (ID >= 0 && ret == 0);
 		if (!have_ps2ip) {
 			dashboard_ip_error = "IP driver (PS2IP) could not be loaded.";
 			return 0;
 		}
 	}
+#ifndef WLE_NETMAN_IP
 	if (!have_ps2smap) {
-		const void *smap_module = ps2smap_irx;
-		int smap_module_size = size_ps2smap_irx;
-#ifdef WLE_NETMAN_IP
-		/* Only the legacy direct stack reaches this point without SMAP. */
-		smap_module = ps2smap_legacy_irx;
-		smap_module_size = size_ps2smap_legacy_irx;
-#endif
-		ID = SifExecModuleBuffer(smap_module, smap_module_size,
+		ID = SifExecModuleBuffer(ps2smap_irx, size_ps2smap_irx,
 		                    if_conf_len, &if_conf[0], &ret);
 		DPRINTF(" [SMAP]: ID=%d, ret=%d\n", ID, ret);
 		have_ps2smap = (ID >= 0 && ret == 0);
 		if (!have_ps2smap)
 			dashboard_ip_error = "Ethernet driver (SMAP) could not be loaded.";
 	}
+#endif
 	return have_ps2ip && have_ps2smap;
 }
 #endif
@@ -2214,8 +2155,7 @@ static int loadAtaBlockDriver(void)
 {
 	int ret, id __attribute__((unused));
 
-	/* A DEV9 family switch may reboot the IOP and clear BDM. Resolve it
-	 * before loading the block-device modules that depend on that IOP. */
+	/* Initialize DEV9 and BDM before loading their ATA block-device consumer. */
 	if (!load_ps2dev9()) {
 		DPRINTF(" [ATA_BD]: skipping load because DEV9 failed to initialize\n");
 		return 0;
@@ -2646,7 +2586,6 @@ static void clearIopModuleState(void)
 #endif
 	resetDriverStackLoadTracking();
 	ps2dev9_loaded = 0;
-	ps2dev9_variant = DEV9_VARIANT_NONE;
 	done_setupPowerOff = 0;
 	ps2kbd_opened = 0;
 #ifdef XFROM

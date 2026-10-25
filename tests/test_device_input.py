@@ -277,8 +277,11 @@ static void loadUsbModules(void) { usb_loaded=1; }
 static int prepareUsbRootBrowse(void) { return usb_mask?0:-1; }
 static int filerShowHddUnit(int p) { (void)p; return 1; }
 static int filerShowAtaUnit(int p) { (void)p; return 1; }
-static void dashSoundPlay(int i) { (void)i; }
-static void dashAppsRebuildView(void) {}
+static int device_sounds[32], device_sound_count, device_view_updates;
+static void dashSoundPlay(int i) {
+    assert(device_sound_count<32); device_sounds[device_sound_count++]=i;
+}
+static void dashAppsRebuildView(void) { device_view_updates++; }
 static void dashStrCopy(char *d,const char *s,int n) { snprintf(d,n,"%s",s); }
 static int dashWorkerAwaitAll(const char *t) { (void)t; return 1; }
 static int startup_quiet;
@@ -325,6 +328,51 @@ static void probe(const char *m) {
     assert(dashDevicesStart(&d,done,NULL)==0);
 }
 int main(void) {
+    /* An initial lazy USB load is discovery, not an attach/failure sound.
+     * A missing second unit must not negate any other usable USB unit. */
+    for(int unit=0;unit<10;unit++) {
+        usb_loaded=usb_mask=0; device_sound_count=0;
+        mc_present[0]=mc_present[1]=0;
+        dashDevicesInit(); dashDevicesPoll();
+        now_ms+=DEV_HOTPLUG_SETTLE_MS; dashDevicesPoll();
+        assert(dev_hotplug_armed && device_sound_count==0);
+        usb_mask=1<<unit;
+        probe("usb:"); assert(result);
+        int updates=device_view_updates;
+        dashDevicesPoll();
+        assert(device_sound_count==0 && device_view_updates==updates+1);
+        assert(dashDevicePathReady("usb:/"));
+        char path[8]; snprintf(path,sizeof(path),"usb%d:/",unit);
+        assert(dashDevicePathReady(path));
+        /* Losing another unit or changing its number is still usable USB. */
+        usb_mask|=1<<((unit+1)%10); dashDevicesPoll();
+        device_sound_count=0;
+        usb_mask=1<<unit; updates=device_view_updates; dashDevicesPoll();
+        assert(device_sound_count==0 && device_view_updates==updates+1);
+        /* Removing the last drive still produces a real disconnect. */
+        usb_mask=0; dashDevicesPoll();
+        assert(device_sound_count==1 && device_sounds[0]==DASH_SND_DISCONNECT);
+        device_sound_count=0;
+        usb_mask=1<<unit; dashDevicesPoll();
+        assert(device_sound_count==1 && device_sounds[0]==DASH_SND_CONNECT);
+    }
+    /* Memory-card removal remains audible while USB is present. */
+    device_sound_count=0; mc_present[0]=1; dashDevicesPoll();
+    assert(device_sound_count==1 && device_sounds[0]==DASH_SND_CONNECT);
+    device_sound_count=0; mc_present[0]=0; dashDevicesPoll();
+    assert(device_sound_count==1 && device_sounds[0]==DASH_SND_DISCONNECT);
+    /* Unloading the driver also clears its discovery baseline. */
+    usb_loaded=0; dashDevicesPoll(); device_sound_count=0;
+    usb_loaded=1; usb_mask=1; dashDevicesPoll();
+    assert(device_sound_count==0);
+    /* A fresh boot/reset baseline silently absorbs delayed discovery. */
+    dashDevicesResetBaseline(); usb_mask=0; dashDevicesPoll();
+    usb_mask=2; dashDevicesPoll(); assert(device_sound_count==0);
+    now_ms+=DEV_HOTPLUG_SETTLE_MS; dashDevicesPoll();
+    usb_mask=0; dashDevicesPoll();
+    assert(device_sound_count==1 && device_sounds[0]==DASH_SND_DISCONNECT);
+    puts("PASS: silent lazy USB discovery for any unit, usable-USB disconnect suppression, real last-drive and memory-card hotplug sounds");
+    usb_mask=usb_loaded=usb_scan_calls=0; device_sound_count=0;
     /* An absent/late USB disk must never reset unrelated IOP services. */
     strcpy(LaunchElfBootDir,"mc0:/BOOT/"); resident=63; usb_loaded=1;
     unsigned int gen=reset_generation;

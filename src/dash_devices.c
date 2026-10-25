@@ -84,15 +84,18 @@ static int storageState(const char *mount)
  * the snapshot has stayed unchanged for a settling period; all boot-time
  * mount transitions are folded into the baseline silently. */
 #define DEV_HOTPLUG_SETTLE_MS 2000
+#define DEV_USB_SNAPSHOT_MASK (0x3FFu << 2)
 static u32 dev_snapshot = 0xFFFFFFFFu;
 static u64 dev_snapshot_changed_ms;
 static int dev_hotplug_armed;
+static int dev_usb_loaded;
 
 void dashDevicesInit(void)
 {
 	dev_snapshot = 0xFFFFFFFFu;
 	dev_snapshot_changed_ms = Timer();
 	dev_hotplug_armed = 0;
+	dev_usb_loaded = 0;
 	syncProbeSession();
 	/* The executing ELF is evidence for its own boot storage, even before a
 	 * manual check. Use the boot directory, not a SYS-CONF fallback directory. */
@@ -108,18 +111,20 @@ void dashDevicesResetBaseline(void)
 	dev_snapshot = 0xFFFFFFFFu;
 	dev_snapshot_changed_ms = Timer();
 	dev_hotplug_armed = 0;
+	dev_usb_loaded = 0;
 }
 
 void dashDevicesPoll(void)
 {
 	u32 now = 0;
 	int i, view_changed = 0;
+	int usb_loaded = filerUsbDriversLoaded();
 
 	pollRootMemoryCardDevices();
 	for (i = 0; i < 2; i++)
 		if (filerRootMcPresent(i, NULL, NULL) > 0)
 			now |= 1u << i;
-	if (filerUsbDriversLoaded()) {
+	if (usb_loaded) {
 		int m = filerUsbDriveMask();
 		for (i = 0; i < 10; i++)
 			if (m & (1 << i))
@@ -141,13 +146,23 @@ void dashDevicesPoll(void)
 			dev_hotplug_armed = 1;
 		}
 	} else if (now != dev_snapshot) {
-		if (now & ~dev_snapshot)
+		u32 added = now & ~dev_snapshot;
+		u32 removed = dev_snapshot & ~now;
+		/* Lazy driver startup/teardown is discovery, not a physical hotplug.
+		 * A missing or renumbered USB unit is not a USB failure while any
+		 * other unit is usable. Keep memory-card notifications independent. */
+		if (!dev_usb_loaded || !usb_loaded)
+			added &= ~DEV_USB_SNAPSHOT_MASK;
+		if (!dev_usb_loaded || !usb_loaded || (now & DEV_USB_SNAPSHOT_MASK))
+			removed &= ~DEV_USB_SNAPSHOT_MASK;
+		if (added)
 			dashSoundPlay(DASH_SND_CONNECT);
-		if (dev_snapshot & ~now)
+		if (removed)
 			dashSoundPlay(DASH_SND_DISCONNECT);
 		dev_snapshot = now;
 		view_changed = 1;
 	}
+	dev_usb_loaded = usb_loaded;
 	if (view_changed)
 		dashAppsRebuildView();
 }

@@ -69,15 +69,6 @@ EMBED_FILE(exploit_ioprp_img, "exploits/IOPRP_LTS.IMG")
 EMBED_FILE(udpfs_ministack_irx, "iop/__precompiled/udpfs_ministack.irx")
 EMBED_FILE(udpfs_ioman_irx, "iop/__precompiled/udpfs_ioman.irx")
 
-/* The legacy IP stack uses direct SMAP rather than the NetMan interface. */
-#ifdef WLE_NETMAN_IP
-EMBED_FILE(ps2smap_legacy_irx, "iop/__precompiled/ps2smap.irx")
-#endif
-
-/* MrRexD network-compatibility fallback: ps2sdk v1.0 DEV9/PS2IP. */
-EMBED_FILE(ps2dev9_v10_irx, "iop/__v10/ps2dev9.irx")
-EMBED_FILE(ps2ip_v10_irx, "iop/__v10/ps2ip.irx")
-
 /* Dashboard UI sounds (Sony ADP, played via audsrv). */
 EMBED_FILE(sfx_cursor_adp, "res/sfx/cursor.adp")
 EMBED_FILE(sfx_confirm_adp, "res/sfx/confirm.adp")

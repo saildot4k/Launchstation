@@ -682,9 +682,6 @@ $(EE_OBJS_DIR)vmcman_irx.o: $(EE_ASM_DIR)vmcman_irx.c | $(EE_OBJS_DIR)
 $(EE_ASM_DIR)ps2dev9_irx.s: $(PS2SDK)/iop/irx/ps2dev9.irx | $(EE_ASM_DIR)
 	$(BIN2S) $< $@ ps2dev9_irx
 
-$(EE_ASM_DIR)ps2dev9_v10_irx.s: iop/__v10/ps2dev9.irx | $(EE_ASM_DIR)
-	$(BIN2S) $< $@ ps2dev9_v10_irx
-
 LOCAL_DEV9_POWEROFF_IRX := iop/dev9_poweroff/dev9_poweroff.irx
 LOCAL_PCCF_IRX := iop/pccf.irx
 PCCF_DEPS := $(wildcard iop/pccf/*.[ch] iop/pccf/*.inc) iop/pccf/imports.lst iop/pccf/Makefile include/pccf_control.h
@@ -706,9 +703,6 @@ $(EE_ASM_DIR)ps2ip_irx.s: $(PS2SDK)/iop/irx/ps2ip.irx | $(EE_ASM_DIR)
 
 $(EE_ASM_DIR)ps2ips_irx.s: $(PS2SDK)/iop/irx/ps2ips.irx | $(EE_ASM_DIR)
 	$(BIN2S) $< $@ ps2ips_irx
-
-$(EE_ASM_DIR)ps2ip_v10_irx.s: iop/__v10/ps2ip.irx | $(EE_ASM_DIR)
-	$(BIN2S) $< $@ ps2ip_v10_irx
 
 $(EE_ASM_DIR)udptty.s: $(PS2SDK)/iop/irx/udptty.irx | $(EE_ASM_DIR)
 	$(BIN2S) $< $@ udptty_irx

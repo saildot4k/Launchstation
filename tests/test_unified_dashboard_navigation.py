@@ -76,7 +76,7 @@ enum { DI_DISC,DI_FOLDER,DI_APP,DI_NETWORK,DI_POWER,DI_HDD,DI_TEXT,
        DI_SETTINGS,DI_INFO,DI_CHIP,DI_MC,DI_REFRESH };
 static void nativeTool(int id) { assert(!popup_open);native_called=id; }
 static void dashFileBrowserTabOpen(const char *path) {assert(path && *path);tab_opens++;}
-static void dashOpenBrowser(const char *path) {(void)path;modal_opens++;}
+void dashOpenBrowser(const char *path) {(void)path;modal_opens++;}
 static int dashOpenTextEditor(const char *path) {(void)path;nativeTool(6);return 0;}
 static void dashHddManager(void) { nativeTool(5); }
 static void dashShowFontViewer(void) { nativeTool(8); }
@@ -157,18 +157,21 @@ int main(void) {
     assert(section==DASH_SEC_SETTINGS && enter_count==5);
     dashSwitchSection(DASH_SEC_SETTINGS);
     assert(enter_count==5);
-    /* Tools > Essentials > File Browser enters Files and resumes its state. */
-    dashSwitchSection(DASH_SEC_TOOLS);
-    int before=enter_count;
-    Tool browser={0};browser.action=TA_BROWSER;
-    runTool(&browser);
-    assert(section==DASH_SEC_FILES && enter_count==before+1);
-    assert(!modal_opens && !tab_opens); /* no modal or forced root navigation */
-    dashNavigateFilesTab("usb0:/APPS/");assert(tab_opens==1);
-    dashSwitchSection(DASH_SEC_TOOLS);before=enter_count;leave_ok=0;
-    runTool(&browser);
-    assert(section==DASH_SEC_TOOLS && enter_count==before && !modal_opens);
-    leave_ok=1;
+    /* File Browser and the PS1/PS2 image shortcuts enter the Files tab. */
+    int before;
+    for(int action=TA_BROWSER;action<=TA_BROWSER_AT;action++) {
+        dashSwitchSection(DASH_SEC_TOOLS);before=enter_count;
+        int opened=tab_opens;
+        Tool browser={.action=action,.path=""};
+        runTool(&browser);
+        assert(section==DASH_SEC_FILES && enter_count==before+1);
+        assert(!modal_opens && tab_opens==opened); /* resume the Files tab */
+        dashNavigateFilesTab("usb0:/APPS/");assert(tab_opens==opened+1);
+        dashSwitchSection(DASH_SEC_TOOLS);before=enter_count;leave_ok=0;
+        runTool(&browser);
+        assert(section==DASH_SEC_TOOLS && enter_count==before && !modal_opens);
+        leave_ok=1;
+    }
     Tool misc={.action=TA_MISC_MENU};
     initMisc("MISC/");
     /* All fifteen commands remain available. Configure enters Settings

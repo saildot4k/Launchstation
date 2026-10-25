@@ -14,7 +14,7 @@
 #define ULE_VERSION_DEBUG_SUFFIX ""
 #endif
 
-#define ULE_VERSION "v4.78_R3Z" ULE_VERSION_DEBUG_SUFFIX
+#define ULE_VERSION "v.4.80_R3Z" ULE_VERSION_DEBUG_SUFFIX
 //#ifndef ULE_VERDATE
 //#define ULE_VERDATE __DATE__
 //#endif
@@ -313,7 +313,6 @@ typedef struct
 	int screen_y;
 	int swapKeys;
 	int HOSTwrite;
-	int legacy_net_drivers;
 	int app_gameid;
 	int cdrom_disable_gameid;
 	int TV_mode;

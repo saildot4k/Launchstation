@@ -1,4 +1,4 @@
-"""Execute DEV9 and ATA loaders across refused/successful variant resets."""
+"""Execute shared DEV9/ATA loading and exclusive network session transitions."""
 from pathlib import Path
 import re
 import shutil
@@ -18,8 +18,6 @@ assert "      - smap-ps2ip:ps2smap\n" not in yaml
 assert "ps2ips_irx.o" in make and "iop/irx/ps2ips.irx" in embed
 assert "have_ps2ips = 0;" in source[source.index("static void clearIopModuleState(void)\n{"):]
 assert "have_netman = 0;" in source[source.index("static void clearIopModuleState(void)\n{"):]
-blobs = (root / "src/embed_blobs.S").read_text()
-assert 'EMBED_FILE(ps2smap_legacy_irx, "iop/__precompiled/ps2smap.irx")' in blobs
 
 def function(name, source=source):
     match = re.search(r"(?:static )?(?:int |void |const char \*)" + name + r"\([^)]*\)\n\{", source)
@@ -42,9 +40,6 @@ code = r'''
 #endif
 /* NETWORK_MODE_DECLARATIONS */
 #define TRUE 1
-#define DEV9_VARIANT_NONE 0
-#define DEV9_VARIANT_CURRENT 1
-#define DEV9_VARIANT_PS2SDK_V10 2
 #define DPRINTF(...) ((void)0)
 typedef unsigned char u8;
 typedef unsigned int u32;
@@ -67,8 +62,8 @@ static int failed_id, failed_result;
 static char gw[32] = "192.168.1.1";
 #ifdef WLE_NETMAN_IP
 static int have_netman;
-static u8 netman_irx[1], ps2smap_legacy_irx[1];
-static int size_netman_irx=1, size_ps2smap_legacy_irx=1;
+static u8 netman_irx[1];
+static int size_netman_irx=1;
 #define BASE_NETWORK_CALLS 4
 #else
 #define BASE_NETWORK_CALLS 3
@@ -77,10 +72,10 @@ static const DashboardDnsAddress *ps2ipc_dns_getserver(u8 n) { assert(n<2); retu
 static void ps2ipc_dns_setserver(u8 n, const DashboardDnsAddress *ip) {
     assert(n<2); dns_servers[n]=*ip; dns_writes++;
 }
-static u8 ps2dev9_irx[1], ps2dev9_v10_irx[1], ata_bd_irx[1];
-static int size_ps2dev9_irx=1, size_ps2dev9_v10_irx=1, size_ata_bd_irx=1;
-static u8 ps2ip_irx[1], ps2ip_v10_irx[1], ps2ips_irx[1], ps2smap_irx[1], ps2host_irx[1], ps2ftpd_irx[1], ps2netfs_irx[1];
-static int size_ps2ip_irx=1, size_ps2ip_v10_irx=1, size_ps2ips_irx=1, size_ps2smap_irx=1, size_ps2host_irx=1, size_ps2ftpd_irx=1, size_ps2netfs_irx=1;
+static u8 ps2dev9_irx[1], ata_bd_irx[1];
+static int size_ps2dev9_irx=1, size_ata_bd_irx=1;
+static u8 ps2ip_irx[1], ps2ips_irx[1], ps2smap_irx[1], ps2host_irx[1], ps2ftpd_irx[1], ps2netfs_irx[1];
+static int size_ps2ip_irx=1, size_ps2ips_irx=1, size_ps2smap_irx=1, size_ps2host_irx=1, size_ps2ftpd_irx=1, size_ps2netfs_irx=1;
 static int have_ps2ip, have_ps2ips, have_ps2smap, have_ps2host, have_ps2ftpd, have_ps2netfs, network_calls;
 static int client_calls, if_conf_len, have_NetModules;
 static unsigned int generation;
@@ -92,9 +87,7 @@ static char ip[]="192.168.1.10";
 #endif
 static int console_is_PSX, have_Flash_modules, xfromserv_loaded, power_calls, flash_calls;
 static char if_conf[1];
-static struct Config { int legacy_net_drivers; } config;
-static struct Config *setting = &config;
-static int ps2dev9_loaded, have_ps2dev9, ps2dev9_variant, have_ata_bd;
+static int ps2dev9_loaded, have_ps2dev9, have_ata_bd;
 static int cf_owned, allow_reset, resets, bdm_live, bdm_ok, bdm_calls, ata_calls, dev9_calls, settle_calls;
 static int module_id=1, module_result;
 static int pcCardCfOwnsBus(void) { return cf_owned; }
@@ -120,7 +113,7 @@ static void resetRuntimeDeviceState(int show) {
 #endif
         have_ps2dev9=ps2dev9_loaded=have_ata_bd=bdm_live=0;
         have_ps2ip=have_ps2ips=have_ps2smap=have_ps2host=have_ps2ftpd=have_ps2netfs=0;
-        ps2dev9_variant=DEV9_VARIANT_NONE;network_stack_mode=0;
+        network_stack_mode=0;
         memset(dns_servers,0,sizeof(dns_servers));
 #ifdef WLE_NETMAN_IP
         have_netman=0;
@@ -137,7 +130,6 @@ static int SifExecModuleBuffer(const void *module, int size, int len, const void
         assert(!len && !args);
 #endif
     }
-    if(module==ps2ip_v10_irx) assert(!len && !args);
     if(module==ps2smap_irx) {
 #ifdef WLE_NETMAN_IP
         assert(have_netman && !len && !args);
@@ -147,10 +139,9 @@ static int SifExecModuleBuffer(const void *module, int size, int len, const void
     }
 #ifdef WLE_NETMAN_IP
     if(module==netman_irx) assert(!have_ps2ip && !have_ps2smap && !len && !args);
-    if(module==ps2smap_legacy_irx) assert(have_ps2ip && !have_netman && len==if_conf_len && args==if_conf);
 #endif
-    if (module==ata_bd_irx) { ata_calls++; if (!bdm_live) return -1; }
-    else if (module==ps2dev9_irx || module==ps2dev9_v10_irx) dev9_calls++;
+    if (module==ata_bd_irx) { assert(ps2dev9_loaded && have_ps2dev9); ata_calls++; if (!bdm_live) return -1; }
+    else if (module==ps2dev9_irx) dev9_calls++;
     else {
         if(module==ps2ips_irx) {
             assert(have_ps2ip && have_ps2smap);
@@ -200,10 +191,9 @@ code += function("sntpStatusText", clock)
 code += function("dashClockSyncInternet", clock)
 code += r'''
 static void reset(void) {
-    config.legacy_net_drivers=0;
     ps2dev9_loaded=have_ps2dev9=have_ata_bd=cf_owned=resets=bdm_live=0;
     bdm_calls=ata_calls=dev9_calls=settle_calls=module_result=0;
-    ps2dev9_variant=DEV9_VARIANT_NONE; allow_reset=bdm_ok=module_id=1;
+    allow_reset=bdm_ok=module_id=1;
     have_ps2ip=have_ps2ips=have_ps2smap=have_ps2host=have_ps2ftpd=have_ps2netfs=network_calls=client_calls=0;
     network_stack_mode=0;generation=0;have_NetModules=0;
 #ifdef UDPFS
@@ -247,39 +237,30 @@ static void assertOnlyMode(int mode) {
 #endif
 }
 int main(void) {
-    /* Refused reset must preserve ownership and perform no dependent load. */
-    reset(); have_ps2dev9=ps2dev9_loaded=1;
-    ps2dev9_variant=DEV9_VARIANT_CURRENT; config.legacy_net_drivers=1;
-    allow_reset=0;
-    assert(!loadAtaBlockDriver());
-    assert(resets==1 && !ata_calls && !dev9_calls && !bdm_calls);
-    assert(ps2dev9_loaded && ps2dev9_variant==DEV9_VARIANT_CURRENT);
-    reset(); have_ps2dev9=ps2dev9_loaded=1;
-    ps2dev9_variant=DEV9_VARIANT_PS2SDK_V10; allow_reset=0;
-    assert(!loadAtaBlockDriver() && resets==1 && !ata_calls && !dev9_calls && !bdm_calls);
-    assert(ps2dev9_variant==DEV9_VARIANT_PS2SDK_V10);
-    /* Successful reset clears BDM; restore it before the ATA module runs. */
-    reset(); have_ps2dev9=ps2dev9_loaded=bdm_live=1;
-    ps2dev9_variant=DEV9_VARIANT_CURRENT; config.legacy_net_drivers=1;
+    /* ATA reuses resident DEV9 without resetting or loading it again. */
+    reset(); have_ps2dev9=ps2dev9_loaded=1; allow_reset=0;
     assert(loadAtaBlockDriver());
-    assert(resets==1 && dev9_calls==1 && bdm_calls==1 && ata_calls==1 && settle_calls==1);
-    assert(ps2dev9_variant==DEV9_VARIANT_PS2SDK_V10 && bdm_live);
+    assert(!resets && !dev9_calls && bdm_calls==1 && ata_calls==1 && settle_calls==1);
+    /* A cold ATA stack loads DEV9 and BDM before ATA, once per IOP. */
+    reset(); assert(loadAtaBlockDriver());
+    assert(!resets && dev9_calls==1 && bdm_calls==1 && ata_calls==1 && settle_calls==1);
     assert(loadAtaBlockDriver());
-    assert(resets==1 && dev9_calls==1 && ata_calls==1 && settle_calls==1);
+    assert(!resets && dev9_calls==1 && bdm_calls==2 && ata_calls==1 && settle_calls==1);
+    /* Internet and ATA share DEV9 and can reuse each other's resident stack. */
+    assert(ensureDashboardIpNetworkReady());
+    assert(!resets && dev9_calls==1 && have_ata_bd && bdm_live);
+    assert(loadAtaBlockDriver() && !resets && dev9_calls==1 && ata_calls==1);
+    reset(); assert(ensureDashboardIpNetworkReady());
+    assert(loadAtaBlockDriver() && !resets && dev9_calls==1 && bdm_calls==1 && ata_calls==1);
+    resetRuntimeDeviceState(TRUE); assert(!have_ata_bd && !ps2dev9_loaded);
+    assert(loadAtaBlockDriver() && resets==1 && dev9_calls==2 && bdm_calls==2 && ata_calls==2);
     /* CF ownership, module rejection and BDM failure stop dependent loads. */
     reset(); cf_owned=1; assert(!loadAtaBlockDriver());
     assert(!dev9_calls && !bdm_calls && !ata_calls);
     reset(); module_id=-1; assert(!loadAtaBlockDriver() && !bdm_calls && !ata_calls);
     reset(); module_result=-1; assert(!loadAtaBlockDriver() && !bdm_calls && !ata_calls);
     reset(); bdm_ok=0; assert(!loadAtaBlockDriver() && !ata_calls);
-    /* Existing IP flags do not override a refused DEV9 transition. */
-    reset(); have_ps2dev9=ps2dev9_loaded=have_ps2ip=have_ps2ips=have_ps2smap=1;
-    ps2dev9_variant=DEV9_VARIANT_CURRENT; config.legacy_net_drivers=1; allow_reset=0;
-    load_ps2host(); load_ps2ftpd(); load_ps2netfs();
-    assert(!ensureDashboardIpNetworkReady());
-    assert(resets==4 && have_ps2ip && have_ps2smap);
-    assert(!network_calls && !client_calls && !dev9_calls);
-    assert(!have_ps2host && !have_ps2ftpd && !have_ps2netfs);
+    /* Refused network-mode resets stop dependent service loads. */
     reset(); network_stack_mode=NETWORK_STACK_UDPFS;allow_reset=0;
     load_ps2host(); load_ps2ftpd(); load_ps2netfs();
     assert(!ensureDashboardIpNetworkReady() && !network_calls && !dev9_calls && !client_calls);
@@ -329,14 +310,6 @@ int main(void) {
     assert(strstr(dashboardIpNetworkError(),"Internet"));
     reset();module_id=-1;assert(!ensureDashboardIpNetworkReady());
     assert(strstr(dashboardIpNetworkError(),"DEV9"));
-#ifdef WLE_NETMAN_IP
-    /* Switching to/from legacy networking must use the matching SMAP too. */
-    reset();config.legacy_net_drivers=1;assert(ensureDashboardIpNetworkReady());
-    assert(ps2dev9_variant==DEV9_VARIANT_PS2SDK_V10 && !have_netman && network_calls==3);
-    config.legacy_net_drivers=0;assert(ensureDashboardIpNetworkReady());
-    assert(ps2dev9_variant==DEV9_VARIANT_CURRENT && have_netman && resets==1);
-    assert(network_calls==3+BASE_NETWORK_CALLS && socket_calls==2 && network_stack_mode==NETWORK_STACK_CLIENT);
-#endif
     /* Exercise the real entry points and reset gate for every mode pair. */
     const int modes[]={NETWORK_STACK_FTP,NETWORK_STACK_HOST,NETWORK_STACK_CLIENT,
 #ifdef UDPFS
@@ -376,7 +349,7 @@ int main(void) {
     assert(!loadFlashModules() && power_calls==1 && !flash_calls);
     reset(); console_is_PSX=1;
     assert(loadFlashModules() && power_calls==1 && flash_calls==1);
-    puts("PASS: lazy socket-server startup, DNS, module failures, retries, IOP resets, refused DEV9/IP transitions, BDM ordering, dependent services, XFROM power-off and CF ownership");
+    puts("PASS: lazy socket-server startup, DNS, module failures, retries, IOP resets, shared DEV9, BDM ordering, dependent services, XFROM power-off and CF ownership");
 }
 '''
 with tempfile.TemporaryDirectory(prefix="dev9-transition-") as folder:
