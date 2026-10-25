@@ -11,7 +11,7 @@ yaml = (root / "ps2.yaml").read_text()
 make = (root / "Makefile").read_text()
 embed = (root / "embed.make").read_text()
 assert "      - WLE_NETMAN_IP\n" in yaml
-for module in ("netman", "smap:ps2smap", "ps2ip-nm:ps2ip", "ps2ips"):
+for module in ("netman", "smap:ps2smap", "ps2ip-nm:ps2ip", "ps2ips_rpc:ps2ips"):
     assert "      - " + module + "\n" in yaml, module
 assert "      - smap-ps2ip:ps2smap\n" not in yaml
 assert "ps2ips_irx.o" in make and "iop/irx/ps2ips.irx" in embed

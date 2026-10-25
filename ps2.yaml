@@ -143,6 +143,17 @@ targets:
     cflags: [-Wall]
     headers: [sio2man, dmacman, intrman, iomanx, loadcore, stdio, sysclib, threadman]
 
+  # The SDK ps2ips target is the EE client library, not an embeddable IRX.
+  # Build its matching IOP socket RPC server explicitly under a distinct name.
+  - name: ps2ips_rpc
+    type: iop
+    sources: [iop/ps2ips_rpc/ps2ips.c]
+    include_dirs: [iop/ps2ips_rpc]
+    imports_lst: iop/ps2ips_rpc/imports.lst
+    defines: [PS2IP_DNS]
+    cflags: [-Wall]
+    headers: [intrman, loadcore, ps2ip-nm, sifcmd, sifman, stdio, sysclib, threadman]
+
   # Legacy ps2ftpd is retained as the on-demand FTP service. It is compiled
   # into the default build, but init.c does not load the network stack until
   # a network feature (FTP, clock sync or an Internet client) is requested.
@@ -417,7 +428,7 @@ targets:
       - netman
       - smap:ps2smap
       - ps2ip-nm:ps2ip
-      - ps2ips
+      - ps2ips_rpc:ps2ips
       - ps2host
       - netfs:ps2netfs
       - ps2ftpd
