@@ -12,6 +12,7 @@
 #include "dash_internal.h"
 #include "dash_sound.h"
 #include "init.h"
+#include "filer_shared.h"
 #include <delaythread.h>
 #ifdef MMCE
 #include "../iop/mmceman/include/mmce_cmds.h"
@@ -541,6 +542,13 @@ static int probeMount(const char *m)
 		if (ok) ok = probeRoot("mx4sio:/", 2000);
 	}
 #endif
+#ifdef ETH
+	else if (!strncmp(m, "host", 4)) {
+		/* Network-mode changes must run here on the UI thread, before a
+		 * directory worker starts issuing file IO against the new server. */
+		ok = ensurePathDeviceStackReady(m);
+	}
+#endif
 #ifdef UDPFS
 	else if (!strncmp(m, "udpfs", 5)) {
 		ok = load_udpfs();
@@ -627,6 +635,10 @@ void dashDevicesStartForPath(const char *path)
 #ifdef MX4SIO
 	else if (!strncmp(path, "mx4sio", 6))
 		mount = "mx4sio:";
+#endif
+#ifdef ETH
+	else if (!strncmp(path, "host", 4))
+		mount = "host:";
 #endif
 #ifdef UDPFS
 	else if (!strncmp(path, "udpfs", 5))

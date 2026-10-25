@@ -177,7 +177,9 @@ int drawMainMenuScreen(MainMenuState *state, const char *main_msg)
 			else
 				f[0] = '\0';
 			if (!f[0]) {                                          //No title present, or allowed ?
-				if (setting->Hide_Paths) {                        //Hide full path ?
+				if (!stricmp(setting->LK_Path[i], setting->Misc_PS2Net))
+					strcpy(f, "FTP Server");
+				else if (setting->Hide_Paths) {                        //Hide full path ?
 					if ((p = strrchr(setting->LK_Path[i], '/')))  // found delimiter ?
 						strcpy(f, p + 1);
 					else  // No delimiter !

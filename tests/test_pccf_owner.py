@@ -1,5 +1,6 @@
 """Run production EE CF ownership/probe code with mocked module/RPC boundaries."""
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -92,8 +93,9 @@ for signature in ("static int load_ps2dev9(void)", "static int load_ps2ip(void)"
                   "int loadAtaModules(void)", "int loadHddModules(void)",
                   "void loadNetModules(void)", "int ensureDashboardIpNetworkReady(void)"):
     body = function(signature)
-    assert "if (pcCardCfOwnsBus()) return" in body, signature
-    guard = body.index("if (pcCardCfOwnsBus()) return")
+    guard_match = re.search(r"if \(pcCardCfOwnsBus\(\)\)\s*(?:\{[^{}]*?)?return(?: 0)?;", body)
+    assert guard_match, signature
+    guard = guard_match.start()
     for boundary in ("switchNetworkStack(", "switchBlockStorageStack(", "switchPsxHddDriverStack(", "SifExecModuleBuffer("):
         if boundary in body:
             assert guard < body.index(boundary), signature

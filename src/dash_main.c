@@ -289,7 +289,7 @@ static void runMiscCommand(const char *misc_path)
 	else if (!stricmp(misc_path, setting->Misc_PS2PowerOff))
 		title = "Powering off", leaves = 1;
 	else if (!stricmp(misc_path, setting->Misc_PS2Net))
-		title = "Starting FTP / remote access", network_command = 1;
+		title = "Starting FTP Server", network_command = 1;
 	else if (!stricmp(misc_path, setting->Misc_Reboot_IOP))
 		title = "Rebooting the IOP";
 	else if (!stricmp(misc_path, setting->Misc_Configure) || !stricmp(misc_path, setting->Misc_Exploit_Installer))
@@ -835,6 +835,10 @@ static void lkLabel(int lk, char *out, int size)
 		dashStrCopy(out, setting->LK_Title[lk], size);
 		return;
 	}
+	if (!stricmp(p, setting->Misc_PS2Net)) {
+		dashStrCopy(out, "FTP Server", size);
+		return;
+	}
 	s = strrchr(p, '/');
 	if (s == NULL)
 		s = strrchr(p, ':');
@@ -899,6 +903,8 @@ static void bootBegin(void)
 		const char *p = setting->LK_Path[SETTING_LK_AUTO];
 		if (setting->LK_Title[SETTING_LK_AUTO][0])
 			dashStrCopy(boot_auto_title, setting->LK_Title[SETTING_LK_AUTO], sizeof(boot_auto_title));
+		else if (!stricmp(p, setting->Misc_PS2Net))
+			dashStrCopy(boot_auto_title, "FTP Server", sizeof(boot_auto_title));
 		else if (strchr(p, ':') != NULL)
 			dashLibPrettyName(p, boot_auto_title, sizeof(boot_auto_title));
 		else {

@@ -253,7 +253,7 @@ int dashClockSyncInternet(char *result, int result_size)
 	if (result != NULL && result_size > 0)
 		result[0] = '\0';
 	if (!ensureDashboardIpNetworkReady()) {
-		if (result) snprintf(result, result_size, "Network stack could not be started.");
+		if (result) snprintf(result, result_size, "%s", dashboardIpNetworkError());
 		return 0;
 	}
 	for (i = 0; i < 3; i++) {

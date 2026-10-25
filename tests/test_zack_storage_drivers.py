@@ -93,7 +93,7 @@ c += r"""
 #define STORAGE_STACK_MX4SIO 2
 #define DPRINTF(...) do { if (0) printf(__VA_ARGS__); } while (0)
 #define NETWORK_STACK_NONE 0
-#define NETWORK_STACK_ETH 1
+#define NETWORK_STACK_FTP 1
 #define NETWORK_STACK_UDPFS 2
 static int network_stack_mode;
 static int storage_driver_stack_mode, reset_allowed, resets;
@@ -157,11 +157,11 @@ int main(void) {
     assert(storage_driver_stack_mode == STORAGE_STACK_DEFAULT && resets == 2);
     network_stack_mode = NETWORK_STACK_NONE;
     int before = resets;
-    assert(switchNetworkStack(NETWORK_STACK_ETH) == 1 && resets == before);
-    assert(switchNetworkStack(NETWORK_STACK_ETH) == 1 && resets == before);
+    assert(switchNetworkStack(NETWORK_STACK_FTP) == 1 && resets == before);
+    assert(switchNetworkStack(NETWORK_STACK_FTP) == 1 && resets == before);
     reset_allowed = 0;
     assert(switchNetworkStack(NETWORK_STACK_UDPFS) == 0);
-    assert(network_stack_mode == NETWORK_STACK_ETH && resets == before + 1);
+    assert(network_stack_mode == NETWORK_STACK_FTP && resets == before + 1);
     reset_allowed = 1;
     assert(switchNetworkStack(NETWORK_STACK_UDPFS) == 1);
     assert(network_stack_mode == NETWORK_STACK_UDPFS && resets == before + 2);
@@ -190,3 +190,59 @@ with tempfile.TemporaryDirectory(prefix="zack-storage-drivers-") as tmp:
     subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
                     str(path), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True, timeout=10)
+
+# A network-mode change must really be able to reboot the IOP. Debug builds
+# must not autoload their old IP stack inside the replacement session.
+network_options = r"""
+#include <assert.h>
+#define TRUE 1
+#define NETWORK_STACK_NONE 0
+#define NETWORK_STACK_FTP 1
+#define NETWORK_STACK_HOST 2
+#define NETWORK_STACK_CLIENT 4
+#define DPRINTF(...) ((void)0)
+static int network_stack_mode, resets;
+#ifdef UDPTTY
+static int network_stack_switching;
+#endif
+static void resetRuntimeDeviceState(int show) {
+    assert(show==TRUE);resets++;network_stack_mode=NETWORK_STACK_NONE;
+#ifdef UDPTTY
+    /* Model Reset's debug-stack autoload only outside a network switch. */
+    if (!network_stack_switching) network_stack_mode=NETWORK_STACK_CLIENT;
+#endif
+}
+"""
+network_options += function("src/init.c", "static int switchNetworkStack(int target_mode)\n{")
+network_options += r"""
+#ifdef NO_IOP_RESET
+static int pcCardCfOwnsBus(void) { return 0; }
+"""
+network_options += function("src/init.c", "int reloadUdpfsModules(void)\n{")
+network_options += r"""
+#endif
+int main(void) {
+    assert(switchNetworkStack(NETWORK_STACK_FTP));
+    assert(switchNetworkStack(NETWORK_STACK_FTP) && !resets);
+#ifdef NO_IOP_RESET
+    assert(!switchNetworkStack(NETWORK_STACK_HOST) && !resets);
+    assert(network_stack_mode==NETWORK_STACK_FTP);
+    assert(!reloadUdpfsModules() && !resets);
+#else
+    assert(switchNetworkStack(NETWORK_STACK_HOST) && resets==1);
+    assert(network_stack_mode==NETWORK_STACK_HOST && !network_stack_switching);
+    assert(switchNetworkStack(NETWORK_STACK_CLIENT) && resets==2);
+    assert(network_stack_mode==NETWORK_STACK_CLIENT && !network_stack_switching);
+#endif
+}
+"""
+init = (root / "src/init.c").read_text()
+assert "!network_stack_switching && load_ps2ip()" in function("src/init.c", "void Reset()\n{")
+with tempfile.TemporaryDirectory(prefix="network-build-options-") as tmp:
+    path=Path(tmp)/"network.c";exe=Path(tmp)/"network"
+    path.write_text(network_options)
+    for option in ("-DNO_IOP_RESET", "-DUDPTTY"):
+        subprocess.run([compiler,"-std=c11","-Wall","-Wextra","-Werror",option,
+                        str(path),"-o",str(exe)],check=True)
+        subprocess.run([str(exe)],check=True,timeout=10)
+print("PASS: no-reset builds refuse mode changes; debug IP autoload stays out of replacement sessions")

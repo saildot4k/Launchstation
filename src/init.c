@@ -20,6 +20,11 @@ extern void filerRootMcPollIdle(void);
 //IRX for togleable features
 #ifdef ETH
 IMPORT_BIN2C(ps2ip_irx);
+IMPORT_BIN2C(ps2ips_irx);
+#ifdef WLE_NETMAN_IP
+IMPORT_BIN2C(netman_irx);
+IMPORT_BIN2C(ps2smap_legacy_irx);
+#endif
 IMPORT_BIN2C(ps2dev9_v10_irx);
 IMPORT_BIN2C(ps2ip_v10_irx);
 IMPORT_BIN2C(ps2smap_irx);
@@ -126,6 +131,20 @@ static u8 have_usb_mass = 0;
 static u8 have_ps2smap = 0;
 static u8 have_ps2host = 0;
 static u8 have_ps2ip = 0;
+#ifdef ETH
+static u8 have_ps2ips = 0;
+#ifdef WLE_NETMAN_IP
+static u8 have_netman = 0;
+#endif
+static const char *dashboard_ip_error = NULL;
+/* libps2ips exposes its RPC socket functions without installing ps2ipc.h
+ * in ps2build. These DNS calls use the same IPv4 ABI as the socket clients. */
+typedef struct {
+	u32 addr;
+} DashboardDnsAddress;
+extern const DashboardDnsAddress *ps2ipc_dns_getserver(u8 numdns);
+extern void ps2ipc_dns_setserver(u8 numdns, const DashboardDnsAddress *server);
+#endif
 static u8 have_NetModules = 0;
 static u8 have_ps2netfs = 0;
 #ifdef UDPFS
@@ -242,13 +261,19 @@ enum block_storage_stack_mode {
 };
 static int block_storage_stack_mode = BLOCK_STACK_NONE;
 
-#if defined(ETH) && defined(UDPFS)
+#if defined(ETH) || defined(UDPFS)
 enum network_stack_mode {
 	NETWORK_STACK_NONE = 0,
-	NETWORK_STACK_ETH,
+	NETWORK_STACK_FTP,
+	NETWORK_STACK_HOST,
 	NETWORK_STACK_UDPFS,
+	NETWORK_STACK_CLIENT,
 };
 static int network_stack_mode = NETWORK_STACK_NONE;
+#ifdef UDPTTY
+/* Do not reload the debug IP stack into a session reserved for another mode. */
+static int network_stack_switching = 0;
+#endif
 #endif
 
 //State of whether DEV9 was successfully loaded or not.
@@ -307,7 +332,7 @@ static void resetDriverStackLoadTracking(void);
 static void resetRuntimeDeviceState(int show_status);
 static int switchStorageDriverStack(int target_mode);
 static void switchBlockStorageStack(int target_mode);
-#if defined(ETH) && defined(UDPFS)
+#if defined(ETH) || defined(UDPFS)
 static int switchNetworkStack(int target_mode);
 #endif
 #ifdef EXFAT
@@ -434,7 +459,14 @@ static int load_ps2dev9(void)
 	/* DEV9 is shared by Ethernet and ATA/HDD. Switching driver families
 	 * requires a clean IOP instead of stacking a second DEV9. */
 	if (ps2dev9_loaded && ps2dev9_variant != desired_variant) {
+#ifdef UDPTTY
+		int previous_network_switch = network_stack_switching;
+		network_stack_switching = 1;
+#endif
 		resetRuntimeDeviceState(TRUE);
+#ifdef UDPTTY
+		network_stack_switching = previous_network_switch;
+#endif
 		/* A refused reset keeps the old DEV9 family resident. Its presence
 		 * is not permission to initialize consumers of the requested family. */
 		if (ps2dev9_loaded && ps2dev9_variant != desired_variant)
@@ -546,37 +578,85 @@ static void stopUsbMassForPoweroff(void)
 static int load_ps2ip(void)
 {
 	int ret, ID __attribute__((unused));
-	if (pcCardCfOwnsBus()) return 0;
-
-#if defined(ETH) && defined(UDPFS)
-	if (!switchNetworkStack(NETWORK_STACK_ETH))
+	int requested_mode = network_stack_mode;
+	if (pcCardCfOwnsBus()) {
+		dashboard_ip_error = "PC CARD CompactFlash is using the network adapter.";
 		return 0;
-#endif
+	}
+
 	if (!load_ps2dev9()) {
+		dashboard_ip_error = "DEV9 network adapter could not be started.";
 		DPRINTF(" [NET]: skipping PS2IP/SMAP because DEV9 failed to initialize\n");
 		return 0;
 	}
+	/* A DEV9-family change can reboot the IOP after the caller chose its mode. */
+	network_stack_mode = requested_mode;
 
+#ifdef WLE_NETMAN_IP
+	/* ps2build supplies the NetMan stack. Register the Ethernet interface
+	 * before PS2IP reads its MAC address and attaches the protocol stack. */
+	if (ps2dev9_variant != DEV9_VARIANT_PS2SDK_V10) {
+		if (!have_netman) {
+			ID = SifExecModuleBuffer(netman_irx, size_netman_irx, 0, NULL, &ret);
+			DPRINTF(" [NETMAN]: ID=%d, ret=%d\n", ID, ret);
+			have_netman = (ID >= 0 && ret == 0);
+			if (!have_netman) {
+				dashboard_ip_error = "Network manager (NetMan) could not be loaded.";
+				return 0;
+			}
+		}
+		if (!have_ps2smap) {
+			ID = SifExecModuleBuffer(ps2smap_irx, size_ps2smap_irx, 0, NULL, &ret);
+			DPRINTF(" [SMAP NetMan]: ID=%d, ret=%d\n", ID, ret);
+			have_ps2smap = (ID >= 0 && ret == 0);
+			if (!have_ps2smap) {
+				dashboard_ip_error = "Ethernet driver (SMAP) could not be loaded.";
+				return 0;
+			}
+		}
+	}
+#endif
 	if (!have_ps2ip) {
 		const void *ip_module = ps2ip_irx;
 		int ip_module_size = size_ps2ip_irx;
+		int ip_args_len = 0;
+		const char *ip_args = NULL;
+#ifdef WLE_NETMAN_IP
+		/* NetMan PS2IP owns IP/netmask/gateway; direct SMAP owns them in
+		 * the Makefile stack and in the legacy-network compatibility stack. */
+		ip_args_len = if_conf_len;
+		ip_args = &if_conf[0];
+#endif
 		if (ps2dev9_variant == DEV9_VARIANT_PS2SDK_V10) {
 			ip_module = ps2ip_v10_irx;
 			ip_module_size = size_ps2ip_v10_irx;
+			ip_args_len = 0;
+			ip_args = NULL;
 		}
-		ID = SifExecModuleBuffer(ip_module, ip_module_size, 0, NULL, &ret);
+		ID = SifExecModuleBuffer(ip_module, ip_module_size, ip_args_len, ip_args, &ret);
 		DPRINTF(" [PS2IP%s]: ID=%d, ret=%d\n",
 		        ps2dev9_variant == DEV9_VARIANT_PS2SDK_V10 ? " v1.0" : "",
 		        ID, ret);
-		have_ps2ip = (ID >= 0 && ret >= 0);
-		if (!have_ps2ip)
+		have_ps2ip = (ID >= 0 && ret == 0);
+		if (!have_ps2ip) {
+			dashboard_ip_error = "IP driver (PS2IP) could not be loaded.";
 			return 0;
+		}
 	}
 	if (!have_ps2smap) {
-		ID = SifExecModuleBuffer(ps2smap_irx, size_ps2smap_irx,
+		const void *smap_module = ps2smap_irx;
+		int smap_module_size = size_ps2smap_irx;
+#ifdef WLE_NETMAN_IP
+		/* Only the legacy direct stack reaches this point without SMAP. */
+		smap_module = ps2smap_legacy_irx;
+		smap_module_size = size_ps2smap_legacy_irx;
+#endif
+		ID = SifExecModuleBuffer(smap_module, smap_module_size,
 		                    if_conf_len, &if_conf[0], &ret);
 		DPRINTF(" [SMAP]: ID=%d, ret=%d\n", ID, ret);
-		have_ps2smap = (ID >= 0 && ret >= 0);
+		have_ps2smap = (ID >= 0 && ret == 0);
+		if (!have_ps2smap)
+			dashboard_ip_error = "Ethernet driver (SMAP) could not be loaded.";
 	}
 	return have_ps2ip && have_ps2smap;
 }
@@ -814,10 +894,8 @@ void load_ps2host(void)
 	int ret, ID __attribute__((unused));
 	if (pcCardCfOwnsBus()) return;
 
-#if defined(ETH) && defined(UDPFS)
-	if (!switchNetworkStack(NETWORK_STACK_ETH))
+	if (!switchNetworkStack(NETWORK_STACK_HOST))
 		return;
-#endif
 	if (!have_ps2host || !have_ps2ip || !have_ps2smap || !ps2dev9_loaded)
 		showLoadingModulesMsg("host");
 
@@ -843,20 +921,22 @@ static void load_udpfs_stack(void)
 	char ministack_arg[32];
 	if (pcCardCfOwnsBus()) return;
 
-#if defined(ETH) && defined(UDPFS)
 	if (!switchNetworkStack(NETWORK_STACK_UDPFS))
 		return;
-#endif
 	if (!have_udpfs_smap || !have_udpfs_ministack || !have_udpfs_ioman || !ps2dev9_loaded)
 		showLoadingModulesMsg("udpfs");
 
 	ensureCoreIoStackReady();
 	setupPowerOff();
 	getIpConfig();
+	/* Resolving IPCONFIG can itself access a network boot device. */
+	if (!switchNetworkStack(NETWORK_STACK_UDPFS))
+		return;
 	if (!load_ps2dev9()) {
 		DPRINTF(" [UDPFS]: skipping load because DEV9 failed to initialize\n");
 		return;
 	}
+	network_stack_mode = NETWORK_STACK_UDPFS;
 
 	if (!have_udpfs_smap) {
 		ID = SifExecModuleBuffer(udpfs_smap_irx, size_udpfs_smap_irx, 0, NULL, &ret);
@@ -893,9 +973,17 @@ int load_udpfs(void)
 //---------------------------------------------------------------------------
 int reloadUdpfsModules(void)
 {
+	if (pcCardCfOwnsBus()) return 0;
+#ifdef NO_IOP_RESET
+	return 0;
+#else
+	unsigned int generation = getIopResetGeneration();
 	resetRuntimeDeviceState(TRUE);
+	if (getIopResetGeneration() == generation)
+		return 0;
 	load_udpfs_stack();
 	return have_udpfs_ioman;
+#endif
 }
 //------------------------------
 //endfunc reloadUdpfsModules
@@ -1006,6 +1094,8 @@ static void load_ps2ftpd(void)
 	arg_p = "-anonymous";
 	arglen = strlen(arg_p);
 
+	if (pcCardCfOwnsBus() || !switchNetworkStack(NETWORK_STACK_FTP))
+		return;
 	if (!load_ps2ip())
 		return;
 	if (!have_ps2ftpd) {
@@ -1023,6 +1113,8 @@ static void load_ps2netfs(void)
 {
 	int ret, ID __attribute__((unused));
 
+	if (pcCardCfOwnsBus() || !switchNetworkStack(NETWORK_STACK_FTP))
+		return;
 	if (!load_ps2ip())
 		return;
 	if (!have_ps2netfs) {
@@ -1824,7 +1916,7 @@ static void resetDriverStackLoadTracking(void)
 {
 	storage_driver_stack_mode = STORAGE_STACK_DEFAULT;
 	block_storage_stack_mode = BLOCK_STACK_NONE;
-#if defined(ETH) && defined(UDPFS)
+#if defined(ETH) || defined(UDPFS)
 	network_stack_mode = NETWORK_STACK_NONE;
 #endif
 }
@@ -1959,16 +2051,26 @@ static void switchBlockStorageStack(int target_mode)
 	}
 }
 
-#if defined(ETH) && defined(UDPFS)
+#if defined(ETH) || defined(UDPFS)
 static int switchNetworkStack(int target_mode)
 {
 	if (network_stack_mode == target_mode)
 		return 1;
 
 	if (network_stack_mode != NETWORK_STACK_NONE) {
+#ifdef NO_IOP_RESET
+		return 0; /* A build without IOP resets cannot replace resident stacks. */
+#endif
 		DPRINTF("Switching network stack (%d -> %d), resetting IOP\n", network_stack_mode, target_mode);
+#ifdef UDPTTY
+		network_stack_switching = 1;
+#endif
 		resetRuntimeDeviceState(TRUE);
-		/* If the reset was refused, old network modules are still resident. */
+#ifdef UDPTTY
+		network_stack_switching = 0;
+#endif
+		/* FTP, Host, UDPFS and Internet clients own separate IOP sessions.
+		 * If the reset was refused, keep the old owner and load nothing. */
 		if (network_stack_mode != NETWORK_STACK_NONE)
 			return 0;
 	}
@@ -2345,37 +2447,103 @@ int loadDVRPHddModules(void)
 #ifdef ETH
 void loadNetModules(void)
 {
-	if (pcCardCfOwnsBus()) return;
+	if (pcCardCfOwnsBus()) {
+		dashboard_ip_error = "PC CARD CompactFlash is using the network adapter.";
+		return;
+	}
 	ensureCoreIoStackReady();
+	getIpConfig();
+	if (!switchNetworkStack(NETWORK_STACK_FTP)) {
+		dashboard_ip_error = "Could not reboot the IOP to start FTP Server.";
+		return;
+	}
+	if (!load_ps2ip())
+		return;
 	if (!have_NetModules) {
-		showLoadingModulesMsg("ps2net");
-
-		getIpConfig();  //RA NB: I always get that info, early in init
-		//             //But sometimes it is useful to do it again (HDD)
-		// Also, my module checking makes some other tests redundant
-		load_ps2netfs();  // loads ps2netfs from internal buffer
-		load_ps2ftpd();   // loads ps2dftpd from internal buffer
+		showLoadingModulesMsg("FTP Server");
+		load_ps2netfs();
+		load_ps2ftpd();
 		have_NetModules = (have_ps2netfs && have_ps2ftpd);
 	}
 }
 
 int isFtpNetworkReady(void)
 {
-	return have_NetModules && have_ps2ftpd && have_ps2ip && have_ps2smap && ps2dev9_loaded;
+	return network_stack_mode == NETWORK_STACK_FTP && have_NetModules &&
+	       have_ps2ftpd && have_ps2ip && have_ps2smap && ps2dev9_loaded;
+}
+
+static void configureDashboardDns(void)
+{
+	const DashboardDnsAddress *existing = ps2ipc_dns_getserver(0);
+	DashboardDnsAddress server;
+	unsigned int a, b, c, d;
+	char extra;
+	u8 primary[4] = {1, 1, 1, 1};
+	u8 fallback[4] = {8, 8, 8, 8};
+
+	/* Keep an existing resolver (for example one assigned by DHCP). Static
+	 * IPCONFIG.DAT only contains IP/netmask/gateway, so a cold stack has none. */
+	if (existing != NULL && existing->addr != 0)
+		return;
+	if (sscanf(gw, "%u.%u.%u.%u%c", &a, &b, &c, &d, &extra) == 4 &&
+	    a > 0 && a < 224 && b <= 255 && c <= 255 && d <= 255) {
+		primary[0] = (u8)a;
+		primary[1] = (u8)b;
+		primary[2] = (u8)c;
+		primary[3] = (u8)d;
+		fallback[0] = fallback[1] = fallback[2] = fallback[3] = 1;
+		if (a == 1 && b == 1 && c == 1 && d == 1)
+			fallback[0] = fallback[1] = fallback[2] = fallback[3] = 8;
+	}
+	memcpy(&server.addr, primary, sizeof(server.addr));
+	ps2ipc_dns_setserver(0, &server);
+	memcpy(&server.addr, fallback, sizeof(server.addr));
+	ps2ipc_dns_setserver(1, &server);
+}
+
+const char *dashboardIpNetworkError(void)
+{
+	return dashboard_ip_error != NULL ? dashboard_ip_error : "Network stack could not be started.";
 }
 
 /* Minimal demand-driven network path for SNTP/other dashboard clients.
  * Unlike loadNetModules(), this does not start FTP/netfs services. */
 int ensureDashboardIpNetworkReady(void)
 {
-	if (pcCardCfOwnsBus()) return 0;
+	int id, ret;
+	if (pcCardCfOwnsBus()) {
+		dashboard_ip_error = "PC CARD CompactFlash is using the network adapter.";
+		return 0;
+	}
+	dashboard_ip_error = NULL;
 	ensureCoreIoStackReady();
 	showLoadingModulesMsg("dashboard network");
 	getIpConfig();
+	if (!switchNetworkStack(NETWORK_STACK_CLIENT)) {
+		dashboard_ip_error = "Could not reboot the IOP for Internet access.";
+		return 0;
+	}
 	if (!load_ps2ip())
 		return 0;
-	/* PS2SDK ps2ip_init() is idempotent and detects IOP reboots. */
-	return ps2ip_init() >= 0;
+	if (!have_ps2ips) {
+		id = SifExecModuleBuffer(ps2ips_irx, size_ps2ips_irx, 0, NULL, &ret);
+		DPRINTF(" [PS2IPS]: ID=%d, ret=%d\n", id, ret);
+		/* MODULE_NO_RESIDENT_END is positive too; it is not a running server. */
+		have_ps2ips = (id >= 0 && ret == 0);
+		if (!have_ps2ips) {
+			dashboard_ip_error = "Socket server (PS2IPS) could not be loaded.";
+			return 0;
+		}
+	}
+	/* Binding before PS2IPS is resident can wait forever. The SDK client is
+	 * idempotent and detects IOP reboots, so rebind only after loading it. */
+	if (ps2ip_init() < 0) {
+		dashboard_ip_error = "Could not connect to the network socket server.";
+		return 0;
+	}
+	configureDashboardDns();
+	return 1;
 }
 #endif
 //------------------------------
@@ -2441,6 +2609,13 @@ static void clearIopModuleState(void)
 	have_ps2smap = 0;
 	have_ps2host = 0;
 	have_ps2ip = 0;
+#ifdef ETH
+	have_ps2ips = 0;
+#ifdef WLE_NETMAN_IP
+	have_netman = 0;
+#endif
+	dashboard_ip_error = NULL;
+#endif
 	have_ps2netfs = 0;
 #ifdef UDPFS
 	have_udpfs_smap = 0;
@@ -2524,7 +2699,8 @@ int i, d;
 
 #ifdef UDPTTY
 int i, d;
-	if (load_ps2ip()) {
+	if (!network_stack_switching && load_ps2ip()) {
+		network_stack_mode = NETWORK_STACK_CLIENT;
 		i = SifExecModuleBuffer(&udptty_irx, size_udptty_irx, 0, NULL, &d);
 		DPRINTF(" [UDPTTY]: id=%d, ret=%d\n", i, d);
 	}

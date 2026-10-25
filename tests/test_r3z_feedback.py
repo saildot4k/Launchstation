@@ -36,11 +36,11 @@ code += function("src/lang.c", "const char *getMiscEntryDisplayName(")
 code += r"""
 int main(void) {
  strcpy(setting->Misc,"MISC/");strcpy(setting->Misc_PS2Net,"MISC/PS2Net");
- assert(!strcmp(getMiscEntryDisplayName("MISC/","PS2Net"),"FTP server"));
+ assert(!strcmp(getMiscEntryDisplayName("MISC/","PS2Net"),"FTP Server"));
  assert(!strcmp(getMiscEntryDisplayName("usb0:/","PS2Net"),"PS2Net"));
  assert(!strcmp(setting->Misc_PS2Net,"MISC/PS2Net"));
  strcpy(setting->Misc,"Tools/");strcpy(setting->Misc_PS2Net,"Tools/CustomFTP");
- assert(!strcmp(getMiscEntryDisplayName("Tools/","CustomFTP"),"FTP server"));
+ assert(!strcmp(getMiscEntryDisplayName("Tools/","CustomFTP"),"FTP Server"));
  assert(!strcmp(getMiscEntryDisplayName("Tools/","Configure"),"Configure"));
  for(int stack=0;stack<=2;stack++) for(int mx=0;mx<=1;mx++) for(int ok=0;ok<=1;ok++) {
   loads=0;storage_driver_stack_mode=stack;mx4sio_driver_running=mx;load_ok=ok;

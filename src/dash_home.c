@@ -123,6 +123,8 @@ static void homeRebuild(void)
 			continue;
 		if (setting->LK_Title[i][0])
 			dashStrCopy(name, setting->LK_Title[i], sizeof(name));
+		else if (!stricmp(p, setting->Misc_PS2Net))
+			dashStrCopy(name, "FTP Server", sizeof(name));
 		else if (strchr(p, ':') != NULL)
 			dashLibPrettyName(p, name, sizeof(name));
 		else {

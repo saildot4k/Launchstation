@@ -836,17 +836,16 @@ void dashModalHintRow(float x, float y, int ok_icon, const char *ok, int back_ic
 float dashDrawButton(float x, float y, int icon, const char *key);
 
 /* Shared native keyboard for the editor and single-line naming dialogs. */
-enum { DASH_KB_DELETE = -1 };
 typedef struct
 {
 	int layout, selected, action, caps, page;
 	int single_line; /* text prompts expose only the Symbols action */
-	int filename; /* names omit actions and path separator keys */
+	int filename; /* names omit actions and slash/backslash key pairs */
 } DashKeyboard;
 
 void dashKeyboardInit(DashKeyboard *kb, int layout);
 void dashKeyboardMove(DashKeyboard *kb, int dx, int dy);
-int dashKeyboardPress(DashKeyboard *kb); /* byte, DASH_KB_DELETE, or 0 */
+int dashKeyboardPress(DashKeyboard *kb); /* typed byte, or 0 for a page change */
 void dashKeyboardDraw(const DashKeyboard *kb, float center_x, float y0);
 
 /* Native text entry (dash_widgets.c): the user's virtual keyboard layout,

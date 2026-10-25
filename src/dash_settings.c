@@ -2595,6 +2595,8 @@ static void runAction(int id)
 		case S_CLOCK_SYNC: {
 			char result[160];
 			int ok;
+			if (!dashWorkerAwaitAll("Finishing background storage work"))
+				break;
 			dashLoadingBegin("Synchronizing PS2 clock");
 			ok = dashClockSyncInternet(result, sizeof(result));
 			dashLoadingEnd();

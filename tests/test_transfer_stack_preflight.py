@@ -20,13 +20,15 @@ code=r'''
 #define MX4SIO 1
 #define MMCE 1
 #define UDPFS 1
+#define ETH 1
 #define TRUE 1
 #define FALSE 0
 #define TRANSFER_STACK_READY 0
 #define TRANSFER_STACK_LOAD_FAILED -1
 #define TRANSFER_STACK_INCOMPATIBLE -2
 static int mx4sio_driver_running, reset_allowed=1, resets, loads, open_handles;
-static int network,usb,USB_mass_loaded;
+static int network,usb,USB_mass_loaded,host_error;
+static void initHOST(void){loads++;host_error=0;}
 static int isPcCardCfPath(const char *p){return p&&!strncmp(p,"cf",2);}
 static int loadPcCardCfModules(void){return 1;}
 static int isPcCardCfOnline(void){return 1;}
@@ -60,6 +62,12 @@ int main(void){
   /* Once handles exist, normal-card access must not cause another reset. */
   open_handles=2;ensureMemoryCardPortAccessible(1);assert(resets==1);open_handles=0;
  }
+ reset();assert(prepareTransferDeviceStacks("host:/source/","udpfs:/dest/")==TRANSFER_STACK_INCOMPATIBLE);
+ assert(!resets && !loads);
+ reset();assert(prepareTransferDeviceStacks("udpfs:/source/","host:/dest/")==TRANSFER_STACK_INCOMPATIBLE);
+ assert(!resets && !loads);
+ reset();assert(prepareTransferDeviceStacks("host:/source/","usb0:/dest/")==TRANSFER_STACK_READY);
+ assert(!resets && loads==2);
  reset();assert(prepareTransferDeviceStacks("mx4sio:/","mc1:/")==TRANSFER_STACK_INCOMPATIBLE);
  assert(!resets&&!loads&&mx4sio_driver_running);
  reset();assert(prepareTransferDeviceStacks("mc1:/","mx4sio:/")==TRANSFER_STACK_INCOMPATIBLE);

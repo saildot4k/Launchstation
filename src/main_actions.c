@@ -562,7 +562,8 @@ Recurse_for_ESR:  //Recurse here for PS2Disc command with ESR disc
 	} else if (!stricmp(path, setting->Misc_PS2Net)) {
 		ctx->main_msg[0] = 0;
 		loadNetModules();
-		snprintf(ctx->main_msg, MAX_PATH, "%s", netConfig);
+		snprintf(ctx->main_msg, MAX_PATH, "%s",
+		         isFtpNetworkReady() ? netConfig : dashboardIpNetworkError());
 		return;
 #endif
 	} else if (!stricmp(path, setting->Misc_PS2PowerOff)) {

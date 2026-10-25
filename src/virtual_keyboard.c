@@ -213,6 +213,19 @@ int isVirtualKeyboardLayoutKey(int layout, int index)
     return getVirtualKeyboardRawChar(layout, index, VKEY_SHIFT_NORMAL) != ' ';
 }
 
+int isVirtualKeyboardFilenameChar(unsigned char c)
+{
+    return c != '/' && c != '\\' && c != '?' && c != '|';
+}
+
+int isVirtualKeyboardFilenameKey(int layout, int index)
+{
+    /* Omit the whole key position, including its shifted character. */
+    return isVirtualKeyboardLayoutKey(layout, index) &&
+           isVirtualKeyboardFilenameChar((unsigned char)getVirtualKeyboardLayoutChar(layout, index, 0)) &&
+           isVirtualKeyboardFilenameChar((unsigned char)getVirtualKeyboardLayoutChar(layout, index, 1));
+}
+
 static void getVirtualKeyboardLayoutColumnRange(int layout, int *first_col, int *last_col)
 {
     int row;

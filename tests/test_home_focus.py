@@ -53,12 +53,12 @@ typedef unsigned char u8;
 #define DI_SETTINGS 7
 typedef struct { char path[DASH_PATH_MAX]; int flags; } DashApp;
 typedef struct { char pin[8][DASH_PATH_MAX], recent[8][DASH_PATH_MAX], fav[8][DASH_PATH_MAX]; int npin, nrecent, nfav; } Lists;
-typedef struct { char LK_Path[SETTING_LK_BTN_COUNT][DASH_PATH_MAX]; char LK_Title[SETTING_LK_BTN_COUNT][DASH_TITLE_MAX]; int LK_Flag[SETTING_LK_BTN_COUNT]; } Setting;
+typedef struct { char Misc_PS2Net[DASH_PATH_MAX]; char LK_Path[SETTING_LK_BTN_COUNT][DASH_PATH_MAX]; char LK_Title[SETTING_LK_BTN_COUNT][DASH_TITLE_MAX]; int LK_Flag[SETTING_LK_BTN_COUNT]; } Setting;
 static Lists dashLists;
 static struct { int recent_count; int home_shortcuts; } dashCfg = {8,1};
 static Setting setting_data;
 static Setting *setting = &setting_data;
-static char LastDir[DASH_PATH_MAX];
+static char LastDir[DASH_PATH_MAX], last_chip_label[DASH_TITLE_MAX];
 static DashApp dashApps[8], home_tmp[HOME_MAX_APPS], *home_apps[HOME_MAX_APPS];
 static u8 home_badge[HOME_MAX_APPS];
 static int dashAppCount, nhome, nchips, row, row_forced, col[2];
@@ -73,7 +73,7 @@ static DashApp *dashLibResolve(const char *p, DashApp *tmp) {
 }
 static void dashLibPrettyName(const char *p, char *name, int n) { dashStrCopy(name, p, n); }
 static void addChip(int kind, int lk, int icon, const char *label, const char *desc) {
-    (void)kind; (void)lk; (void)icon; (void)label; (void)desc; nchips++;
+    (void)kind; (void)lk; (void)icon; (void)desc; dashStrCopy(last_chip_label,label,sizeof(last_chip_label)); nchips++;
 }
 """
 code += function("static int homeHas(") + function("static void homeAdd(") + function("static void homeRebuild(")
@@ -102,6 +102,14 @@ int main(void) {
     LastDir[0] = '\0';
     homeRebuild();
     assert(nchips == 1);
+    dashCfg.home_shortcuts=1;
+    strcpy(setting->Misc_PS2Net,"MISC/PS2Net");
+    strcpy(setting->LK_Path[SETTING_LK_LEFT],setting->Misc_PS2Net);
+    setting->LK_Flag[SETTING_LK_LEFT]=1;homeRebuild();
+    assert(!strcmp(last_chip_label,"FTP Server"));
+    assert(!strcmp(setting->LK_Path[SETTING_LK_LEFT],"MISC/PS2Net"));
+    strcpy(setting->LK_Title[SETTING_LK_LEFT],"My FTP shortcut");homeRebuild();
+    assert(!strcmp(last_chip_label,"My FTP shortcut"));
     return 0;
 }
 """

@@ -704,6 +704,9 @@ ifeq ($(ETH),1)
 $(EE_ASM_DIR)ps2ip_irx.s: $(PS2SDK)/iop/irx/ps2ip.irx | $(EE_ASM_DIR)
 	$(BIN2S) $< $@ ps2ip_irx
 
+$(EE_ASM_DIR)ps2ips_irx.s: $(PS2SDK)/iop/irx/ps2ips.irx | $(EE_ASM_DIR)
+	$(BIN2S) $< $@ ps2ips_irx
+
 $(EE_ASM_DIR)ps2ip_v10_irx.s: iop/__v10/ps2ip.irx | $(EE_ASM_DIR)
 	$(BIN2S) $< $@ ps2ip_v10_irx
 

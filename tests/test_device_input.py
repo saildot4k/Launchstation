@@ -159,13 +159,14 @@ static char LaunchElfBootDir[256], LaunchElfDir[256], netConfig[32];
 static int mc_present[2], usb_mask, usb_loaded, resident, media, loads, opens, closes;
 static int failed_load, reset_on_load, reset_on_type, usb_snapshot_valid=1;
 static u64 delayed_ata;
-enum { S_HDD=1, S_ATA=2, S_MX=4, S_MMCE0=8, S_MMCE1=16, S_UDPFS=32 };
+enum { S_HDD=1, S_ATA=2, S_MX=4, S_MMCE0=8, S_MMCE1=16, S_UDPFS=32, S_HOST=64 };
 static int slot(const char *p) {
     if(!strncmp(p,"hdd",3)) return S_HDD;
     if(!strncmp(p,"ata",3)) return S_ATA;
     if(!strncmp(p,"mx4sio",6)) return S_MX;
     if(!strncmp(p,"mmce",4)) return p[4]=='1'?S_MMCE1:S_MMCE0;
     if(!strncmp(p,"udpfs",5)) return S_UDPFS;
+    if(!strncmp(p,"host",4)) return S_HOST;
     return 0;
 }
 static int isPathDeviceStackLoaded(const char *p) {
@@ -186,6 +187,10 @@ static int loadAtaModules(void) { return load(S_ATA); }
 static int loadMx4sioModules(void) { usb_snapshot_valid=0; return load(S_MX); }
 static int loadMmceModules(void) { return load(S_MMCE0|S_MMCE1); }
 static int load_udpfs(void) { return load(S_UDPFS); }
+static int ensurePathDeviceStackReady(const char *path) {
+    assert(!strncmp(path,"host",4));
+    return load(S_HOST) && (media & S_HOST);
+}
 static int loadFlashModules(void) { return 1; }
 static int loadDVRPHddModules(void) { return 1; }
 #define MMCE_CMD_PING 1
@@ -356,6 +361,13 @@ int main(void) {
     absent_hdd_units=absent_ata_units=0;resident=0;reset_generation++;
     dashDevicesStartForPath("hdd1:/APPS/");assert(!strcmp(last_open,"hdd1:"));
     dashDevicesStartForPath("ata1:/APPS/");assert(!strcmp(last_open,"ata1:/"));
+    /* Host starts on the UI thread, including a change from another network mode. */
+    resident=S_UDPFS;media=S_HOST;reset_on_type=S_HOST;
+    unsigned int host_gen=reset_generation;
+    dashDevicesStartForPath("host:/APPS/");
+    assert(reset_generation==host_gen+1 && (resident&S_HOST) && !(resident&S_UDPFS));
+    before_loads=loads;dashDevicesStartForPath("host:/APPS/");assert(loads==before_loads);
+    resident=media=0;reset_generation++;probe("host:");assert(!result);
     /* Every supported root fits, including ten USB units, both VMCs and MISC. */
     usb_loaded=usb_snapshot_valid=1;usb_mask=0x3ff;cf_eligible=boot_show_all_devices=1;
     vmcMounted[0]=vmcMounted[1]=1;strcpy(setting->Misc,"MISC/");

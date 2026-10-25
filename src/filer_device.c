@@ -140,6 +140,14 @@ int prepareTransferDeviceStacks(const char *src_path, const char *dst_path)
 	if (transferUsesPcCardCfAndDev9(src_path, dst_path))
 		return TRANSFER_STACK_INCOMPATIBLE;
 
+#if defined(ETH) && defined(UDPFS)
+	/* Changing network modes reboots the IOP and invalidates open handles. */
+	if (src_path != NULL && dst_path != NULL &&
+	    ((!strncmp(src_path, "host", 4) && !strncmp(dst_path, "udpfs", 5)) ||
+	     (!strncmp(src_path, "udpfs", 5) && !strncmp(dst_path, "host", 4))))
+		return TRANSFER_STACK_INCOMPATIBLE;
+#endif
+
 	if (src_storage != TRANSFER_STORAGE_DEFAULT &&
 	    dst_storage != TRANSFER_STORAGE_DEFAULT &&
 	    src_storage != dst_storage)

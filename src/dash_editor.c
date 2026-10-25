@@ -590,9 +590,7 @@ static void kbTypeKey(EdDoc *d)
 {
 	int key = dashKeyboardPress(&editor_keyboard);
 
-	if (key == DASH_KB_DELETE)
-		docBackspace(d);
-	else if (key > 0) {
+	if (key > 0) {
 		char c = (char)key;
 		docInsert(d, &c, 1);
 	}

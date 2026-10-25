@@ -167,7 +167,7 @@ static void editMetadata(DashApp *a)
 			file = strrchr(a->path, ':');
 		file = file ? file + 1 : a->path;
 		int len = snprintf(text, sizeof(text),
-		                   "# Launchstation application metadata (title.cfg)\r\n"
+		                   "# App Metadata (title.cfg)\r\n"
 		                   "# Every key is optional. Lines starting with # are ignored.\r\n"
 		                   "title = %s\r\n"
 		                   "boot = %s\r\n"

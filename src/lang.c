@@ -360,7 +360,7 @@ const char *getMiscEntryDisplayName(const char *path, const char *name)
 	if (!strcmp(path, setting->Misc) &&
 	    !strncmp(setting->Misc_PS2Net, setting->Misc, prefix) &&
 	    !strcmp(name, setting->Misc_PS2Net + prefix))
-		return "FTP server";
+		return "FTP Server";
 	return name;
 }
 

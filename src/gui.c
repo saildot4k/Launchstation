@@ -140,15 +140,13 @@ void nonDialog(char *message)
 	}
 }
 
-/* Filename prompts keep path separators out of drawing, focus and input. */
+/* Filename prompts omit slash/backslash key pairs in both Caps states. */
 static int keyboardIsKey(int index, int caps, int filename)
 {
-	char c;
-
+	(void)caps; /* Filename key positions are independent of Caps. */
 	if (!isVirtualKeyboardLayoutKey(setting->virtual_keyboard_layout, index))
 		return 0;
-	c = getVirtualKeyboardLayoutChar(setting->virtual_keyboard_layout, index, caps);
-	return !filename || (c != '/' && c != '\\');
+	return !filename || isVirtualKeyboardFilenameKey(setting->virtual_keyboard_layout, index);
 }
 
 static int keyboardNextKey(int index, int dx, int dy, int caps, int filename)
@@ -334,7 +332,7 @@ static int keyboardImpl(char *out, int max, int filename)
 					break;
 				} else {
 					i = strlen(out);
-					if (i < max && i < 33 && (!filename || (KeyPress != '/' && KeyPress != '\\'))) {
+					if (i < max && i < 33 && (!filename || isVirtualKeyboardFilenameChar((unsigned char)KeyPress))) {
 						strcpy(tmp, out);
 						out[cur] = KeyPress;
 						out[cur + 1] = 0;
