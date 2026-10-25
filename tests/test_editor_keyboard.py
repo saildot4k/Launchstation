@@ -80,6 +80,11 @@ for name in ("PAD_R3_H0", "PAD_R3_H1", "PAD_R3_V0", "PAD_R3_V1",
     code += re.search(rf"^#define {name} .+$", header, re.M).group() + "\n"
 input_start = source.index("else if (kb_shown) {") + len("else if (kb_shown) {")
 input_end = source.index("\n\t\t} else {", input_start)
+options_start = source.index("\t\tif (in.pressed & DASH_IN_MENU)\n\t\t\taction = editorMenu(d);", source.index("int dashTextEditorEx("))
+options_end = source.index("\n\t\telse if (kb_shown)", options_start)
+code += "static int options_opens;\nstatic int editorMenu(EdDoc *d) { (void)d;options_opens++;return 99; }\n"
+code += "static int optionsInput(EdDoc *d, int pressed) { struct { int pressed; } in={pressed};int action=-1;\n"
+code += source[options_start:options_end] + "\nreturn action;}\n"
 code += "static void keyboardInputRaw(EdDoc *d, int pressed, int raw) { struct { int pressed,raw_new; } in={pressed,raw};\n"
 code += source[input_start:input_end] + "\n}\n"
 code += r'''
@@ -181,6 +186,7 @@ static int dashOkIcon(void) { return 0; }
 static int dashBackIcon(void) { return 1; }
 static void dashGfxPresent(void) {}
 '''
+code += "static int dashboard_pending;\nstatic int dashDashboardPending(void) { return dashboard_pending; }\n"
 for signature in ('static void kbInsert(', 'static void kbDelete(', 'static int kbUsb(',
                   'static int modalKeyboard(', 'int dashModalKeyboard(', 'int dashModalFilename(',
                   'static int classicKeyboard('):
@@ -263,15 +269,21 @@ static int nameDialog(char *buf,int cap) { return textDialog(buf,cap,1,0); }
 static void checkNamingDialogs(void) {
     DashKeyboard saved=editor_keyboard;
     char buf[256];setting->virtual_keyboard_layout=VKEY_LAYOUT_QWERTY;
-    /* START accepts a name; deletion stays on the controller shortcut. */
-    strcpy(buf,"name");planReset();plan(0);plan(DASH_IN_START);
+    /* Dashboard navigation cancels naming, preserving the original buffer. */
+    strcpy(buf,"original");planReset();plan(DASH_IN_OK);dashboard_pending=1;
+    assert(!nameDialog(buf,255) && !strcmp(buf,"original"));dashboard_pending=0;
+    /* START cannot accept a name; SELECT completes the dialog instead. */
+    strcpy(buf,"name");planReset();plan(DASH_IN_START);plan(DASH_IN_SELECT);
+    assert(nameDialog(buf,255) && next_step==nsteps && !strcmp(buf,"name"));
+    /* SELECT accepts a name; deletion stays on the controller shortcut. */
+    strcpy(buf,"name");planReset();plan(0);plan(DASH_IN_SELECT);
     assert(nameDialog(buf,255) && !strcmp(buf,"name"));
-    strcpy(buf,"name");planReset();plan(DASH_IN_BACK);plan(DASH_IN_START);
+    strcpy(buf,"name");planReset();plan(DASH_IN_BACK);plan(DASH_IN_SELECT);
     assert(nameDialog(buf,255) && !strcmp(buf,"nam"));
     /* Caps, cursor movement, buffer limits and cancellation use real input. */
-    strcpy(buf,"ab");planReset();plan(DASH_IN_FAV);plan(DASH_IN_L1);plan(DASH_IN_OK);plan(DASH_IN_R1);plan(DASH_IN_START);
+    strcpy(buf,"ab");planReset();plan(DASH_IN_FAV);plan(DASH_IN_L1);plan(DASH_IN_OK);plan(DASH_IN_R1);plan(DASH_IN_SELECT);
     assert(nameDialog(buf,255) && !strcmp(buf,"aQb"));
-    buf[0]=0;planReset();plan(DASH_IN_OK);plan(DASH_IN_OK);plan(DASH_IN_OK);plan(DASH_IN_START);
+    buf[0]=0;planReset();plan(DASH_IN_OK);plan(DASH_IN_OK);plan(DASH_IN_OK);plan(DASH_IN_SELECT);
     assert(nameDialog(buf,2) && !strcmp(buf,"qq"));
     strcpy(buf,"original");planReset();plan(DASH_IN_OK);plan(DASH_IN_MENU);
     assert(!nameDialog(buf,255) && !strcmp(buf,"original"));
@@ -281,7 +293,7 @@ static void checkNamingDialogs(void) {
     plan(DASH_IN_UP);
     int last_symbol=((int)sizeof(kb_ascii_symbols)-2+EditorSpecialCharCount)%KB_SYMBOL_PAGE_SIZE;
     for(int i=0;i<last_symbol%KB_SYMBOL_COLS;i++) plan(DASH_IN_RIGHT);
-    plan(DASH_IN_OK);plan(0);plan(DASH_IN_START);
+    plan(DASH_IN_OK);plan(0);plan(DASH_IN_SELECT);
     assert(textDialog(buf,255,0,0) && (unsigned char)buf[0]==0xff && buf[1]==0 && filename_ff>0);
     /* USB input retains acceptance, cursor editing and cancel/restore behavior. */
     strcpy(buf,"ab");planReset();setting->usbkbd_used=1;
@@ -305,7 +317,7 @@ static void checkNamingDialogs(void) {
     /* Caps keeps the slash/question-mark key omitted and preserves focus. */
     buf[0]=0;planReset();plan(DASH_IN_FAV);plan(DASH_IN_DOWN);plan(DASH_IN_DOWN);
     for(int i=0;i<8;i++) plan(DASH_IN_RIGHT);
-    plan(DASH_IN_FAV);plan(DASH_IN_OK);plan(DASH_IN_START);
+    plan(DASH_IN_FAV);plan(DASH_IN_OK);plan(DASH_IN_SELECT);
     assert(nameDialog(buf,255) && !strcmp(buf,"."));
     assert(!memcmp(&saved,&editor_keyboard,sizeof(saved)));
     /* Literal font rendering uses the actual 0xFF atlas slot and the batched renderer. */
@@ -614,9 +626,13 @@ int main(void) {
     }
     for(int i=0;i<256;i++) assert(drawn[i]==expected_count[i]);
     assert(drawn[0xff]==1);
-    kb_shown=1;keyboardInput(&d,DASH_IN_MENU);assert(!kb_shown);
+    for(int shown=0;shown<=1;shown++) {
+        kb_shown=shown;options_opens=0;
+        assert(optionsInput(&d,DASH_IN_MENU)==99 && options_opens==1 && kb_shown==shown);
+    }
+    kb_shown=1;keyboardInput(&d,DASH_IN_MENU);assert(kb_shown); /* Options is handled before the keyboard branch. */
     /* Two extra hidden-keyboard text rows, a shorter keyboard, and resize at EOF. */
-    assert(ED_Y==60 && visibleRows()==18);
+    kb_shown=0;assert(ED_Y==60 && visibleRows()==18);
     assert(ED_Y-4+visibleRows()*ED_ROW+8<394);
     kb_shown=1;assert(visibleRows()==10 && KB_H==147);
     assert(ED_Y-4+visibleRows()*ED_ROW+8<DASH_VH-58-KB_H);

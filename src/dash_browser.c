@@ -951,12 +951,14 @@ static int tsEdit(FilerDateEditor *e)
 	dashInputFlush();
 	while (1) {
 		dashInputPoll(&in);
+		if (dashDashboardPending())
+			return 0;
 		if (in.pressed & DASH_IN_BACK) {
 			dashSoundPlay(DASH_SND_CANCEL);
 			dashInputFlush();
 			return 0;
 		}
-		if (in.pressed & (DASH_IN_OK | DASH_IN_START)) {
+		if (in.pressed & DASH_IN_OK) {
 			dashSoundPlay(DASH_SND_CONFIRM);
 			dashInputFlush();
 			return 1;
@@ -1602,8 +1604,9 @@ static void browserDrawBody(void)
 		h[n].button = dashOkIcon(), h[n].key = NULL, h[n].label = "Open", n++;
 		if (fb.dir[0] && !isMisc(fb.dir))
 			h[n].button = DI_BTN_SQUARE, h[n].key = NULL, h[n].label = "Select", n++;
-		h[n].button = DI_BTN_TRIANGLE, h[n].key = NULL, h[n].label = "Menu", n++;
-		h[n].button = dashBackIcon(), h[n].key = NULL, h[n].label = fb.dir[0] ? "Up" : (fb_tab_active ? "Home" : "Close"), n++;
+		h[n].button = DI_BTN_TRIANGLE, h[n].key = NULL, h[n].label = "Options", n++;
+		if (fb.dir[0] || !fb_tab_active)
+			h[n].button = dashBackIcon(), h[n].key = NULL, h[n].label = fb.dir[0] ? "Up" : "Close", n++;
 		dashDrawHints(h, n);
 	}
 	/* Temporary hardware diagnostic for the completed USB listing/input-loss
@@ -1716,15 +1719,11 @@ static void browserProcessInput(const DashInput *in, int *running)
 		if (in->pressed & DASH_IN_MENU)
 			actionsMenu();
 	}
-	if (in->pressed & DASH_IN_BACK) {
+	if ((in->pressed & DASH_IN_BACK) && (fb.dir[0] || running != NULL)) {
 		dashSoundPlay(DASH_SND_CANCEL);
 		if (fb.dir[0] == '\0') {
 			if (running != NULL)
 				*running = 0;
-			else {
-				dashSwitchSection(DASH_SEC_HOME);
-				return;
-			}
 		} else {
 			char parent[MAX_PATH], child[MAX_NAME];
 			parentOf(fb.dir, parent, sizeof(parent), child, sizeof(child));
@@ -1834,6 +1833,8 @@ void dashFileBrowser(const char *start_dir)
 			memset(&in, 0, sizeof(in));
 		else
 			dashInputPoll(&in);
+		if (dashDashboardPending())
+			break;
 		browserSnapshotPad();
 		browserProcessInput(&in, &running);
 		fb.sel_anim = dashApproach(fb.sel_anim, (float)fb.sel, 22.0f * dashAnimSpeed(), dashVisualUpdate());

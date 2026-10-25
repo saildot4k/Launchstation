@@ -663,6 +663,7 @@ void dashLibPrettyName(const char *path, char *out, int out_size);
 int dashLibRemove(int index);
 void dashLibRefreshApp(DashApp *app);
 void dashHomeRebuild(void);
+void dashHomeOpenApplications(void);
 int dashLibMetadataPath(const DashApp *app, char *out, int out_size);
 
 //--------------------------------------------------------------
@@ -814,6 +815,10 @@ void dashDrawSpinner(float cx, float cy, float r, DashColor c);
 void dashToast(int kind, const char *msg);
 void dashDrawToasts(void);
 
+/* Disabled controls stay visibly dim even when a theme uses similar text
+ * colours. Apply to the whole row, including icons and secondary values. */
+#define DASH_DISABLED_ALPHA 0.5f
+
 /* Blocking modal dialogs. They keep rendering the current dashboard scene
  * underneath through dashRenderScene(). */
 typedef struct
@@ -821,7 +826,7 @@ typedef struct
 	int icon;
 	const char *label;
 	const char *detail;
-	int disabled;
+	int disabled; /* dimmed and skipped by menu navigation */
 } DashMenuItem;
 
 int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *items, int n, int initial);
@@ -938,6 +943,11 @@ const char *dashSectionName(int section);
 int dashSectionIcon(int section);
 void dashSwitchSection(int section);
 int dashConfirmLeave(void); /* asks the current section; 0 = stay */
+/* START opens Dashboard from any native screen. Actions wait for blocking
+ * tools/dialogs to unwind; editor leave confirmation can cancel navigation. */
+void dashDashboardMenu(void);
+int dashDashboardPending(void);
+int dashDashboardConfirmLeave(int (*leave)(void));
 int dashCurrentSection(void);
 int dashVisibleSectionCount(void);
 int dashVisibleSectionAt(int index);

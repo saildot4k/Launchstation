@@ -30,7 +30,8 @@ typedef unsigned char u8;
 #define HOME_MAX_APPS 24
 #define HOME_MAX_CHIPS 24
 #define DASH_APP_META_PIN 1
-#define SETTING_LK_BTN_COUNT 3
+#define SETTING_LK_BTN_COUNT 4
+#define SETTING_LK_START 3
 #define SETTING_LK_LEFT 1
 #define SETTING_LK_RIGHT 2
 #define stricmp strcmp
@@ -63,7 +64,7 @@ static DashApp dashApps[8], home_tmp[HOME_MAX_APPS], *home_apps[HOME_MAX_APPS];
 static u8 home_badge[HOME_MAX_APPS];
 static int dashAppCount, nhome, nchips, row, row_forced, col[2];
 static float col_anim[2], cam[2];
-static const char *const lk_names[SETTING_LK_BTN_COUNT] = {"Auto", "Left", "Right"};
+static const char *const lk_names[SETTING_LK_BTN_COUNT] = {"Auto", "Left", "Right", "Start"};
 static void dashStrCopy(char *d, const char *s, int n) { snprintf(d, n, "%s", s); }
 static int dashDevicePathReady(const char *p) { (void)p; return 1; }
 static DashApp *dashLibResolve(const char *p, DashApp *tmp) {
@@ -110,6 +111,8 @@ int main(void) {
     assert(!strcmp(setting->LK_Path[SETTING_LK_LEFT],"MISC/PS2Net"));
     strcpy(setting->LK_Title[SETTING_LK_LEFT],"My FTP shortcut");homeRebuild();
     assert(!strcmp(last_chip_label,"My FTP shortcut"));
+    strcpy(setting->LK_Path[SETTING_LK_START],"mc0:/OLD-START.ELF");homeRebuild();
+    assert(nchips==2); /* Legacy START targets do not produce a launch shortcut. */
     return 0;
 }
 """

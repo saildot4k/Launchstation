@@ -130,7 +130,8 @@ int main(void) {
     visit(P_ROOT,0);
     for(int p=0;p<P_COUNT;p++) assert(seen[p]);
     for(int i=0;i<NITEMS(expected);i++) assert(occurrences[expected[i]]==1);
-    for(int k=SETTING_LK_AUTO;k<=SETTING_LK_START;k++) assert(occurrences[S_LK_0+k]==1);
+    for(int k=SETTING_LK_AUTO;k<SETTING_LK_START;k++) assert(occurrences[S_LK_0+k]==1);
+    assert(!occurrences[S_LK_0+SETTING_LK_START]); /* START belongs to Dashboard. */
     for(int s=0;s<S_T_RESETCAT;s++) assert(occurrences[s]<=1);
     settingsEnter(); assert(page==P_ROOT && begins==1);
     /* Root shortcuts never interpret a page ID as an overlapping SetId. */
@@ -172,7 +173,7 @@ int main(void) {
     dashCfg.artwork=1; dashTheme.wallpaper=1; press(DASH_IN_RIGHT); assert(edits==5);
     select_id(P_THEME_CLOCK,S_T_SECONDS); press(DASH_IN_OK); assert(edits==5);
     dashTheme.clock=1; press(DASH_IN_OK); assert(edits==6);
-    page=P_ROOT; page_depth=0; item=0; press(DASH_IN_BACK); assert(home==1);
+    page=P_ROOT; page_depth=0; item=0; press(DASH_IN_BACK); assert(home==0);
     session=0; page=P_THEME_COLORS; settingsEnter(); assert(page==P_ROOT && begins==2);
     puts("PASS: all pages reachable, baseline controls unique, navigation/scroll, session menu and dependencies");
 }

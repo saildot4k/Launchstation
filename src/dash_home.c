@@ -119,7 +119,7 @@ static void homeRebuild(void)
 		const char *p = setting->LK_Path[i];
 		char name[DASH_TITLE_MAX], label[48], desc[96];
 
-		if (!p[0] || ((i == SETTING_LK_LEFT || i == SETTING_LK_RIGHT) && !setting->LK_Flag[i]))
+		if (i == SETTING_LK_START || !p[0] || ((i == SETTING_LK_LEFT || i == SETTING_LK_RIGHT) && !setting->LK_Flag[i]))
 			continue;
 		if (setting->LK_Title[i][0])
 			dashStrCopy(name, setting->LK_Title[i], sizeof(name));
@@ -160,11 +160,27 @@ static void homeRebuild(void)
 	row_forced = (nhome == 0 && nchips > 0);
 }
 
+void dashHomeOpenApplications(void)
+{
+	if (library_open)
+		return;
+	library_open = 1;
+	if (dashAppsScreen.enter)
+		dashAppsScreen.enter();
+	/* Back from the viewer returns to its Applications shortcut. */
+	row = 1;
+	col[1] = 0;
+	col_anim[1] = 0.0f;
+	dashUiFocusPoke();
+}
+
 static void homeEnter(void)
 {
 	library_open = 0;
 	homeRebuild();
-	if (nhome > 0 || nchips == 0)
+	if (dashCfg.recent_count == 0 && dashLists.nrecent == 0)
+		dashHomeOpenApplications();
+	else if (nhome > 0 || nchips == 0)
 		row = 0;
 }
 
@@ -179,10 +195,7 @@ static void activateChip(const Chip *c)
 {
 	switch (c->kind) {
 		case CHIP_LIBRARY:
-			library_open = 1;
-			if (dashAppsScreen.enter)
-				dashAppsScreen.enter();
-			dashUiFocusPoke();
+			dashHomeOpenApplications();
 			break;
 		case CHIP_LAST_FOLDER: {
 			/* LastDir can change after the previous file operation. Copy it

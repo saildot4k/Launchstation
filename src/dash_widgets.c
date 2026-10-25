@@ -437,6 +437,8 @@ static int modalKeyboard(const char *title, char *buf, int max_len, int filename
 		int r;
 
 		dashInputPollEx(&in, 0);
+		if (dashDashboardPending())
+			break;
 		r = kbUsb(buf, max_len, &cur, filename);
 		if (r != 0) {
 			result = (r > 0);
@@ -471,7 +473,7 @@ static int modalKeyboard(const char *title, char *buf, int max_len, int filename
 			kbDelete(buf, &cur);
 			dashSoundPlay(DASH_SND_CANCEL);
 		}
-		if (in.pressed & DASH_IN_START) {
+		if (in.pressed & DASH_IN_SELECT) {
 			result = 1;
 			break;
 		}
@@ -541,7 +543,7 @@ static int modalKeyboard(const char *title, char *buf, int max_len, int filename
 				hx += dashDrawButton(hx, hy, -1, "L1") + 2;
 				hx += dashDrawButton(hx, hy, -1, "R1") + 4;
 				hx = dashTextS(hx, hy + 4.5f, "Move", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
-				hx += dashDrawButton(hx, hy, -1, "START") + 4;
+				hx += dashDrawButton(hx, hy, -1, "SELECT") + 4;
 				hx = dashTextS(hx, hy + 4.5f, "Done", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
 				hx += dashDrawButton(hx, hy, DI_BTN_TRIANGLE, NULL) + 4;
 				dashTextS(hx, hy + 4.5f, "Cancel", DASH_FS_SMALL, DASH_C_TEXT2);
@@ -706,6 +708,8 @@ int dashModalIp(const char *title, const char *help, char *ip_str, int size)
 		int step = 0;
 
 		dashInputPoll(&in);
+		if (dashDashboardPending())
+			break;
 		if (in.pressed & DASH_IN_LEFT) {
 			sel = (sel + 3) % 4;
 			dashSoundPlay(DASH_SND_CURSOR);
@@ -730,7 +734,7 @@ int dashModalIp(const char *title, const char *help, char *ip_str, int size)
 				oct[sel] = 255;
 			dashSoundPlay(DASH_SND_CURSOR);
 		}
-		if (in.pressed & (DASH_IN_OK | DASH_IN_START)) {
+		if (in.pressed & DASH_IN_OK) {
 			result = 1;
 			break;
 		}
@@ -1036,6 +1040,8 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 		int first_entry; /* index of the first listing row */
 
 		dashInputPoll(&in);
+		if (dashDashboardPending())
+			break;
 		if (pk.starting && pk.start_done) {
 			pk.starting = 0;
 			if (pk.start_ok) {
@@ -1114,7 +1120,7 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 				}
 			}
 		}
-		if ((in.pressed & DASH_IN_START) && mode == DASH_PICK_FOLDER && pk.dir[0]) {
+		if ((in.pressed & DASH_IN_SELECT) && mode == DASH_PICK_FOLDER && pk.dir[0]) {
 			dashStrCopy(out, pk.dir, out_size);
 			result = 1;
 			break;
@@ -1234,7 +1240,7 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 				hx += dashDrawButton(hx, hy, dashBackIcon(), NULL) + 4;
 				hx = dashTextS(hx, hy + 4.5f, pk.dir[0] ? "Up" : "Cancel", DASH_FS_SMALL, DASH_C_TEXT2) + 14;
 				if (mode == DASH_PICK_FOLDER && pk.dir[0]) {
-					hx += dashDrawButton(hx, hy, -1, "START") + 4;
+					hx += dashDrawButton(hx, hy, -1, "SELECT") + 4;
 					hx = dashTextS(hx, hy + 4.5f, "Use this folder", DASH_FS_SMALL, DASH_C_TEXT2) + 14;
 				} else if (mode != DASH_PICK_FOLDER) {
 					hx += dashDrawButton(hx, hy, DI_BTN_R3, NULL) + 4;

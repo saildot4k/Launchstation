@@ -135,6 +135,7 @@ int main(void) {
         dashTheme.clock=mode;draws=0;dashDrawClock();assert(draws==2);
         assert(drawn[0].x>=clock_left-0.01f && fabsf(drawn[0].x+dashTextWidth(drawn[0].text,drawn[0].scale)-DASH_SAFE_R)<0.01f);
         assert(strstr(drawn[0].text,"  104.0\260F"));
+        assert(fabsf(drawn[1].x-drawn[0].x)<0.01f); /* date starts under time */
     }
     dashTheme.clock_pos=DASH_CLOCKPOS_FOOTER;
     float width=footerClockWidth(time,sizeof(time),date,sizeof(date));
