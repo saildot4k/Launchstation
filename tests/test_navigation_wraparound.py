@@ -108,7 +108,8 @@ code += function(browser, "static void revealSelection(") + "\n"
 code += function(apps, "static void move(") + "\n"
 code += r"""
 #define DASH_FS_SMALL 12
-#define DASH_SAFE_R 592
+#define DASH_SAFE_L 40
+#define DASH_SAFE_R 600
 static int row, nhome, nchips;
 static float col_anim[2], cam[2], chip_cam;
 static struct { char label[48]; } chips[24];

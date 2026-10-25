@@ -26,9 +26,9 @@ int IsTextEditorFileType(const char *path);
 /* Eleven rows leave room for status text above the shared footer hints. */
 #define FB_ROWS 11
 #define FB_ROW_H 24.0f
-#define FB_X 40.0f
+#define FB_X DASH_SAFE_L
 #define FB_Y 100.0f
-#define FB_W 560.0f
+#define FB_W (DASH_SAFE_R - DASH_SAFE_L)
 
 static struct
 {
@@ -1495,7 +1495,7 @@ static void browserDrawBody(void)
 		dashTextS(FB_X + 32, 20, "File Browser", DASH_FS_TITLE, DASH_C_TEXT);
 	}
 	/* Give the current folder its own aligned lane above the file list. */
-	dashDrawPanelBox(FB_X - 6, path_panel_y, FB_W + 12, 24, 6);
+	dashDrawPanelBox(DASH_PANE_L, path_panel_y, DASH_PANE_W, 24, 6);
 	/* Text uses y + 16 * scale as its visual centre for every theme font. */
 	dashTextScroll(FB_X + 6, path_center_y - 16.0f * DASH_FS_SMALL,
 	               fb_tab_active ? FB_W - 227 : FB_W - 162,
@@ -1530,7 +1530,7 @@ static void browserDrawBody(void)
 			dashText(FB_X, status_y, info, DASH_FS_CAPTION, DASH_C_ACCENT);
 	}
 
-	dashDrawPanelBox(FB_X - 6, FB_Y - 6, FB_W + 12, FB_ROWS * FB_ROW_H + 12, 14);
+	dashDrawPanelBox(DASH_PANE_L, FB_Y - 6, DASH_PANE_W, FB_ROWS * FB_ROW_H + 12, 14);
 	dashGfxScissor(FB_X - 4, FB_Y - 4, FB_W + 8, FB_ROWS * FB_ROW_H + 8);
 	if (rows_total > 0 && !fb.loading)
 		dashDrawSelection(FB_X, FB_Y + (fb.sel_anim - fb.top) * FB_ROW_H, FB_W, FB_ROW_H - 3, 8, 1.0f);
