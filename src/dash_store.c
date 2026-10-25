@@ -249,13 +249,6 @@ void dashStoreDefaults(void)
 	dashCfg.files_mode = 0;
 	dashCfg.home_shortcuts = 1;
 	dashCfg.icon_backing = 1;
-	dashCfg.mmce_backup_keep = 10;
-	dashCfg.mmce_backup_format = 0; /* native .mcd */
-	dashCfg.igr_auto_backup = 1;
-	dashCfg.igr_cloud_sync = 0;
-	dashCfg.igr_after = DASH_IGR_AFTER_DASHBOARD;
-	dashCfg.igr_backup_path[0] = '\0';
-	dashCfg.igr_after_path[0] = '\0';
 	for (i = 0; i < (int)(sizeof(default_scan) / sizeof(default_scan[0])); i++)
 		dashStrCopy(dashCfg.scan[dashCfg.nscan++], default_scan[i], DASH_PATH_MAX);
 }
@@ -332,24 +325,6 @@ static int settingsKv(const char *key, char *value, void *user)
 		dashCfg.home_shortcuts = clampInt(value, 0, 1, 1);
 	else if (!stricmp(key, "Dash_IconBacking"))
 		dashCfg.icon_backing = clampInt(value, 0, 1, 1);
-	else if (!stricmp(key, "Dash_MMCEBackupKeep"))
-		dashCfg.mmce_backup_keep = clampInt(value, 0, 99, 10);
-	else if (!stricmp(key, "Dash_MMCEBackupFormat"))
-		dashCfg.mmce_backup_format = clampInt(value, 0, 1, 0);
-	else if (!stricmp(key, "Dash_IGRAutoBackup"))
-		dashCfg.igr_auto_backup = clampInt(value, 0, 1, 1);
-	else if (!stricmp(key, "Dash_IGRCloudSync"))
-		dashCfg.igr_cloud_sync = clampInt(value, 0, 1, 0);
-	else if (!stricmp(key, "Dash_IGRBackupPath")) {
-		if (strlen(value) < sizeof(dashCfg.igr_backup_path))
-			dashStrCopy(dashCfg.igr_backup_path, value, sizeof(dashCfg.igr_backup_path));
-	}
-	else if (!stricmp(key, "Dash_IGRAfter"))
-		dashCfg.igr_after = clampInt(value, 0, DASH_IGR_AFTER_COUNT - 1, DASH_IGR_AFTER_DASHBOARD);
-	else if (!stricmp(key, "Dash_IGRAfterPath")) {
-		if (strlen(value) < sizeof(dashCfg.igr_after_path))
-			dashStrCopy(dashCfg.igr_after_path, value, sizeof(dashCfg.igr_after_path));
-	}
 	else if (dashThemeStoreKey(key, value))
 		;
 	else if (!stricmp(key, "Dash_Scan")) {
@@ -490,22 +465,12 @@ char *dashStoreSettingsText(const DashSettings *c, int *out_len)
 	                "Dash_AppFilter = %d\r\n"
 	                "Dash_FilesMode = %d\r\n"
 	                "Dash_HomeShortcuts = %d\r\n"
-	                "Dash_IconBacking = %d\r\n"
-	                "Dash_MMCEBackupKeep = %d\r\n"
-	                "Dash_MMCEBackupFormat = %d\r\n"
-	                "Dash_IGRAutoBackup = %d\r\n"
-	                "Dash_IGRCloudSync = %d\r\n"
-	                "Dash_IGRBackupPath = %s\r\n"
-	                "Dash_IGRAfter = %d\r\n"
-	                "Dash_IGRAfterPath = %s\r\n",
+	                "Dash_IconBacking = %d\r\n",
 	                c->enabled, c->start_section, c->view, c->effects,
 	                c->anim, c->autoscan, c->artwork, c->recent_count,
 	                c->legacy_theme, c->intro_done, c->sound, c->sound_vol,
 	                c->bgm, c->bgm_vol, c->app_filter, c->files_mode,
-	                c->home_shortcuts, c->icon_backing,
-	                c->mmce_backup_keep, c->mmce_backup_format,
-	                c->igr_auto_backup, c->igr_cloud_sync, c->igr_backup_path,
-	                c->igr_after, c->igr_after_path);
+	                c->home_shortcuts, c->icon_backing);
 	for (i = 0; i < c->nscan && len < cap - DASH_PATH_MAX - 16; i++)
 		len += snprintf(buf + len, cap - len, "Dash_Scan = %s\r\n", c->scan[i]);
 	/* theme: preset name, plus a full snapshot once customised */

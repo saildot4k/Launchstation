@@ -1,4 +1,4 @@
-"""Run production SNTP packets, failures, elapsed-time consensus and RTC writes."""
+"""Run production SNTP packets, failures, receipt-based elapsed time and RTC writes."""
 from pathlib import Path
 import shutil
 import subprocess
@@ -26,17 +26,14 @@ typedef struct { u8 stat,second,minute,hour,pad,day,month,year; } sceCdCLOCK;
 #define DPRINTF(...) ((void)0)
 #define BASE_MS 1700000000000ULL
 static u64 now_ms;
-static int write_delay,after_queries;
-static u64 Timer(void) {
-    if(after_queries && ++after_queries==3) now_ms+=write_delay;
-    return now_ms;
-}
+static int write_delay,write_timer_reset;
+static u64 Timer(void) { return now_ms; }
 static int network_ready,clock_write_ok,clock_read_ok,clock_writes,refreshes;
 static sceCdCLOCK rtc;
 static int ensureDashboardIpNetworkReady(void) { return network_ready; }
 static const char *dashboardIpNetworkError(void) { return "network startup failed"; }
 static void dashLoadingFrame(const char *s,int i,int n) {
-    assert(s && strstr(s,"attempt") && i>=0 && i<3 && n==3);
+    assert(s && strstr(s,"0.pool.ntp.org") && strstr(s,"attempt") && i>=0 && i<2 && n==2);
 }
 static int sceCdWriteClock(sceCdCLOCK *clock) { clock_writes++;rtc=*clock;return clock_write_ok; }
 static int sceCdReadClock(sceCdCLOCK *clock) { *clock=rtc;return clock_read_ok; }
@@ -52,16 +49,15 @@ enum {
 typedef struct {
     int fault;
     u64 dns_delay,rtt,override_ms;
-    s64 offset_ms;
 } Query;
-static Query queries[16],*active_query;
+static Query queries[2],*active_query;
 static int query_calls,socket_calls,send_calls,select_calls,receive_calls,closes;
 static int socket_open;
-static char hosts[16][32];
+static char hosts[2][32];
 static u8 request[48],address[4]={203,0,113,9};
 static SntpSockaddrIn destination;
 static void reset(void) {
-    now_ms=10000;write_delay=after_queries=0;
+    now_ms=10000;write_delay=write_timer_reset=0;
     network_ready=clock_write_ok=clock_read_ok=1;
     clock_writes=refreshes=query_calls=socket_calls=send_calls=select_calls=receive_calls=closes=0;
     socket_open=0;active_query=NULL;
@@ -71,7 +67,7 @@ static void reset(void) {
 struct hostent *ps2ipc_gethostbyname(const char *name) {
     static SntpHostEnt host;
     static char *addresses[2];
-    assert(query_calls<16 && !socket_open);
+    assert(query_calls<2 && !socket_open && !strcmp(name,"0.pool.ntp.org"));
     snprintf(hosts[query_calls],sizeof(hosts[0]),"%s",name);
     active_query=&queries[query_calls++];now_ms+=active_query->dns_delay;
     int fault=active_query->fault;
@@ -117,7 +113,7 @@ int ps2ipc_recvfrom(int sock,void *data,int size,unsigned flags,struct sockaddr 
     memset(reply,0,48);reply[0]=0x24;reply[1]=2;
     memcpy(reply+24,request+40,8);
     u64 remote=active_query->override_ms?active_query->override_ms:
-               BASE_MS+now_ms-active_query->rtt/2+active_query->offset_ms;
+               BASE_MS+now_ms-active_query->rtt/2;
     if(active_query->fault==F_OLD)remote=UNIX_2020*1000-1000;
     if(active_query->fault==F_FUTURE)remote=UNIX_2100*1000;
     u64 ntp_seconds=remote/1000+SNTP_EPOCH_DELTA;
@@ -137,7 +133,8 @@ int ps2ipc_recvfrom(int sock,void *data,int size,unsigned flags,struct sockaddr 
 }
 int ps2ipc_disconnect(int sock) {
     assert(sock==7 && socket_open);socket_open=0;closes++;
-    if(write_delay && query_calls==3)after_queries=1;
+    now_ms+=write_delay;
+    if(write_timer_reset)now_ms=1;
     return 0;
 }
 static u64 writtenUtc(void) {
@@ -157,73 +154,74 @@ static void checkQuery(void) {
     for(unsigned i=0;i<sizeof(cases)/sizeof(cases[0]);i++) {
         reset();queries[0].fault=cases[i][0];
         SntpSample sample={123,456};
-        assert(sntpQuery("time.google.com",&sample)==cases[i][1]);
+        assert(sntpQuery("0.pool.ntp.org",&sample)==cases[i][1]);
         assert(sample.unix_ms==123 && sample.received_ms==456 && !socket_open);
         assert(closes==(cases[i][0]>F_SOCKET));
         assert(strcmp(sntpStatusText(cases[i][1]),"not checked"));
     }
     reset();queries[0].rtt=1000;
     SntpSample sample;
-    assert(sntpQuery("time.google.com",&sample)==SNTP_OK);
-    assert(sample.unix_ms==BASE_MS+now_ms && sample.received_ms==now_ms && closes==1);
+    assert(sntpQuery("0.pool.ntp.org",&sample)==SNTP_OK);
+    assert(sample.unix_ms==BASE_MS+now_ms-500 && sample.received_ms==now_ms && closes==1);
     /* Preserve era-1 support after the NTP timestamp wraps in 2036. */
     reset();queries[0].override_ms=2208988800000ULL;
-    assert(sntpQuery("time.google.com",&sample)==SNTP_OK);
+    assert(sntpQuery("0.pool.ntp.org",&sample)==SNTP_OK);
     assert(sample.unix_ms==2208988800000ULL);
     assert(sntpQuery(NULL,&sample)==SNTP_INVALID);
-    assert(sntpQuery("time.google.com",NULL)==SNTP_INVALID);
-    puts("PASS: SNTP requests, echoed nonce, IPv4 lookup, fractional time/round trip, era 1 and all query failure stages");
+    assert(sntpQuery("0.pool.ntp.org",NULL)==SNTP_INVALID);
+    puts("PASS: SNTP requests, echoed nonce, IPv4 lookup, fractional server time, receipt timer, era 1 and all query failure stages");
 }
-static void checkConsensus(void) {
-    char result[512];
-    reset();queries[1].dns_delay=12000;queries[2].dns_delay=25000;
-    for(int i=0;i<3;i++)queries[i].rtt=1000;
+static void checkSingleSource(void) {
+    char result[160];
+    reset();
     assert(dashClockSyncInternet(result,sizeof(result)));
-    assert(query_calls==3 && clock_writes==1 && refreshes==1 && now_ms==50000);
+    assert(query_calls==1 && clock_writes==1 && refreshes==1);
+    assert(!strcmp(hosts[0],"0.pool.ntp.org") && strstr(result,"synchronized"));
     assert(writtenUtc()==(BASE_MS+now_ms+500)/1000);
-    assert(strstr(result,"synchronized"));
-    /* The chosen sample also advances between comparison and the RTC write. */
-    reset();write_delay=2500;
+    /* DNS delay precedes the fresh reply; it must not be added to that time. */
+    reset();queries[0].dns_delay=25000;
     assert(dashClockSyncInternet(result,sizeof(result)));
-    assert(now_ms==12500 && writtenUtc()==(BASE_MS+now_ms+500)/1000);
-    /* A later failure must not leave the agreed time ten seconds behind. */
-    reset();queries[2].fault=F_TIMEOUT;queries[3].fault=F_TIMEOUT;
+    assert(query_calls==1 && now_ms==35000 && writtenUtc()==(BASE_MS+now_ms)/1000);
+    /* NTPS2's receipt-to-write tracking keeps the sample current after delay. */
+    reset();write_delay=12500;
     assert(dashClockSyncInternet(result,sizeof(result)));
-    assert(query_calls==4 && now_ms==20000 && writtenUtc()==(BASE_MS+now_ms)/1000);
-    /* Retain one sample from each distinct server; retry only failed sources. */
-    reset();queries[1].fault=F_TIMEOUT;queries[2].fault=F_DNS;queries[4].fault=F_TIMEOUT;
-    assert(dashClockSyncInternet(result,sizeof(result)) && query_calls==5);
-    assert(!strcmp(hosts[0],"time.google.com") && !strcmp(hosts[1],"time.cloudflare.com"));
-    assert(!strcmp(hosts[2],"pool.ntp.org") && !strcmp(hosts[3],hosts[1]) && !strcmp(hosts[4],hosts[2]));
-    assert(writtenUtc()==(BASE_MS+now_ms+500)/1000);
-    /* One outlier is ignored, and ten seconds remains the agreement bound. */
-    reset();queries[1].offset_ms=2000;queries[2].offset_ms=900000;
+    assert(query_calls==1 && now_ms==22500 && writtenUtc()==(BASE_MS+now_ms+500)/1000);
+    /* Use the received server timestamp directly, with no round-trip estimate. */
+    reset();queries[0].rtt=4000;
     assert(dashClockSyncInternet(result,sizeof(result)));
-    assert(writtenUtc()==(BASE_MS+now_ms)/1000+1);
-    reset();queries[1].offset_ms=10000;queries[2].offset_ms=50000;
-    assert(dashClockSyncInternet(result,sizeof(result)));
-    assert(writtenUtc()==(BASE_MS+now_ms)/1000+5);
-    reset();queries[1].offset_ms=10001;queries[2].offset_ms=50000;
-    assert(!dashClockSyncInternet(result,sizeof(result)) && !clock_writes && !refreshes);
-    assert(strstr(result,"disagree") && !strstr(result,"need 2"));
-    puts("PASS: healthy sources 12/25 seconds apart agree, write-time aging, retries, late timeouts, outliers and unchanged agreement bound");
+    assert(writtenUtc()==(BASE_MS+now_ms-2000)/1000);
+    /* Only a failed request gets a retry, always against the same hostname. */
+    const int failures[]={F_DNS,F_SOCKET,F_SEND,F_WAIT,F_TIMEOUT,F_RECEIVE,F_SHORT,F_ORIGIN};
+    for(unsigned i=0;i<sizeof(failures)/sizeof(failures[0]);i++) {
+        reset();queries[0].fault=failures[i];
+        assert(dashClockSyncInternet(result,sizeof(result)) && query_calls==2);
+        assert(!strcmp(hosts[0],"0.pool.ntp.org") && !strcmp(hosts[1],hosts[0]));
+        assert(writtenUtc()==(BASE_MS+now_ms+500)/1000);
+    }
+    reset();queries[1].fault=F_TIMEOUT;
+    assert(dashClockSyncInternet(result,sizeof(result)) && query_calls==1);
+    puts("PASS: one NTP Pool source, fresh time after DNS delay, elapsed time before writing, same-server retry and immediate success");
 }
 static void checkFailures(void) {
     char result[512];
     reset();network_ready=0;
     assert(!dashClockSyncInternet(result,sizeof(result)) && !query_calls && !clock_writes);
     assert(!strcmp(result,"network startup failed"));
-    reset();
-    for(int i=0;i<6;i++)queries[i].fault=(int[]){F_DNS,F_SOCKET,F_TIMEOUT}[i%3];
-    assert(!dashClockSyncInternet(result,sizeof(result)) && query_calls==6 && !clock_writes);
-    assert(strstr(result,"Only 0") && strstr(result,"time.google.com: DNS lookup failed"));
-    assert(strstr(result,"time.cloudflare.com: socket creation failed") && strstr(result,"pool.ntp.org: reply timed out"));
-    reset();for(int i=1;i<5;i++)queries[i].fault=F_TIMEOUT;
-    assert(!dashClockSyncInternet(result,sizeof(result)) && query_calls==5 && !clock_writes);
-    assert(strstr(result,"Only 1") && strstr(result,"time.google.com: OK"));
-    reset();for(int i=0;i<3;i++)queries[i].fault=F_REFUSED;
-    assert(!dashClockSyncInternet(result,sizeof(result)) && query_calls==3 && !clock_writes);
+    const int faults[]={F_DNS,F_SOCKET,F_SEND,F_WAIT,F_TIMEOUT,F_RECEIVE,F_SHORT,F_ORIGIN,F_OLD};
+    const char *messages[]={"DNS lookup failed","socket creation failed","request send failed",
+                           "socket wait failed","reply timed out","reply receive failed",
+                           "short reply","request/reply mismatch","server date out of range"};
+    for(unsigned i=0;i<sizeof(faults)/sizeof(faults[0]);i++) {
+        reset();queries[0].fault=queries[1].fault=faults[i];
+        assert(!dashClockSyncInternet(result,sizeof(result)) && query_calls==2 && !clock_writes && !refreshes);
+        assert(strstr(result,"0.pool.ntp.org:") && strstr(result,messages[i]));
+    }
+    reset();queries[0].fault=F_REFUSED;
+    assert(!dashClockSyncInternet(result,sizeof(result)) && query_calls==1 && !clock_writes);
     assert(strstr(result,"server refused request"));
+    reset();write_timer_reset=1;
+    assert(!dashClockSyncInternet(result,sizeof(result)) && !clock_writes);
+    assert(strstr(result,"Local timer restarted"));
     reset();clock_write_ok=0;
     assert(!dashClockSyncInternet(result,sizeof(result)) && clock_writes==1 && !refreshes);
     assert(strstr(result,"RTC write"));
@@ -231,13 +229,13 @@ static void checkFailures(void) {
     assert(!dashClockSyncInternet(result,sizeof(result)) && clock_writes==1 && !refreshes);
     assert(strstr(result,"RTC write"));
     reset();assert(dashClockSyncInternet(NULL,0));
-    reset();for(int i=0;i<6;i++)queries[i].fault=F_DNS;
+    reset();queries[0].fault=queries[1].fault=F_DNS;
     char small[9];memset(small,'X',sizeof(small));
     assert(!dashClockSyncInternet(small,8) && small[7]==0 && small[8]=='X');
-    puts("PASS: zero/one reply diagnostics, no retry of server refusals, network startup, RTC failures and bounded result buffers");
+    puts("PASS: query failure diagnostics, bounded retry, server refusals, timer restart, network startup, RTC failures and bounded result buffers");
 }
 int main(void) {
-    checkQuery();checkConsensus();checkFailures();
+    checkQuery();checkSingleSource();checkFailures();
 }
 '''
 compiler = shutil.which("gcc") or shutil.which("cc")

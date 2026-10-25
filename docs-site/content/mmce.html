@@ -1,5 +1,4 @@
-<h1>MMCE</h1><p class="lead">MMCE is both a first-class storage device and the source for versioned memory-card backup workflows.</p>
+<h1>MMCE</h1><p class="lead">Browse MMCE SD storage, manage files and launch supported applications and games.</p>
 <h2 id="browse">Browsing</h2><p>MMCE devices are represented through the device layer and can be opened on demand. The code does not reduce all MMCE use to one hard-coded slot; active device/card state is tracked explicitly.</p>
-<h2 id="backup">Backup integration</h2><p>The active MMCE card image can be exported into local history. The workflow verifies the result, can retain a configured number of versions and avoids creating another copy when the card is unchanged.</p>
-<h2 id="igr">IGR workflow</h2><p>When enabled, returning through the Launchstation IGR helper can create the local backup before continuing to the configured after-IGR destination. Optional Google Drive sync runs after local success.</p>
 <h2 id="neutrino">Neutrino</h2><p>Neutrino has a dedicated <code>mmce</code> backend. Launchstation can also discover a complete <code>/neutrino/</code> install on the game device or on either memory-card slot.</p>
+<h2 id="game-id">Neutrino Game ID VMC selection</h2><p>Launchstation loads MMCE on demand when launching supported Neutrino games and requests the Game ID VMC on responding adapters. MX4SIO exclusions and the emulated memory-card slot holding Neutrino follow R3Z 4.80. See <a href="neutrino.html#game-id">Neutrino Game ID handling</a>.</p>

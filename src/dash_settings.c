@@ -15,9 +15,6 @@
 #include "init.h"
 #include "dash_sound.h"
 #include "main_title.h"
-#if defined(ETH) && defined(WLE_NATIVE_CLOUD)
-#include "cloud_google.h"
-#endif
 
 enum SetType {
 	ST_CHOICE = 0,
@@ -92,20 +89,6 @@ enum SetId {
 	S_HIDE_HDD,
 	S_HIDE_MC,
 	S_REBOOT_ELF,
-	S_MMCE_BACKUP_PATH,
-	S_MMCE_BACKUP_KEEP,
-	S_MMCE_BACKUP_FORMAT,
-	S_MMCE_SYNC_ALL,
-	S_MMCE_RECOVER_LOCAL,
-	S_IGR_SYNC_MODE,
-	S_IGR_HELPER,
-	/* Legacy/internal split flags retained for persisted settings compatibility. */
-	S_IGR_AUTO_BACKUP,
-	S_IGR_CLOUD_SYNC,
-	S_IGR_AFTER,
-	S_IGR_AFTER_APP,
-	S_MMCE_LANGUAGE,
-	S_GOOGLE_ACCOUNT,
 	S_CHECK_UPDATES,
 	S_ABOUT_PROJECT,
 	/* network */
@@ -195,7 +178,7 @@ enum SetPageId {
 	P_ROOT, P_APPEARANCE, P_SCREEN, P_THEME,
 	P_APPS, P_LIBRARY, P_SOUND, P_INPUT, P_KEYBOARD,
 	P_LAUNCH, P_BOOT, P_LKEY, P_LOADERS, P_GAMEID,
-	P_DEVICES, P_MMCE_BACKUP, P_NETWORK, P_SYSTEM, P_LANGUAGE, P_PSU,
+	P_DEVICES, P_NETWORK, P_SYSTEM, P_LANGUAGE, P_PSU,
 	/* Keep these in DashThemeGroup order for group resets. */
 	P_THEME_BG, P_THEME_COLORS, P_THEME_STYLE, P_THEME_TEXT,
 	P_THEME_ICONS, P_THEME_CLOCK, P_THEME_WALL, P_THEME_MANAGE,
@@ -208,7 +191,7 @@ static const SetItem root_items[] = {
     {ST_PAGE, P_SOUND, "Sound", "Interface effects, background music and their volumes."},
     {ST_PAGE, P_INPUT, "Input", "Confirm button, on-screen keyboard and USB keyboard."},
     {ST_PAGE, P_LAUNCH, "Launching", "Automatic start, button shortcuts, loaders and compatibility."},
-    {ST_PAGE, P_DEVICES, "Storage & devices", "Device visibility and MMCE backup preferences."},
+    {ST_PAGE, P_DEVICES, "Storage & devices", "Device visibility and storage preferences."},
     {ST_PAGE, P_NETWORK, "Network", "Console address and network write access."},
     {ST_PAGE, P_SYSTEM, "System", "Language, save-file options and configuration locations."},
 };
@@ -308,27 +291,8 @@ static const SetItem loader_items[] = {
 };
 
 static const SetItem device_items[] = {
-    {ST_PAGE, P_MMCE_BACKUP, "MMCE backups", "Versioned backup history, output format and automatic IGR backup preferences."},
     {ST_CHOICE, S_HIDE_HDD, "Internal HDD / ATA units", "Which HDD and exFAT units appear in the File Browser."},
     {ST_CHOICE, S_HIDE_MC, "Hide empty memory card slots", "Also hides unused MMCE entries in the File Browser."},
-};
-
-static const SetItem mmce_backup_items[] = {
-    {ST_PATH, S_MMCE_BACKUP_PATH, "Backup folder", "Choose the parent folder for WLE-MMCE-Backups. Existing history stays where it is. Reinstall the IGR helper after changing this folder."},
-    {ST_ACTION, S_MMCE_SYNC_ALL, "Sync all cards", "Back up every changed MMCE card now. If Google Drive is linked, upload pending local history afterward."},
-    {ST_ACTION, S_MMCE_RECOVER_LOCAL, "Recover saved card image...", "Choose a local .mcd/.ps2 snapshot and recover it as a NEW verified .mcd on USB/HDD; never overwrites an active MMCE card."},
-    {ST_CHOICE, S_IGR_SYNC_MODE, "Automatic sync", "What happens after OPL returns through WLE-IGR: Off, verified local backup, or local backup plus Google Drive."},
-    {ST_ACTION, S_IGR_HELPER, "IGR helper", "Install, update or remove the verified WLE-IGR helper used by OPL Exit-to."},
-    {ST_CHOICE, S_IGR_AFTER, "After IGR, open", "Choose where to go after the IGR backup/sync step: Launchstation, the PS2 system menu, or a selected application."},
-    {ST_PATH, S_IGR_AFTER_APP, "IGR application", "Application started after IGR when 'After IGR, open' is set to Application."},
-    {ST_ACTION, S_MMCE_LANGUAGE, "Language", "Open the existing language settings used by file operations and tools."},
-    {ST_NUMBER, S_MMCE_BACKUP_KEEP, "Backups per card", "0 keeps every verified version. Otherwise keep the newest 1-99 versions per card."},
-    {ST_CHOICE, S_MMCE_BACKUP_FORMAT, "Backup format", "Native .mcd avoids writes when unchanged. PCSX2 .ps2 adds ECC/spare bytes and verifies the converted image."},
-#if defined(ETH) && defined(WLE_NATIVE_CLOUD)
-    {ST_ACTION, S_GOOGLE_ACCOUNT, "Google account", "Link, relink, sync or disconnect the native Google Drive backup account."},
-    {ST_ACTION, S_CHECK_UPDATES, "Check for updates", "Compare with the rolling latest release; a newer build can be downloaded, SHA-256 verified and installed in place."},
-#endif
-    {ST_ACTION, S_ABOUT_PROJECT, "About Launchstation", "Version, commit, project origin, upstream credits and contributors."},
 };
 
 static const SetItem net_items[] = {
@@ -367,6 +331,10 @@ static const SetItem system_items[] = {
     {ST_PATH, S_CNF_PATH, "Configuration folder", "Load and save LAUNCHELF.CNF in this folder instead of the default places."},
     {ST_ACTION, S_SAVE_AS, "Save launch & tool settings to...", "Writes LAUNCHELF.CNF immediately to another location; dashboard and network settings are saved separately."},
     {ST_ACTION, S_INTRO, "Show welcome message again", "Show the introduction the next time the dashboard checks for it."},
+#if defined(ETH) && defined(WLE_NATIVE_HTTPS)
+    {ST_ACTION, S_CHECK_UPDATES, "Check for updates", "Compare with the rolling latest release; a newer build can be downloaded, SHA-256 verified and installed in place."},
+#endif
+    {ST_ACTION, S_ABOUT_PROJECT, "About Launchstation", "Version, commit, project origin, upstream credits and contributors."},
 };
 
 #define NITEMS(a) ((int)(sizeof(a) / sizeof(a[0])))
@@ -460,8 +428,7 @@ static const SetPage pages[P_COUNT] = {
     [P_LKEY] = PAGE("Launch keys", DI_KEY, "Hold a button at boot, or hold SELECT and press it in the dashboard.", lkey_items),
     [P_LOADERS] = PAGE("Disc & PS1 loaders", DI_DISC, "Programs used by disc, OSDSYS and PS1 launch commands.", loader_items),
     [P_GAMEID] = PAGE("Game ID output", DI_APP, "Identification for compatible OSD/HDMI adapters.", gameid_items),
-    [P_DEVICES] = PAGE("Storage & devices", DI_DEVICES, "Device visibility and MMCE backup preferences.", device_items),
-    [P_MMCE_BACKUP] = PAGE("MMCE backup & sync", DI_MC, "Backup, cloud, IGR return and maintenance controls in one place.", mmce_backup_items),
+    [P_DEVICES] = PAGE("Storage & devices", DI_DEVICES, "Device visibility and storage preferences.", device_items),
     [P_NETWORK] = PAGE("Network", DI_NETWORK, "Console address for FTP, PS2Link and UDPFS.", net_items),
     [P_SYSTEM] = PAGE("System", DI_TOOLS, "Language, backup file rules and settings locations.", system_items),
     [P_LANGUAGE] = PAGE("Language", DI_TEXT, "These translations apply to file operations and tools.", language_items),
@@ -497,8 +464,6 @@ static void openPage(int next)
 	page = next;
 	item = item_top = 0;
 	item_anim = 0.0f;
-	if (next == P_MMCE_BACKUP)
-		dashToolsPrepareMmceStatus();
 }
 
 static void backPage(void)
@@ -530,9 +495,6 @@ static const char *const onoff[] = {"Off", "On"};
 static const char *const tv_names[] = {"Auto", "NTSC", "PAL", "VGA", "480p", "576p"};
 static const char *const view_names[] = {"Grid", "List", "Carousel"};
 static const char *const recent_names[] = {"0", "4", "8", "12", "16"};
-static const char *const mmce_backup_format_names[] = {"Native .mcd", "PCSX2 .ps2"};
-static const char *const igr_sync_names[] = {"Off", "Local backup", "Local + Google Drive"};
-static const char *const igr_after_names[] = {"Dashboard", "PS2 system menu", "Application"};
 static const char *const hide_names[] = {"Show all", "Hide HDD1", "Hide HDD0+1", "Hide ATA1", "Hide ATA0+1", "Hide HDD1+ATA1", "Hide all"};
 static const char *const confirm_names[] = {"Circle", "Cross"};
 static const char *const hl_names[] = {"Solid bar", "Accent bar", "Outline", "Text colour"};
@@ -643,30 +605,6 @@ static int choiceInfo(int id, int *cur, const char *const **names, const char **
 		case S_REBOOT_ELF:
 			*cur = setting->reboot_iop_elf_load ? 1 : 0;
 			return 2;
-		case S_MMCE_BACKUP_FORMAT:
-			*names = mmce_backup_format_names, *cur = dashCfg.mmce_backup_format;
-			return 2;
-		case S_IGR_SYNC_MODE:
-#if defined(ETH) && defined(WLE_NATIVE_CLOUD)
-			*names = igr_sync_names;
-			*cur = !dashCfg.igr_auto_backup ? 0 : (dashCfg.igr_cloud_sync ? 2 : 1);
-			return 3;
-#else
-			*names = igr_sync_names;
-			*cur = dashCfg.igr_auto_backup ? 1 : 0;
-			return 2;
-#endif
-		case S_IGR_AUTO_BACKUP:
-			*cur = dashCfg.igr_auto_backup;
-			return 2;
-#if defined(ETH) && defined(WLE_NATIVE_CLOUD)
-		case S_IGR_CLOUD_SYNC:
-			*cur = dashCfg.igr_cloud_sync;
-			return 2;
-#endif
-		case S_IGR_AFTER:
-			*names = igr_after_names, *cur = dashCfg.igr_after;
-			return DASH_IGR_AFTER_COUNT;
 #if defined(ETH) || defined(UDPFS)
 		case S_HOSTWRITE:
 			*cur = setting->HOSTwrite ? 1 : 0;
@@ -1219,47 +1157,6 @@ static void setChoice(int id, int v)
 		case S_AUTOSCAN:
 			dashCfg.autoscan = v;
 			break;
-		case S_MMCE_BACKUP_FORMAT:
-			dashCfg.mmce_backup_format = v;
-			dashToolsRefreshMmceStatus();
-			break;
-		case S_IGR_SYNC_MODE:
-			if (v <= 0) {
-				dashCfg.igr_auto_backup = 0;
-				dashCfg.igr_cloud_sync = 0;
-			} else if (v == 1) {
-				dashCfg.igr_auto_backup = 1;
-				dashCfg.igr_cloud_sync = 0;
-			} else {
-#if defined(ETH) && defined(WLE_NATIVE_CLOUD)
-				if (!cloudGoogleIsLinked()) {
-					dashToast(DASH_TOAST_WARN, "Link Google Drive before enabling cloud automatic sync");
-					break;
-				}
-				dashCfg.igr_auto_backup = 1;
-				dashCfg.igr_cloud_sync = 1;
-#else
-				dashToast(DASH_TOAST_WARN, "This build does not include native Google Drive support");
-				break;
-#endif
-			}
-			break;
-		case S_IGR_AUTO_BACKUP:
-			dashCfg.igr_auto_backup = v;
-			break;
-#if defined(ETH) && defined(WLE_NATIVE_CLOUD)
-		case S_IGR_CLOUD_SYNC:
-			if (v && !cloudGoogleIsLinked()) {
-				dashCfg.igr_cloud_sync = 0;
-				dashToast(DASH_TOAST_WARN, "Link Google Drive in Tools before enabling automatic sync");
-				break;
-			}
-			dashCfg.igr_cloud_sync = v;
-			break;
-#endif
-		case S_IGR_AFTER:
-			dashCfg.igr_after = v;
-			break;
 		default:
 			dash_changed = 0;
 			classic_dirty = 1;
@@ -1375,13 +1272,6 @@ static int numberInfo(int id, int *val, int *lo, int *hi, char *text, int text_s
 			*val = setting->timeout, *lo = 0, *hi = 99;
 			snprintf(text, text_size, "%d s", *val);
 			return 1;
-		case S_MMCE_BACKUP_KEEP:
-			*val = dashCfg.mmce_backup_keep, *lo = 0, *hi = 99;
-			if (*val == 0)
-				snprintf(text, text_size, "All");
-			else
-				snprintf(text, text_size, "%d", *val);
-			return 1;
 	}
 	return 0;
 }
@@ -1403,10 +1293,6 @@ static void setNumber(int id, int v)
 		case S_TIMEOUT:
 			setting->timeout = v;
 			break;
-		case S_MMCE_BACKUP_KEEP:
-			dashCfg.mmce_backup_keep = v;
-			dash_dirty = 1;
-			return;
 	}
 	classic_dirty = 1;
 }
@@ -1455,12 +1341,6 @@ static int pathInfo(int id, PathSpec *p)
 		case S_NEUTRINO_PATH:
 			p->field = setting->neutrino_file, p->size = sizeof(setting->neutrino_file), p->ext = "ELF", p->mc_alias = 1;
 			return 1;
-		case S_MMCE_BACKUP_PATH:
-			p->field = dashCfg.igr_backup_path, p->size = sizeof(dashCfg.igr_backup_path), p->mode = DASH_PICK_FOLDER;
-			return 1;
-		case S_IGR_AFTER_APP:
-			p->field = dashCfg.igr_after_path, p->size = sizeof(dashCfg.igr_after_path), p->ext = "ELF";
-			return 1;
 	}
 	return 0;
 }
@@ -1496,12 +1376,6 @@ static void mcAlias(char *path, int size)
 /* Applies a changed path setting (fonts and languages are loaded now). */
 static void pathApplied(int id)
 {
-	if (id == S_IGR_AFTER_APP || id == S_MMCE_BACKUP_PATH) {
-		if (id == S_MMCE_BACKUP_PATH)
-			dashToolsRefreshMmceStatus();
-		dash_dirty = 1;
-		return;
-	}
 	classic_dirty = 1;
 	if (id == S_LANG_FILE || id == S_FONT_FILE) {
 		/* these read files on the UI thread */
@@ -2512,50 +2386,7 @@ static void runAction(int id)
 		case S_LAUNCHKEYS:
 			openPage(P_LKEY);
 			break;
-		case S_MMCE_SYNC_ALL:
-			dashToolsSyncAllMmceCards();
-			dashToolsRefreshMmceStatus();
-			break;
-		case S_MMCE_RECOVER_LOCAL: {
-			char history[MAX_PATH], snapshot[MAX_PATH];
-			const char *parent = dashCfg.igr_backup_path;
-			size_t length = strlen(parent);
-			int n;
-
-			if (length == 0) {
-				dashModalMessage(DI_INFO, "Set a local backup folder first",
-				                 "Choose Backup folder on this page to locate WLE-MMCE-Backups history.",
-				                 "Existing history is not moved.");
-				break;
-			}
-			n = snprintf(history, sizeof(history), "%s%sWLE-MMCE-Backups",
-			             parent, (parent[length - 1] == '/' ||
-			                      parent[length - 1] == ':') ? "" : "/");
-			if (n <= 0 || n >= (int)sizeof(history)) {
-				dashModalMessage(DI_WARNING, "Backup path is too long",
-				                 "Choose a shorter local backup folder.", NULL);
-				break;
-			}
-			snapshot[0] = '\0';
-			if (!dashPickPath("Select local .mcd or .ps2 snapshot",
-			                  history, DASH_PICK_FILE, NULL,
-			                  snapshot, sizeof(snapshot)))
-				break;
-			dashBrowserRecoverCardPath(snapshot);
-			break;
-		}
-		case S_IGR_HELPER:
-			dashToolsIgrBackupSetup();
-			dashToolsRefreshMmceStatus();
-			break;
-		case S_MMCE_LANGUAGE:
-			openPage(P_LANGUAGE);
-			break;
-#if defined(ETH) && defined(WLE_NATIVE_CLOUD)
-		case S_GOOGLE_ACCOUNT:
-			dashToolsCloudBackup();
-			dashToolsRefreshMmceStatus();
-			break;
+#if defined(ETH) && defined(WLE_NATIVE_HTTPS)
 		case S_CHECK_UPDATES:
 			dashToolsCheckUpdates();
 			break;
@@ -2658,7 +2489,6 @@ static int itemDisabled(const SetItem *it)
 		case S_T_SECONDS:
 		case S_T_DATE: return !dashTheme.clock;
 		case S_TIMEOUT: return !setting->LK_Path[SETTING_LK_AUTO][0];
-		case S_IGR_AFTER_APP: return dashCfg.igr_after != DASH_IGR_AFTER_APP;
 		default: return 0;
 	}
 }
@@ -2678,7 +2508,6 @@ static const char *disabledHelp(const SetItem *it)
 		case S_T_SECONDS:
 		case S_T_DATE: return "Enable the clock to configure its placement and format.";
 		case S_TIMEOUT: return "Choose an automatic start target before setting its timeout.";
-		case S_IGR_AFTER_APP: return "Set 'After IGR, open' to Application first.";
 		default: return it->help;
 	}
 }
@@ -2834,13 +2663,7 @@ static void settingsUpdate(float dt)
 static const char *actionStatus(int id)
 {
 	switch (id) {
-		case S_MMCE_SYNC_ALL:
-			return dashToolsMmceStatus();
-		case S_IGR_HELPER:
-			return dashToolsIgrStatus();
-#if defined(ETH) && defined(WLE_NATIVE_CLOUD)
-		case S_GOOGLE_ACCOUNT:
-			return dashToolsGoogleStatus();
+#if defined(ETH) && defined(WLE_NATIVE_HTTPS)
 		case S_CHECK_UPDATES:
 			return "Check now";
 #endif
@@ -2964,11 +2787,7 @@ static void settingsDraw(void)
 				numberInfo(it->id, &num, &lo, &hi, text, sizeof(text));
 			else if (it->type == ST_PATH) {
 				pathInfo(it->id, &ps);
-				if (it->id == S_IGR_AFTER_APP && ps.field[0]) {
-					DashApp *a = dashLibFind(ps.field);
-					v = a != NULL ? a->title : pathLeaf(ps.field, leaf, sizeof(leaf));
-				} else
-					v = pathLeaf(ps.field, leaf, sizeof(leaf));
+				v = pathLeaf(ps.field, leaf, sizeof(leaf));
 				set = ps.field[0] != '\0';
 			} else if (it->type == ST_IP)
 				v = ipField(it->id);

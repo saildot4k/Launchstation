@@ -7,12 +7,10 @@ This is the maintained Markdown guide collection stored in the repository. An au
 ## Read by task
 
 1. [Current interface and features](Current-Features.md) — four-tab dashboard, Home/Applications, Files, Tools, device discovery and core handoffs.
-2. [MMCE recovery and safety](MMCE-Recovery.md) — verified local/Drive snapshot selection, new-file recovery and unsupported direct restore.
-3. [Releases, updates and rollback](Releases-and-Recovery.md) — standard vs DS34, package sidecars, staging files and preserved baseline.
-4. [Themes and wallpaper example](Theme-and-Wallpaper-Guide.md) — 4:3 dimensions, PNG sample, safe-area tips and import instructions.
-5. [Third-party credits, origin and licenses](../THIRD_PARTY_CREDITS.md) — all referenced upstream projects, bundled code and external integration roles.
-6. [USB stability audit](../../USB-STABILITY-AUDIT-2026-10-08.md) — known risk areas and preserved hardware-tested baseline.
-7. [Native Google Drive technical notes](../NATIVE_CLOUD.md) — OAuth/TLS, retention and recovery details.
+2. [Releases, updates and rollback](Releases-and-Recovery.md) — standard vs DS34, package sidecars, staging files and preserved baseline.
+3. [Themes and wallpaper example](Theme-and-Wallpaper-Guide.md) — 4:3 dimensions, PNG sample, safe-area tips and import instructions.
+4. [Third-party credits, origin and licenses](../THIRD_PARTY_CREDITS.md) — all referenced upstream projects, bundled code and external integration roles.
+5. [USB stability audit](../../USB-STABILITY-AUDIT-2026-10-08.md) — known risk areas and preserved hardware-tested baseline.
 
 ## Source-of-truth policy
 

@@ -68,7 +68,7 @@ def topbar(manifest):
   </div>
   <div class="search">
     <span class="ico"></span>
-    <input id="q" type="search" placeholder="Search devices, Neutrino, cloud, settings…  ( / )" autocomplete="off">
+    <input id="q" type="search" placeholder="Search devices, Neutrino, saves, settings…  ( / )" autocomplete="off">
     <kbd>/</kbd>
     <div id="results"></div>
   </div>

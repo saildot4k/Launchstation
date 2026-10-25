@@ -1,10 +1,9 @@
 //--------------------------------------------------------------
-// Native HTTPS transport for wLaunchELF cloud backups.
+// Native HTTPS transport for the Launchstation updater.
 // Original implementation against public HTTPS/TLS interfaces.
 //--------------------------------------------------------------
 #include "launchelf.h"
-#include "cloud_http.h"
-#include "cloud_google_roots.h"
+#include "https_client.h"
 
 #include <ctype.h>
 #include <limits.h>
@@ -26,13 +25,13 @@
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 
-#define CLOUD_HTTP_HEADER_MAX 12288
-#define CLOUD_HTTP_IO 16384
-#define CLOUD_IO_TIMEOUT_MS 15000
-#define CLOUD_IPPROTO_TCP 6
-#define CLOUD_IOCPARM_MASK 0x7fU
-#define CLOUD_IOC_IN 0x80000000UL
-#define CLOUD_FIONBIO (CLOUD_IOC_IN | ((((long)sizeof(unsigned long)) & CLOUD_IOCPARM_MASK) << 16) | ('f' << 8) | 126)
+#define HTTPS_HEADER_MAX 12288
+#define HTTPS_IO 16384
+#define HTTPS_IO_TIMEOUT_MS 15000
+#define HTTPS_IPPROTO_TCP 6
+#define HTTPS_IOCPARM_MASK 0x7fU
+#define HTTPS_IOC_IN 0x80000000UL
+#define HTTPS_FIONBIO (HTTPS_IOC_IN | ((((long)sizeof(unsigned long)) & HTTPS_IOCPARM_MASK) << 16) | ('f' << 8) | 126)
 
 /* Use libps2ips' RPC entry points directly. ps2build does not install the
  * internal ps2ipc.h header, so keep the small public ABI surface declared here.
@@ -55,7 +54,7 @@ typedef struct {
     int h_addrtype;
     int h_length;
     char **h_addr_list;
-} CloudHostEnt;
+} HttpsHostEnt;
 
 typedef struct {
     u8 sin_len;
@@ -63,9 +62,9 @@ typedef struct {
     u16 sin_port;
     u32 sin_addr;
     char sin_zero[8];
-} CloudSockaddrIn;
+} HttpsSockaddrIn;
 
-static u16 cloud_htons(u16 value)
+static u16 https_htons(u16 value)
 {
     return (u16)((value << 8) | (value >> 8));
 }
@@ -78,7 +77,7 @@ typedef struct {
     mbedtls_x509_crt ca;
     mbedtls_ctr_drbg_context ctr;
     mbedtls_entropy_context entropy;
-} CloudTls;
+} HttpsTls;
 
 mbedtls_ms_time_t mbedtls_ms_time(void)
 {
@@ -88,8 +87,8 @@ mbedtls_ms_time_t mbedtls_ms_time(void)
     return (mbedtls_ms_time_t)(((u64)ticks * 1000ULL) / (u64)CLOCKS_PER_SEC);
 }
 
-static u64 cloud_entropy_counter;
-static u32 cloud_entropy_network_ticks;
+static u64 https_entropy_counter;
+static u32 https_entropy_network_ticks;
 
 typedef struct {
     unsigned char sdk_random[32];
@@ -99,7 +98,7 @@ typedef struct {
     u64 timer_ms;
     u64 counter;
     u32 network_ticks;
-} CloudEntropyMaterial;
+} HttpsEntropyMaterial;
 
 int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t *olen)
 {
@@ -117,7 +116,7 @@ int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t 
      * then condition each block through SHA-256. This is defense-in-depth for
      * hardware without a documented TRNG, not a claim that cpu_ticks is one. */
     while (produced < len) {
-        CloudEntropyMaterial material;
+        HttpsEntropyMaterial material;
         unsigned char digest[32];
         ssize_t got;
         size_t take;
@@ -136,8 +135,8 @@ int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t 
         memset(&material.rtc, 0, sizeof(material.rtc));
         sceCdReadClock(&material.rtc);
         material.timer_ms = Timer();
-        material.counter = ++cloud_entropy_counter;
-        material.network_ticks = cloud_entropy_network_ticks ^ cpu_ticks();
+        material.counter = ++https_entropy_counter;
+        material.network_ticks = https_entropy_network_ticks ^ cpu_ticks();
 
         if (mbedtls_sha256((const unsigned char *)&material, sizeof(material),
                            digest, 0) != 0)
@@ -204,30 +203,30 @@ static int socket_wait(int sock, int want_write, int timeout_ms)
     return FD_ISSET(sock, want_write ? &writefds : &readfds) ? 1 : 0;
 }
 
-static int wait_tls_io(CloudTls *tls, int result)
+static int wait_tls_io(HttpsTls *tls, int result)
 {
     int want_write = result == MBEDTLS_ERR_SSL_WANT_WRITE;
-    return socket_wait(tls->sock, want_write, CLOUD_IO_TIMEOUT_MS) > 0 ? 0 : -1;
+    return socket_wait(tls->sock, want_write, HTTPS_IO_TIMEOUT_MS) > 0 ? 0 : -1;
 }
 
 static int ps2_tcp_connect(int *sock, const char *host)
 {
-    CloudHostEnt *entry;
-    CloudSockaddrIn addr, peer;
+    HttpsHostEnt *entry;
+    HttpsSockaddrIn addr, peer;
     u32 nonblock = 1;
     int peer_len;
     int r;
 
     if (sock == NULL || host == NULL)
         return -1;
-    entry = (CloudHostEnt *)(void *)ps2ipc_gethostbyname(host);
+    entry = (HttpsHostEnt *)(void *)ps2ipc_gethostbyname(host);
     if (entry == NULL || entry->h_addr_list == NULL || entry->h_addr_list[0] == NULL)
         return -1;
 
-    *sock = ps2ipc_socket(AF_INET, SOCK_STREAM, CLOUD_IPPROTO_TCP);
+    *sock = ps2ipc_socket(AF_INET, SOCK_STREAM, HTTPS_IPPROTO_TCP);
     if (*sock < 0)
         return -1;
-    if (ps2ipc_ioctl(*sock, CLOUD_FIONBIO, &nonblock) < 0) {
+    if (ps2ipc_ioctl(*sock, HTTPS_FIONBIO, &nonblock) < 0) {
         ps2ipc_disconnect(*sock);
         *sock = -1;
         return -1;
@@ -236,12 +235,12 @@ static int ps2_tcp_connect(int *sock, const char *host)
     memset(&addr, 0, sizeof(addr));
     addr.sin_len = sizeof(addr);
     addr.sin_family = AF_INET;
-    addr.sin_port = cloud_htons(443);
+    addr.sin_port = https_htons(443);
     memcpy(&addr.sin_addr, entry->h_addr_list[0], sizeof(addr.sin_addr));
 
     r = ps2ipc_connect(*sock, (struct sockaddr *)&addr, sizeof(addr));
     if (r < 0) {
-        if (socket_wait(*sock, 1, CLOUD_IO_TIMEOUT_MS) <= 0) {
+        if (socket_wait(*sock, 1, HTTPS_IO_TIMEOUT_MS) <= 0) {
             ps2ipc_disconnect(*sock);
             *sock = -1;
             return -1;
@@ -306,7 +305,7 @@ static unsigned char *read_file(const char *path, int *size)
     return buf;
 }
 
-static void tls_free(CloudTls *tls)
+static void tls_free(HttpsTls *tls)
 {
     if (tls == NULL)
         return;
@@ -322,11 +321,10 @@ static void tls_free(CloudTls *tls)
     mbedtls_entropy_free(&tls->entropy);
 }
 
-static int tls_open(CloudTls *tls, const char *host, const char *ca_path,
+static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
                     char *error, int error_size)
 {
-    /* Compatibility-critical cryptographic personalization: existing tokens depend on this exact byte sequence. */
-static const unsigned char personal[] = "wLaunchELF native cloud";
+    static const unsigned char personal[] = "Launchstation HTTPS";
     unsigned char *ca_data = NULL;
     int ca_len = 0;
     u32 network_start;
@@ -341,30 +339,28 @@ static const unsigned char personal[] = "wLaunchELF native cloud";
     mbedtls_entropy_init(&tls->entropy);
 
     if (ca_path == NULL || ca_path[0] == '\0') {
-        /* No override file: trust the built-in Google Trust Services roots. */
-        r = mbedtls_x509_crt_parse(&tls->ca, (const unsigned char *)cloud_google_roots_pem,
-                                   sizeof(cloud_google_roots_pem));
-    } else {
-        ca_data = read_file(ca_path, &ca_len);
-        if (ca_data == NULL) {
-            set_error(error, error_size, "Could not read WLE-CLOUD-CA.PEM", 0);
-            goto fail;
-        }
-        r = mbedtls_x509_crt_parse(&tls->ca, ca_data, (size_t)ca_len + 1);
-        free(ca_data);
-        ca_data = NULL;
+        set_error(error, error_size, "HTTPS CA bundle is required", 0);
+        goto fail;
     }
+    ca_data = read_file(ca_path, &ca_len);
+    if (ca_data == NULL) {
+        set_error(error, error_size, "Could not read HTTPS CA bundle", 0);
+        goto fail;
+    }
+    r = mbedtls_x509_crt_parse(&tls->ca, ca_data, (size_t)ca_len + 1);
+    free(ca_data);
+    ca_data = NULL;
     if (r < 0) {
-        set_error(error, error_size, "Could not parse cloud CA bundle", r);
+        set_error(error, error_size, "Could not parse HTTPS CA bundle", r);
         goto fail;
     }
 
     /* Establish TCP first so DNS/connect timing contributes to the entropy
-     * conditioner. No TLS data or OAuth credential is sent before the DRBG is
+     * conditioner. No TLS data is sent before the DRBG is
      * successfully seeded and the authenticated handshake completes. */
     network_start = cpu_ticks();
     r = ps2_tcp_connect(&tls->sock, host);
-    cloud_entropy_network_ticks ^= (cpu_ticks() - network_start) ^ cpu_ticks();
+    https_entropy_network_ticks ^= (cpu_ticks() - network_start) ^ cpu_ticks();
     if (r != 0) {
         set_error(error, error_size, "TCP connection", 0);
         goto fail;
@@ -434,7 +430,7 @@ fail:
     return -1;
 }
 
-static int ssl_write_all(CloudTls *tls, const void *data, int len,
+static int ssl_write_all(HttpsTls *tls, const void *data, int len,
                          char *error, int error_size)
 {
     const unsigned char *p = data;
@@ -513,11 +509,11 @@ static int decode_chunked(char *buf, int len)
     return -1;
 }
 
-static int read_response(CloudTls *tls, CloudHttpResponse *response,
+static int read_response(HttpsTls *tls, HttpsResponse *response,
                          char *error, int error_size)
 {
     char *raw, *header_end, value[64];
-    int cap = CLOUD_HTTP_HEADER_MAX + CLOUD_HTTP_BODY_MAX + 1;
+    int cap = HTTPS_HEADER_MAX + HTTPS_BODY_MAX + 1;
     int used = 0, header_len, body_len;
     int content_length = -1;
     int chunked = 0;
@@ -557,12 +553,12 @@ static int read_response(CloudTls *tls, CloudHttpResponse *response,
                 chunked = 1;
             *header_end = saved;
             header_len = (int)(header_end + 4 - raw);
-            if (header_len > CLOUD_HTTP_HEADER_MAX) {
+            if (header_len > HTTPS_HEADER_MAX) {
                 free(raw);
                 set_error(error, error_size, "HTTPS response headers are too large", 0);
                 return -1;
             }
-            if (!chunked && content_length > CLOUD_HTTP_BODY_MAX) {
+            if (!chunked && content_length > HTTPS_BODY_MAX) {
                 free(raw);
                 set_error(error, error_size, "HTTPS response body is too large", 0);
                 return -1;
@@ -593,14 +589,14 @@ static int read_response(CloudTls *tls, CloudHttpResponse *response,
     body_len = used - header_len;
     *header_end = 0;
 
-    if (header_len > CLOUD_HTTP_HEADER_MAX) {
+    if (header_len > HTTPS_HEADER_MAX) {
         free(raw);
         set_error(error, error_size, "HTTPS response headers are too large", 0);
         return -1;
     }
     if (!chunked && header_value(raw, "Content-Length", value, sizeof(value))) {
         int declared = atoi(value);
-        if (declared < 0 || declared > CLOUD_HTTP_BODY_MAX) {
+        if (declared < 0 || declared > HTTPS_BODY_MAX) {
             free(raw);
             set_error(error, error_size, "HTTPS response body is too large", 0);
             return -1;
@@ -641,7 +637,7 @@ static int read_response(CloudTls *tls, CloudHttpResponse *response,
     return 0;
 }
 
-void cloudHttpResponseFree(CloudHttpResponse *response)
+void httpsResponseFree(HttpsResponse *response)
 {
     if (response == NULL)
         return;
@@ -649,7 +645,7 @@ void cloudHttpResponseFree(CloudHttpResponse *response)
     memset(response, 0, sizeof(*response));
 }
 
-static int request_open(CloudTls *tls, const char *method, const char *host,
+static int request_open(HttpsTls *tls, const char *method, const char *host,
                         const char *path, const char *headers, int content_len,
                         const char *ca_path, char *error, int error_size)
 {
@@ -668,7 +664,7 @@ static int request_open(CloudTls *tls, const char *method, const char *host,
     len = snprintf(request, cap,
                    "%s %s HTTP/1.1\r\n"
                    "Host: %s\r\n"
-                   "User-Agent: Launchstation/Cloud\r\n"
+                   "User-Agent: Launchstation/HTTPS\r\n"
                    "Accept: application/json\r\n"
                    "Connection: close\r\n"
                    "%s"
@@ -683,12 +679,12 @@ static int request_open(CloudTls *tls, const char *method, const char *host,
     return 0;
 }
 
-int cloudHttpRequest(const char *method, const char *host, const char *path,
-                     const char *headers, const void *body, int body_len,
-                     const char *ca_path, CloudHttpResponse *response,
-                     char *error, int error_size)
+int httpsRequest(const char *method, const char *host, const char *path,
+                 const char *headers, const void *body, int body_len,
+                 const char *ca_path, HttpsResponse *response,
+                 char *error, int error_size)
 {
-    CloudTls tls;
+    HttpsTls tls;
 
     if (response == NULL || method == NULL || host == NULL || path == NULL ||
         ca_path == NULL || body_len < 0)
@@ -731,62 +727,12 @@ static int split_https_url(const char *url, char *host, int host_size,
     return 0;
 }
 
-int cloudHttpUploadFd(const char *method, const char *url,
-                      const char *headers, int fd, int file_size,
-                      const char *ca_path, CloudHttpResponse *response,
-                      char *error, int error_size)
-{
-    CloudTls tls;
-    char host[256], path[2048];
-    unsigned char *buf;
-    int sent = 0;
-
-    if (fd < 0 || file_size < 0 ||
-        split_https_url(url, host, sizeof(host), path, sizeof(path)) < 0) {
-        set_error(error, error_size, "Invalid HTTPS upload source", 0);
-        return -1;
-    }
-    if (genLseek(fd, 0, SEEK_SET) != 0) {
-        set_error(error, error_size, "Could not rewind local backup", 0);
-        return -1;
-    }
-    memset(response, 0, sizeof(*response));
-    if (request_open(&tls, method, host, path, headers, file_size, ca_path, error, error_size) < 0)
-        return -1;
-
-    buf = memalign(64, CLOUD_HTTP_IO);
-    if (buf == NULL) {
-        tls_free(&tls);
-        set_error(error, error_size, "Out of memory streaming cloud upload", 0);
-        return -1;
-    }
-    while (sent < file_size) {
-        int remaining = file_size - sent;
-        int want = remaining > CLOUD_HTTP_IO ? CLOUD_HTTP_IO : remaining;
-        int got = genRead(fd, buf, want);
-        if (got <= 0 || ssl_write_all(&tls, buf, got, error, error_size) < 0) {
-            free(buf);
-            tls_free(&tls);
-            return -1;
-        }
-        sent += got;
-    }
-    free(buf);
-    if (read_response(&tls, response, error, error_size) < 0) {
-        tls_free(&tls);
-        return -1;
-    }
-    tls_free(&tls);
-    return 0;
-}
-
-
 typedef struct {
     char line[40];
     int line_len;
     int state; /* 0=size, 1=data, 2=CR, 3=LF, 4=done */
     unsigned long left;
-} CloudChunkDecoder;
+} HttpsChunkDecoder;
 
 static int download_write(int fd, const unsigned char *data, int len,
                           int max_bytes, int *written,
@@ -815,7 +761,7 @@ static int download_write(int fd, const unsigned char *data, int len,
     return 0;
 }
 
-static int download_chunked_consume(CloudChunkDecoder *dec,
+static int download_chunked_consume(HttpsChunkDecoder *dec,
                                     const unsigned char *data, int len,
                                     int fd, int max_bytes, int *written,
                                     mbedtls_sha256_context *sha,
@@ -880,41 +826,16 @@ static int download_chunked_consume(CloudChunkDecoder *dec,
     return dec->state == 4 ? 1 : 0;
 }
 
-/* The Drive media reader may follow Google's signed content redirects, but
- * bearer credentials never leave www.googleapis.com. The existing updater
- * uses the same streaming engine with no credentials/restrictions changed. */
-static int cloud_google_media_host(const char *host)
+int httpsDownloadFd(const char *url, int fd, const char *ca_path,
+                    int max_bytes, int *out_size,
+                    unsigned char digest[32],
+                    char *error, int error_size)
 {
-    static const char suffix[] = ".googleusercontent.com";
-    size_t n;
-    if (host == NULL)
-        return 0;
-    if (!strcmp(host, "www.googleapis.com") ||
-        !strcmp(host, "content.googleapis.com"))
-        return 1;
-    n = strlen(host);
-    return n > sizeof(suffix) - 1 &&
-           !strcmp(host + n - (sizeof(suffix) - 1), suffix);
-}
-
-static int cloudHttpDownloadFdInternal(const char *url, const char *bearer,
-                                       int fd, const char *ca_path,
-                                       int max_bytes, int *out_size,
-                                       unsigned char digest[32],
-                                       char *error, int error_size)
-{
-    char current[CLOUD_HTTP_LOCATION_MAX];
+    char current[HTTPS_LOCATION_MAX];
     int redirect;
 
     if (url == NULL || fd < 0 || ca_path == NULL || max_bytes <= 0)
         return -1;
-    if (bearer != NULL &&
-        (strncmp(url, "https://www.googleapis.com/drive/v3/files/", 42) != 0 ||
-         bearer[0] == '\0' || strlen(bearer) > 2048 ||
-         strchr(bearer, '\r') != NULL || strchr(bearer, '\n') != NULL)) {
-        set_error(error, error_size, "Invalid authenticated Google media request", 0);
-        return -1;
-    }
     if (strlen(url) >= sizeof(current)) {
         set_error(error, error_size, "HTTPS download URL is too long", 0);
         return -1;
@@ -926,28 +847,27 @@ static int cloudHttpDownloadFdInternal(const char *url, const char *bearer,
         memset(digest, 0, 32);
 
     for (redirect = 0; redirect < 6; redirect++) {
-        CloudTls tls;
-        char host[256], path[2048], request[6144], auth_line[2112];
-        char *raw, *header_end, value[64], location[CLOUD_HTTP_LOCATION_MAX];
+        HttpsTls tls;
+        char host[256], path[2048], request[4096];
+        char *raw, *header_end, value[64], location[HTTPS_LOCATION_MAX];
         unsigned char *io_buf;
         int used = 0, header_len, body_len, status, chunked = 0;
         int content_length = -1, written = 0, complete = 0, r;
         mbedtls_sha256_context sha;
-        CloudChunkDecoder decoder;
+        HttpsChunkDecoder decoder;
 
-        raw = malloc(CLOUD_HTTP_HEADER_MAX + CLOUD_HTTP_IO + 1);
-        io_buf = memalign(64, CLOUD_HTTP_IO);
+        raw = malloc(HTTPS_HEADER_MAX + HTTPS_IO + 1);
+        io_buf = memalign(64, HTTPS_IO);
         if (raw == NULL || io_buf == NULL) {
             free(raw);
             free(io_buf);
             set_error(error, error_size, "Out of memory preparing HTTPS download", 0);
             return -1;
         }
-        if (split_https_url(current, host, sizeof(host), path, sizeof(path)) < 0 ||
-            (bearer != NULL && !cloud_google_media_host(host))) {
+        if (split_https_url(current, host, sizeof(host), path, sizeof(path)) < 0) {
             free(raw);
             free(io_buf);
-            set_error(error, error_size, "Untrusted Google media redirect host", 0);
+            set_error(error, error_size, "Invalid HTTPS download URL", 0);
             return -1;
         }
         if (tls_open(&tls, host, ca_path, error, error_size) < 0) {
@@ -956,25 +876,13 @@ static int cloudHttpDownloadFdInternal(const char *url, const char *bearer,
             return -1;
         }
 
-        auth_line[0] = 0;
-        if (bearer != NULL && !strcmp(host, "www.googleapis.com")) {
-            r = snprintf(auth_line, sizeof(auth_line),
-                         "Authorization: Bearer %s\r\n", bearer);
-            if (r < 0 || r >= (int)sizeof(auth_line)) {
-                tls_free(&tls);
-                free(raw);
-                free(io_buf);
-                set_error(error, error_size, "Google token header is too large", 0);
-                return -1;
-            }
-        }
         r = snprintf(request, sizeof(request),
                      "GET %s HTTP/1.1\r\n"
                      "Host: %s\r\n"
                      "User-Agent: Launchstation/Updater\r\n"
                      "Accept: application/octet-stream\r\n"
-                     "%sConnection: close\r\n\r\n",
-                     path, host, auth_line);
+                     "Connection: close\r\n\r\n",
+                     path, host);
         if (r <= 0 || r >= (int)sizeof(request) ||
             ssl_write_all(&tls, request, r, error, error_size) < 0) {
             tls_free(&tls);
@@ -984,9 +892,9 @@ static int cloudHttpDownloadFdInternal(const char *url, const char *bearer,
         }
 
         header_end = NULL;
-        while (used < CLOUD_HTTP_HEADER_MAX + CLOUD_HTTP_IO && header_end == NULL) {
+        while (used < HTTPS_HEADER_MAX + HTTPS_IO && header_end == NULL) {
             r = mbedtls_ssl_read(&tls.ssl, (unsigned char *)raw + used,
-                                 CLOUD_HTTP_HEADER_MAX + CLOUD_HTTP_IO - used);
+                                 HTTPS_HEADER_MAX + HTTPS_IO - used);
             if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {
                 if (wait_tls_io(&tls, r) == 0)
                     continue;
@@ -1134,7 +1042,7 @@ static int cloudHttpDownloadFdInternal(const char *url, const char *bearer,
         raw = NULL;
 
         while (!complete) {
-            r = mbedtls_ssl_read(&tls.ssl, io_buf, CLOUD_HTTP_IO);
+            r = mbedtls_ssl_read(&tls.ssl, io_buf, HTTPS_IO);
             if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {
                 if (wait_tls_io(&tls, r) == 0)
                     continue;
@@ -1216,24 +1124,4 @@ static int cloudHttpDownloadFdInternal(const char *url, const char *bearer,
 
     set_error(error, error_size, "Too many HTTPS redirects", 0);
     return -1;
-}
-
-/* Historical self-update interface, deliberately unauthenticated. */
-int cloudHttpDownloadFd(const char *url, int fd, const char *ca_path,
-                        int max_bytes, int *out_size,
-                        unsigned char digest[32],
-                        char *error, int error_size)
-{
-    return cloudHttpDownloadFdInternal(url, NULL, fd, ca_path, max_bytes,
-                                       out_size, digest, error, error_size);
-}
-
-int cloudHttpDownloadGoogleFd(const char *url, const char *bearer_token, int fd,
-                              const char *ca_path, int max_bytes,
-                              int *out_size, unsigned char digest[32],
-                              char *error, int error_size)
-{
-    return cloudHttpDownloadFdInternal(url, bearer_token, fd, ca_path,
-                                       max_bytes, out_size, digest,
-                                       error, error_size);
 }

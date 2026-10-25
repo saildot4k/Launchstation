@@ -569,7 +569,7 @@ void dashTextScrollCenter(float cx, float y, float maxw, const char *str, float 
 		dashTextScroll(cx - maxw * 0.5f, y, maxw, str, scale, c);
 }
 
-int dashTextWrap(float x, float y, float w, int max_lines, const char *str, float scale, DashColor c, float line_h)
+static int textWrap(float x, float y, float w, int max_lines, const char *str, float scale, DashColor c, float line_h, int draw)
 {
 	const char *p = str;
 	int lines = 0;
@@ -595,16 +595,18 @@ int dashTextWrap(float x, float y, float w, int max_lines, const char *str, floa
 		n = (int)(q - line_start);
 		if (n <= 0 && *q && *q != '\n')
 			n = 1, q = line_start + 1;
-		if (lines == max_lines - 1 && *q != '\0') {
-			/* last permitted line: ellipsize the remaining text */
-			dashTextFit(x, y + lines * line_h, w, line_start, scale, c);
-		} else {
-			char buf[256];
-			int copy = (n < (int)sizeof(buf) - 1) ? n : (int)sizeof(buf) - 1;
+		if (draw) {
+			if (lines == max_lines - 1 && *q != '\0') {
+				/* last permitted line: ellipsize the remaining text */
+				dashTextFit(x, y + lines * line_h, w, line_start, scale, c);
+			} else {
+				char buf[256];
+				int copy = (n < (int)sizeof(buf) - 1) ? n : (int)sizeof(buf) - 1;
 
-			memcpy(buf, line_start, copy);
-			buf[copy] = '\0';
-			dashTextS(x, y + lines * line_h, buf, scale, c);
+				memcpy(buf, line_start, copy);
+				buf[copy] = '\0';
+				dashTextS(x, y + lines * line_h, buf, scale, c);
+			}
 		}
 		lines++;
 		p = q;
@@ -612,6 +614,36 @@ int dashTextWrap(float x, float y, float w, int max_lines, const char *str, floa
 			p++;
 	}
 	return lines;
+}
+
+int dashTextWrap(float x, float y, float w, int max_lines, const char *str, float scale, DashColor c, float line_h)
+{
+	return textWrap(x, y, w, max_lines, str, scale, c, line_h, 1);
+}
+
+/* Reveal every wrapped line, dwell at the bottom, then restart at the top. */
+void dashTextWrapScrollTimed(float x, float y, float w, float h, const char *str,
+                             float scale, DashColor c, float line_h, float age)
+{
+	const float speed = 8.0f, dwell = 2.0f;
+	float text_h, travel, offset = 0.0f;
+	int lines, max_lines;
+
+	if (str == NULL || str[0] == '\0' || w <= 0.0f || h <= 0.0f || line_h <= 0.0f)
+		return;
+	/* More lines than bytes cannot occur. This also disables ellipsizing. */
+	max_lines = (int)strlen(str) + 1;
+	lines = textWrap(x, y, w, max_lines, str, scale, c, line_h, 0);
+	text_h = (lines - 1) * line_h + dashTextLineH(scale);
+	travel = text_h - h;
+	if (travel > 0.0f) {
+		float move_time = travel / speed;
+		float phase = fmodf(age < 0.0f ? 0.0f : age, move_time + dwell);
+		offset = phase < move_time ? phase * speed : travel;
+	}
+	dashGfxScissorPush(x, y - 2.0f, w, h + 4.0f);
+	textWrap(x, y - offset, w, max_lines, str, scale, c, line_h, 1);
+	dashGfxScissorPop();
 }
 
 /* Literal 8x16 byte glyph for keyboard symbols and names. Unlike dashboard

@@ -40,8 +40,6 @@ typedef unsigned char u8;
 #define DASH_SEC_HOME 0
 #define DASH_VIEW_COUNT 4
 #define DASH_VIEW_GRID 0
-#define DASH_IGR_AFTER_COUNT 3
-#define DASH_IGR_AFTER_DASHBOARD 0
 '''
 end = header.index("} DashSettings;") + len("} DashSettings;")
 code += header[header.rfind("typedef struct", 0, end):end]
@@ -78,11 +76,16 @@ code += r'''
 int main(void) {
     /* Old settings are ignored; saving removes them and keeps supported values. */
     for (int mask=0; mask<128; mask++) {
-        char config_text[256]; int scan_reset=0,length;
+        char config_text[512]; int scan_reset=0,length;
         snprintf(config_text,sizeof(config_text),
                  "Dash_DevAuto = %d\nDash_ShowUnavailableDevices = %d\n"
+                 "Dash_IGRCloudSync = 1\nDash_IGRAutoBackup = %d\n"
+                 "Dash_IGRAfter = 2\nDash_IGRAfterPath = mc0:/BOOT/REMOVED.ELF\n"
+                 "Dash_MMCEBackupKeep = 25\nDash_MMCEBackupFormat = 1\n"
+                 "%s = usb0:/Backups\n"
                  "Dash_SoftwareClock = 2028-02-29 23:59:59\nDash_Sound = 1\nDash_SoundVolume = 67\n",
-                 mask,mask & 1);
+                 mask,mask & 1,mask & 1,
+                 (mask & 2) ? "Dash_MMCEBackupPath" : "Dash_IGRBackupPath");
         memset(&dashCfg,0,sizeof(dashCfg));
         assert(dashKvParse(config_text,settingsKv,&scan_reset)>0 && dashCfg.sound==1 && dashCfg.sound_vol==67);
         assert(!dashStoreSaveSettings() && save_dirty[SAVE_SETTINGS]);
@@ -90,6 +93,8 @@ int main(void) {
         char *text=dashStoreSettingsText(&persisted,&length);
         assert(text && length==(int)strlen(text));
         assert(!strstr(text,"Dash_DevAuto") && !strstr(text,"Dash_ShowUnavailableDevices"));
+        assert(!strstr(text,"Dash_IGR") && !strstr(text,"REMOVED.ELF"));
+        assert(!strstr(text,"Dash_MMCEBackup") && !strstr(text,"usb0:/Backups"));
         assert(!strstr(text,"Dash_SoftwareClock") && !strstr(text,"2028-02-29 23:59:59"));
         memset(&dashCfg,0,sizeof(dashCfg));
         assert(dashKvParse(text,settingsKv,&scan_reset)>0 && dashCfg.sound==1 && dashCfg.sound_vol==67);
@@ -107,7 +112,7 @@ int main(void) {
         if(scenario==7)open_error=2;
         assert((dashWriteFile("DASHBOARD.CNF",data,sizeof(data)-1)==0)==(scenario==0));
     }
-    puts("PASS: ignored/omitted legacy keys, settings round trips, file readback and write/read/close failures");
+    puts("PASS: removed settings ignored/omitted, MMCE backup/IGR keys discarded, settings round trips and file failures");
 }
 '''
 with tempfile.TemporaryDirectory(prefix="settings-persistence-") as folder:

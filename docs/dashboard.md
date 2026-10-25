@@ -171,7 +171,7 @@ first/last row. The breadcrumb shows where the page lives.
 | Sound | Interface effects, music and their separate volumes. |
 | Input | Confirm button, on-screen keyboard and USB keyboard (driver and map). |
 | Launching | Automatic start & boot, Launch keys, shortcut/bookmark lock, disc/PS1 loaders, IOP reset and game IDs. |
-| Storage & devices | Browser visibility and MMCE backup preferences. |
+| Storage & devices | Browser device visibility and storage preferences. |
 | Network | IP address, netmask, gateway and network write access. |
 | System | Language, memory card backup-file rules, configuration folder, alternate launch/tool settings save location and welcome message. |
 
@@ -333,81 +333,6 @@ DASHBOARD.CNF, all on at 80% by default). The two switches are independent;
 turning off interface effects keeps enabled music playing. When the audio driver cannot
 start, everything stays silent — the dashboard works normally without
 sound (a toast says why).
-
-## MMCE backup status reliability
-
-The MMCE management page distinguishes an unreadable card source from an empty
-one. **MMCE unavailable** means neither card unit could be scanned successfully;
-**No cards** appears only after at least one reachable unit was scanned and no
-card images or scan errors were found. An unavailable status does not establish
-that the adapter's cards have been removed or erased. Retry after checking the
-device and driver settings. Pending counts and scan errors remain separate.
-
-## Recovering local MMCE backup images
-
-From **Settings > Storage & devices > MMCE backups**, choose **Recover saved
-card image...** to open the local `WLE-MMCE-Backups` history picker. Choose
-a complete `.mcd` or PCSX2 `.ps2` snapshot, then a writable USB/HDD folder.
-The same recovery engine is also available from the File Browser's
-**Recover as new .mcd...** action on a selected snapshot.
-
-To back up one particular card without scanning every MMCE image, browse to
-its `.mcd` file under `mmce0:/MemoryCards` or `mmce1:/MemoryCards`
-and choose **Back up selected MMCE card to history...**. The selected card
-is validated, its verified history is stored on USB/HDD and unchanged card
-images are not duplicated. This action never overwrites or activates cards.
-
-The File Browser options for a PS2 memory-card `.mcd` or PCSX2 `.ps2`
-include **Recover as new .mcd...**. It validates the complete card geometry
-before writing, converts PCSX2 spare/ECC pages when needed, and compares the
-new image to the source after writing. It uses a unique `RECOVER-###.mcd.PART`
-temporary name and only publishes the matching `.mcd` after verification.
-A failed or interrupted recovery does not replace an existing image.
-
-The existing sd2psXtd firmware supports filesystem create, write and read;
-rename may be unsupported or fail on some adapter configurations (as also
-observed by SD2Cloud). Launchstation first attempts rename when publishing a
-new image in the inactive holding folder, then falls back to a separate,
-read-back-verified copy **only if no final image exists and the stage remains**.
-Neither method replaces a selectable card. It does **not** provide a safe
-transaction for replacing an actively emulated card. No adapter firmware changes are needed for the
-supported non-destructive workflow.
-
-To store a recovered card image **on the adapter itself**, first place the
-verified `.mcd` or `.ps2` backup on USB/HDD (including cloud recovery files).
-In **File Browser**, highlight the file and choose **Store NEW snapshot on
-MMCE...**, then choose `mmce0:` or `mmce1:`. Launchstation creates
-`mmceN:/WLE-Recovered/RECOVER-###.mcd.PART`, verifies its contents,
-and publishes a new `RECOVER-###.mcd` in that folder. Interrupted `.PART`
-files and existing outputs are not reused. The holding area is intentionally
-**outside** `MemoryCards/PS2`, `BOOT`, GameID or named card directories;
-the adapter will **not** automatically select or mount it as a game card.
-The user must explicitly install or organize that image later, with card
-emulation safely inactive. Never overwrite a currently emulated card.
-
-**New numbered card installation:** Highlight a valid local `.mcd`/`.ps2` or a
-completed `mmceN:/WLE-Recovered` image in File Browser and choose **Install as
-NEW selectable MMCE card...**. Select the adapter unit; Launchstation scans
-`MemoryCards/PS2` for an entirely unused numeric `CardN` directory, creates
-`CardN/CardN-1.mcd.PART`, verifies the data and publishes `CardN-1.mcd`.
-It does not request a card switch or replace any existing numbered, GameID,
-BootCard, or named card. If rename is unsupported, a new-file verified copy
-may be used; power loss during that copy can leave a partial selectable-name
-file in the newly allocated directory. Never select a failed or interrupted
-install until the new directory has been inspected and cleaned up. This is
-not an atomic power-loss-safe card publication guarantee. Original cards
-and source snapshots remain untouched. On firmware configurations that return
-success when an existing directory is passed to mkdir, Launchstation additionally
-checks the candidate folder's contents and refuses an occupied directory.
-New MMCE stage and final outputs are opened with exclusive creation so a
-late-arriving existing file cannot be truncated; if another process claims the
-name, installation fails without replacing it.
-
-The USB/HDD recovery action remains unchanged. Direct overwrite of an
-existing MMCE backing image is still unavailable; that is distinct from
-copying a **new** snapshot to inactive MMCE storage. The standard upstream
-firmware remains unmodified, and Google Drive downloads still produce
-verified local images before the optional MMCE storage step.
 
 ## Optional background music
 

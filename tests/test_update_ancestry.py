@@ -45,7 +45,7 @@ typedef struct {
     int status;
     char *body;
     int body_len;
-} CloudHttpResponse;
+} HttpsResponse;
 static char comparison[32] = "ahead";
 static char release_target[80] = "51e1e0c7bc1efcb5b51c6cc9de056ee858694a03";
 static const char *last_title;
@@ -71,9 +71,9 @@ static int selfUpdateInstall(const char *ca,const char *digest,char *result,int 
     snprintf(result,cap,"installed");
     return 0;
 }
-static int cloudHttpRequest(const char *method,const char *host,const char *path,
+static int httpsRequest(const char *method,const char *host,const char *path,
                             const char *headers,const void *body,int body_len,
-                            const char *ca,CloudHttpResponse *out,char *err,int err_size) {
+                            const char *ca,HttpsResponse *out,char *err,int err_size) {
     char json[512];
     (void)headers;(void)body;(void)body_len;(void)ca;(void)err;(void)err_size;
     assert(!strcmp(method,"GET") && !strcmp(host,"api.github.com"));
@@ -96,7 +96,7 @@ static int cloudHttpRequest(const char *method,const char *host,const char *path
     out->body_len=(int)strlen(json);
     return 0;
 }
-static void cloudHttpResponseFree(CloudHttpResponse *r) {
+static void httpsResponseFree(HttpsResponse *r) {
     free(r->body);r->body=NULL;
 }
 '''

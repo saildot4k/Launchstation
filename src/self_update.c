@@ -2,7 +2,7 @@
 // Native staged self-update for Launchstation.
 //--------------------------------------------------------------
 #include "launchelf.h"
-#include "cloud_http.h"
+#include "https_client.h"
 #include "filer_shared.h"
 #include "filer_actions.h"
 #include "self_update.h"
@@ -161,7 +161,7 @@ static int download_file(const char *url, const char *path, const char *ca_path,
         snprintf(error, error_size, "Could not create %.160s", path);
         return -1;
     }
-    r = cloudHttpDownloadFd(url, fd, ca_path, max_bytes, &size,
+    r = httpsDownloadFd(url, fd, ca_path, max_bytes, &size,
                             digest, error, error_size);
     if (genClose(fd) < 0 && r == 0) {
         snprintf(error, error_size, "Could not finalize %.160s", path);

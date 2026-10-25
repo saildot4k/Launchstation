@@ -117,7 +117,6 @@ def source_pages(repo: str, commit: str) -> dict[str, tuple[str, str]]:
         "",
         "- [Wiki Home](Home)",
         "- [Current Features](Current-Features)",
-        "- [MMCE Recovery](MMCE-Recovery)",
         "- [Release Recovery](Releases-and-Recovery)",
         "- [Full Third-Party Credits](Third-Party-Credits)",
         "",

@@ -12,10 +12,6 @@ root = Path(__file__).resolve().parents[1]
 header = (root / "iop/mmceman/include/mmce_cmds.h").read_text()
 driver = (root / "iop/mmceman/src/mmce_fs.c").read_text()
 cmd = (root / "iop/mmceman/src/mmce_cmds.c").read_text()
-browser = (root / "src/dash_browser.c").read_text()
-cloud = (root / "src/cloud_google.c").read_text()
-protocol = (root / "docs/MMCE_RESTORE_PROTOCOL.md").read_text()
-audit = (root / "docs/MMCE_SD2PSXTD_FIRMWARE_AUDIT.md").read_text()
 
 def get_constants(text):
     values = {}
@@ -63,18 +59,7 @@ for name, expected in reference.items():
 assert "mmce_cmd_get_status()" in driver
 assert "mmce_cmd_get_card()" in driver
 assert "mmce_cmd_reset()" in driver
-assert "mmce_fs_discover_active_fd" in driver
-assert "MMCE_FS_ACTIVE_HANDLE" in driver
-assert "return -EROFS;" in driver
-assert "mmce_fs_reserved_component" in driver
-assert "fileXioRename(stage, dest)" in browser, "Local copies must remain staged"
-assert "mcCardValidateNoEcc(stage)" in cloud
-assert "fileXioRename(stage, result)" in cloud
-assert "MMCE_RESTORE_PROTOCOL" in audit
-assert "firmware/blob/8a20bd991b43ac731882f5f85030b19e94c23a3b" in audit
-assert "**Not enabled.**" in protocol
-assert "not implemented upstream" in audit
-# None of these check paths may be reinterpreted as an atomic, exclusive lease.
-assert "GET_STATUS" in audit and "GET_CARD" in audit
-assert "FS_RENAME" in audit and "GET_STATUS == 0" in protocol
-print("PASS: firmware MMCEMAN command parity and safe-restore unsupported gate")
+assert "res = mmce_cmd_set_gameid(str);" in driver
+assert "mmce_fs_discover_active_fd" not in driver
+assert "MMCE_FS_ACTIVE_HANDLE" not in driver
+print("PASS: firmware MMCE command parity and normal Game ID/card switching")

@@ -253,32 +253,6 @@ targets:
       - "-Wl,--end-group"
     libs: [filexio]
 
-  - name: wle_igr
-    type: ee
-    sources: [igr/wle_igr.c]
-    include_dirs: [include]
-    opt: -Os
-    cflags: [-fdata-sections, -ffunction-sections]
-    ldflags:
-      - "-Wl,--gc-sections"
-    libs: [filexio, patches]
-    embed_irx:
-      - iomanx
-      - filexio
-      - sio2man
-      - mcman
-      - mcserv
-      - mmceman
-      - usbd_ra:usbd
-      - bdm
-      - bdmfs_fatfs
-      - usbmass_bd
-      - mx4sio_bd
-      - dev9:ps2dev9
-      - ata_bd
-      - ps2hdd_osd:ps2hdd
-      - fs:ps2fs
-
   - name: wLaunchELF
     type: ee
     pack: true
@@ -297,11 +271,9 @@ targets:
       - src/main_history.c
       - src/remote_control.c
       - src/pc_game_receiver.c
-      - src/cloud_http.c
+      - src/https_client.c
       - src/self_update.c
       - src/update_psu.c
-      - src/cloud_google.c
-      - src/qrcodegen.c
       - src/init.c
       - src/main_startup.c
       - src/main_fileops.c
@@ -330,9 +302,6 @@ targets:
       - src/gui_texteditor.c
       - src/gui_hdd0_format.c
       - src/psu_functions.c
-      - src/mc_card_export.c
-      - src/mmce_backup.c
-      - src/mmce_igr.c
       - src/hdd.c
       - src/hdd_header_injector.c
       - src/hdl_rpc.c
@@ -389,7 +358,7 @@ targets:
       - src/dash_browser.c
       - src/dash_exploit.c
       - src/embed_blobs.S
-    include_dirs: [include, ., ee_libs/hdd/include, .cloud-deps/include]
+    include_dirs: [include, ., ee_libs/hdd/include, .https-deps/include]
     defines:
       - WLE_PS2BUILD
       - NEWLIB_PORT_AWARE
@@ -401,7 +370,7 @@ targets:
       - HOMEBREW_SIO2MAN
       - ETH
       - WLE_NETMAN_IP
-      - WLE_NATIVE_CLOUD
+      - WLE_NATIVE_HTTPS
       - UDPFS
       - TMANIP
       - EXFAT
@@ -413,13 +382,12 @@ targets:
       - "-Wa,-I.."
     ldflags:
       - "-Wl,--no-warn-mismatch"
-      - "-L../.cloud-deps/lib"
+      - "-L../.https-deps/lib"
     headers: [sior, audsrv]
     libs: [iopreboot, hdd_ee, gskit, dmakit, png, z, jpeg, mc, kbd, mbedtls, mbedx509, mbedcrypto, ps2ips, cglue, m, cdvd, filexio, patches, poweroff, debug, secr, pad, audsrv]
     embed_irx:
       - udpfs_smap
       - loader:loader_elf
-      - wle_igr:wle_igr_elf
       - poweroff
       - iomanx
       - filexio

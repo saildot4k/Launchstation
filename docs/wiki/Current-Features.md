@@ -6,7 +6,7 @@ This guide reflects the four visible tabs implemented in `src/dash_main.c` and t
 | --- | --- | --- |
 | **Home** | Continue, pins, recents, favorites, nested Applications library and Last folder | `src/dash_home.c`, `src/dash_apps.c` |
 | **Files** | Direct persistent File Browser, remembered folder and selection across tabs; device roots | `src/dash_browser.c` |
-| **Tools** | MISC commands, USB unit diagnostics, Text Editor, HDD Manager, exploit installer, PS2Link/FTP, IGR and cloud actions where enabled | `src/dash_tools.c` |
+| **Tools** | MISC commands, USB unit diagnostics, Text Editor, HDD Manager, exploit installer, PS2Link/FTP | `src/dash_tools.c` |
 | **Settings** | Appearance, app library folders, sound, input, launching, devices and backup/Drive options | `src/dash_settings.c` |
 
 **Navigation:** L1/R1 switches tabs. SELECT changes Grid/List/Carousel in Home's Applications library. The separate Apps and Devices internal screen constants are compatibility details, not extra visible top-level tabs.

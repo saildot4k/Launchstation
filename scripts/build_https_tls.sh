@@ -2,15 +2,15 @@
 set -euo pipefail
 
 # Build the Apache-2.0 Mbed TLS dependency for the PS2 EE toolchain.
-# Output is intentionally untracked under .cloud-deps/.
+# Output is intentionally untracked under .https-deps/.
 version="3.6.7"
 archive="mbedtls-${version}.tar.bz2"
 sha256="a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6"
 url="https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-${version}/${archive}"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-out="${repo_root}/.cloud-deps"
-cache="${repo_root}/.cache/cloud-deps"
+out="${repo_root}/.https-deps"
+cache="${repo_root}/.cache/https-deps"
 ps2build_root="${PS2BUILD_ROOT:-$HOME/.local/share/ps2build}"
 toolbin="${ps2build_root}/toolchain/ee/bin"
 prefix="${toolbin}/mips64r5900el-ps2-elf"
@@ -53,4 +53,4 @@ test -f "${out}/lib/libmbedtls.a"
 test -f "${out}/lib/libmbedx509.a"
 test -f "${out}/lib/libmbedcrypto.a"
 
-echo "Native cloud TLS dependency ready in ${out}"
+echo "Native HTTPS TLS dependency ready in ${out}"

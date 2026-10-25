@@ -34,10 +34,14 @@ build/
 .ps2-ds34.yaml
 build-ds34/
 
-# Native cloud build/cache output
-.cloud-deps/
-.cache/cloud-deps/
+# Native HTTPS build/cache output
+.https-deps/
+.cache/https-deps/
 
 # Standalone PC CARD driver validation output
 iop/pccf/build/
 iop/pccf/.clangd
+
+# Obsolete local build output (may contain old generated credentials)
+.cloud-deps/
+.cache/cloud-deps/

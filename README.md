@@ -4,7 +4,7 @@
 
 # __Launchstation__
 
-**Launchstation** is a maintained PlayStation 2 file manager, executable launcher, dashboard and device toolkit built from **wLaunchELF_R3Z** and the wider wLaunchELF/uLaunchELF/LaunchELF lineage. It extends that base with the dashboard interface, modern storage/device workflows, Neutrino, POPStarter and Ember handoffs, MMCE backup/cloud features, networking tools and additional hardware support.
+**Launchstation** is a maintained PlayStation 2 file manager, executable launcher, dashboard and device toolkit built from **wLaunchELF_R3Z** and the wider wLaunchELF/uLaunchELF/LaunchELF lineage. It extends that base with the dashboard interface, modern storage/device workflows, Neutrino, POPStarter and Ember handoffs, networking tools and additional hardware support.
 
 ## Documentation
 
@@ -14,19 +14,13 @@ The full Launchstation reference is published as a PS2-styled GitHub Pages site:
 - **Offline:** generate locally with `python docs-site/build.py --out build/docs --zip build/Launchstation-Documentation.zip`
 - **Source:** `docs-site/` in this repository
 
-**Cloud recovery:** In Tools > Google Drive backups, linked users can browse uploaded `WLE-MMCE-Backups` history and download an individually selected, SHA-256-bearing snapshot to a NEW verified `RECOVER-CLOUD-###.mcd` on USB/HDD. No Drive history is altered and no emulated MMCE card is replaced. Cloud items without an uploader digest remain view-only.
-
 **Release packages:** Standard builds ship as `APP_LAUNCHSTATION.psu` and `APP_LAUNCHSTATION.zip`, containing `APP_LAUNCHSTATION/LAUNCHSTATION.ELF`, `title.cfg`, `WLE-UPDATE-CA.PEM` and `BGM.ADP`. DualShock builds ship as `APP_LAUNCHSTATION-DS.psu` and `APP_LAUNCHSTATION-DS.zip`, containing `APP_LAUNCHSTATION-DS/LAUNCHSTATION-DS.ELF` and those same three sidecar files. Both executables are packed. Extract a ZIP to install on a filesystem, or use PSU Paste to install a PSU on a memory card.
 
 **Upgrading older builds:** Previous updaters expect standalone ELFs or two-file PSU packages and cannot install the new four-file PSU automatically. Install the matching complete ZIP/PSU package manually once (without deleting existing settings). The updated native updater verifies GitHub commit ancestry and the matching PSU's SHA-256 digest, extracts the correct ELF and preserves the controller variant. A stale, divergent or unverifiable release will not be offered as an automatic upgrade. On subsequent in-app updates, it restores **missing** `WLE-UPDATE-CA.PEM` and `BGM.ADP` from a verified four-file PSU before replacing the ELF. Existing sidecars, including custom BGM, are never overwritten; legacy two-file PSU updates remain ELF-only. Existing `LAUNCHSTATION.ELF.UPDATE` or `.PACKAGE` recovery artifacts are not overwritten by a retry; inspect and clear them manually once you have recovered anything important.
 
-The site covers installation, dashboard controls, File Browser, Apps, Text Editor, storage/device support, APA/PFS, MMCE, networking, POPStarter VCD launching, Ember PS1 image launching, Neutrino ISO launching, IGR/MMCE backups, native Google Drive sync, settings, configuration files, troubleshooting and developer notes.
+The site covers installation, dashboard controls, File Browser, Apps, Text Editor, storage/device support, APA/PFS, MMCE, networking, POPStarter VCD launching, Ember PS1 image launching, Neutrino ISO launching, settings, configuration files, troubleshooting and developer notes.
 
 **Neutrino per-game profiles (optional):** Valid PS2 ISO Game IDs can load a separately saved Neutrino compatibility/video preset from Launchstation's dashboard settings directory. Use **Save for this game** in the launch dialog; ordinary Run never persists edits. Two verified per-title slots preserve the last valid settings if writing is interrupted. Missing, corrupt or inaccessible profiles fall back to launch-only defaults, without rewriting any ISO, VMC or `LAUNCHELF.CNF`. The console may skip profile I/O when MMCE/MX4SIO currently owns incompatible memory-card access.
-
-## Local MMCE backup recovery
-
-From **Settings > Storage & devices > MMCE backups**, choose **Recover saved card image...** to select a history snapshot directly. Alternatively, in the File Browser, select a verified local `.mcd` or PCSX2 `.ps2` snapshot and use **Recover as new .mcd...**. To create verified history for one MMCE card, select its `.mcd` under `mmce0:/MemoryCards` or `mmce1:/MemoryCards` and choose **Back up selected MMCE card to history...**. This non-destructive option validates the image, creates a fresh numbered `RECOVER-###.mcd` on USB/HDD through a verified staged copy, and never modifies an existing or active MMCE card. Google Drive snapshots can be recovered as separate SHA-256-verified images on USB/HDD. To store a verified local `.mcd`/`.ps2` on an MMCE adapter using its **existing firmware**, select it in File Browser and choose **Store NEW snapshot on MMCE...**. The file is independently verified and stored in `mmceN:/WLE-Recovered`, outside all firmware-selectable card paths; it is **not** activated or installed as a game card. To create a **NEW selectable numbered card** on stock sd2psXtd firmware, highlight a verified local snapshot or a completed `WLE-Recovered` image and choose **Install as NEW selectable MMCE card...**. Launchstation allocates an unused `MemoryCards/PS2/CardN/CardN-1.mcd`, verifies it and never switches cards automatically. Existing cards are not overwritten; failed/interrupted installations must not be selected before inspection. Direct overwrite of an existing MMCE card remains disabled. See [the dashboard recovery notes](docs/dashboard.md#recovering-local-mmce-backup-images) and the [direct-restore safety protocol](docs/MMCE_RESTORE_PROTOCOL.md).
 
 ## Dashboard
 
@@ -108,7 +102,7 @@ Drivers load on demand for maximum compatibility and initial boot speed.
 - Launch PS1 VCDs through POPStarter with an optional custom POPStarter path and device-specific fallbacks.
 - Launch PS1 CUE/BIN/EXE images through Ember from any save-safe `<Ember directory>/games/<Game>/` umbrella. The umbrella name/location is configurable, and a configured Ember directory can supply `ember.elf` to a target device that lacks it. POPStarter remains the independent VCD path; format selects the core automatically.
 - Launch PS2 ISO images through Neutrino with custom or discovered loader paths, and R3Z per-launch compatibility (modes 0/2/3/5/7), GSM video, debug-colors and PS2-logo options. A valid ISO `SYSTEM.CNF` Game ID is used for RetroGem, and for best-effort MMCE card switching with on-demand initialization that preserves the mounted source and excludes MX4SIO. Independent Ember/POPStarter/Neutrino disable switches default to Off.
-- MMCE backup & sync page with Sync all cards, Off/Local/Local+Google automatic sync, IGR helper management, Google account controls and HTTPS update checks
+- HTTPS update checks in Settings > System
 - Writes to history file for disc launches for mmce vmc change
 - Applies deckard disc patches
 - X/0 applied per region if no config file is found so O is only default for Japan
@@ -380,7 +374,6 @@ MG_CHALLENGE_IV=11569b681f98ebe5c9fab2cf670ee97e380a94ee9d85e69d99aa32d6ab2471b7
 - [Current documentation and searchable Wiki/Guide index](https://nathanneurotic.github.io/Launchstation/wiki.html)
 - [Version-controlled Markdown wiki](docs/wiki/Home.md)
 - [Current dashboard tabs and Applications library](https://nathanneurotic.github.io/Launchstation/dashboard.html)
-- [Verified MMCE local/cloud recovery](docs/wiki/MMCE-Recovery.md)
 - [Rolling releases and update/rollback policy](docs/wiki/Releases-and-Recovery.md)
 - [Full external project and third-party license inventory](docs/THIRD_PARTY_CREDITS.md)
 
@@ -396,7 +389,7 @@ The four current dashboard tabs are **Home, Files, Tools, Settings**. The Applic
 
 **PC CARD CompactFlash driver reference:** [mihhru](https://github.com/mihhru) and [PS2CF](https://github.com/mihhru/PS2CF) supplied the early-PS2 CF PIO/ATA foundation and host tests. The driver port is currently an isolated development target; native CF browsing and console compatibility are not yet verified.
 
-**External launcher and reference projects:** [Neutrino](https://github.com/rickgaiser/neutrino), [POPStarter](https://www.psx-place.com/threads/popstarter.19139/), [Ember](https://github.com/Gageformer/Ember), [PS2Link](https://github.com/ps2dev/ps2link), [UDPFSD](https://github.com/pcm720/udpfsd), [OSDMenu](https://github.com/pcm720/OSDMenu), [KELFTool](https://github.com/xfwcfw/kelftool), [CosmicScale's HDD-OSD icon generator](https://github.com/CosmicScale/HDD-OSD-Icon-Generator), [PixelFX RetroGem](https://www.pixelfx.co/hdmi-retro-gem), the Google Drive APIs and the MMCE/PS2 homebrew ecosystem. External programs are **not** automatically bundled merely because Launchstation can launch or reference them.
+**External launcher and reference projects:** [Neutrino](https://github.com/rickgaiser/neutrino), [POPStarter](https://www.psx-place.com/threads/popstarter.19139/), [Ember](https://github.com/Gageformer/Ember), [PS2Link](https://github.com/ps2dev/ps2link), [UDPFSD](https://github.com/pcm720/udpfsd), [OSDMenu](https://github.com/pcm720/OSDMenu), [KELFTool](https://github.com/xfwcfw/kelftool), [CosmicScale's HDD-OSD icon generator](https://github.com/CosmicScale/HDD-OSD-Icon-Generator), [PixelFX RetroGem](https://www.pixelfx.co/hdmi-retro-gem) and the MMCE/PS2 homebrew ecosystem. External programs are **not** automatically bundled merely because Launchstation can launch or reference them.
 
 For each project's exact role, paths, credit, bundled/unbundled status and license caveats, read [Third-Party Credits & License Inventory](docs/THIRD_PARTY_CREDITS.md) and the [website Credits page](https://nathanneurotic.github.io/Launchstation/credits.html). Original file-level notices remain authoritative; there is currently no single root LICENSE in the repository.
 

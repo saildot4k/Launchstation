@@ -2,16 +2,16 @@
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
-http_h = (root / "include/cloud_http.h").read_text()
-http_c = (root / "src/cloud_http.c").read_text()
+http_h = (root / "include/https_client.h").read_text()
+http_c = (root / "src/https_client.c").read_text()
 update = (root / "src/self_update.c").read_text()
 tools = (root / "src/dash_tools.c").read_text()
 settings = (root / "src/dash_settings.c").read_text()
 yaml = (root / "ps2.yaml").read_text()
 workflow = (root / ".github/workflows/compile.yml").read_text()
 
-assert "cloudHttpDownloadFd" in http_h
-assert "cloudHttpDownloadFd" in http_c
+assert "httpsDownloadFd" in http_h
+assert "httpsDownloadFd" in http_c
 assert "Too many HTTPS redirects" in http_c
 assert "mbedtls_sha256_update" in http_c
 assert "max_bytes" in http_c

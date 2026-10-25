@@ -31,7 +31,7 @@ Upstream PS2SDK, ps2dev and ps2homebrew references below identify component auth
 | DS34 USB/Bluetooth | `iop/ds34usb/`, `iop/ds34bt/`, `src/pad_ds34.c` | inherited from [wLaunchELF_R3Z](https://github.com/saildot4k/wLaunchELF_R3Z); thanks to Alex Parrado and upstream authors | Optional -DS controller build |
 | audsrv | `packages/world/audsrv/` | [ps2dev/ps2sdk](https://github.com/ps2dev/ps2sdk); documented in [packages/README.md](../packages/README.md) as LGPL-2.0 | Legacy/local audio package and build input |
 | libogg / libvorbis | `packages/world/ogg/` and `packages/world/vorbis/` | [Xiph.org](https://xiph.org/), BSD-style licenses per [packages/README.md](../packages/README.md) | Retained codec libraries; CI can use SDK copies |
-| Mbed TLS | `scripts/build_cloud_tls.sh`; linked native HTTPS in `src/cloud_http.c` | [Mbed TLS](https://github.com/Mbed-TLS/mbedtls), Apache-2.0 per [docs/NATIVE_CLOUD.md](NATIVE_CLOUD.md) | External TLS source built by the cloud build |
+| Mbed TLS | `scripts/build_https_tls.sh`; linked native HTTPS in `src/https_client.c` | [Mbed TLS](https://github.com/Mbed-TLS/mbedtls), Apache-2.0 | External TLS source for the built-in updater |
 | Roboto | `docs/licenses/Roboto-COPYRIGHT.txt` | [Roboto](https://fonts.google.com/specimen/Roboto); [bundled notice](licenses/Roboto-COPYRIGHT.txt) | Font/copyright attribution |
 | libpng / libjpeg | `src/dash_png.c`, `src/dash_jpeg.c` | [libpng](http://www.libpng.org/pub/png/libpng.html), [Independent JPEG Group](https://www.ijg.org/) and active SDK/port terms | Image decoding sources and interfaces; inspect exact linked versions |
 
@@ -52,7 +52,6 @@ These are mentioned or launched through an integration; that does **not** imply 
 | [KELFTool](https://github.com/xfwcfw/kelftool) — xfwcfw | External PS2/PSX KELF handling tool |
 | [HDD-OSD Icon Generator](https://github.com/CosmicScale/HDD-OSD-Icon-Generator) — CosmicScale | External HDD partition art generator |
 | [PixelFX RetroGem](https://www.pixelfx.co/hdmi-retro-gem) | External video hardware and Game ID compatibility |
-| [Google Drive API](https://developers.google.com/workspace/drive/api/guides/about-sdk) / [Google PKI](https://pki.goog/roots.pem) | Public OAuth/Drive and CA resources for original cloud implementation |
 | [SD2Cloud/MMCE ecosystem](https://github.com/ps2-mmce) | Comparison/integration context; **no SD2Cloud source was incorporated** |
 | oMrRexD / R3Z PC command environment | Reference for compatible remote command/transfer behavior |
 

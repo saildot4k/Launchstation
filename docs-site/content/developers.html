@@ -7,9 +7,9 @@ python scripts/configure_ds34.py
 ps2build build -c .ps2-ds34.yaml -o build-ds34</code></pre>
 <h2 id="build">Build and validate the documentation</h2><pre><code>python3 docs-site/build.py --out site --zip Launchstation-Documentation.zip</code></pre><p>The generator checks the page inventory, unresolved template fragments, site assets, and internal HTML links before writing the offline archive.</p>
 <h2 id="ci">Main CI gates</h2><ul>
-<li>Compiled host regression contracts for device/USB/PAD timing, navigation, settings, MMCE backup/recovery, cloud and update safeguards.</li>
+<li>Compiled host regression contracts for device/USB/PAD timing, navigation, settings, MMCE filesystem and Game ID switching, and update safeguards.</li>
 <li>Standard and DS34 cross-builds and relevant embedded loader/IOP checks.</li>
-<li>Native cloud TLS dependency cross-build and release package validation.</li>
+<li>Native HTTPS dependency cross-build and release package validation.</li>
 <li>Generated documentation and offline ZIP validation.</li>
 </ul><p>Hardware-only timing, USB bridge behavior, console model quirks and external game-core interaction remain separate from automated acceptance.</p>
 <h2 id="release">Rolling release and Pages</h2><p>Verified pushes/merges to <code>master</code> can update the rolling <a href="https://github.com/NathanNeurotic/Launchstation/releases/tag/latest">latest release</a>, including matching standard/DS34 ZIP and PSU packages. The documentation workflow builds from the same authored source and publishes <code>gh-pages</code> automatically. A docs-only commit can therefore produce a new rolling build without implying runtime behavior changed.</p>

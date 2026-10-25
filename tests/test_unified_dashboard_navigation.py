@@ -73,7 +73,6 @@ static int dashModalConfirm(const char *t,const char *b,const char *a,int d) {
  (void)t;(void)b;(void)a;(void)d;return 1;
 }
 static void dashToolsUsbUnitDiagnostics(void) {}
-static void dashToolsIgrBackupSetup(void) {}
 '''
 code += tools[tools.index("enum ToolAction {"):tools.index("static const Tool tools[]")]
 code += function(main,"void dashNavigateFilesTab(")

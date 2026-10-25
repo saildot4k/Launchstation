@@ -5,17 +5,12 @@
 
 #include "mmce_sio2.h"
 #include "mmce_cmds.h"
-#include "mmce_restore_guard.h"
+#include "mmce_path.h"
 
 #include "module_debug.h"
 
 #define MMCE_FS_MAX_FD 16
 #define MMCE_FS_WAIT_TIMEOUT 128000
-
-/* Synthetic read-only view of the exact backing image currently selected by
- * the card firmware. It is intentionally not listed by dread; callers must
- * opt in by opening this exact name. */
-#define MMCE_FS_ACTIVE_HANDLE 250
 
 #define NOT_SUPPORTED_OP (void*)&not_supported_operation
 static int not_supported_operation() {
@@ -23,167 +18,7 @@ static int not_supported_operation() {
 }
 
 static int mmce_fs_fds[MMCE_FS_MAX_FD];
-static int mmce_fs_active_fd[MMCE_FS_MAX_FD];
-static s64 mmce_fs_active_pos[MMCE_FS_MAX_FD];
-static s64 mmce_fs_active_size[MMCE_FS_MAX_FD];
 static int last_unit = -1;
-
-/* Forward declarations used by the synthetic active-card handle. */
-int mmce_fs_read(iomanX_iop_file_t *file, void *ptr, int size);
-s64 mmce_fs_lseek64(iomanX_iop_file_t *file, s64 offset, int whence);
-
-static int mmce_fs_slot_index(iomanX_iop_file_t *file)
-{
-    int *slot = (int *)file->privdata;
-
-    if (slot == NULL || slot < &mmce_fs_fds[0] || slot >= &mmce_fs_fds[MMCE_FS_MAX_FD])
-        return -1;
-    return slot - &mmce_fs_fds[0];
-}
-
-static int mmce_fs_is_active_name(const char *name)
-{
-    if (name == NULL)
-        return 0;
-    while (*name == '/')
-        name++;
-    return strcmp(name, MMCE_FS_ACTIVE_NAME) == 0;
-}
-
-static int mmce_fs_has_open_handles(void)
-{
-    int i;
-
-    for (i = 0; i < MMCE_FS_MAX_FD; i++) {
-        if (mmce_fs_fds[i] >= 0)
-            return 1;
-    }
-    return 0;
-}
-
-static s64 mmce_fs_active_seek(iomanX_iop_file_t *file, s64 offset, int whence)
-{
-    int slot = mmce_fs_slot_index(file);
-    s64 base, next;
-
-    if (slot < 0 || mmce_fs_fds[slot] != MMCE_FS_ACTIVE_HANDLE)
-        return -EBADF;
-
-    switch (whence) {
-        case SEEK_SET:
-            base = 0;
-            break;
-        case SEEK_CUR:
-            base = mmce_fs_active_pos[slot];
-            break;
-        case SEEK_END:
-            base = mmce_fs_active_size[slot];
-            break;
-        default:
-            return -EINVAL;
-    }
-
-    next = base + offset;
-    if (next < 0)
-        return -EINVAL;
-
-    mmce_fs_active_pos[slot] = next;
-    return next;
-}
-
-static int mmce_fs_discover_active_fd(iomanX_iop_file_t *file, int *active_fd, s64 *active_size)
-{
-    iomanX_iop_file_t probe_file;
-    int probe_fd, found_fd = -1;
-    s64 found_pos = -1, pos, end;
-
-    /* MMCE RESET deliberately closes every firmware filesystem descriptor
-     * except cardman_fd. Never do that underneath another local MMCE handle,
-     * or while firmware reports a card switch/create operation in progress. */
-    if (mmce_fs_has_open_handles())
-        return -EBUSY;
-    {
-        int status = mmce_cmd_get_status();
-        if (status < 0)
-            return -EIO;
-        if (status & 1)
-            return -EBUSY;
-    }
-    if (mmce_cmd_reset() != 0)
-        return -EIO;
-
-    memset(&probe_file, 0, sizeof(probe_file));
-    probe_file.unit = file->unit;
-
-    for (probe_fd = 0; probe_fd < MMCE_FS_MAX_FD; probe_fd++) {
-        int raw_fd = probe_fd;
-        probe_file.privdata = &raw_fd;
-        pos = mmce_fs_lseek64(&probe_file, 0, SEEK_CUR);
-        if (pos < 0)
-            continue;
-        if (found_fd >= 0) {
-            DPRINTF("%s ERROR: More than one descriptor survived MMCE reset (%i, %i)\n",
-                    __func__, found_fd, probe_fd);
-            return -EIO;
-        }
-        found_fd = probe_fd;
-        found_pos = pos;
-    }
-
-    if (found_fd < 0)
-        return -ENOENT;
-
-    probe_file.privdata = &found_fd;
-    end = mmce_fs_lseek64(&probe_file, 0, SEEK_END);
-    if (end <= 0 || mmce_fs_lseek64(&probe_file, found_pos, SEEK_SET) != found_pos)
-        return -EIO;
-
-    *active_fd = found_fd;
-    *active_size = end;
-    DPRINTF("%s: active card backing fd %i, size %lld\n",
-            __func__, found_fd, (long long)end);
-    return 0;
-}
-
-static int mmce_fs_active_read(iomanX_iop_file_t *file, void *ptr, int size)
-{
-    iomanX_iop_file_t backing;
-    int slot = mmce_fs_slot_index(file);
-    int raw_fd, result;
-    s64 saved_pos, want, restore;
-
-    if (slot < 0 || mmce_fs_fds[slot] != MMCE_FS_ACTIVE_HANDLE || size < 0)
-        return -EBADF;
-    if (size == 0 || mmce_fs_active_pos[slot] >= mmce_fs_active_size[slot])
-        return 0;
-
-    if ((s64)size > mmce_fs_active_size[slot] - mmce_fs_active_pos[slot])
-        size = (int)(mmce_fs_active_size[slot] - mmce_fs_active_pos[slot]);
-
-    raw_fd = mmce_fs_active_fd[slot];
-    memset(&backing, 0, sizeof(backing));
-    backing.unit = file->unit;
-    backing.privdata = &raw_fd;
-
-    /* cardman uses the same firmware descriptor. Preserve its live position
-     * around our virtual read so emulation state is not left displaced. */
-    saved_pos = mmce_fs_lseek64(&backing, 0, SEEK_CUR);
-    if (saved_pos < 0)
-        return -EIO;
-
-    want = mmce_fs_active_pos[slot];
-    if (mmce_fs_lseek64(&backing, want, SEEK_SET) != want)
-        return -EIO;
-
-    result = mmce_fs_read(&backing, ptr, size);
-    restore = mmce_fs_lseek64(&backing, saved_pos, SEEK_SET);
-    if (restore != saved_pos)
-        return -EIO;
-
-    if (result > 0)
-        mmce_fs_active_pos[slot] += result;
-    return result;
-}
 
 static int *mmce_fs_find_free_handle(void) {
     for (int i = 0; i < MMCE_FS_MAX_FD; i++)
@@ -218,9 +53,6 @@ int mmce_fs_init(iomanX_iop_device_t *f)
 {
     DPRINTF("%s: init\n", __func__);
     memset(mmce_fs_fds, -1, sizeof(mmce_fs_fds));
-    memset(mmce_fs_active_fd, -1, sizeof(mmce_fs_active_fd));
-    memset(mmce_fs_active_pos, 0, sizeof(mmce_fs_active_pos));
-    memset(mmce_fs_active_size, 0, sizeof(mmce_fs_active_size));
     return 0;
 }
 
@@ -236,12 +68,9 @@ int mmce_fs_open(iomanX_iop_file_t *file, const char *name, int flags, int mode)
     u8 wrbuf[0x5];
     u8 rdbuf[0x3];
 
-    /* Reject unrepresentable firmware paths before a single SIO2 command.
-     * The synthetic active-card handle has one canonical read-only path. */
+    /* Validate before narrowing the firmware path length to a single byte. */
     if (!mmce_fs_wire_name_ok(name))
         return -ENAMETOOLONG;
-    if (mmce_fs_reserved_component(name) && !mmce_fs_is_active_name(name))
-        return -EROFS;
 
     DPRINTF("%s unit: %i name: %s flags: 0x%x\n", __func__, file->unit, name, flags);
 
@@ -254,30 +83,6 @@ int mmce_fs_open(iomanX_iop_file_t *file, const char *name, int flags, int mode)
     if (file->privdata == NULL) {
         DPRINTF("%s ERROR: No free file handles available\n", __func__);
         return -1;
-    }
-
-    if (mmce_fs_is_active_name(name)) {
-        int slot = mmce_fs_slot_index(file);
-        int active_fd;
-        s64 active_size;
-
-        if ((flags & 3) != FIO_O_RDONLY || (flags & 0xF00) != 0) {
-            file->privdata = NULL;
-            return -EROFS;
-        }
-
-        res = mmce_fs_discover_active_fd(file, &active_fd, &active_size);
-        if (res < 0) {
-            file->privdata = NULL;
-            return res;
-        }
-
-        *(int *)file->privdata = MMCE_FS_ACTIVE_HANDLE;
-        mmce_fs_active_fd[slot] = active_fd;
-        mmce_fs_active_pos[slot] = 0;
-        mmce_fs_active_size[slot] = active_size;
-        DPRINTF("%s: opened synthetic active card, backing fd %i\n", __func__, active_fd);
-        return 0;
     }
 
     u8 packed_flags = 0;
@@ -348,18 +153,9 @@ int mmce_fs_close(iomanX_iop_file_t *file)
 
     mmce_fs_update_unit(file->unit);
 
-    //Synthetic/reserved handles never own the firmware backing descriptor.
-    if (*(int*)file->privdata >= 250) {
-        int slot = mmce_fs_slot_index(file);
-        if (slot >= 0) {
-            mmce_fs_active_fd[slot] = -1;
-            mmce_fs_active_pos[slot] = 0;
-            mmce_fs_active_size[slot] = 0;
-            mmce_fs_fds[slot] = -1;
-        }
-        file->privdata = NULL;
+    //Reserved fds
+    if (*(int*)file->privdata >= 250)
         return 0;
-    }
 
     wrbuf[0x0] = MMCE_ID;                   //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_CLOSE;         //Command
@@ -397,8 +193,6 @@ int mmce_fs_read(iomanX_iop_file_t *file, void *ptr, int size)
 {
     int res;
 
-    if (file->privdata != NULL && *(int *)file->privdata == MMCE_FS_ACTIVE_HANDLE)
-        return mmce_fs_active_read(file, ptr, size);
     int bytes_read;
 
     u8 wrbuf[0xA];
@@ -479,8 +273,6 @@ int mmce_fs_write(iomanX_iop_file_t *file, void *ptr, int size)
 {
     int res;
 
-    if (file->privdata != NULL && *(int *)file->privdata == MMCE_FS_ACTIVE_HANDLE)
-        return -EROFS;
     int bytes_written;
 
     u8 wrbuf[0xA];
@@ -558,11 +350,6 @@ int mmce_fs_lseek(iomanX_iop_file_t *file, int offset, int whence)
     int res;
     int position = -1;
 
-    if (file->privdata != NULL && *(int *)file->privdata == MMCE_FS_ACTIVE_HANDLE) {
-        s64 active = mmce_fs_active_seek(file, offset, whence);
-        return active < 0 ? (int)active : (int)active;
-    }
-
     u8 wrbuf[0x9];
     u8 rdbuf[0xe];
 
@@ -621,8 +408,6 @@ int mmce_fs_remove(iomanX_iop_file_t *file, const char *name)
 
     if (!mmce_fs_wire_name_ok(name))
         return -ENAMETOOLONG;
-    if (mmce_fs_reserved_component(name))
-        return -EROFS;
     DPRINTF("%s name: %s\n", __func__, name);
 
     mmce_fs_update_unit(file->unit);
@@ -684,8 +469,6 @@ int mmce_fs_mkdir(iomanX_iop_file_t *file, const char *name, int flags)
 
     if (!mmce_fs_wire_name_ok(name))
         return -ENAMETOOLONG;
-    if (mmce_fs_reserved_component(name))
-        return -EROFS;
     DPRINTF("%s name: %s\n", __func__, name);
 
     mmce_fs_update_unit(file->unit);
@@ -747,8 +530,6 @@ int mmce_fs_rmdir(iomanX_iop_file_t *file, const char *name)
 
     if (!mmce_fs_wire_name_ok(name))
         return -ENAMETOOLONG;
-    if (mmce_fs_reserved_component(name))
-        return -EROFS;
     DPRINTF("%s name: %s\n", __func__, name);
 
     mmce_fs_update_unit(file->unit);
@@ -1152,9 +933,6 @@ int	mmce_fs_rename(iomanX_iop_file_t *file, const char *old_name, const char *ne
 
     if (!mmce_fs_wire_name_ok(old_name) || !mmce_fs_wire_name_ok(new_name))
         return -ENAMETOOLONG;
-    if (mmce_fs_reserved_component(old_name) ||
-        mmce_fs_reserved_component(new_name))
-        return -EROFS;
 
     DPRINTF("%s unit: %i old_name: %s new_name: %s\n", __func__, file->unit, old_name, new_name);
 
@@ -1224,8 +1002,6 @@ s64 mmce_fs_lseek64(iomanX_iop_file_t *file, s64 offset, int whence)
     int res;
     s64 position = -1;
 
-    if (file->privdata != NULL && *(int *)file->privdata == MMCE_FS_ACTIVE_HANDLE)
-        return mmce_fs_active_seek(file, offset, whence);
 
     u8 wrbuf[0xd];
     u8 rdbuf[0x16];

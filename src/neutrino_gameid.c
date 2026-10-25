@@ -218,8 +218,9 @@ int prepareNeutrinoGameID(const char *iso_path, char *gameID, size_t gameID_len)
 }
 
 #ifdef MMCE
-/* Best-effort per-game card selection. Initialize only through the no-stack-
- * replacement entry point, preserving the live ISO and loader mounts.
+/* Match R3Z 4.80 per-game VMC selection. Files on the MMCE SD filesystem
+ * remain eligible; only the emulated mcN: holding Neutrino is excluded.
+ * Recheck MMCE without replacing a prepared MX4SIO stack.
  * No status polling occurs unless a responding MMCE accepts SET_GAMEID.
  * The 15 polls mirror upstream's upper bound for a genuine card switch.
  */
@@ -230,18 +231,14 @@ void setNeutrinoMmceGameID(const char *gameID, const char *iso_path, const char 
 
 	if (!validGameID(gameID) || iso_path == NULL || elf_path == NULL ||
 	    !strncmp(iso_path, "mx4sio", 6) || !strncmp(elf_path, "mx4sio", 6) ||
-	    !strncmp(iso_path, "mmce:", 5) || !strncmp(elf_path, "mmce:", 5) ||
-	    !strncmp(elf_path, "mc:", 3) ||
 	    !loadMmceModulesForGameID())
 		return;
 
 	for (port = 0; port < 2; port++) {
 		device[4] = '0' + port;
-		/* Changing the card holding the ISO or Neutrino ELF would
-		 * invalidate its still-open filesystem before the handoff. */
-		if (!strncmp(iso_path, device, 6) ||
-		    !strncmp(elf_path, device, 6) ||
-		    !strncmp(elf_path, port == 0 ? "mc0:" : "mc1:", 4))
+		/* The loader still needs Neutrino on this emulated memory card.
+		 * mmceN: is the adapter's SD filesystem, not its selected VMC. */
+		if (!strncmp(elf_path, port == 0 ? "mc0:" : "mc1:", 4))
 			continue;
 		if (fileXioDevctl(device, MMCE_CMD_PING, NULL, 0, NULL, 0) < 0 ||
 		    fileXioDevctl(device, MMCE_CMD_SET_GAMEID, (void *)gameID, NEUTRINO_GAME_ID_SIZE, NULL, 0) < 0)

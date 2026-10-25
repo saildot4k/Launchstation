@@ -395,6 +395,9 @@ void dashTextScroll(float x, float y, float maxw, const char *s, float scale, Da
 void dashTextScrollTimed(float x, float y, float maxw, const char *s, float scale, DashColor c, float age);
 void dashTextScrollCenter(float cx, float y, float maxw, const char *s, float scale, DashColor c);
 int dashTextWrap(float x, float y, float w, int max_lines, const char *s, float scale, DashColor c, float line_h);
+/* Wrapped text scrolls upward at 8 px/s, holds the end for 2s, then restarts. */
+void dashTextWrapScrollTimed(float x, float y, float w, float h, const char *s,
+                             float scale, DashColor c, float line_h, float age);
 /* Legacy 8px monospace glyph (for the themed classic screens). */
 void dashFontLegacyChar(unsigned int c, int x, int y, u64 gs_color);
 /* Literal byte glyph with dashboard clipping, fade and modal offsets. */
@@ -517,13 +520,6 @@ enum DashAnim {
 	DASH_ANIM_COUNT
 };
 
-enum DashIgrAfter {
-	DASH_IGR_AFTER_DASHBOARD = 0,
-	DASH_IGR_AFTER_OSDSYS,
-	DASH_IGR_AFTER_APP,
-	DASH_IGR_AFTER_COUNT
-};
-
 typedef struct
 {
 	int enabled;
@@ -544,13 +540,6 @@ typedef struct
 	int files_mode;              /* 0 = Files list, 1 = Devices cards */
 	int home_shortcuts;          /* HOME quick-launch row */
 	int icon_backing;            /* control/quick-action backing shapes */
-	int mmce_backup_keep;   /* 0 = all, otherwise 1..99 */
-	int mmce_backup_format; /* MMCE_BACKUP_FORMAT_* */
-	int igr_auto_backup;    /* run MMCE backup when entered through WLE-IGR */
-	int igr_cloud_sync;     /* upload WLE-MMCE-Backups to Google Drive after IGR */
-	int igr_after;          /* DashIgrAfter */
-	char igr_backup_path[DASH_PATH_MAX]; /* local root selected by IGR setup */
-	char igr_after_path[DASH_PATH_MAX];
 	int nscan;
 	char scan[DASH_MAX_SCAN][DASH_PATH_MAX];
 } DashSettings;
@@ -936,18 +925,6 @@ extern const DashScreen dashDevicesScreen;
 extern const DashScreen dashToolsScreen;
 extern const DashScreen dashSettingsScreen;
 
-/* MMCE/cloud actions and cached Settings status shared by Tools/Settings. */
-void dashToolsIgrBackupSetup(void);
-void dashToolsSyncAllMmceCards(void);
-void dashBrowserRecoverCardPath(const char *source); /* verified new USB/HDD copy only */
-void dashToolsPrepareMmceStatus(void);
-void dashToolsRefreshMmceStatus(void);
-const char *dashToolsMmceStatus(void);
-const char *dashToolsIgrStatus(void);
-#if defined(ETH) && defined(WLE_NATIVE_CLOUD)
-void dashToolsCloudBackup(void);
-const char *dashToolsGoogleStatus(void);
-#endif
 void dashToolsCheckUpdates(void);
 
 const char *dashSectionName(int section);

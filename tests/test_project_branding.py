@@ -10,7 +10,7 @@ draw = (root / "src/draw.c").read_text(encoding="utf-8")
 browser = (root / "src/dash_browser.c").read_text(encoding="utf-8")
 hdd = (root / "src/dash_hdd.c").read_text(encoding="utf-8")
 apps = (root / "src/dash_apps.c").read_text(encoding="utf-8")
-cloud = (root / "src/cloud_http.c").read_text(encoding="utf-8")
+https = (root / "src/https_client.c").read_text(encoding="utf-8")
 issue = (root / ".github/ISSUE_TEMPLATE/issue.yml").read_text(encoding="utf-8")
 readme = (root / "README.md").read_text(encoding="utf-8")
 credits = (root / "src/dash_info.c").read_text(encoding="utf-8")
@@ -21,7 +21,7 @@ assert "Launchstation %s" in draw
 assert "Launchstation cannot open this type of file" in browser
 assert "cannot be formatted from Launchstation" in hdd
 assert "# App Metadata (title.cfg)" in apps
-assert "User-Agent: Launchstation/Cloud" in cloud
+assert "User-Agent: Launchstation/HTTPS" in https
 
 assert "Launchstation issue report" in issue
 assert "NathanNeurotic/Launchstation/issues" in issue

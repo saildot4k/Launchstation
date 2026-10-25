@@ -35,7 +35,7 @@
       if (n < 0) return -1;
       s += 8 + Math.max(0, 12 - n / 40);
     }
-    if (item.cat === 'cheats' || item.cat === 'config' || item.cat === 'patches' || item.cat === 'igr') s += 4;
+    if (item.cat === 'cheats' || item.cat === 'config' || item.cat === 'patches') s += 4;
     if (item.url && item.url.indexOf('#') >= 0) s += 5;   // anchored card entries rank above full pages
     return s;
   }

@@ -304,8 +304,9 @@ int LaunchNeutrinoIso(const char *path, char *message, size_t message_size)
 	/* Neutrino consumes the already-mounted device stack. Drain every
 	 * dashboard RPC user and release libpad, but never reset that storage IOP. */
 #ifdef MMCE
-	/* Recheck MMCE after ELF preparation, protecting every slot that still
-	 * holds the source ISO or executable. Never replace the prepared stack. */
+	/* Recheck MMCE after ELF preparation. R3Z 4.80 excludes only the
+	 * emulated mcN: holding Neutrino; mmceN: files do not block VMC selection.
+	 * Never replace the prepared MX4SIO stack. */
 	if (have_gameid)
 		setNeutrinoMmceGameID(gameID, opened_iso, fullpath);
 #endif

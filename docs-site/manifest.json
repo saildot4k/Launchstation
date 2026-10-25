@@ -124,26 +124,6 @@
       ]
     },
     {
-      "name": "Backups & Cloud",
-      "pages": [
-        [
-          "mmce-backup",
-          "MMCE Backups",
-          "vmc"
-        ],
-        [
-          "cloud",
-          "Google Drive Cloud",
-          "smb"
-        ],
-        [
-          "igr",
-          "IGR Return & Backup",
-          "igr"
-        ]
-      ]
-    },
-    {
       "name": "Utilities & Hardware",
       "pages": [
         [
