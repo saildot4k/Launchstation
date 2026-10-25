@@ -1033,6 +1033,13 @@ non_PSU_RESTORE_init:
 #endif
 		genLimObjName(out, 0);                                //Limit dest file name
 		if (!strcmp(in, out)) { ret = 0; goto copy_file_exit; }
+		if (PM_flag[recurses] == PM_PSU_RESTORE) {
+			/* The restore folder was created/recreated above. Match R3Z 4.80:
+			 * replace each archive entry directly, without ordinary-copy stat,
+			 * staging or replacement checks on memory-card file entries. */
+			genRemove(out);
+			open_mode = FIO_O_WRONLY | FIO_O_TRUNC | FIO_O_CREAT;
+		} else
 #ifdef ETH
 		/* The legacy host driver has no stat/rename operations. Retain its
 		 * direct-write behavior; sibling replacement requires those operations. */

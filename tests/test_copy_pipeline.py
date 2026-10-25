@@ -2,6 +2,7 @@
 
 Drivers/RPCs are replaced by bounded file adapters and injected failures. The
 copy orchestration, recursion, replacement transaction and diagnostics are real.
+PSU archives use the real reader/writer helpers and matching MC table layout.
 This does not emulate a UDPFS server, libmc or physical memory cards.
 """
 from pathlib import Path
@@ -24,6 +25,7 @@ code=r'''
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -71,8 +73,8 @@ typedef uint8_t u8;typedef uint16_t u16;typedef uint32_t u32;typedef uint64_t u6
 #define FIO_CST_MT 8
 #define LNG(x) #x
 #define DPRINTF(...) ((void)0)
-typedef struct {int Year,Month,Day,Hour,Min,Sec;} Date;
-typedef struct {Date _Create,_Modify;unsigned FileSizeByte,AttrFile,Reserve1,Reserve2;char EntryName[32];} sceMcTblGetDir;
+typedef struct {u8 Reserved,Sec,Min,Hour,Day,Month;u16 Year;} Date;
+typedef struct {Date _Create,_Modify;u32 FileSizeByte;u16 AttrFile,Reserve1;u32 Reserve2,PdaAplNo;char EntryName[32];} sceMcTblGetDir;
 typedef struct {char name[MAX_NAME];unsigned char title[MAX_NAME];sceMcTblGetDir stats;} FILEINFO;
 typedef struct {unsigned mode,attr;char ctime[8],mtime[8],atime[8];} iox_stat_t;
 static struct {int PSU_HugeNames,PSU_DateNames,PSU_NoOverwrite;} config,*setting=&config;
@@ -84,15 +86,15 @@ static unsigned clipIopResetGeneration,generation;
 static u64 written_size,PasteTime,clock_ms;
 static int source_ready=1,load_ok=1,reset_preflight,read_cap=4096,write_cap=37,cancel_copy;
 static int fail_open,fail_rewind,fail_read,fail_write,fail_close,fail_listing,fail_stat,fail_out_open,early_eof,fail_measure,corrupt_verify,fail_publish;
-static int fd_kind[1024],handles,read_calls,write_calls;
+static int fd_kind[1024],handles,read_calls,write_calls,psu_stat_is_dir,psu_stat_checks,psu_metadata,folder_deletes,overwrite_confirms;
 static unsigned fd_generation[1024];
 static u64 Timer(void){return ++clock_ms;}
 static unsigned getIopResetGeneration(void){return generation;}
-static int prepareTransferDeviceStacks(const char *a,const char *b){assert(!handles);(void)a;(void)b;if(reset_preflight)generation++;return load_ok?0:-1;}
+static int prepareTransferDeviceStacks(const char *a,const char *b){assert(!handles || !reset_preflight);(void)a;(void)b;if(reset_preflight)generation++;return load_ok?0:-1;}
 static int clipboardSourceDeviceReady(void){return source_ready;}
 static void waitUntilTimer(u64 end){clock_ms=end;}
 static void drawMsg(const char *s){(void)s;}
-static int ynDialog(const char *s){(void)s;return cancel_copy?-1:1;}
+static int ynDialog(const char *s){if(strstr(s,"Name_conflict_for_this_folder"))overwrite_confirms++;return cancel_copy?-1:1;}
 static int readpad(void){return cancel_copy;}
 static int DashIsActive(void){return 1;}
 static int DashFileProgress(const char *a,const char *b,u64 r,u64 t){(void)a;(void)b;assert(r<=t);return 1;}
@@ -103,7 +105,7 @@ static int isPcCardCfOnline(void){return 1;}
 static void ensureMemoryCardPortAccessible(int p){assert(p==0||p==1);}
 static char *makeHostPath(char *d,char *s){if(d!=s)strcpy(d,s);return d;}
 static void genLimObjName(char *p,int reserve){(void)p;(void)reserve;}
-static int genGetStat(const char *p,iox_stat_t *out){struct stat s;if(!strncmp(p,"host:",5))return -EIO;if(fail_stat&&!strncmp(p,"mc0:",4))return -EACCES;if(stat(p,&s))return -errno;out->mode=s.st_mode;return 0;}
+static int genGetStat(const char *p,iox_stat_t *out){struct stat s;if(psu_stat_is_dir && strstr(p,"/APP_LAUNCHSTATION/")){psu_stat_checks++;out->mode=S_IFDIR;return 0;}if(!strncmp(p,"host:",5))return -EIO;if(fail_stat&&!strncmp(p,"mc0:",4))return -EACCES;if(stat(p,&s))return -errno;out->mode=s.st_mode;return 0;}
 static int genOpen(const char *p,int flags){
  if(fail_open&&flags==O_RDONLY&&!strncmp(p,"udpfs:",6))return -ENOENT;
  if(fail_out_open&&(flags&O_WRONLY))return -EACCES;
@@ -119,7 +121,11 @@ static int genRemove(char *p){return unlink(p)?-errno:0;}
 static int fileXioRename(const char *a,const char *b){return fail_publish?-EIO:rename(a,b)?-errno:0;}
 static int mc_result;
 static int mcSetFileInfo(int port,int slot,const char *from,const sceMcTblGetDir *info,int flags){
- (void)slot;if(flags==0x10){char a[MAX_PATH],b[MAX_PATH];snprintf(a,sizeof(a),"mc%d:/%s",port,from);strcpy(b,a);char *leaf=strrchr(b,'/');assert(leaf);snprintf(leaf+1,sizeof(b)-(leaf+1-b),"%.32s",info->EntryName);mc_result=fileXioRename(a,b);}else mc_result=0;return 0;
+ (void)slot;if(flags==MC_SFI && strstr(from,"/APP_LAUNCHSTATION")) {
+  assert(info->_Create.Year==2025 && info->_Modify.Year==2025);
+  assert(info->AttrFile==MC_ATTR_norm_file || info->AttrFile==MC_ATTR_norm_folder);psu_metadata++;
+ }
+ if(flags==0x10){char a[MAX_PATH],b[MAX_PATH];snprintf(a,sizeof(a),"mc%d:/%s",port,from);strcpy(b,a);char *leaf=strrchr(b,'/');assert(leaf);snprintf(leaf+1,sizeof(b)-(leaf+1-b),"%.32s",info->EntryName);mc_result=fileXioRename(a,b);}else mc_result=0;return 0;
 }
 static int mcSync(int mode,void *c,int *r){(void)mode;(void)c;if(r)*r=mc_result;return 1;}
 static int mcGetInfo(int p,int s,int *type,int *a,int *b){(void)p;(void)s;if(type)*type=2;if(a)*a=1000;if(b)*b=1000;return 0;}
@@ -132,26 +138,29 @@ static void transcpy_sjis(char *out,const unsigned char *in){strcpy(out,(const c
 static int filerConfirmExploitDelete(const char *p,const FILEINFO *f){(void)p;(void)f;return 1;}
 static int filerConfirmExploitModify(const char *p,const FILEINFO *f){(void)p;(void)f;return 1;}
 static int filerIsExploitProtectedPath(const char *p,const FILEINFO *f){(void)p;(void)f;return 0;}
-static int delete(const char *p,const FILEINFO *f){(void)p;(void)f;assert(0);return -1;}
+static int delete(const char *p,const FILEINFO *f){
+ assert(!strcmp(f->name,"APP_LAUNCHSTATION"));folder_deletes++;
+ char path[MAX_PATH],child[MAX_PATH+MAX_NAME];snprintf(path,sizeof(path),"%s%s",p,f->name);
+ DIR *d=opendir(path);assert(d);struct dirent *e;
+ while((e=readdir(d))) {
+  if(!strcmp(e->d_name,".") || !strcmp(e->d_name,".."))continue;
+  snprintf(child,sizeof(child),"%s/%s",path,e->d_name);assert(!unlink(child));
+ }
+ assert(!closedir(d));return rmdir(path)?-errno:0;
+}
 static void markMx4sioDestinationAfterWrite(const char *p){(void)p;}
-static int genCmpFileExt(const char *p,const char *e){(void)p;(void)e;return 0;}
+static int genCmpFileExt(const char *p,const char *e){const char *dot=strrchr(p,'.');return dot && !strcasecmp(dot+1,e);}
 static int newdir(const char *parent,const char *name){char p[MAX_PATH];snprintf(p,sizeof(p),"%s%s",parent,name);return mkdir(p,0700)?-errno:0;}
 static int getDir(const char *p,FILEINFO *out){
  if(fail_listing)return -EIO;DIR *d=opendir(p);if(!d)return -errno;struct dirent *e;int n=0;
  while((e=readdir(d))){if(!strcmp(e->d_name,".")||!strcmp(e->d_name,".."))continue;assert(n<MAX_ENTRY);memset(&out[n],0,sizeof(out[n]));snprintf(out[n].name,sizeof(out[n].name),"%s",e->d_name);char full[MAX_PATH];snprintf(full,sizeof(full),"%s%s",p,e->d_name);struct stat st;assert(!stat(full,&st));out[n].stats.AttrFile=S_ISDIR(st.st_mode)?sceMcFileAttrSubdir:0;out[n].stats.FileSizeByte=st.st_size;n++;}closedir(d);return n;
 }
-static int unexpected(void){assert(!"PSU branch is outside this ordinary-copy fixture");return -1;}
-#define psu_backup_create_root_image(...) unexpected()
-#define psu_backup_finalize_root_image(...) unexpected()
-#define psu_backup_begin_file_entry(...) unexpected()
-#define psu_backup_write_padding(...) unexpected()
-#define psu_restore_read_file_entry(...) unexpected()
-#define psu_restore_open_root_image(...) unexpected()
-#define psu_restore_apply_entry_stats_to_mc(...) unexpected()
 static int applyMcInfoToVmcPath(const char *p,const sceMcTblGetDir *s){(void)p;(void)s;return 0;}
 '''
-# Use the real PSU layout declarations; these branches are compiled but not executed.
+# Use the actual archive format and PSU helper implementation.
 psu=(root/'include/psu_types.h').read_text();code+=psu[psu.index('typedef struct'):psu.rindex('#endif')]
+psu_impl=(root/'src/psu_functions.c').read_text()
+code+= "\n".join(line for line in psu_impl.splitlines() if not line.startswith('#include')) + "\n"
 a=copy.index('/* One paste context');b=copy.index('static int isMemoryCardLikePath(',a);code+=copy[a:b]
 for sig in ('static int isMemoryCardLikePath(', 'static int isHddCommonParty(',
             'static int copyReadChunk(', 'static int copyWriteChunk(',
@@ -165,7 +174,34 @@ code+=r'''
 static void put(const char *p,const unsigned char *data,int n){int fd=open(p,O_CREAT|O_TRUNC|O_WRONLY,0600);assert(fd>=0);assert(write(fd,data,n)==n);assert(!close(fd));}
 static int matches(const char *p,const unsigned char *data,int n){unsigned char out[70000];int fd=open(p,O_RDONLY);if(fd<0)return 0;int count=read(fd,out,sizeof(out));close(fd);return count==n&&!memcmp(data,out,n);}
 static unsigned char input[65537];
-static void reset(void){assert(!handles);source_ready=load_ok=1;reset_preflight=0;fail_open=fail_rewind=fail_read=fail_write=fail_close=fail_listing=cancel_copy=fail_stat=fail_out_open=early_eof=fail_measure=corrupt_verify=fail_publish=0;read_calls=write_calls=0;browser_cut=0;browser_cd=0;generation=1;clipIopResetGeneration=1;PasteMode=PM_NORMAL;strcpy(clipPath,"udpfs:/");nclipFiles=1;memset(clipFiles,0,sizeof(clipFiles));strcpy(clipFiles[0].name,"BOOT.ELF");clipFiles[0].stats.FileSizeByte=sizeof(input);}
+
+static void psuHeader(int fd,const char *name,int size,int directory) {
+ psu_header h;memset(&h,0,sizeof(h));h.attr=directory?0x8427:0x8497;h.size=size;
+ h.cTime.year=2025;h.cTime.month=7;h.cTime.day=2;h.mTime=h.cTime;
+ snprintf((char*)h.name,sizeof(h.name),"%s",name);assert(write(fd,&h,sizeof(h))==sizeof(h));
+}
+
+static void psuFile(int fd,const char *name,int size) {
+ psuHeader(fd,name,size,0);int left=size;
+ while(left) {int chunk=left<(int)sizeof(input)?left:(int)sizeof(input);assert(write(fd,input,chunk)==chunk);left-=chunk;}
+ unsigned char padding[1024];memset(padding,255,sizeof(padding));
+ int pad=(1024-(size%1024))%1024;assert(write(fd,padding,pad)==pad);
+}
+static void makePsu(const char *path) {
+ int fd=open(path,O_WRONLY|O_CREAT|O_TRUNC,0600);assert(fd>=0);
+ psuHeader(fd,"APP_LAUNCHSTATION",5,1);psuHeader(fd,".",0,1);psuHeader(fd,"..",0,1);
+ psuFile(fd,"LAUNCHSTATION.ELF",1443120);psuFile(fd,"icon.sys",257);psuFile(fd,"EMPTY",0);assert(!close(fd));
+}
+static int matchesPsu(const char *path,int size) {
+ unsigned char bytes[4096];int fd=open(path,O_RDONLY),done=0,n;
+ if(fd<0)return 0;
+ while((n=read(fd,bytes,sizeof(bytes)))>0) {
+  for(int i=0;i<n;i++)assert(bytes[i]==input[(done+i)%sizeof(input)]);
+  done+=n;
+ }
+ close(fd);return !n && done==size;
+}
+static void reset(void){assert(!handles);psu_stat_is_dir=psu_stat_checks=psu_metadata=folder_deletes=overwrite_confirms=0;read_cap=4096;write_cap=37;source_ready=load_ok=1;reset_preflight=0;fail_open=fail_rewind=fail_read=fail_write=fail_close=fail_listing=cancel_copy=fail_stat=fail_out_open=early_eof=fail_measure=corrupt_verify=fail_publish=0;read_calls=write_calls=0;browser_cut=0;browser_cd=0;generation=1;clipIopResetGeneration=1;PasteMode=PM_NORMAL;strcpy(clipPath,"udpfs:/");nclipFiles=1;memset(clipFiles,0,sizeof(clipFiles));strcpy(clipFiles[0].name,"BOOT.ELF");clipFiles[0].stats.FileSizeByte=sizeof(input);}
 int main(void){
  assert(sizeof(copy_diag)<=128); /* fixed runtime budget, no log allocation */
  mkdir("udpfs:",0700);mkdir("mc0:",0700);mkdir("mc1:",0700);mkdir("usb0:",0700);mkdir("host:",0700);
@@ -231,7 +267,43 @@ int main(void){
  /* Repeated operations clear prior error state, and formatting is bounded. */
  reset();message[0]=0;subfunc_Paste(message,"mc0:/");assert(!message[0]);
  char bounded[17];memset(bounded,'x',sizeof(bounded));filerCopyDiagFormat(bounded,16,-1);assert(!bounded[15]&&bounded[16]=='x');
- puts("PASS: full paste/copy sequence, both slots, replacement, failures, recursion and bounded diagnostics");
+
+ /* Reproduce the reported MC stat response: it classified the new archive's
+  * LAUNCHSTATION.ELF as a directory (-21). R3Z writes PSU entries directly
+  * after creating/recreating the restore folder, without querying that stat.
+  * Include the original 1,443,120-byte size, padding, empty files and both slots. */
+ makePsu("udpfs:/SAVE.PSU");
+ for(int port=0;port<2;port++)for(int attempt=0;attempt<2;attempt++) {
+  reset();PasteMode=PM_PSU_RESTORE;strcpy(clipFiles[0].name,"SAVE.PSU");psu_stat_is_dir=1;
+  char dest[12];snprintf(dest,sizeof(dest),"mc%d:/",port);
+  message[0]=0;subfunc_Paste(message,dest);
+  if(message[0])fprintf(stderr,"PSU failure: %s\n",message);
+  assert(!message[0] && !handles && !copy_diag.error && generation==1);
+  assert(!psu_stat_checks && psu_metadata==4);
+  assert(folder_deletes==attempt && overwrite_confirms==attempt);
+  snprintf(target,sizeof(target),"%sAPP_LAUNCHSTATION/LAUNCHSTATION.ELF",dest);assert(matchesPsu(target,1443120));
+  snprintf(target,sizeof(target),"%sAPP_LAUNCHSTATION/icon.sys",dest);assert(matches(target,input,257));
+  snprintf(target,sizeof(target),"%sAPP_LAUNCHSTATION/EMPTY",dest);assert(matches(target,input,0));
+ }
+ /* Keep ordinary-copy directory protections; the exception is PSU restore. */
+ reset();psu_stat_is_dir=1;message[0]=0;subfunc_Paste(message,"mc0:/APP_LAUNCHSTATION/");
+ assert(strstr(message,"Checking destination (-21)") && psu_stat_checks && !handles);
+ assert(matchesPsu("mc0:/APP_LAUNCHSTATION/LAUNCHSTATION.ELF",1443120));
+ /* A real write failure still reports the failing entry and can be retried
+  * over the empty restore folder left behind, with overwrite confirmation. */
+ mkdir("mc0:/PSU-FAIL",0700);reset();PasteMode=PM_PSU_RESTORE;strcpy(clipFiles[0].name,"SAVE.PSU");
+ psu_stat_is_dir=1;fail_write=1;message[0]=0;subfunc_Paste(message,"mc0:/PSU-FAIL/");
+ assert(strstr(message,"Writing destination (-28)") && strstr(message,"LAUNCHSTATION.ELF") && !handles);
+ assert(!psu_stat_checks && access("mc0:/PSU-FAIL/APP_LAUNCHSTATION/LAUNCHSTATION.ELF",F_OK)<0);
+ reset();PasteMode=PM_PSU_RESTORE;strcpy(clipFiles[0].name,"SAVE.PSU");psu_stat_is_dir=1;
+ message[0]=0;subfunc_Paste(message,"mc0:/PSU-FAIL/");
+ assert(!message[0] && !handles && folder_deletes==1 && overwrite_confirms==1);
+ assert(matchesPsu("mc0:/PSU-FAIL/APP_LAUNCHSTATION/LAUNCHSTATION.ELF",1443120));
+ makePsu("udpfs:/TRUNC.PSU");assert(!truncate("udpfs:/TRUNC.PSU",4*512+1000));
+ mkdir("mc0:/PSU-TRUNC",0700);reset();PasteMode=PM_PSU_RESTORE;strcpy(clipFiles[0].name,"TRUNC.PSU");
+ message[0]=0;subfunc_Paste(message,"mc0:/PSU-TRUNC/");
+ assert(strstr(message,"Reading source (-5)") && strstr(message,"LAUNCHSTATION.ELF") && !handles);
+ puts("PASS: ordinary copy/replacement safeguards, real PSU archives on both MC slots, R3Z write parity, padding/metadata, overwrite/retry and IO failures");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='copy-pipeline-') as folder:
