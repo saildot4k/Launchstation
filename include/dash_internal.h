@@ -402,7 +402,7 @@ void dashTextWrapScrollTimed(float x, float y, float w, float h, const char *s,
 void dashFontLegacyChar(unsigned int c, int x, int y, u64 gs_color);
 /* Literal byte glyph with dashboard clipping, fade and modal offsets. */
 void dashFontByte(unsigned char c, float x, float y, DashColor color);
-/* Theme font and Bold on an 8px document grid; preserves special byte glyphs. */
+/* Theme font and Bold on an 8px grid; Latin-1 bytes remain literal glyphs. */
 void dashFontMonoByte(unsigned char c, float x, float y, DashColor color);
 GSTEXTURE *dashFontTexture(void);
 

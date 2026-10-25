@@ -23,8 +23,9 @@
 
 struct hostent;
 extern int ps2ipc_disconnect(int s);
-extern int ps2ipc_recvfrom(int s, void *mem, int len, unsigned int flags, struct sockaddr *from, int *fromlen);
-extern int ps2ipc_sendto(int s, const void *dataptr, int size, unsigned int flags, const struct sockaddr *to, int tolen);
+extern int ps2ipc_connect(int s, const struct sockaddr *name, int namelen);
+extern int ps2ipc_recv(int s, void *mem, int len, unsigned int flags);
+extern int ps2ipc_send(int s, const void *dataptr, int size, unsigned int flags);
 extern int ps2ipc_socket(int domain, int type, int protocol);
 extern int ps2ipc_select(int maxfdp1, fd_set *readset, fd_set *writeset, fd_set *exceptset, struct timeval *timeout);
 extern struct hostent *ps2ipc_gethostbyname(const char *name);
@@ -55,6 +56,7 @@ enum {
 	SNTP_OK = 0,
 	SNTP_DNS,
 	SNTP_SOCKET,
+	SNTP_CONNECT,
 	SNTP_SEND,
 	SNTP_WAIT,
 	SNTP_TIMEOUT,
@@ -74,6 +76,7 @@ static const char *sntpStatusText(int status)
 		case SNTP_OK: return "OK";
 		case SNTP_DNS: return "DNS lookup failed";
 		case SNTP_SOCKET: return "socket creation failed";
+		case SNTP_CONNECT: return "server connection failed";
 		case SNTP_SEND: return "request send failed";
 		case SNTP_WAIT: return "socket wait failed";
 		case SNTP_TIMEOUT: return "reply timed out";
@@ -128,11 +131,11 @@ static int sntpWaitReadable(int sock)
 static int sntpQuery(const char *host, SntpSample *sample)
 {
 	SntpHostEnt *he;
-	SntpSockaddrIn addr, from;
+	SntpSockaddrIn addr;
 	u8 req[SNTP_PACKET_SIZE], reply[SNTP_PACKET_SIZE];
 	u32 nonce_hi, nonce_lo, ntp_sec, ntp_frac;
 	u64 full_ntp, unix_sec, sent_ms, received_ms;
-	int sock, fromlen = sizeof(from), got, status;
+	int sock, got, status;
 
 	if (host == NULL || sample == NULL)
 		return SNTP_INVALID;
@@ -157,8 +160,14 @@ static int sntpQuery(const char *host, SntpSample *sample)
 	sock = ps2ipc_socket(AF_INET, SOCK_DGRAM, 0);
 	if (sock < 0)
 		return SNTP_SOCKET;
+	/* Connected UDP limits replies to this server and uses the RPC receive
+	 * path without sockaddr/request overlap, including SDK-provided servers. */
+	if (ps2ipc_connect(sock, (const struct sockaddr *)&addr, sizeof(addr)) < 0) {
+		ps2ipc_disconnect(sock);
+		return SNTP_CONNECT;
+	}
 	sent_ms = Timer();
-	if (ps2ipc_sendto(sock, req, sizeof(req), 0, (const struct sockaddr *)&addr, sizeof(addr)) != sizeof(req)) {
+	if (ps2ipc_send(sock, req, sizeof(req), 0) != sizeof(req)) {
 		ps2ipc_disconnect(sock);
 		return SNTP_SEND;
 	}
@@ -168,8 +177,7 @@ static int sntpQuery(const char *host, SntpSample *sample)
 		return status;
 	}
 
-	memset(&from, 0, sizeof(from));
-	got = ps2ipc_recvfrom(sock, reply, sizeof(reply), 0, (struct sockaddr *)&from, &fromlen);
+	got = ps2ipc_recv(sock, reply, sizeof(reply), 0);
 	received_ms = Timer();
 	ps2ipc_disconnect(sock);
 	if (got < 0)

@@ -322,9 +322,9 @@ void dashKeyboardDraw(const DashKeyboard *kb, float center_x, float y0)
 			if (idx == KB_SPACE_KEY)
 				dashTextCenter(kx + key_w * 0.5f, ky + 2, "Space", DASH_FS_SMALL, dashItemColor(on));
 			else if (kb->page) {
-				/* Use the document's actual byte glyph, including 0xFF, which
-				 * dashboard text otherwise treats as a controller icon prefix. */
-				dashFontByte(kbSymbolChar(kb, idx), kx + key_w * 0.5f - 4,
+				/* Share the document's theme font and Bold setting while treating
+				 * 0xFF as a literal character rather than a controller icon prefix. */
+				dashFontMonoByte(kbSymbolChar(kb, idx), kx + key_w * 0.5f - 4,
 				             ky + 4, dashItemColor(on));
 			} else {
 				label[0] = getVirtualKeyboardLayoutDisplayChar(layout, kbLayoutIndex(layout, idx), kb->caps);
@@ -517,9 +517,9 @@ static int modalKeyboard(const char *title, char *buf, int max_len, int filename
 				if (before > fw - 30)
 					shift = before - (fw - 30);
 				dashGfxScissor(fx + 6, fy + 2, fw - 12, 32);
-				/* Match the editor's byte glyphs, including 0xFF. */
+				/* Match the editor's theme font and Bold, including literal 0xFF. */
 				for (i = 0; buf[i]; i++)
-					dashFontByte((unsigned char)buf[i] < 0x20 ? '.' : (unsigned char)buf[i],
+					dashFontMonoByte((unsigned char)buf[i] < 0x20 ? '.' : (unsigned char)buf[i],
 					             tx - shift + i * 8.0f, fy + 11, DASH_C_TEXT);
 				caret = tx - shift + before;
 				if ((Timer() / 400) & 1)

@@ -985,7 +985,7 @@ int dashTextEditorEx(const char *path, int create_if_missing)
 	active = 0;
 	kb_shown = 0;
 	dashKeyboardInit(&editor_keyboard, setting->virtual_keyboard_layout);
-	dashFontInit(); /* special bytes and System font use the bitmap atlas */
+	dashFontInit(); /* System font and unsupported control bytes use the bitmap atlas */
 	dashPushSceneOverride(editorScene);
 	create_missing = create_if_missing;
 	if (path != NULL && path[0])

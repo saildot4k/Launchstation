@@ -646,8 +646,8 @@ void dashTextWrapScrollTimed(float x, float y, float w, float h, const char *str
 	dashGfxScissorPop();
 }
 
-/* Literal 8x16 byte glyph for keyboard symbols and names. Unlike dashboard
- * text, 0xFF is a character here rather than a controller-icon prefix. */
+/* Bitmap fallback for literal 8x16 byte glyphs. Unlike dashboard text,
+ * 0xFF is a character here rather than a controller-icon prefix. */
 void dashFontByte(unsigned char c, float x, float y, DashColor color)
 {
 	int gi;
@@ -665,8 +665,9 @@ void dashFontByte(unsigned char c, float x, float y, DashColor color)
 	dashSpriteBatchEnd();
 }
 
-/* Document text keeps an 8px column grid while using the selected font's
- * regular glyphs. Extended bytes retain the active bitmap font's symbols. */
+/* Literal text and symbols keep an 8px column grid with the selected
+ * font's regular/Bold glyphs, including Latin-1. System and unsupported
+ * control bytes retain the active bitmap font's shapes. */
 void dashFontMonoByte(unsigned char c, float x, float y, DashColor color)
 {
 	FaceSel sel;
@@ -676,7 +677,7 @@ void dashFontMonoByte(unsigned char c, float x, float y, DashColor color)
 
 	if (c < FONT_FIRST || c == ' ')
 		return;
-	if (dashTheme.font == DASH_FONT_SYSTEM || c > 0x7E) {
+	if (dashTheme.font == DASH_FONT_SYSTEM || (c >= 0x7F && c < 0xA0)) {
 		dashFontByte(c, x, y, color);
 		if (dashTheme.bold)
 			dashFontByte(c, x + bold_dx, y, color);

@@ -23,6 +23,12 @@ Local changes to the upstream server:
 2. A failed `StartThread` deletes the unstarted thread and reports
    `MODULE_NO_RESIDENT_END`, preventing an EE bind to an absent RPC server.
 3. `imports.lst` includes `DeleteThread` for that cleanup.
+4. UDP receive initializes the sender-address capacity and postpones writing
+   the returned address until its overlapping request fields (`ee_addr` and
+   `intr_data`) have been consumed. This preserves the destination pointers
+   for the received packet and its DMA/reassembly metadata.
+5. The shared socket transfer buffer reserves 64 bytes of headroom, covering
+   a full 1024-byte payload at every supported alignment.
 
 `ps2.yaml` provides an isolated PS2BUILD compile check. The root `ps2.yaml`
 builds the same source with DNS enabled. The legacy Makefile continues to use

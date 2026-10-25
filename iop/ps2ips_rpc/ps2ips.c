@@ -46,7 +46,8 @@ static SifRpcDataQueue_t ps2ips_queue;
 static SifRpcServerData_t ps2ips_server;
 static u8 _rpc_buffer[512 * 4] __attribute__((__aligned__(4)));
 
-static char lwip_buffer[BUFF_SIZE + 32];
+/* Transfers can start up to one full cache line into this buffer. */
+static char lwip_buffer[BUFF_SIZE + 64];
 static rests_pkt rests;
 
 static void do_accept( void * rpcBuffer, int size )
@@ -221,9 +222,10 @@ static void do_recvfrom( void * rpcBuffer, int size )
 	r_recv_pkt *ret_pkt = (r_recv_pkt *)rpcBuffer;
 	static struct t_SifDmaTransfer sifdma;
 	static struct sockaddr sockaddr;
-	int fromlen;
+	int fromlen = sizeof(sockaddr);
 
 	(void)size;
+	memset(&sockaddr, 0, sizeof(sockaddr));
 
 	if(recv_pkt->length <= 64)
 	{
@@ -245,9 +247,6 @@ static void do_recvfrom( void * rpcBuffer, int size )
 
 	if(rlen <= 0) goto recv_end;
 	if(rlen <= 64) srest = rlen;
-
-	// copy sockaddr struct to return packet
-	memcpy((void *)&ret_pkt->sockaddr, (void *)&sockaddr, sizeof(struct sockaddr));
 
 	// fill sbuffer, calculate align buffer & erest valules, fill ebuffer
 	if(srest)
@@ -305,6 +304,9 @@ static void do_recvfrom( void * rpcBuffer, int size )
 	CpuResumeIntr(intr_stat);
 
 recv_end:
+	/* Request and reply share rpcBuffer. The sockaddr overlaps ee_addr and
+	 * intr_data: copy it only after all DMA destinations have been consumed. */
+	memcpy(&ret_pkt->sockaddr, &sockaddr, sizeof(sockaddr));
 	ret_pkt->ret = rlen;
 }
 

@@ -109,7 +109,7 @@ static void dashTextCenter(float x,float y,const char *s,float size,DashColor co
     labels[nlabels]=(Label){.x=x,.y=y};
     snprintf(labels[nlabels++].text,sizeof(labels[0].text),"%s",s);
 }
-static void dashFontByte(unsigned char c,float x,float y,DashColor color) {
+static void dashFontMonoByte(unsigned char c,float x,float y,DashColor color) {
     (void)color; assert(c>=0x20 && y+16<394);
     if(!(naming_mode && y<190)) assert(x>=34 && x+8<606);
     if(naming_mode && y<190 && c==0xff) filename_ff++;

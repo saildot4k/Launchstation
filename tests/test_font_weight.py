@@ -49,7 +49,7 @@ static struct { int font,font_scale,bold,text_shadow; } dashTheme;
 static int cache_flushes,texture_setups,foreground,shadow;
 static DashColor batch_color;
 static GSTEXTURE *last_texture;
-static float last_left,last_right;
+static float last_left,last_right,last_u,last_v;
 static int literal_calls;
 static unsigned char literal_byte;
 static void SyncDCache(void *start,void *end) {
@@ -61,7 +61,7 @@ static void dashSpriteBatchBegin(GSTEXTURE *tex,DashColor color) { assert(tex);b
 static void dashSpriteBatchEnd(void) {}
 static void dashSpriteBatchAdd(float x1,float y1,float u1,float v1,float x2,float y2,float u2,float v2) {
     assert(x2>x1 && y2>y1 && u2>u1 && v2>v1);
-    last_left=x1;last_right=x2;
+    last_left=x1;last_right=x2;last_u=u1;last_v=v1;
     if(batch_color.a==255) foreground++;
     else { assert(batch_color.a==89);shadow++; }
 }
@@ -130,25 +130,29 @@ int main(void) {
         }
     }
     for(int face=0;face<DASH_FONT_FACES;face++) assert(used_faces[face]);
-    /* Editor text uses regular face glyphs on the same eight-pixel grid.
-     * Bold adds one stroke; System/extended bytes retain literal bitmap glyphs. */
-    for(int face=0;face<2;face++) for(int fs=0;fs<3;fs++) for(int bold=0;bold<2;bold++) {
+    /* Symbols and document text share the selected regular/Bold face,
+     * including Latin-1 bytes. System/custom control glyphs remain literal. */
+    for(int face=0;face<2;face++) for(int fs=0;fs<3;fs++) for(int bold=0;bold<2;bold++) for(int col=0;col<2;col++) {
         dashTheme.font=face?DASH_FONT_SYSTEM:DASH_FONT_ROBOTO;
         dashTheme.font_scale=scales[fs];dashTheme.bold=bold;
         for(int c=0;c<256;c++) {
             foreground=shadow=literal_calls=0;
-            dashFontMonoByte(c,10,20,colors[0]);
+            dashFontMonoByte(c,10,20,colors[col]);
             if(c<0x20 || c==' ') assert(!foreground && !literal_calls);
-            else if(face || c>0x7e) {
+            else if(face || (c>=0x7f && c<0xa0)) {
                 assert(!foreground && literal_calls==(bold?2:1) && literal_byte==c);
+            } else if(c==0xa0) {
+                assert(!foreground && !literal_calls); /* Nonbreaking space has no ink. */
             } else {
+                const DashGlyphData *g=&dash_font_faces[0].glyphs[c-DASH_FONT_FIRST];
                 assert(!literal_calls && foreground==(bold?2:1) && !shadow);
                 assert(last_texture==&face_tex[0] && last_left>=10 && last_right<=18.0001f);
+                assert(last_u==g->x && last_v==g->y); /* 0xFF is a literal glyph, never a pad icon. */
                 if(!bold) assert(fabsf((last_left+last_right)*0.5f-14)<0.0001f);
             }
         }
     }
-    puts("PASS: editor regular/Bold glyph paths, eight-pixel cell bounds, theme fonts, font sizes and all literal special bytes");
+    puts("PASS: symbol/editor regular/Bold glyph paths, selected/unselected text, cell bounds, font sizes and literal Latin-1 including 0xFF");
     assert(cache_flushes==DASH_FONT_FACES && texture_setups==DASH_FONT_FACES);
     puts("PASS: regular alpha at all atlas sizes, Bold-only extra strokes, selected/normal text, Roboto/System, stable metrics and independent shadow");
 }

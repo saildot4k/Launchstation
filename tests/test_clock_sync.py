@@ -43,7 +43,7 @@ code += source[start:end]
 code += r'''
 enum {
     F_NONE,F_DNS,F_DNS_LIST,F_DNS_ADDRESS,F_DNS_LENGTH,F_DNS_FAMILY,
-    F_SOCKET,F_SEND,F_SEND_SHORT,F_WAIT,F_WAIT_EMPTY,F_TIMEOUT,F_RECEIVE,
+    F_SOCKET,F_CONNECT,F_SEND,F_SEND_SHORT,F_WAIT,F_WAIT_EMPTY,F_TIMEOUT,F_RECEIVE,
     F_SHORT,F_MODE,F_STRATUM,F_UNSYNCED,F_REFUSED,F_ORIGIN,F_OLD,F_FUTURE,F_TIMER
 };
 typedef struct {
@@ -52,7 +52,7 @@ typedef struct {
 } Query;
 static Query queries[2],*active_query;
 static int query_calls,socket_calls,send_calls,select_calls,receive_calls,closes;
-static int socket_open;
+static int socket_open,socket_connected;
 static char hosts[2][32];
 static u8 request[48],address[4]={203,0,113,9};
 static SntpSockaddrIn destination;
@@ -60,7 +60,7 @@ static void reset(void) {
     now_ms=10000;write_delay=write_timer_reset=0;
     network_ready=clock_write_ok=clock_read_ok=1;
     clock_writes=refreshes=query_calls=socket_calls=send_calls=select_calls=receive_calls=closes=0;
-    socket_open=0;active_query=NULL;
+    socket_open=socket_connected=0;active_query=NULL;
     memset(queries,0,sizeof(queries));memset(hosts,0,sizeof(hosts));
     memset(&rtc,0,sizeof(rtc));
 }
@@ -84,18 +84,23 @@ int ps2ipc_socket(int family,int type,int protocol) {
     if(active_query->fault==F_SOCKET)return -1;
     socket_open=1;return 7;
 }
-int ps2ipc_sendto(int sock,const void *data,int size,unsigned flags,const struct sockaddr *to,int tolen) {
-    assert(socket_open && sock==7 && size==48 && !flags && tolen==16);
+int ps2ipc_connect(int sock,const struct sockaddr *to,int tolen) {
+    assert(socket_open && !socket_connected && sock==7 && tolen==16);
     destination=*(const SntpSockaddrIn *)(const void *)to;
     assert(destination.sin_family==AF_INET && destination.sin_port==sntpHtons(123));
     assert(!memcmp(&destination.sin_addr,address,4));
+    if(active_query->fault==F_CONNECT)return -1;
+    socket_connected=1;return 0;
+}
+int ps2ipc_send(int sock,const void *data,int size,unsigned flags) {
+    assert(socket_open && socket_connected && sock==7 && size==48 && !flags);
     memcpy(request,data,48);assert(request[0]==0x23 && getBe32(request+40));
     send_calls++;
     if(active_query->fault==F_SEND)return -1;
     return active_query->fault==F_SEND_SHORT?47:48;
 }
 int ps2ipc_select(int maxfdp1,fd_set *readset,fd_set *writeset,fd_set *exceptset,struct timeval *timeout) {
-    assert(socket_open && maxfdp1==8 && FD_ISSET(7,readset) && !writeset && !exceptset);
+    assert(socket_open && socket_connected && maxfdp1==8 && FD_ISSET(7,readset) && !writeset && !exceptset);
     assert(timeout && timeout->tv_sec==5 && timeout->tv_usec==0);
     select_calls++;
     if(active_query->fault==F_WAIT)return -1;
@@ -104,11 +109,10 @@ int ps2ipc_select(int maxfdp1,fd_set *readset,fd_set *writeset,fd_set *exceptset
     now_ms+=active_query->rtt;
     return 1;
 }
-int ps2ipc_recvfrom(int sock,void *data,int size,unsigned flags,struct sockaddr *from,int *fromlen) {
-    assert(socket_open && sock==7 && size==48 && !flags && *fromlen==16);
+int ps2ipc_recv(int sock,void *data,int size,unsigned flags) {
+    assert(socket_open && socket_connected && sock==7 && size==48 && !flags);
     receive_calls++;
     if(active_query->fault==F_RECEIVE)return -1;
-    memcpy(from,&destination,16);*fromlen=16;
     u8 *reply=data;
     memset(reply,0,48);reply[0]=0x24;reply[1]=2;
     memcpy(reply+24,request+40,8);
@@ -132,7 +136,7 @@ int ps2ipc_recvfrom(int sock,void *data,int size,unsigned flags,struct sockaddr 
     return 48;
 }
 int ps2ipc_disconnect(int sock) {
-    assert(sock==7 && socket_open);socket_open=0;closes++;
+    assert(sock==7 && socket_open);socket_open=socket_connected=0;closes++;
     now_ms+=write_delay;
     if(write_timer_reset)now_ms=1;
     return 0;
@@ -144,7 +148,7 @@ static u64 writtenUtc(void) {
 static void checkQuery(void) {
     const int cases[][2]={
         {F_DNS,SNTP_DNS},{F_DNS_LIST,SNTP_DNS},{F_DNS_ADDRESS,SNTP_DNS},
-        {F_DNS_LENGTH,SNTP_DNS},{F_DNS_FAMILY,SNTP_DNS},{F_SOCKET,SNTP_SOCKET},
+        {F_DNS_LENGTH,SNTP_DNS},{F_DNS_FAMILY,SNTP_DNS},{F_SOCKET,SNTP_SOCKET},{F_CONNECT,SNTP_CONNECT},
         {F_SEND,SNTP_SEND},{F_SEND_SHORT,SNTP_SEND},{F_WAIT,SNTP_WAIT},
         {F_WAIT_EMPTY,SNTP_WAIT},{F_TIMEOUT,SNTP_TIMEOUT},{F_RECEIVE,SNTP_RECEIVE},
         {F_SHORT,SNTP_SHORT},{F_MODE,SNTP_INVALID},{F_STRATUM,SNTP_INVALID},
@@ -169,7 +173,7 @@ static void checkQuery(void) {
     assert(sample.unix_ms==2208988800000ULL);
     assert(sntpQuery(NULL,&sample)==SNTP_INVALID);
     assert(sntpQuery("0.pool.ntp.org",NULL)==SNTP_INVALID);
-    puts("PASS: SNTP requests, echoed nonce, IPv4 lookup, fractional server time, receipt timer, era 1 and all query failure stages");
+    puts("PASS: SNTP connected UDP, echoed nonce, IPv4 lookup, fractional server time, receipt timer, era 1 and all query failure stages");
 }
 static void checkSingleSource(void) {
     char result[160];
@@ -191,7 +195,7 @@ static void checkSingleSource(void) {
     assert(dashClockSyncInternet(result,sizeof(result)));
     assert(writtenUtc()==(BASE_MS+now_ms-2000)/1000);
     /* Only a failed request gets a retry, always against the same hostname. */
-    const int failures[]={F_DNS,F_SOCKET,F_SEND,F_WAIT,F_TIMEOUT,F_RECEIVE,F_SHORT,F_ORIGIN};
+    const int failures[]={F_DNS,F_SOCKET,F_CONNECT,F_SEND,F_WAIT,F_TIMEOUT,F_RECEIVE,F_SHORT,F_ORIGIN};
     for(unsigned i=0;i<sizeof(failures)/sizeof(failures[0]);i++) {
         reset();queries[0].fault=failures[i];
         assert(dashClockSyncInternet(result,sizeof(result)) && query_calls==2);
@@ -207,8 +211,8 @@ static void checkFailures(void) {
     reset();network_ready=0;
     assert(!dashClockSyncInternet(result,sizeof(result)) && !query_calls && !clock_writes);
     assert(!strcmp(result,"network startup failed"));
-    const int faults[]={F_DNS,F_SOCKET,F_SEND,F_WAIT,F_TIMEOUT,F_RECEIVE,F_SHORT,F_ORIGIN,F_OLD};
-    const char *messages[]={"DNS lookup failed","socket creation failed","request send failed",
+    const int faults[]={F_DNS,F_SOCKET,F_CONNECT,F_SEND,F_WAIT,F_TIMEOUT,F_RECEIVE,F_SHORT,F_ORIGIN,F_OLD};
+    const char *messages[]={"DNS lookup failed","socket creation failed","server connection failed","request send failed",
                            "socket wait failed","reply timed out","reply receive failed",
                            "short reply","request/reply mismatch","server date out of range"};
     for(unsigned i=0;i<sizeof(faults)/sizeof(faults[0]);i++) {
