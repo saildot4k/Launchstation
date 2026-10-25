@@ -540,6 +540,7 @@ typedef struct
 	int files_mode;              /* 0 = Files list, 1 = Devices cards */
 	int home_shortcuts;          /* HOME quick-launch row */
 	int icon_backing;            /* control/quick-action backing shapes */
+	int temp_fahrenheit;         /* 0 = Celsius, 1 = Fahrenheit */
 	int nscan;
 	char scan[DASH_MAX_SCAN][DASH_PATH_MAX];
 } DashSettings;
@@ -969,6 +970,7 @@ void dashShowAbout(void);
 void dashShowBuildInfo(void);
 void dashShowSystemInfo(void);
 /* Pure cached identity string; never starts hardware probes during drawing. */
+void dashConsoleIdentityInit(void); /* read once at startup, worker idle */
 void dashConsoleSummaryText(char *out, size_t out_size);
 void dashShowFontViewer(void);
 void dashShowTextLines(int icon, const char *title, const char *subtitle, const char *const *lines, int n);
@@ -1032,7 +1034,8 @@ int filerPrepareDirRead(const char *path); /* UI thread, worker idle */
 int pollRootMemoryCardDevices(void);
 extern int uLE_cdmode;
 
-/* main_title.c accessor for split clock text. */
+/* main_title.c accessors for split clock text and cached temperature. */
+int menuTitleGetTemperatureRaw(int *raw);
 void menuTitleGetClockText(char *time_out, int time_size, char *date_out, int date_size);
 int menuTitleGetClockFields(int *year, int *month, int *day, int *hour, int *minute, int *second,
                             int *use_12h, int *date_format);

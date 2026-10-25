@@ -88,8 +88,9 @@ int main(void) {
                  (mask & 2) ? "Dash_MMCEBackupPath" : "Dash_IGRBackupPath");
         memset(&dashCfg,0,sizeof(dashCfg));
         assert(dashKvParse(config_text,settingsKv,&scan_reset)>0 && dashCfg.sound==1 && dashCfg.sound_vol==67);
+        dashCfg.temp_fahrenheit=mask&1;
         assert(!dashStoreSaveSettings() && save_dirty[SAVE_SETTINGS]);
-        assert(persisted.sound==1 && persisted.sound_vol==67);
+        assert(persisted.sound==1 && persisted.sound_vol==67 && persisted.temp_fahrenheit==(mask&1));
         char *text=dashStoreSettingsText(&persisted,&length);
         assert(text && length==(int)strlen(text));
         assert(!strstr(text,"Dash_DevAuto") && !strstr(text,"Dash_ShowUnavailableDevices"));
@@ -98,7 +99,15 @@ int main(void) {
         assert(!strstr(text,"Dash_SoftwareClock") && !strstr(text,"2028-02-29 23:59:59"));
         memset(&dashCfg,0,sizeof(dashCfg));
         assert(dashKvParse(text,settingsKv,&scan_reset)>0 && dashCfg.sound==1 && dashCfg.sound_vol==67);
+        assert(dashCfg.temp_fahrenheit==(mask&1));
         free(text);
+    }
+    for(int units=-2;units<4;units++) {
+        char text[80];int scan_reset=0;
+        snprintf(text,sizeof(text),"Dash_TemperatureFahrenheit = %d\n",units);
+        dashCfg.temp_fahrenheit=1;
+        assert(dashKvParse(text,settingsKv,&scan_reset)==1);
+        assert(dashCfg.temp_fahrenheit==(units==1));
     }
     const char data[]="Dash_Sound = 1\r\nDash_SoundVolume = 67\r\n";
     for(int scenario=0;scenario<8;scenario++) {

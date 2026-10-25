@@ -242,13 +242,13 @@ void GetConsoleDvdVersion(char *dst, size_t dst_size)
 	    dvdver[2] >= '0' && dvdver[2] <= '9' &&
 	    dvdver[3] >= '0' && dvdver[3] <= '9' &&
 	    ((dvdver[4] >= 'A' && dvdver[4] <= 'Z') || (dvdver[4] >= 'a' && dvdver[4] <= 'z')))
-		snprintf(dst, dst_size, "DVD: %c.%c%c %c", dvdver[1], dvdver[2], dvdver[3], dvdver[4]);
+		snprintf(dst, dst_size, "DVD: %c.%c%c%c", dvdver[1], dvdver[2], dvdver[3], dvdver[4]);
 	else if (version_len == 5 && dvdver[1] == '.' &&
 	         dvdver[0] >= '0' && dvdver[0] <= '9' &&
 	         dvdver[2] >= '0' && dvdver[2] <= '9' &&
 	         dvdver[3] >= '0' && dvdver[3] <= '9' &&
 	         ((dvdver[4] >= 'A' && dvdver[4] <= 'Z') || (dvdver[4] >= 'a' && dvdver[4] <= 'z')))
-		snprintf(dst, dst_size, "DVD: %.4s %c", dvdver, dvdver[4]);
+		snprintf(dst, dst_size, "DVD: %.4s%c", dvdver, dvdver[4]);
 	else
 		snprintf(dst, dst_size, "DVD: %s", dvdver);
 }

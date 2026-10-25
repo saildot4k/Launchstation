@@ -42,6 +42,11 @@ typedef struct {
 
 static int modal_calls, start_calls, frame_calls, probe_calls, end_calls;
 static int worker_allowed = 1;
+static int startup_quiet, input_flushes, usb_probe_calls, usb_found, loading_active;
+static char loading_title[64];
+static int isStartupDriverStatusQuiet(void) { return startup_quiet; }
+static void setStartupDriverStatusQuiet(int quiet) { startup_quiet=quiet; }
+static void dashInputFlush(void) { input_flushes++; }
 static char last_body[256];
 
 static int isPcCardCfPath(const char *mount) {
@@ -61,7 +66,8 @@ static int dashWorkerAwaitAll(const char *status) {
     return worker_allowed;
 }
 static void dashLoadingBegin(const char *title) {
-    assert(title && title[0]);
+    assert(title && title[0] && !loading_active);
+    loading_active=1;snprintf(loading_title,sizeof(loading_title),"%s",title);
     start_calls++;
 }
 static void dashLoadingFrame(const char *status, int done, int total) {
@@ -71,13 +77,17 @@ static void dashLoadingFrame(const char *status, int done, int total) {
     frame_calls++;
 }
 static int probeMount(const char *mount) {
+    if(!strncmp(mount,"usb",3)) {
+        assert(startup_quiet && loading_active && !strcmp(loading_title,"Starting USB devices"));
+        usb_probe_calls++;return usb_found;
+    }
     assert(frame_calls == probe_calls + 1); /* frame presented before RPC */
     probe_calls++;
     return !strcmp(mount, "ready");
 }
 static void dashLoadingEnd(void) {
-    assert(probe_calls == end_calls + 1);
-    end_calls++;
+    assert(loading_active && start_calls==end_calls+1);
+    loading_active=0;end_calls++;dashInputFlush();
 }
 """
 
@@ -145,6 +155,19 @@ int main(void) {
     assert(startSync("ready", "Blocked by pending I/O") == -1);
     assert(start_calls == 2 && frame_calls == 2);
     assert(probe_calls == 2 && end_calls == 2);
+    /* USB has a generic startup popup with no per-unit diagnostics;
+     * both outcomes restore presentation policy and flush input. */
+    worker_allowed=1;
+    for(int quiet=0;quiet<2;quiet++) for(int found=0;found<2;found++) {
+        startup_quiet=quiet;usb_found=found;
+        int flushed=input_flushes,probes=usb_probe_calls,starts=start_calls,ends=end_calls;
+        assert(startSync("usb:","Starting USB storage")==found);
+        assert(startup_quiet==quiet && input_flushes==flushed+1 && usb_probe_calls==probes+1);
+        assert(start_calls==starts+1 && frame_calls==2 && end_calls==ends+1 && !loading_active);
+    }
+    worker_allowed=0;int flushed=input_flushes,probes=usb_probe_calls;
+    assert(startSync("usb:","Cancelled USB startup")==-1);
+    assert(startup_quiet==1 && input_flushes==flushed && usb_probe_calls==probes);
     storage_driver_stack_mode = STORAGE_STACK_DEFAULT;
     assert(switchStorageDriverStack(STORAGE_STACK_MMCE) == 1 && resets == 0);
     storage_driver_stack_mode = STORAGE_STACK_MMCE;

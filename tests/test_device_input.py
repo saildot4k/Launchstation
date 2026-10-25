@@ -291,6 +291,7 @@ static void dashLoadingBegin(const char *t) { (void)t; }
 static void dashLoadingStatus(const char *t,int d,int n) { (void)t;(void)d;(void)n; }
 static void (*drawMsgOverride)(const char *msg);
 static void dashLoadingEnd(void) {}
+static void dashInputFlush(void) {}
 static int boot_show_all_devices = 0;
 static int boot_safe_mode = 0;
 static int isPcCardCfPath(const char *p) { return p && !strncmp(p, "cf", 2); }

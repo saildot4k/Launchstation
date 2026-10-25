@@ -492,7 +492,7 @@ static int probeUsbMediaAnimated(void)
 	int attempt, mask = 0, first_seen = -1;
 
 	for (attempt = 0; attempt < DASH_USB_PROBE_ATTEMPTS; attempt++) {
-		if (dashLoadingActive())
+		if (dashLoadingActive() && !isStartupDriverStatusQuiet())
 			dashLoadingStatus("Checking USB media...", attempt + 1, DASH_USB_PROBE_ATTEMPTS);
 		/* USB filesystem RPCs are synchronous; a retry delay cannot rescue
 		 * a single wedged fileXioGetStat. Do not probe an absent second slot
@@ -583,8 +583,8 @@ static int probeMount(const char *m)
 }
 
 //--------------------------------------------------------------
-// Starting drivers. This runs on the UI thread behind a loading overlay:
-// loading IOP modules from the background worker hung on real hardware
+// Starting drivers. This runs on the UI thread behind a loading overlay.
+// Loading IOP modules from the background worker hung on real hardware
 // (the worker only does file IO, like OPL's IO thread). Whatever the
 // worker is doing finishes first, so the two never overlap.
 //--------------------------------------------------------------
@@ -595,6 +595,16 @@ static int startSync(const char *mount, const char *title)
 
 	if (!dashWorkerAwaitAll("Finishing up"))
 		return -1;
+	if (!strncmp(mount, "usb", 3)) {
+		int was_quiet = isStartupDriverStatusQuiet();
+		/* Keep a simple startup title; unit-level diagnostics stay hidden. */
+		setStartupDriverStatusQuiet(1);
+		dashLoadingBegin("Starting USB devices");
+		ok = probeMount(mount);
+		setStartupDriverStatusQuiet(was_quiet);
+		dashLoadingEnd();
+		return ok;
+	}
 	dashLoadingBegin(title);
 	/* Present the status before a synchronous IOP module call can block
 	 * the UI thread. This cannot animate during the call itself. */

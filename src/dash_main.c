@@ -1051,6 +1051,7 @@ static void firstInit(void)
 	clearScreenToBlack();
 	dashFontInit();
 	dashIconsInit();
+	dashConsoleIdentityInit();
 	dashWorkerInit();
 	if (boot_safe_mode)
 		dashToast(DASH_TOAST_WARN,

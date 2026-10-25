@@ -919,12 +919,18 @@ static void pickOpen(const char *dir)
 	/* drivers / the HDD partition list for this folder: IOP modules are only ever
 	 * loaded on the UI thread, never by the background worker */
 	if (filerDirReadNeedsPrep(dir)) {
+		int usb = !strncmp(dir, "usb", 3) || !strncmp(dir, "mass", 4);
+		int was_quiet = isStartupDriverStatusQuiet();
 		if (!dashWorkerAwaitAll("Finishing up")) {
 			pk.loading = 0;
 			return;
 		}
-		dashLoadingBegin("Starting device");
+		if (usb)
+			setStartupDriverStatusQuiet(1);
+		dashLoadingBegin(usb ? "Starting USB devices" : "Starting device");
 		filerPrepareDirRead(dir);
+		if (usb)
+			setStartupDriverStatusQuiet(was_quiet);
 		dashLoadingEnd();
 	}
 	j = (PickListJob *)malloc(sizeof(PickListJob));

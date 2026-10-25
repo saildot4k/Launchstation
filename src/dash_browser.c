@@ -362,12 +362,15 @@ static void openDir(const char *dir, const char *select)
 	 * the folder read so driver loads and discovery stay on the UI thread. */
 	if (!strcmp(dir, "usb:") || !strcmp(dir, "usb:/") ||
 	    !strcmp(dir, "mass:") || !strcmp(dir, "mass:/")) {
-		int unit;
+		int unit, was_quiet;
 
 		if (!dashWorkerAwaitAll("Finishing up"))
 			return;
-		dashLoadingBegin("Finding USB storage");
+		was_quiet = isStartupDriverStatusQuiet();
+		setStartupDriverStatusQuiet(1);
+		dashLoadingBegin("Starting USB devices");
 		unit = prepareUsbRootBrowse();
+		setStartupDriverStatusQuiet(was_quiet);
 		dashLoadingEnd();
 		if (unit < 0) {
 			dashToast(DASH_TOAST_WARN, "No USB storage device was found");
@@ -420,10 +423,16 @@ static void openDir(const char *dir, const char *select)
 	/* drivers and the HDD partition list are set up here on the UI thread;
 	 * the worker only reads (it must never load IOP modules) */
 	if (filerDirReadNeedsPrep(dir)) {
+		int usb = isUsbBrowsePath(dir);
+		int was_quiet = isStartupDriverStatusQuiet();
 		if (!dashWorkerAwaitAll("Finishing up"))
 			return;
-		dashLoadingBegin("Starting device");
+		if (usb)
+			setStartupDriverStatusQuiet(1);
+		dashLoadingBegin(usb ? "Starting USB devices" : "Starting device");
 		filerPrepareDirRead(dir);
+		if (usb)
+			setStartupDriverStatusQuiet(was_quiet);
 		dashLoadingEnd();
 	}
 	/* the classic browser remembers where it was: "Last folder" in FILES */
