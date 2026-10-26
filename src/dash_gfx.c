@@ -921,7 +921,7 @@ void dashSpriteBatchBegin(GSTEXTURE *tex, DashColor c)
 	batch_n = 0;
 }
 
-void dashSpriteBatchAdd(float x1, float y1, float u1, float v1, float x2, float y2, float u2, float v2)
+static void spriteBatchAddPhysical(float x1, float y1, float u1, float v1, float x2, float y2, float u2, float v2)
 {
 	if (batch_tex == NULL)
 		return;
@@ -933,10 +933,29 @@ void dashSpriteBatchAdd(float x1, float y1, float u1, float v1, float x2, float 
 		batch_n = 0;
 	}
 	batch_pts[batch_n * 2].uv = vertex_to_UV(batch_tex, u1, v1);
-	batch_pts[batch_n * 2].xyz2 = vertex_to_XYZ2(gsGlobal, SX(x1), SY(y1), 0);
+	batch_pts[batch_n * 2].xyz2 = vertex_to_XYZ2(gsGlobal, x1, y1, 0);
 	batch_pts[batch_n * 2 + 1].uv = vertex_to_UV(batch_tex, u2, v2);
-	batch_pts[batch_n * 2 + 1].xyz2 = vertex_to_XYZ2(gsGlobal, SX(x2), SY(y2), 0);
+	batch_pts[batch_n * 2 + 1].xyz2 = vertex_to_XYZ2(gsGlobal, x2, y2, 0);
 	batch_n++;
+}
+
+void dashSpriteBatchAdd(float x1, float y1, float u1, float v1, float x2, float y2, float u2, float v2)
+{
+	spriteBatchAddPhysical(SX(x1), SY(y1), u1, v1, SX(x2), SY(y2), u2, v2);
+}
+
+void dashSpriteBatchAddAligned(float x1, float y1, float u1, float v1, float x2, float y2, float u2, float v2)
+{
+	/* GS pixel centres are integers; texel centres are half-integers.
+	 * Align both edges around whole pixels after scaling/animation offsets,
+	 * so small controller glyphs sample their left/right and top/bottom
+	 * curves equally. Keep text and other animated sprites unsnapped. */
+	x1 = floorf(SX(x1) + 0.5f) - 0.5f;
+	y1 = floorf(SY(y1) + 0.5f) - 0.5f;
+	x2 = floorf(SX(x2) + 0.5f) - 0.5f;
+	y2 = floorf(SY(y2) + 0.5f) - 0.5f;
+	if (x2 > x1 && y2 > y1)
+		spriteBatchAddPhysical(x1, y1, u1, v1, x2, y2, u2, v2);
 }
 
 void dashSpriteBatchEnd(void)

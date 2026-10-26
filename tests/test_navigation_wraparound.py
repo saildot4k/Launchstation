@@ -86,6 +86,9 @@ grid_move = apps[start:end]
 code = r"""
 #include <assert.h>
 #include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #define FB_ROWS 10
 #define GRID_COLS 5
 #define GRID_PITCH_Y 100
@@ -96,15 +99,39 @@ code = r"""
 #define DASH_IN_L2 16
 #define DASH_IN_R2 32
 typedef struct { unsigned pressed; } DashInput;
-static struct { int sel, top, n, ndevs; char dir[2]; float sel_anim; } fb;
+#define MAX_PATH 256
+#define MAX_NAME 64
+#define MAX_ENTRY 256
+typedef unsigned long long u64;
+typedef struct { char name[MAX_NAME]; } FILEINFO;
+static struct {
+ int sel,top,n,ndevs,nmarked,loading,gen,free_valid;
+ char dir[MAX_PATH],want_sel[MAX_NAME];float sel_anim;
+ FILEINFO *files;unsigned char *mark;u64 free_bytes;
+} fb;
+enum { FB_SORT_STORED,FB_SORT_NAME,FB_SORT_TITLE,FB_SORT_SIZE,FB_SORT_DATE };
+static int file_show,file_sort,fb_show=1,fb_sort=FB_SORT_NAME;
+static int browser_usb_jobs,browser_usb_input_rearm;
+static struct { char Misc[MAX_NAME]; } config={"MISC/"}, *setting=&config;
+static int isMisc(const char *dir) { return !strcmp(dir,"MISC/"); }
+static void dashStrCopy(char *out,const char *in,int n) { snprintf(out,n,"%s",in); }
+static int compareName(const void *a,const void *b) { return strcmp(((const FILEINFO *)a)->name,((const FILEINFO *)b)->name); }
+static void fbSortFiles(FILEINFO *files,int n) { qsort(files,n,sizeof(*files),compareName); }
 static int sel, norder;
 static float sel_anim, grid_cam;
 static void dashUiFocusPoke(void) {}
 """
 code = re.sub(r"^#define FB_ROWS \d+$", re.search(r"^#define FB_ROWS \d+$", browser, re.M).group(0), code, flags=re.M)
+job_start = browser.index("typedef struct", browser.index("// Listing"))
+code += browser[job_start:browser.index("} FbListJob;", job_start) + len("} FbListJob;")] + "\n"
+code += function(browser, "static int fbShowsTitles(") + "\n"
+code += function(browser, "static int isPartitionList(") + "\n"
 code += function(browser, "static int wrapIndex(") + "\n"
 code += function(browser, "static int pageIndex(") + "\n"
 code += function(browser, "static void revealSelection(") + "\n"
+code += function(browser, "static void selectName(") + "\n"
+code += function(browser, "static void listDone(") + "\n"
+code += function(browser, "static void parentOf(") + "\n"
 code += function(apps, "static void move(") + "\n"
 code += r"""
 #define DASH_FS_SMALL 12
@@ -125,7 +152,52 @@ code += "#define DASH_SND_CURSOR 0\nstatic void dashSoundPlay(int s) { (void)s; 
 code += "static int pickerMove(int sel, int n_rows, DashInput in) { const int rows=10;\n" + widgets[pick_start:pick_end] + "\nreturn sel; }\n"
 code += "static void gridMove(const DashInput *in) {\n" + grid_move + "\n}\n"
 code += r"""
+static void checkParentCompletion(void) {
+ static FILEINFO files[MAX_ENTRY];static unsigned char marks[MAX_ENTRY];
+ const int counts[]={0,1,2,6,11,12,13,127};
+ const char *roots[]={"mc0:/","usb0:/"};
+ for(unsigned storage=0;storage<sizeof(roots)/sizeof(roots[0]);storage++)
+ for(unsigned c=0;c<sizeof(counts)/sizeof(counts[0]);c++)
+ for(int target=0;target<(counts[c]?counts[c]:1);target++) {
+  char child[MAX_PATH],parent[MAX_PATH],name[MAX_NAME];int n=counts[c];
+  snprintf(child,sizeof(child),"%sAPPS/Folder%03d/",roots[storage],target);
+  parentOf(child,parent,sizeof(parent),name,sizeof(name));
+  memset(&fb,0,sizeof(fb));fb.files=files;fb.mark=marks;fb.gen=17;fb.loading=1;
+  strcpy(fb.dir,parent);strcpy(fb.want_sel,name);
+  /* Back has returned to the parent, but its delayed read is not done yet.
+   * No browser input runs between submission and this completion. */
+  assert(fb.sel==0 && fb.top==0 && fb.sel_anim==0 && fb.n==0);
+  FbListJob *j=calloc(1,sizeof(*j));assert(j);
+  j->files=calloc(MAX_ENTRY,sizeof(*j->files));assert(j->files);
+  j->gen=fb.gen;j->n=n+3;j->quiet_input=storage==1;
+  j->free_valid=1;j->free_bytes=123456;strcpy(j->path,parent);
+  strcpy(j->files[0].name,".");strcpy(j->files[1].name,"..");
+  for(int i=0;i<n;i++)snprintf(j->files[i+3].name,MAX_NAME,"Folder%03d",n-i-1);
+  browser_usb_jobs=j->quiet_input;browser_usb_input_rearm=0;
+  listDone(j);
+  int expected=n?target:0,top=expected-(FB_ROWS-1)/2,max_top=n>FB_ROWS?n-FB_ROWS:0;
+  if(top<0)top=0;
+  if(top>max_top)top=max_top;
+  assert(!fb.loading && fb.n==n && fb.sel==expected && fb.top==top);
+  assert(fb.sel_anim==(float)expected && !fb.want_sel[0]);
+  assert(fb.sel>=fb.top && fb.sel<fb.top+FB_ROWS);
+  if(n)assert(!strcmp(fb.files[fb.sel].name,name));
+  assert(fb.free_valid && fb.free_bytes==123456);
+  assert(file_sort==1 && file_show==fb_show && !fb.nmarked);
+  assert(!browser_usb_jobs && browser_usb_input_rearm==(storage==1));
+ }
+ /* A late result from a previous folder must not move the current view. */
+ for(int abandoned=0;abandoned<=1;abandoned++) {
+  FbListJob *j=calloc(1,sizeof(*j));assert(j);j->files=calloc(1,sizeof(*j->files));assert(j->files);
+  j->gen=fb.gen-!abandoned;j->abandoned=abandoned;j->n=1;
+  int sel=fb.sel,top=fb.top;float anim=fb.sel_anim;
+  listDone(j);assert(fb.sel==sel && fb.top==top && fb.sel_anim==anim);
+ }
+ memset(&fb,0,sizeof(fb));
+ puts("PASS: delayed MC/USB Back completions restore folder, centered viewport and highlight without another input; stale results stay ignored");
+}
 int main(void) {
+ checkParentCompletion();
  DashInput up={DASH_IN_UP}, down={DASH_IN_DOWN};
  const int counts[]={0,1,2,5,7,12,13,127};
  for(unsigned i=0;i<sizeof(counts)/sizeof(counts[0]);i++) {

@@ -585,7 +585,7 @@ void dashIcon(int id, float x, float y, float size, DashColor c)
 			                  DC(210, 220, 240, 120));
 		}
 		dashSpriteBatchBegin(&icon_tex, c);
-		dashSpriteBatchAdd(x + gx, y + go, u0, v0, x + gx + gw, y + go + g, u0 + ICON_SLOT, v0 + ICON_SLOT);
+		dashSpriteBatchAddAligned(x + gx, y + go, u0, v0, x + gx + gw, y + go + g, u0 + ICON_SLOT, v0 + ICON_SLOT);
 		dashSpriteBatchEnd();
 		return;
 	}

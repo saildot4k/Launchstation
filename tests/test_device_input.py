@@ -329,11 +329,13 @@ b = browser.index('\n\tif (isMisc(dir))', a)
 root_body = browser[a:b].rstrip()
 assert root_body.endswith('}')
 devcode += r"""
-static struct { DashDevice devs[DASH_MAX_DEVICES];int ndevs,loading,sel; } fb;
+static struct { DashDevice devs[DASH_MAX_DEVICES];char dir[1];int n,ndevs,loading,sel,top;float sel_anim; } fb;
 static struct { char Misc[24]; } cfg,*setting=&cfg;
 static int fb_tab_active;
-static void openRoot(const char *select) {
-""" + root_body[:-1] + "}\n"
+"""
+devcode += re.search(r"^#define FB_ROWS \d+$", browser, re.M).group() + "\n"
+devcode += function(browser, "static void revealSelection(")
+devcode += "static void openRoot(const char *select) {\n" + root_body[:-1] + "}\n"
 devcode += r"""
 static int state(const char *mount) {
     DashDevice ds[DASH_MAX_DEVICES]; int n=dashDevicesList(ds,DASH_MAX_DEVICES);
@@ -488,6 +490,7 @@ int main(void) {
         fb_tab_active=tab;openRoot("vmc1:/");
         assert(fb.ndevs==28-tab && fb.ndevs<DASH_MAX_DEVICES);
         assert(!strcmp(fb.devs[fb.sel].browse,"vmc1:/"));
+        assert(fb.sel>=fb.top && fb.sel<fb.top+FB_ROWS && fb.sel_anim==(float)fb.sel);
         for(int i=0;i<fb.ndevs;i++) for(int j=i+1;j<fb.ndevs;j++)
             assert(strcmp(fb.devs[i].browse,fb.devs[j].browse));
     }
