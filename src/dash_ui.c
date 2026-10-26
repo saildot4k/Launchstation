@@ -702,8 +702,6 @@ static void modalPanel(float x, float y, float w, float h, float k)
 	dashShadow(x, y, w, h, 26, 0.9f * k);
 	dashPanelGradV(x, y, w, h, 18, top, bot);
 	dashPanelBorder(x, y, w, h, 18, edge);
-	edge.a = (u8)(dashTheme.glow ? 90 : 60);
-	dashRect(x + 18, y + 2, w - 36, 1.5f, edge);
 }
 
 static void modalHintRow(float x, float y, int ok_icon, const char *ok, int back_icon, const char *back)
@@ -1065,7 +1063,7 @@ int dashModalConfirm(const char *title, const char *body, const char *ok_label, 
 int dashModalKeepVideo(void)
 {
 	return modalButtons("Keep this video mode?", "Confirm only if the picture is visible and stable.",
-	                    "", DI_INFO, DASH_C_ACCENT, "Keep", "Revert", 1, Timer() + 5000);
+	                    "", DI_INFO, DASH_C_ACCENT, "Keep", "Revert", 1, Timer() + 10000);
 }
 
 void dashModalMessage(int icon, const char *title, const char *body, const char *detail)

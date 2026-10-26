@@ -209,7 +209,7 @@ static const SetItem appearance_items[] = {
 };
 
 static const SetItem display_items[] = {
-    {ST_CHOICE, S_TVMODE, "Video mode", "Auto follows the console region. Changes need confirmation within 5 seconds."},
+    {ST_CHOICE, S_TVMODE, "Video mode", "Auto follows the console region. Changes need confirmation within 10 seconds, allowing time for the display to resync."},
     {ST_NUMBER, S_SCREEN_X, "Screen position X", "Moves the picture left or right to fit your TV (overscan)."},
     {ST_NUMBER, S_SCREEN_Y, "Screen position Y", "Moves the picture up or down to fit your TV."},
     {ST_ACTION, S_SCREEN_RESET, "Reset screen settings", "Video mode Auto and a centred picture."},

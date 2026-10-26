@@ -1,4 +1,4 @@
-"""Exercise physical text alignment, 576p geometry and texture cache identity."""
+"""Exercise live video switches, graphics fences, scaling and texture recovery."""
 from pathlib import Path
 import shutil
 import subprocess
@@ -37,10 +37,47 @@ harness = r'''
 #define GS_MODE_DTV_576P 0x53
 #define FONT_HEIGHT 16
 #define LINE_THICKNESS 2
-static struct { int Mode, Interlace, Field, Width, Height; } g, *gsGlobal = &g;
+#define DASH_VH 448
+#define GS_SETTING_ON 1
+#define GS_SETTING_OFF 0
+#define ETM_INLINE 1
+enum {TV_mode_AUTO, TV_mode_NTSC, TV_mode_PAL, TV_mode_VGA, TV_mode_480P, TV_mode_576P, TV_mode_COUNT};
+static struct {
+    int Mode, Interlace, Field, Width, Height, StartX, StartY, DoubleBuffering, FirstFrame;
+    unsigned CurrentPointer;
+} g, *gsGlobal = &g;
+static struct { int TV_mode,screen_x,screen_y; } config, *setting=&config;
+static int TV_mode,region=TV_mode_NTSC,gsScreenGeneration,gfx_screen_gen=-1;
+static int fades,drains,finishes,inits,offsets,dma_busy,gs_busy,tex_resets,tex_modes;
+static int uLE_InitializeRegion(void) { return region; }
+static void fadeScreenToBlack(void) {
+    /* The final drawScr submits a GIF DMA packet and a GS FINISH marker;
+     * returning from the fade does not mean either has completed. */
+    fades++;dma_busy=gs_busy=1;g.FirstFrame=GS_SETTING_OFF;
+}
+void dmaKit_wait_fast(void) { drains++;dma_busy=0; }
+void gsKit_finish(void) { assert(!dma_busy);finishes++;gs_busy=0; }
+static void gsKit_init_screen(__typeof__(g) *screen) {
+    assert(screen==&g && screen->DoubleBuffering==GS_SETTING_ON);
+    assert(!dma_busy && !gs_busy); /* Resetting GS with pending work can hang. */
+    inits++;screen->StartX=100;screen->StartY=20;
+    screen->CurrentPointer=2*screen->Width*screen->Height*4;
+    screen->FirstFrame=GS_SETTING_OFF;
+}
+static void gsKit_set_display_offset(__typeof__(g) *screen,int x,int y) {
+    assert(screen==&g && x==setting->screen_x && y==setting->screen_y);offsets++;
+}
+static void gsKit_TexManager_init(__typeof__(g) *screen) {
+    assert(screen==&g && screen->CurrentPointer==2u*screen->Width*screen->Height*4);
+    assert(screen->CurrentPointer<4*1024*1024);tex_resets++;
+}
+static void gsKit_TexManager_setmode(__typeof__(g) *screen,int mode) {
+    assert(screen==&g && mode==ETM_INLINE);tex_modes++;
+}
 static int SCREEN_WIDTH, SCREEN_HEIGHT, Menu_end_y, Menu_start_y = 20;
 static int Frame_end_y, Menu_tooltip_y;
-static float g_sy = 1.0f, g_oy;
+static float g_sy = 1.0f, g_ox, g_oy;
+typedef struct { int x0,x1,y0,y1; } DashClipRect;
 typedef unsigned int u32;
 typedef struct { int unused; } GSTEXTURE;
 #define DASH_PATH_MAX 512
@@ -68,11 +105,66 @@ static int dashWorkerSubmit(const char *name, int flags, void (*run)(void *), vo
     ++jobs; free(arg); return 0;
 }
 '''
+harness += function(gfx, "static inline float SX(") + function(gfx, "static inline float SY(")
+harness += function(gfx, "static DashClipRect clipFromLogical(")
 harness += function(gfx, "float dashGfxTextY(")
+harness += function(gfx, "int dashGfxCheckScreenChange(")
 harness += function(gs, "static void applyGSParams(")
+harness += function(gs, "static void initScreenParams(") + function(gs, "void updateScreenMode(")
 harness += function(art, "GSTEXTURE *dashThemeTextureFile(")
 harness += r'''
+static int resolveMode(int choice) { return choice==TV_mode_AUTO?region:choice; }
+static int gsMode(int mode) {
+    switch(mode) {
+        case TV_mode_PAL:return GS_MODE_PAL;
+        case TV_mode_VGA:return GS_MODE_VGA_640_60;
+        case TV_mode_480P:return GS_MODE_DTV_480P;
+        case TV_mode_576P:return GS_MODE_DTV_576P;
+        default:return GS_MODE_NTSC;
+    }
+}
+static void checkSwitches(void) {
+    for(region=TV_mode_NTSC;region<=TV_mode_PAL;region++)
+        for(int from=0;from<TV_mode_COUNT;from++)
+            for(int to=0;to<TV_mode_COUNT;to++) {
+                setting->TV_mode=from;TV_mode=resolveMode(from);
+                g.Mode=gsMode(TV_mode);applyGSParams();
+                g.DoubleBuffering=GS_SETTING_ON;g.FirstFrame=GS_SETTING_OFF;
+                g.StartX=100;g.StartY=20;setting->screen_x=12;setting->screen_y=-8;
+                g.CurrentPointer=2*g.Width*g.Height*4;
+                gfx_screen_gen=-1;assert(dashGfxCheckScreenChange());
+                int generation=gsScreenGeneration,changed=TV_mode!=resolveMode(to);
+                fades=drains=finishes=inits=offsets=tex_resets=tex_modes=0;
+                setting->TV_mode=to;updateScreenMode();
+                assert(fades==changed && drains==changed && finishes==changed && inits==changed);
+                assert(gsScreenGeneration==generation+changed && offsets==1);
+                assert(TV_mode==resolveMode(to) && g.Mode==gsMode(TV_mode));
+                int tall=TV_mode==TV_mode_PAL || TV_mode==TV_mode_576P;
+                assert(SCREEN_WIDTH==640 && g.Width==640);
+                assert(SCREEN_HEIGHT==(tall?512:448) && g.Height==SCREEN_HEIGHT);
+                int interlace=TV_mode==TV_mode_NTSC || TV_mode==TV_mode_PAL;
+                assert(g.Interlace==(interlace?GS_INTERLACED:GS_NONINTERLACED));
+                assert(g.Field==(interlace?GS_FIELD:GS_FRAME));
+                assert(setting->screen_x==12 && setting->screen_y==-8);
+                assert(dashGfxCheckScreenChange()==changed);
+                assert(tex_resets==changed && tex_modes==changed);
+                assert(!dashGfxCheckScreenChange() && tex_resets==changed);
+                assert(fabsf(g_sy-(float)SCREEN_HEIGHT/DASH_VH)<0.00001f);
+                /* Every mode maps the same logical canvas and list spacing;
+                 * scissor edges cover the entire new framebuffer. */
+                g_ox=g_oy=0;
+                DashClipRect full=clipFromLogical(0,0,640,448);
+                assert(full.x0==0 && full.x1==639 && full.y0==0 && full.y1==g.Height-1);
+                DashClipRect panel=clipFromLogical(34,96,572,296);
+                assert(panel.x0==34 && panel.x1==605);
+                assert(panel.y0==(int)(96*g_sy) && panel.y1==(int)(392*g_sy)-1);
+                assert(fabsf((SY(102+29)-SY(102))-29*g_sy)<0.0001f);
+            }
+    puts("PASS: 72 live video transitions, pending DMA/GS completion before reset, double buffering, "
+         "Auto region, calibration, texture recovery and NTSC/PAL/VGA/480p/576p scaling");
+}
 int main(void) {
+    checkSwitches();
     int scale, offset, step;
     g.Interlace = GS_INTERLACED; g.Field = GS_FIELD;
     for (scale = 0; scale < 2; ++scale) {

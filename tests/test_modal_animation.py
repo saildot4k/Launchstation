@@ -36,7 +36,7 @@ gfx = read("src/dash_gfx.c")
 header = read("include/dash_internal.h")
 orbs = read("src/dash_bg_ps2.c")
 menu = function(ui, "int dashModalMenu(")
-buttons = function(ui, "static int modalButtons(")
+buttons = function(ui, "static int modalButtons(") + function(ui, "int dashModalKeepVideo(")
 symbols = sorted(set(re.findall(r"\b(?:DI_|DASH_FS_|DASH_SND_|DASH_HL_)\w+",
                                menu + buttons)))
 colors = sorted(set(re.findall(r"\bDASH_C_\w+", menu + buttons)))
@@ -216,8 +216,8 @@ int main(void) {
     reset();nav_scenario=4;
     assert(!modalButtons("interrupted","confirm",NULL,0,(DashColor){0},"OK","Cancel",0,0) && !renders);
     reset(); timed_scenario=1; step_ms[0]=step_ms[1]=step_ms[2]=100;
-    assert(!modalButtons("video","visible?","",0,(DashColor){0},"Keep","Revert",1,Timer()+5000));
-    assert(now_ms==6000 && frames[0]==50); /* no input: revert at five seconds */
+    assert(!dashModalKeepVideo());
+    assert(now_ms==11000 && frames[0]==100); /* allow display resync, then revert at ten seconds */
     reset(); timed_scenario=1; now_ms=7000;
     assert(!modalButtons("expired","visible?","",0,(DashColor){0},"Keep","Revert",1,7000));
     assert(frames[0]==0); /* expired confirmation cannot accept a late button */

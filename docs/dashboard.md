@@ -164,6 +164,17 @@ the overview returns Home through the normal save decision. Left also goes
 back on rows that do not use Left/Right to change a value. L2/R2 jump to the
 first/last row. The breadcrumb shows where the page lives.
 
+Screen calibration previews video modes for 10 seconds so the display has
+time to resync. Choose Keep to browse the full interface in that mode;
+cancel or let the countdown expire to restore the previous mode and offsets.
+Save Settings separately to retain an accepted mode after restarting.
+NTSC, VGA and 480p render at 640×448; PAL and 576p render at 640×512.
+The dashboard scales its shared 640×448 canvas to the framebuffer, preserving
+relative panel, text, clipping and row spacing. Check Home, Files, Tools,
+Settings and the Text Editor after each switch. The graphics transfer and
+rendering finish before a live GS reset, and the texture pool is recreated
+for the new framebuffer layout.
+
 | Group | Contents |
 |-------|----------|
 | Appearance | Theme preset, customization groups, screen calibration, motion, animation, theme files and resets. Panel opacity belongs to Interface colours > Panels. |
