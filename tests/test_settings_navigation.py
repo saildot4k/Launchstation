@@ -42,7 +42,8 @@ static void dashSoundPlay(int s) { assert(s == DASH_SND_CANCEL); }
 static void dashUiFocusPoke(void) {}
 static struct { int sound, bgm, artwork; } dashCfg;
 static struct { int font, wallpaper, clock; } dashTheme;
-static struct { int usbkbd_used; char LK_Path[SETTING_LK_COUNT][MAX_PATH]; } config;
+static struct { int usbkbd_used,screen_x,screen_y,Init_Delay,timeout; char LK_Path[SETTING_LK_COUNT][MAX_PATH]; } config;
+static struct { int StartX,StartY; } gs_state={32,32}, *gsGlobal=&gs_state;
 static __typeof__(config) *setting = &config;
 static int session, begins, home, saves, reverts, changes, resets, edits, toast;
 static int modal_result = -1, dirty = 1, failed;
@@ -64,9 +65,6 @@ static void editPathMenu(const SetItem *it) { (void)it; edits++; }
 static void editIp(const SetItem *it) { (void)it; edits++; }
 static void editLaunchMenu(const SetItem *it) { (void)it; edits++; }
 static void editLaunchKey(const SetItem *it,int what) { (void)it; (void)what; edits++; }
-static int numberInfo(int id,int *v,int *lo,int *hi,char *s,int n) {
-    (void)id; (void)s; (void)n; *v=0; *lo=0; *hi=60; return 1;
-}
 static void setNumber(int id,int v) { (void)id; (void)v; edits++; }
 static int choiceInfo(int id,int *v,const char *const **names,const char **single) {
     static const char *const options[]={"Off","On"};
@@ -79,6 +77,7 @@ static void setChoice(int id,int v) { (void)id; (void)v; edits++; }
 static int resetThemeSetting(int id) { (void)id; resets++; return 1; }
 """
 for signature in (
+    "static int numberInfo(",
     "static int themeSettingResettable(",
     "static const SetItem *curItem(",
     "static void settingsEnter(",
@@ -162,6 +161,13 @@ int main(void) {
     failed=0; modal_result=-1;
     select_id(P_SOUND,S_SVOL); edits=0; press(DASH_IN_RIGHT); assert(!edits && toast);
     dashCfg.sound=1; press(DASH_IN_RIGHT); assert(edits==1);
+    /* The zero-timeout caption must tell users that automatic start is off. */
+    int value,lo,hi;char value_text[32];
+    assert(numberInfo(S_TIMEOUT,&value,&lo,&hi,value_text,sizeof(value_text)));
+    assert(value==0 && lo==0 && hi==99 && !strcmp(value_text,"0 s (Off)"));
+    setting->timeout=3;
+    assert(numberInfo(S_TIMEOUT,&value,&lo,&hi,value_text,sizeof(value_text)));
+    assert(value==3 && !strcmp(value_text,"3 s"));setting->timeout=0;
     select_id(P_BOOT,S_TIMEOUT); press(DASH_IN_RIGHT); assert(edits==1);
     strcpy(setting->LK_Path[SETTING_LK_AUTO],"mc0:/BOOT/BOOT.ELF");
     press(DASH_IN_RIGHT); assert(edits==2);

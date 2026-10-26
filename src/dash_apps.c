@@ -18,10 +18,12 @@ enum AppFilter {
 	FILTER_USB,
 	FILTER_HDD,
 	FILTER_OTHER,
+	FILTER_ALL_HIDDEN, /* append: saved Favorites/device filter IDs stay valid */
 	FILTER_COUNT
 };
 
-static const char *const filter_names[FILTER_COUNT] = {"All", "Favorites", "Memory Cards", "MASS", "HDD", "Other devices"};
+static const char *const filter_names[FILTER_COUNT] = {"All", "Favorites", "Memory Cards", "MASS", "HDD", "Other devices", "All including hidden"};
+static const int filter_order[FILTER_COUNT] = {FILTER_ALL, FILTER_ALL_HIDDEN, FILTER_FAV, FILTER_MC, FILTER_USB, FILTER_HDD, FILTER_OTHER};
 
 static int order[DASH_MAX_APPS];
 static int norder;
@@ -46,6 +48,8 @@ static int matchFilter(const DashApp *a)
 	/* Cached applications remain in DASHLIB.CNF, but are only visible while
 	 * the storage that owns their path is currently mounted/ready. */
 	if (!dashDevicePathReady(a->path))
+		return 0;
+	if (filter != FILTER_ALL_HIDDEN && dashStoreIsHidden(a->path))
 		return 0;
 
 	switch (filter) {
@@ -193,6 +197,16 @@ static void editMetadata(DashApp *a)
 		dashLibRefreshApp(a);
 }
 
+static void setAppHidden(DashApp *a)
+{
+	int hidden = !dashStoreIsHidden(a->path);
+	if (dashStoreSetHidden(a->path, hidden) < 0)
+		dashToast(DASH_TOAST_ERROR, "Could not change application visibility");
+	else
+		dashToast(DASH_TOAST_INFO, hidden ? "Hidden from view" : "Shown in view");
+	dashAppsRebuildView();
+}
+
 void dashAppActions(DashApp *a)
 {
 	int fav = dashStoreIsFavorite(a->path);
@@ -210,7 +224,7 @@ void dashAppActions(DashApp *a)
 	items[n].icon = DI_FOLDER, items[n].label = "Show in File Browser", items[n].detail = NULL, items[n].disabled = 0, ids[n++] = 5;
 	items[n].icon = DI_TEXT, items[n].label = "Edit metadata", items[n].detail = NULL, items[n].disabled = 0, ids[n++] = 6;
 	if (in_lib)
-		items[n].icon = DI_CLOSE, items[n].label = "Hide from library", items[n].detail = "file kept", items[n].disabled = 0, ids[n++] = 7;
+		items[n].icon = DI_CLOSE, items[n].label = dashStoreIsHidden(a->path) ? "Show in view" : "Hide from view", items[n].detail = "file kept", items[n].disabled = 0, ids[n++] = 7;
 	else
 		items[n].icon = DI_CLOSE, items[n].label = "Remove shortcut", items[n].detail = NULL, items[n].disabled = 0, ids[n++] = 8;
 
@@ -242,10 +256,7 @@ void dashAppActions(DashApp *a)
 			editMetadata(a);
 			break;
 		case 7:
-			if (dashModalConfirm("Hide from library?", "The application stays on your device and will reappear after the next library refresh.", "Hide", 0)) {
-				dashLibRemove(dashLibIndexOf(a));
-				dashAppsRebuildView();
-			}
+			setAppHidden(a);
 			break;
 		case 8:
 			dashStoreRemoveEverywhere(a->path);
@@ -258,7 +269,7 @@ void dashAppActions(DashApp *a)
 static void appsMenu(void)
 {
 	DashApp *a = selApp();
-	DashMenuItem items[4];
+	DashMenuItem items[5];
 	int n = 0, r;
 	char filt[48];
 
@@ -268,6 +279,7 @@ static void appsMenu(void)
 	}
 	items[n].icon = DI_VIEW_GRID + dashCfg.view, items[n].label = "Change view", items[n].detail = NULL, items[n].disabled = 0, n++;
 	items[n].icon = DI_STAR, items[n].label = filt, items[n].detail = NULL, items[n].disabled = 0, n++;
+	items[n].icon = DI_CLOSE, items[n].label = a && dashStoreIsHidden(a->path) ? "Show in view" : "Hide from view", items[n].detail = NULL, items[n].disabled = a == NULL, n++;
 	items[n].icon = DI_REFRESH, items[n].label = "Refresh library", items[n].detail = "scan now", items[n].disabled = 0, n++;
 
 	r = dashModalMenu("Applications", NULL, items, n, 0);
@@ -290,16 +302,27 @@ static void appsMenu(void)
 			break;
 		}
 		case 2: {
-			int f = dashModalChoice("Show applications", filter_names, FILTER_COUNT, filter);
-			if (f >= 0) {
-				filter = f;
-				dashCfg.app_filter = f;
+			const char *choices[FILTER_COUNT];
+			int i, current = 0, f;
+			for (i = 0; i < FILTER_COUNT; i++) {
+				choices[i] = filter_names[filter_order[i]];
+				if (filter_order[i] == filter)
+					current = i;
+			}
+			f = dashModalChoice("Show applications", choices, FILTER_COUNT, current);
+			if (f >= 0 && f < FILTER_COUNT) {
+				filter = filter_order[f];
+				dashCfg.app_filter = filter;
 				dashStoreSaveSettings();
 				dashAppsRebuildView();
 			}
 			break;
 		}
 		case 3:
+			if (a != NULL)
+				setAppHidden(a);
+			break;
+		case 4:
 			dashRescanLibrary(1);
 			break;
 	}
@@ -434,6 +457,11 @@ static void appsUpdate(float dt)
 //--------------------------------------------------------------
 // Views
 //--------------------------------------------------------------
+static float appOpacity(const DashApp *a)
+{
+	return dashStoreIsHidden(a->path) ? DASH_DISABLED_ALPHA : 1.0f;
+}
+
 static void drawTitleBar(void)
 {
 	char sub[64];
@@ -486,9 +514,11 @@ static void drawGrid(void)
 			fx = cx;
 			fy = cy;
 		}
+		dashGfxPushAlpha(appOpacity(&dashApps[order[i]]));
 		dashDrawAppArt(&dashApps[order[i]], cx - w * 0.5f, cy - w * 0.5f, w, w, f, prio);
 		if (dashStoreIsFavorite(dashApps[order[i]].path))
 			dashIcon(DI_STAR, cx + w * 0.5f - 20, cy - w * 0.5f + 4, 16, DASH_C_WARM);
+		dashGfxPopAlpha();
 	}
 	/* focus frame follows the animated selection */
 	{
@@ -510,8 +540,10 @@ static void drawGrid(void)
 		float tw = dashTextWidth(a->title, DASH_FS_SMALL);
 		float maxw = 200.0f;
 		float x = 514.0f - (tw < maxw ? tw : maxw);
+		dashGfxPushAlpha(appOpacity(a));
 		dashIcon(dashLibDeviceIcon(a->path), x - 22, 76, 16, DASH_C_ACCENT);
 		dashTextScroll(x, 73, maxw, a->title, DASH_FS_SMALL, DASH_C_TEXT);
+		dashGfxPopAlpha();
 	}
 }
 
@@ -544,6 +576,7 @@ static void drawList(void)
 		int on = (i == sel);
 		GSTEXTURE *t = dashArtGet(e, abs(i - sel) + 1);
 
+		dashGfxPushAlpha(appOpacity(e));
 		if (t != NULL)
 			dashTexDrawFit(t, lx + 6, y + 2, 24, 24, DC(255, 255, 255, 255));
 		else
@@ -555,6 +588,7 @@ static void drawList(void)
 			dashTextFit(lx + 38, y + 3, lw - 64, e->title, DASH_FS_SMALL, dashItemColor(0));
 		if (dashStoreIsFavorite(e->path))
 			dashIcon(DI_STAR, lx + lw - 22, y + 6, 14, DASH_C_WARM);
+		dashGfxPopAlpha();
 	}
 	dashDrawScrollbar(lx + lw + 10, ly, LIST_ROWS * LIST_ROW_H, top, LIST_ROWS, norder);
 
@@ -564,6 +598,7 @@ static void drawList(void)
 		char dev[48];
 
 		dashDrawCard(dx, dy, dw, 290, 16);
+		dashGfxPushAlpha(appOpacity(a));
 		dashDrawAppArt(a, dx + (dw - 132) * 0.5f, dy + 14, 132, 132, 1.0f, 0);
 		dashTextScroll(dx + 14, dy + 156, dw - 28, a->title, DASH_FS_LABEL, DASH_C_TEXT);
 		dashLibDeviceLabel(a->path, dev, sizeof(dev));
@@ -578,6 +613,7 @@ static void drawList(void)
 				dashTextFit(dx + 14, dy + 206, dw - 28, line, DASH_FS_CAPTION, DASH_C_TEXT2);
 		}
 		dashTextScroll(dx + 14, dy + 264, dw - 28, a->path, DASH_FS_CAPTION * 0.9f, DASH_C_TEXT3);
+		dashGfxPopAlpha();
 	}
 }
 
@@ -609,7 +645,7 @@ static void drawCarousel(void)
 				float ad = fabsf(off);
 				float s = (ad < 1.0f) ? dashLerpf(172.0f, 116.0f, ad) : dashLerpf(116.0f, 70.0f, dashClampf((ad - 1.0f) / 3.0f, 0.0f, 1.0f));
 				float xo = (ad < 1.0f) ? off * 150.0f : (off > 0 ? 1 : -1) * (150.0f + (ad - 1.0f) * 88.0f);
-				float alpha = dashClampf(1.25f - ad * 0.28f, 0.0f, 1.0f);
+				float alpha = dashClampf(1.25f - ad * 0.28f, 0.0f, 1.0f) * appOpacity(&dashApps[order[idx]]);
 				float f = dashClampf(1.0f - ad, 0.0f, 1.0f);
 
 				dashGfxPushAlpha(alpha);
@@ -624,6 +660,7 @@ static void drawCarousel(void)
 	}
 	if (a != NULL) {
 		dashDrawTileFocus(cx - 86, cy - 86, 172, 172, 17, 1.0f);
+		dashGfxPushAlpha(appOpacity(a));
 		dashTextScrollCenter(cx, 306, 500, a->title, DASH_FS_TITLE, DASH_C_TEXT);
 		if (a->desc[0])
 			dashTextScrollCenter(cx, 342, 500, a->desc, DASH_FS_SMALL, DASH_C_TEXT2);
@@ -632,6 +669,7 @@ static void drawCarousel(void)
 			dashLibDeviceLabel(a->path, dev, sizeof(dev));
 			dashTextCenter(cx, 342, dev, DASH_FS_SMALL, DASH_C_TEXT2);
 		}
+		dashGfxPopAlpha();
 		{
 			char pos[24];
 			snprintf(pos, sizeof(pos), "%d / %d", sel + 1, norder);
@@ -651,10 +689,17 @@ static void appsDraw(void)
 			dashDrawEmptyState(320, 238, DI_APPS, "No applications found",
 				                   "Add a folder in Settings > Home & applications > Application library, or browse to an ELF in File Browser. "
 			                   "Press the confirm button to scan now.");
-		else if (filter == FILTER_ALL)
-			dashDrawEmptyState(320, 238, DI_APPS, "Application devices not ready",
+		else if (filter == FILTER_ALL || filter == FILTER_ALL_HIDDEN) {
+			int i, hidden_ready = 0;
+			for (i = 0; i < dashAppCount && !hidden_ready; i++)
+				hidden_ready = dashDevicePathReady(dashApps[i].path) && dashStoreIsHidden(dashApps[i].path);
+			if (filter == FILTER_ALL && hidden_ready)
+				dashDrawEmptyState(320, 238, DI_APPS, "All applications hidden",
+				                   "Choose Options > Show applications > All including hidden to show them again.");
+			else
+				dashDrawEmptyState(320, 238, DI_APPS, "Application devices not ready",
 			                   "Open the device in Files, or press the confirm button to scan your application folders.");
-		else
+		} else
 			dashDrawEmptyState(320, 238, filter == FILTER_FAV ? DI_STAR : DI_APPS, filter == FILTER_FAV ? "No favorites yet" : "Nothing to show",
 			                   filter == FILTER_FAV ? "Press Square on an application to add it to Favorites. Press SELECT to show all."
 			                                        : "No applications match this filter. Press SELECT to show all.");

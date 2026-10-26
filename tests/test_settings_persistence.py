@@ -11,6 +11,8 @@ header = (root / "include/dash_internal.h").read_text()
 
 def function(signature):
     start = source.index(signature)
+    if source.find(";", start, source.index("{", start)) >= 0:
+        start = source.index(signature, start + len(signature))
     end = source.index("{", start) + 1
     depth = 1
     while depth:
@@ -37,6 +39,7 @@ typedef unsigned char u8;
 #define DASH_MAX_SCAN 12
 #define DASH_MAX_RECENT 16
 #define DASH_MAX_FAV 48
+#define DASH_MAX_APPS 512
 #define DASH_VIEW_COUNT 4
 #define DASH_VIEW_GRID 0
 '''
@@ -48,6 +51,8 @@ code += header[header.rfind("typedef struct", 0, end):end]
 code += r'''
 static DashSettings dashCfg, persisted;
 static DashUserLists dashLists;
+static char *hidden_apps[DASH_MAX_APPS];
+static int nhidden;
 enum { SAVE_SETTINGS, SAVE_LISTS };
 static int save_dirty[2];
 typedef int (*DashKvCallback)(const char *, char *, void *);
@@ -79,7 +84,9 @@ fileops = (root / "src/filer_fileops.c").read_text()
 start = fileops.index("int genCmpFileExt(")
 end = fileops.index("\n}\n", start) + 3
 code += fileops[start:end]
-for signature in ("static int listFind(", "int dashStoreSaveLists(", "void dashStorePushRecent("):
+for signature in ("static int listFind(", "int dashStoreSaveLists(", "void dashStorePushRecent(",
+                  "int dashStoreIsHidden(", "static int setHidden(", "int dashStoreSetHidden(",
+                  "static int listsKv(", "static char *buildLists("):
     code += function(signature)
 code += r'''
 int main(void) {
@@ -144,6 +151,49 @@ int main(void) {
     dashCfg.recent_count=8;dashStorePushRecent("usb0:/APPS/APP.ELF");
     assert(save_dirty[SAVE_LISTS] && dashLists.nrecent==1);
     assert(!strcmp(dashLists.recent[0],"usb0:/APPS/APP.ELF") && dashLists.nfav==1);
+    /* Hidden state belongs to app preferences, so cache refreshes and
+     * library replacement cannot erase it or change favorites/history. */
+    save_dirty[SAVE_LISTS]=0;before=dashLists;
+    assert(dashStoreSetHidden("mc0:/APPS/Hidden.ELF",1)==1 && save_dirty[SAVE_LISTS]);
+    assert(dashStoreIsHidden("MC0:/APPS/HIDDEN.ELF"));
+    save_dirty[SAVE_LISTS]=0;
+    assert(!dashStoreSetHidden("mc0:/APPS/hidden.elf",1) && !save_dirty[SAVE_LISTS]);
+    assert(!memcmp(&before,&dashLists,sizeof(before)));
+    assert(dashStoreSetHidden(NULL,1)<0 && dashStoreSetHidden("",1)<0);
+    int list_len;char *saved=buildLists(&list_len);
+    assert(saved && list_len==(int)strlen(saved) && strstr(saved,"Hidden = mc0:/APPS/Hidden.ELF\r\n"));
+    assert(dashStoreSetHidden("MC0:/APPS/HIDDEN.ELF",0)==1 && !nhidden);
+    save_dirty[SAVE_LISTS]=0;memset(&dashLists,0,sizeof(dashLists));
+    assert(dashKvParse(saved,listsKv,NULL)>0);free(saved);
+    assert(dashStoreIsHidden("mc0:/APPS/hidden.elf") && !save_dirty[SAVE_LISTS]);
+    assert(dashLists.nfav==before.nfav && dashLists.nrecent==before.nrecent);
+    assert(!strcmp(dashLists.fav[0],before.fav[0]) && !strcmp(dashLists.recent[0],before.recent[0]));
+    while(nhidden)assert(dashStoreSetHidden(hidden_apps[0],0)==1);
+    /* Full capacity and maximum legal paths still serialize/read back under
+     * the actual DASHAPPS.CNF load limit (the former 64 KiB was too small). */
+    char path[DASH_PATH_MAX];
+    for(int i=0;i<DASH_MAX_APPS;i++) {
+        memset(path,'x',sizeof(path));memcpy(path,"mc0:/",5);
+        snprintf(path+sizeof(path)-10,10,"%05d.ELF",i);
+        assert(dashStoreSetHidden(path,1)==1);
+    }
+    assert(nhidden==DASH_MAX_APPS && dashStoreSetHidden("mc1:/ONE-TOO-MANY.ELF",1)<0);
+    saved=buildLists(&list_len);assert(saved && list_len>64*1024 && list_len<256*1024);
+    while(nhidden)assert(dashStoreSetHidden(hidden_apps[0],0)==1);
+    memset(&dashLists,0,sizeof(dashLists));save_dirty[SAVE_LISTS]=0;
+    assert(dashKvParse(saved,listsKv,NULL)>0 && nhidden==DASH_MAX_APPS && !save_dirty[SAVE_LISTS]);
+    free(saved);assert(dashStoreIsHidden(path));
+    assert(dashStoreSetHidden(path,0)==1 && !dashStoreIsHidden(path));
+    assert(dashStoreSetHidden("mc1:/Replacement.ELF",1)==1);
+    while(nhidden)assert(dashStoreSetHidden(hidden_apps[0],0)==1);
+    for(int f=0;f<=6;f++) {
+        char text[64];int reset=0,length;
+        snprintf(text,sizeof(text),"Dash_AppFilter = %d\n",f);
+        dashKvParse(text,settingsKv,&reset);assert(dashCfg.app_filter==f);
+        char *settings=dashStoreSettingsText(&dashCfg,&length);
+        dashCfg.app_filter=-1;dashKvParse(settings,settingsKv,&reset);free(settings);
+        assert(dashCfg.app_filter==f);
+    }
     const char data[]="Dash_Sound = 1\r\nDash_SoundVolume = 67\r\n";
     for(int scenario=0;scenario<8;scenario++) {
         opens=corrupt=short_write=read_error=fail_write_close=fail_read_close=open_error=0;
@@ -156,7 +206,7 @@ int main(void) {
         if(scenario==7)open_error=2;
         assert((dashWriteFile("DASHBOARD.CNF",data,sizeof(data)-1)==0)==(scenario==0));
     }
-    puts("PASS: removed settings ignored/omitted, MMCE backup/IGR keys discarded, settings round trips, game images skip history saves, disabled recents and file failures");
+    puts("PASS: removed settings ignored/omitted, MMCE backup/IGR keys discarded, settings round trips, game images skip history saves, disabled recents, hidden app reload/capacity, stable filter IDs and file failures");
 }
 '''
 with tempfile.TemporaryDirectory(prefix="settings-persistence-") as folder:

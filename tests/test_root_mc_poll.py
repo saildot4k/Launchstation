@@ -91,12 +91,19 @@ code += function(filer, "int pollRootMemoryCardDevices(")
 code += function(filer, "int filerRootMcPresent(")
 code += function(filer, "void filerRootMcPollIdle(void)\n{")
 code += function(filer, "static int waitMemoryCardReadyForBrowse(")
+code += function(filer, "int filerPrepareMemoryCardRead(")
 code += function(filer, "int readMC(")
 code += lib[lib.index("typedef struct\n{\n\tDashApp *old;"):lib.index("#define SCAN_MAX_SUBDIRS")]
 job_end = lib.index("} ScanJob;") + len("} ScanJob;")
 job_start = lib.rfind("typedef struct", 0, job_end)
 code += lib[job_start:job_end] + "\n"
+code += lib[lib.index("static ScanJob *scan_job"):lib.index("static void scanRun(")]
 code += r'''
+static DashApp dashApps[DASH_MAX_APPS];
+static int dashAppCount,cache_saves;
+static int dashLibScanStart(int interactive) { (void)interactive;assert(!"Unexpected repeat scan");return -1; }
+static void dashArtFlushAll(void) {}
+static int dashLibSaveCache(void) { cache_saves++;return 0; }
 static void dashStrCopy(char *out,const char *in,int n) { snprintf(out,n,"%s",in); }
 static void dashWorkerStatus(const char *s,int done,int total) { (void)s;(void)done;(void)total; }
 static int isPathDeviceStackLoaded(const char *p) { return !strcmp(p,"mx4sio:/") && mx4sio_loaded; }
@@ -109,7 +116,9 @@ static void scanAddElf(ScanCtx *sc,const char *dir,const char *name) {
 }
 '''
 for sig in ("static int isElfName(", "static void scanDir(", "static int cheapToScan(",
-            "static int prefixMatchNoCase(", "static int dirPrefixMatch(", "static void scanRun("):
+            "static int prefixMatchNoCase(", "static int dirPrefixMatch(", "static void scanRun(",
+            "static void scanFree(", "static void scanDone(", "int dashLibScanRunning(",
+            "int dashLibApplyScan("):
     code += function(lib, sig)
 code += r'''
 static void run(int steps) { int i; for (i = 0; i < steps; i++) { pollRootMemoryCardDevices(); now_ms += 600; } }
@@ -140,7 +149,7 @@ int main(void) {
     job.sc.files=entries;job.sc.fresh=fresh;job.ndirs=2;
     strcpy(job.dirs[0],"mc0:/APPS/");strcpy(job.dirs[1],"usb0:/APPS/");
     assert(filerRootMcPresent(0,NULL,NULL)==-1);scanRun(&job);
-    assert(job.ok && job.sc.nfresh==1 && dir_reads==1 && prepared[0]==1);
+    assert(job.ok && job.sc.nfresh==1 && dir_reads==1 && prepared[0]==2);
     assert(!strcmp(fresh[0].path,"mc0:/APPS/BOOT.ELF"));
     assert(filerRootMcPresent(0,NULL,NULL)==1 && root_mc_known_type[0]==2);
     assert(!root_mc_failures[0] && !changed_card && retry_delays==1);
@@ -151,15 +160,35 @@ int main(void) {
     assert(readMC("mc0:/APPS/",entries,MAX_ENTRY)==1 && !root_mc_poll_active);
     assert(root_mc_known_free[0]==4096); /* browsing keeps valid free-space data */
 
-    /* A known absent card stays skipped; cold slot 2 must not reset an active
-     * MX4SIO session from the directory worker. Other drivers stay unloaded. */
+    /* A stale absence snapshot must not suppress a fresh scan. */
     int before=dir_reads;root_mc_polled[0]=1;root_mc_present[0]=0;
-    job.sc.nfresh=0;scanRun(&job);assert(!job.sc.nfresh && dir_reads==before);
+    job.sc.nfresh=0;scanRun(&job);
+    assert(job.sc.nfresh==1 && dir_reads==before+1 && filerRootMcPresent(0,NULL,NULL)==1);
+    /* Missing cards keep their cached apps; cold slot 2 must not reset an
+     * active MX4SIO session from the directory worker. */
+    DashApp old=fresh[0];job.sc.old=&old;job.sc.nold=1;
+    card_result=sceMcResFailDetect;job.sc.nfresh=0;before=dir_reads;
+    scanRun(&job);assert(job.sc.nfresh==1 && dir_reads==before);
+    assert(!strcmp(fresh[0].path,old.path));
+    job.sc.nold=0;job.sc.nfresh=0;card_result=0;
     mx4sio_loaded=1;strcpy(job.dirs[0],"mc1:/APPS/");
     scanRun(&job);assert(!job.sc.nfresh && dir_reads==before && !prepared[1]);
     mx4sio_loaded=0;card_result=sceMcResFailDetect;
     scanRun(&job);assert(!job.sc.nfresh && filerRootMcPresent(1,NULL,NULL)<0);
-    puts("PASS: cold MC startup scan resolves presence, browser handshake/drain, absent cards, lazy USB and MX4SIO ownership");
+    /* The viewer must keep showing a scan in progress between worker
+     * completion and main-loop publication of the new application index. */
+    card_result=0;ScanJob *pending=calloc(1,sizeof(*pending));assert(pending);
+    pending->ndirs=1;strcpy(pending->dirs[0],"mc0:/APPS/");
+    pending->sc.fresh=calloc(DASH_MAX_APPS,sizeof(DashApp));
+    pending->sc.files=calloc(MAX_ENTRY,sizeof(FILEINFO));
+    assert(pending->sc.fresh && pending->sc.files);
+    scan_job=pending;assert(dashLibScanRunning());scanRun(pending);scanDone(pending);
+    assert(dashLibScanRunning() && !dashAppCount && !cache_saves);
+    int interactive=-1;assert(dashLibApplyScan(&interactive)==1 && !interactive);
+    assert(!dashLibScanRunning() && dashAppCount==1 && cache_saves==1);
+    assert(!strcmp(dashApps[0].path,"mc0:/APPS/BOOT.ELF"));
+    assert(dashLibApplyScan(NULL)==-2);
+    puts("PASS: cold/stale MC readiness, retry/cache preservation, pending scan publication, browser drain, lazy USB and MX4SIO ownership");
     puts("PASS: an unresponsive memory-card slot cannot starve the other or stay Checking forever");
     return 0;
 }

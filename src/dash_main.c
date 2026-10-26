@@ -939,7 +939,7 @@ static void bootBegin(void)
 			runLaunchKey(lk);
 			return;
 		}
-		if (setting->LK_Path[SETTING_LK_AUTO][0]) {
+		if (setting->timeout > 0 && setting->LK_Path[SETTING_LK_AUTO][0]) {
 			boot_phase = 2;
 			boot_phase_end = Timer() + (setting->timeout + 1) * 1000;
 		}
@@ -971,7 +971,7 @@ static void bootUpdate(const DashInput *in)
 				runLaunchKey(lk);
 				return;
 			}
-			if (setting->LK_Path[SETTING_LK_AUTO][0]) {
+			if (setting->timeout > 0 && setting->LK_Path[SETTING_LK_AUTO][0]) {
 				boot_phase = 2;
 				boot_phase_end = now + (setting->timeout + 1) * 1000;
 			}

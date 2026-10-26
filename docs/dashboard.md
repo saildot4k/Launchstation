@@ -227,10 +227,13 @@ Input > Confirm button), as the classic browser did.
 | START | Open / close the Dashboard menu (home, refresh library, File Browser, settings, reboot IOP, power off) |
 | SELECT | Tap: switch application view (APPS). Hold: your launch keys appear; press a button to start its application |
 
-Legacy boot behaviour is kept: `Init_Delay` is honoured,
-a launch key held when the delay ends starts its application, and a
-configured `LK_auto` path starts after the classic timeout unless a button
-is pressed (a countdown banner is shown).
+`Init_Delay` is honoured, and a launch key held when the delay ends
+starts its application. Automatic start requires both a configured
+`LK_auto` path and a positive timeout. Any button cancels the countdown.
+A timeout of 0s disables automatic start while keeping the target saved,
+so the selected Start screen stays open. Held-button launch keys still work
+at 0s. Set the timeout under Settings > Launching > Automatic start & boot,
+then save Settings.
 
 ## Themes
 

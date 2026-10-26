@@ -273,9 +273,9 @@ static const SetItem lkey_items[] = {
 };
 
 static const SetItem startup_items[] = {
-    {ST_LKEY, S_LK_0 + SETTING_LK_AUTO, "Automatic start target", "Application or command started after the timeout. Clear the target to disable automatic start."},
+    {ST_LKEY, S_LK_0 + SETTING_LK_AUTO, "Automatic start target", "Application or command started after the timeout. Set the timeout to 0 seconds to disable automatic start while keeping this target."},
     {ST_NUMBER, S_INIT_DELAY, "Startup delay", "Seconds to wait at startup, so a held button can pick its launch key."},
-    {ST_NUMBER, S_TIMEOUT, "Automatic start timeout", "Seconds before the automatic start runs. Any button cancels it."},
+    {ST_NUMBER, S_TIMEOUT, "Automatic start timeout", "0 seconds disables automatic start while keeping the target. Any button cancels an active countdown."},
 };
 
 static const SetItem loader_items[] = {
@@ -1269,7 +1269,10 @@ static int numberInfo(int id, int *val, int *lo, int *hi, char *text, int text_s
 			return 1;
 		case S_TIMEOUT:
 			*val = setting->timeout, *lo = 0, *hi = 99;
-			snprintf(text, text_size, "%d s", *val);
+			if (*val > 0)
+				snprintf(text, text_size, "%d s", *val);
+			else
+				snprintf(text, text_size, "0 s (Off)");
 			return 1;
 	}
 	return 0;

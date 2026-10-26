@@ -12,6 +12,7 @@
 #define ICON_COLS 7
 #define ICON_TEX_W 512
 #define ICON_TEX_H 544
+#define SELECT_HALF_W 0.68f
 
 static GSTEXTURE icon_tex;
 static u32 icon_clut[256] __attribute__((aligned(64)));
@@ -378,7 +379,7 @@ static float iconSdf(int id, V2 p)
 			d = sdTriP(p, -0.36f, -0.44f, -0.36f, 0.44f, 0.44f, 0.0f);
 			break;
 		case DI_BTN_SELECT:
-			d = sdBoxOutline(p, 0.0f, 0.0f, 0.58f, 0.38f, 0.17f, 0.1f);
+			d = sdBox(p, 0.0f, 0.0f, SELECT_HALF_W, 0.48f, 0.27f);
 			break;
 		case DI_BTN_L1:
 		case DI_BTN_L2:
@@ -548,12 +549,13 @@ GSTEXTURE *dashIconsTexture(void)
 
 void dashIcon(int id, float x, float y, float size, DashColor c)
 {
-	float u0, v0, pad;
+	float u0, v0, pad, width;
 
 	if (!icons_ready || id < 0 || id >= DI_COUNT || size <= 0.0f || c.a == 0)
 		return;
 	if (id < DI_PAD_BADGE || id > DI_BTN_R3)
 		c = dashIconTint(c);
+	width = size + (id == DI_BTN_SELECT ? DASH_SELECT_EXTRA_W : 0.0f);
 	u0 = (float)((id % ICON_COLS) * ICON_SLOT);
 	v0 = (float)((id / ICON_COLS) * ICON_SLOT);
 	pad = size * 2.0f / ICON_SIZE;
@@ -564,6 +566,10 @@ void dashIcon(int id, float x, float y, float size, DashColor c)
 		int shoulder = id >= DI_BTN_L1 && id <= DI_BTN_R3;
 		float g = size * (shoulder ? 0.96f : (dashCfg.icon_backing ? 0.74f : 0.86f)); /* #152: legible on CRTs */
 		float go = (size - g) * 0.5f;
+		/* Account for atlas padding and the bar's SDF extent so its filled
+		 * graphic gains exactly four screen pixels, with unchanged height. */
+		float gw = g + (id == DI_BTN_SELECT ? DASH_SELECT_EXTRA_W * ICON_SLOT / (ICON_SIZE * SELECT_HALF_W) : 0.0f);
+		float gx = (width - gw) * 0.5f;
 		if (dashCfg.icon_backing) {
 			float bu0 = (float)((DI_PAD_BADGE % ICON_COLS) * ICON_SLOT);
 			float bv0 = (float)((DI_PAD_BADGE / ICON_COLS) * ICON_SLOT);
@@ -571,15 +577,15 @@ void dashIcon(int id, float x, float y, float size, DashColor c)
 			 * wallpapers, regardless of transparent panel/theme colors. */
 			DashColor badge = DC(18, 22, 30, 230);
 			dashSpriteBatchBegin(&icon_tex, badge);
-			dashSpriteBatchAdd(x - pad, y - pad, bu0, bv0, x + size + pad, y + size + pad, bu0 + ICON_SLOT, bv0 + ICON_SLOT);
+			dashSpriteBatchAdd(x - pad, y - pad, bu0, bv0, x + width + pad, y + size + pad, bu0 + ICON_SLOT, bv0 + ICON_SLOT);
 			dashSpriteBatchEnd();
 			/* Match the SDF badge's 0.92 half extent and fixed corner radius. */
-			dashRoundedBorder(x + size * 0.04f, y + size * 0.04f,
-			                  size * 0.92f, size * 0.92f, size * 0.10f,
+			dashRoundedBorder(x + width * 0.04f, y + size * 0.04f,
+			                  width * 0.92f, size * 0.92f, size * 0.10f,
 			                  DC(210, 220, 240, 120));
 		}
 		dashSpriteBatchBegin(&icon_tex, c);
-		dashSpriteBatchAdd(x + go, y + go, u0, v0, x + go + g, y + go + g, u0 + ICON_SLOT, v0 + ICON_SLOT);
+		dashSpriteBatchAdd(x + gx, y + go, u0, v0, x + gx + gw, y + go + g, u0 + ICON_SLOT, v0 + ICON_SLOT);
 		dashSpriteBatchEnd();
 		return;
 	}

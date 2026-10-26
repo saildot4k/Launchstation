@@ -19,7 +19,7 @@ def case(name):
 
 # START is the right-pointing wedge, SELECT the flat rounded bar.
 assert "sdTriP(" in case("DI_BTN_START") and "sdBoxOutline(" not in case("DI_BTN_START")
-assert "sdBoxOutline(" in case("DI_BTN_SELECT") and "sdTriP(" not in case("DI_BTN_SELECT")
+assert "sdBox(" in case("DI_BTN_SELECT") and "sdBoxOutline(" not in case("DI_BTN_SELECT") and "sdTriP(" not in case("DI_BTN_SELECT")
 key_icon = ui[ui.index("static int keyIcon("):ui.index("static float buttonWidth(")]
 assert 'if (!strcmp(key, "START"))\n\t\treturn DI_BTN_START;' in key_icon
 assert 'if (!strcmp(key, "SELECT"))\n\t\treturn DI_BTN_SELECT;' in key_icon

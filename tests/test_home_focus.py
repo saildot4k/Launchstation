@@ -26,6 +26,8 @@ code = r"""
 #include <stdio.h>
 #include <string.h>
 typedef unsigned char u8;
+typedef unsigned long long u64;
+#define SETTING_LK_AUTO 0
 #define DASH_PATH_MAX 128
 #define DASH_MAX_APPS 8
 #define DI_HDD 20
@@ -63,9 +65,9 @@ typedef unsigned char u8;
 #define DI_SETTINGS 7
 typedef struct { char path[DASH_PATH_MAX]; int flags; } DashApp;
 typedef struct { char pin[8][DASH_PATH_MAX], recent[8][DASH_PATH_MAX], fav[8][DASH_PATH_MAX]; int npin, nrecent, nfav; } Lists;
-typedef struct { char Misc_PS2Net[DASH_PATH_MAX]; char LK_Path[SETTING_LK_BTN_COUNT][DASH_PATH_MAX]; char LK_Title[SETTING_LK_BTN_COUNT][DASH_TITLE_MAX]; int LK_Flag[SETTING_LK_BTN_COUNT]; } Setting;
+typedef struct { int Init_Delay,timeout;char Misc_PS2Net[DASH_PATH_MAX]; char LK_Path[SETTING_LK_BTN_COUNT][DASH_PATH_MAX]; char LK_Title[SETTING_LK_BTN_COUNT][DASH_TITLE_MAX]; int LK_Flag[SETTING_LK_BTN_COUNT]; } Setting;
 static Lists dashLists;
-static struct { int recent_count; int home_shortcuts; int start_section; int app_filter; int view; } dashCfg = {8,1,0,0,0};
+static struct { int recent_count; int home_shortcuts; int start_section; int app_filter; int view; int autoscan; } dashCfg = {8,1,0,0,0,1};
 static Setting setting_data;
 static Setting *setting = &setting_data;
 static char LastDir[DASH_PATH_MAX], last_chip_label[DASH_TITLE_MAX];
@@ -76,13 +78,30 @@ static float col_anim[2], cam[2];
 static const char *const lk_names[SETTING_LK_BTN_COUNT] = {"Auto", "Left", "Right", "Start"};
 typedef struct { void (*enter)(void); } DashScreen;
 static void homeRebuild(void);
-static int apps_enters, focus_pokes;
+static int apps_enters, focus_pokes,starting,cache_loaded;
 static void appsEnter(void);
-static void appsEntered(void) { apps_enters++;appsEnter(); }
+static void appsEntered(void) { if(starting)assert(cache_loaded);apps_enters++;appsEnter(); }
 static const DashScreen dashAppsScreen={appsEntered};
 static void dashUiFocusPoke(void) { focus_pokes++; }
 static void dashStrCopy(char *d, const char *s, int n) { snprintf(d, n, "%s", s); }
 static int device_ready=1,scan_running;
+static char hidden[8][DASH_PATH_MAX];static int hidden_count,list_saves,settings_saves;
+static int dashStoreIsHidden(const char *p) {
+    for(int i=0;p && i<hidden_count;i++)if(!strcmp(p,hidden[i]))return 1;
+    return 0;
+}
+static int dashStoreSetHidden(const char *p,int hide) {
+    int i;for(i=0;i<hidden_count;i++)if(!strcmp(p,hidden[i]))break;
+    if(hide) {if(i<hidden_count)return 0;assert(hidden_count<8);strcpy(hidden[hidden_count++],p);}
+    else {if(i==hidden_count)return 0;memmove(hidden+i,hidden+i+1,(hidden_count-i-1)*sizeof(hidden[0]));hidden_count--;}
+    list_saves++;return 1;
+}
+static int dashStoreSaveSettings(void) { settings_saves++;return 0; }
+static void dashToast(int kind,const char *text);
+static void dashRescanLibrary(int interactive);
+#define DASH_TOAST_INFO 1
+#define DASH_TOAST_WARN 2
+#define DASH_TOAST_ERROR 3
 static int dashDevicePathReady(const char *p) { (void)p; return device_ready; }
 static int dashLibDeviceIcon(const char *p) { return !strncmp(p,"mc",2)?DI_MC:DI_USB; }
 static int dashStoreIsFavorite(const char *p) {
@@ -143,12 +162,71 @@ static void drawCarousel(void) { app_draws++; }
 #define dashGfxPopOffset(...) ((void)0)
 """
 code += function("static void appsDraw(", apps)
-code += "static void startDashboard(void) {\n"
-boot_start = main.index("section = dashCfg.start_section;", main.index("static void firstInit(void)"))
-boot_end = main.index("dash_inited = 1;", boot_start) + len("dash_inited = 1;")
+code += function("static DashApp *selApp(", apps)
+code += r"""
+typedef struct { int icon;const char *label,*detail;int disabled; } DashMenuItem;
+#define DI_APP 24
+#define DI_VIEW_GRID 25
+#define DI_CLOSE 26
+#define DI_REFRESH 27
+#define DASH_VIEW_COUNT 3
+static int popup_choice=-1,filter_choice=-1,action_menus,manual_rescans;
+static int dashModalMenu(const char *title,const char *subtitle,const DashMenuItem *items,int n,int initial) {
+    (void)subtitle;assert(!strcmp(title,"Applications") && !initial);
+    int has_app=selApp()!=NULL;assert(n==(has_app?5:4));
+    assert(!strcmp(items[n-1].label,"Refresh library"));
+    assert(!strcmp(items[n-2].label,has_app && dashStoreIsHidden(selApp()->path)?"Show in view":"Hide from view"));
+    assert(items[n-2].disabled==!has_app);return popup_choice;
+}
+static int dashModalChoice(const char *title,const char *const *choices,int n,int current) {
+    if(!strcmp(title,"View"))return -1;
+    assert(!strcmp(title,"Show applications") && n==7 && current>=0 && current<n);
+    const char *labels[]={"All","All including hidden","Favorites","Memory Cards","MASS","HDD","Other devices"};
+    for(int i=0;i<n;i++)assert(!strcmp(choices[i],labels[i]));
+    assert(filter_order[current]==filter);return filter_choice;
+}
+static void dashAppActions(DashApp *app) { assert(app);action_menus++; }
+"""
+code += function("static void setAppHidden(", apps) + function("static void appsMenu(", apps)
+code += r"""
+static int boot_safe_mode,cache_loads,cache_restore,rescans,boot_launches,last_launch=-1;
+static int boot_phase;
+static u64 boot_phase_end,now_ms=1000;
+static char boot_auto_title[128],launched_path[DASH_PATH_MAX];
+typedef struct { unsigned pressed,raw_new;int any; } DashInput;
+static u64 Timer(void) { return now_ms; }
+static void dashToast(int kind,const char *text) { (void)kind;(void)text; }
+static int held_key=-1;
+static int bootHeldLaunchKey(void) { return held_key; }
+static void runLaunchKey(int lk) {
+    boot_launches++;last_launch=lk;
+    snprintf(launched_path,sizeof(launched_path),"%s",setting->LK_Path[lk]);
+}
+static int dashLibLoadCache(void) {
+    cache_loads++;cache_loaded=1;
+    if(cache_restore) {dashAppCount=1;strcpy(dashApps[0].path,"mc0:/APPS/TEST/BOOT.ELF");}
+    return dashAppCount;
+}
+static void dashRescanLibrary(int interactive) { if(interactive)manual_rescans++;else rescans++; }
+#define dashStoreInit() ((void)0)
+#define dashLibInit() ((void)0)
+#define dashArtInit() ((void)0)
+#define dashUiInit() ((void)0)
+#define dashBgInit() ((void)0)
+#define dashDevicesInit() ((void)0)
+#define dashGfxInit() ((void)0)
+#define clearScreenToBlack() ((void)0)
+#define dashFontInit() ((void)0)
+#define dashIconsInit() ((void)0)
+#define dashConsoleIdentityInit() ((void)0)
+#define dashWorkerInit() ((void)0)
+"""
+code += function("static void firstInit(", main)
+code += function("static void bootBegin(", main) + function("static void bootUpdate(", main)
+code += "static void startDashboard(void) {\nstarting=1;cache_loaded=0;firstInit();\n"
 enter_start = main.index("\tif (screens[section]->enter)", main.index("void DashRun("))
 enter_end = main.index("\n\tdashInputFlush();", enter_start)
-code += main[boot_start:boot_end] + "\n" + main[enter_start:enter_end] + "\n}\n"
+code += main[enter_start:enter_end] + "\nstarting=0;\n}\n"
 code += r"""
 int main(void) {
     dashAppCount = 3;
@@ -240,6 +318,106 @@ int main(void) {
     assert(!norder && empty_icon==DI_STAR && !strcmp(empty_title,"No favorites yet"));
     dashCfg.app_filter=FILTER_MC;appsEnter();appsDraw();
     assert(!norder && empty_icon==DI_APPS && !strcmp(empty_title,"Nothing to show"));
+    /* The quick visibility action sits immediately above Refresh library.
+     * Hiding an app preserves its ELF/library record, favorites and pins. */
+    assert(FILTER_FAV==1 && FILTER_MC==2 && FILTER_USB==3 && FILTER_HDD==4 && FILTER_OTHER==5 && FILTER_ALL_HIDDEN==6);
+    dashCfg.app_filter=FILTER_ALL;appsEnter();sel=1;
+    strcpy(dashLists.fav[0],dashApps[1].path);dashLists.nfav=1;
+    strcpy(dashLists.pin[0],dashApps[1].path);dashLists.npin=1;
+    popup_choice=3;appsMenu();
+    assert(hidden_count==1 && list_saves==1 && norder==2 && dashAppCount==3);
+    assert(!homeHas(dashApps[1].path) && dashLists.nfav==1 && dashLists.npin==1);
+    assert(dashStoreIsFavorite(dashApps[1].path) && dashStoreIsPinned(dashApps[1].path));
+    popup_choice=4;appsMenu();assert(manual_rescans==1);
+    dashAppsRebuildView();assert(norder==2); /* refreshed index keeps path visibility */
+    popup_choice=2;filter_choice=1;appsMenu();
+    assert(filter==FILTER_ALL_HIDDEN && dashCfg.app_filter==6 && norder==3 && settings_saves==1);
+    sel=1;popup_choice=3;appsMenu();
+    assert(!hidden_count && norder==3 && list_saves==2 && homeHas(dashApps[1].path));
+    /* Old saved category IDs still select the same categories in the new list. */
+    popup_choice=2;filter_choice=2;appsMenu();assert(filter==FILTER_FAV && dashCfg.app_filter==1 && norder==1);
+    /* All-hidden has its own empty state and a usable way to reveal apps.
+     * Hide stays dimmed when there is no focused application. */
+    dashCfg.app_filter=FILTER_ALL;appsEnter();
+    for(int i=0;i<3;i++)setAppHidden(&dashApps[i]);
+    appsDraw();assert(!norder && empty_icon==DI_APPS && !strcmp(empty_title,"All applications hidden"));
+    assert(strstr(empty_body,"All including hidden"));
+    popup_choice=2;appsMenu();assert(hidden_count==3); /* disabled action is inert */
+    popup_choice=3;appsMenu();assert(manual_rescans==2); /* empty menu still maps Refresh correctly */
+    popup_choice=1;filter_choice=1;appsMenu();assert(norder==3 && filter==FILTER_ALL_HIDDEN);
+    for(int i=0;i<3;i++)setAppHidden(&dashApps[i]);
+    dashLists.nfav=dashLists.npin=0;
+    /* Execute the complete firstInit, including cache load, with refresh
+     * disabled. MC cache data must already exist when Apps is entered. */
+    dashCfg.autoscan=0;dashCfg.start_section=DASH_SEC_APPS;cache_restore=1;
+    dashAppCount=0;int old_loads=cache_loads,old_scans=rescans;startDashboard();
+    assert(cache_loads==old_loads+1 && rescans==old_scans);
+    assert(library_open && norder==1 && !strcmp(dashApps[order[0]].path,"mc0:/APPS/TEST/BOOT.ELF"));
+    appsDraw();assert(!empty_title[0]);cache_restore=0;
+
+    /* A saved automatic target must leave Applications open at 0 seconds,
+     * even after startup delay. Keep the target/title for later use. */
+    setting->Init_Delay=0;setting->timeout=0;
+    strcpy(setting->LK_Path[SETTING_LK_AUTO],"mc0:/BOOT/BOOT.ELF");
+    strcpy(setting->LK_Title[SETTING_LK_AUTO],"Exit to PS2BBL(BOOT.ELF)");
+    DashInput no_input={0};now_ms=10000;bootBegin();
+    assert(!boot_phase && !boot_launches);
+    now_ms=20000;bootUpdate(&no_input);
+    assert(!boot_phase && !boot_launches && section==DASH_SEC_HOME && library_open);
+    setting->Init_Delay=2;bootBegin();assert(boot_phase==1);
+    now_ms=21999;bootUpdate(&no_input);assert(boot_phase==1 && !boot_launches);
+    now_ms=22000;bootUpdate(&no_input);assert(!boot_phase && !boot_launches);
+    now_ms=30000;bootUpdate(&no_input);
+    assert(!boot_launches && section==DASH_SEC_HOME && library_open);
+    assert(!strcmp(setting->LK_Path[SETTING_LK_AUTO],"mc0:/BOOT/BOOT.ELF"));
+    assert(!strcmp(setting->LK_Title[SETTING_LK_AUTO],"Exit to PS2BBL(BOOT.ELF)"));
+
+    /* Zero also leaves each of the other selected startup views alone. */
+    setting->Init_Delay=0;
+    for(int i=0;i<5;i++) {
+        setStartChoice(i);startDashboard();bootBegin();
+        int initial_section=section,initial_library=library_open;
+        now_ms+=10000;bootUpdate(&no_input);
+        assert(!boot_phase && !boot_launches && section==initial_section && library_open==initial_library);
+    }
+    dashCfg.start_section=DASH_SEC_APPS;startDashboard();
+
+    /* Held-button shortcuts still work with automatic start disabled,
+     * both immediately and after the startup delay. */
+    strcpy(setting->LK_Path[SETTING_LK_LEFT],"mc0:/APPS/TEST/BOOT.ELF");
+    held_key=SETTING_LK_LEFT;bootBegin();
+    assert(!boot_phase && boot_launches==1 && last_launch==SETTING_LK_LEFT);
+    assert(!strcmp(launched_path,"mc0:/APPS/TEST/BOOT.ELF"));
+    setting->Init_Delay=2;held_key=-1;bootBegin();assert(boot_phase==1);
+    held_key=SETTING_LK_LEFT;now_ms+=2000;bootUpdate(&no_input);
+    assert(!boot_phase && boot_launches==2 && last_launch==SETTING_LK_LEFT);
+    held_key=-1;
+
+    /* Positive timeouts retain the countdown and any-button cancellation,
+     * with or without an initial delay. */
+    setting->timeout=3;
+    for(int delay=0;delay<=2;delay+=2) {
+        setting->Init_Delay=delay;
+        int launches=boot_launches;bootBegin();
+        if(delay) {
+            assert(boot_phase==1);
+            now_ms+=delay*1000;bootUpdate(&no_input);
+        }
+        assert(boot_phase==2 && boot_phase_end==now_ms+4000);
+        assert(!strcmp(boot_auto_title,setting->LK_Title[SETTING_LK_AUTO]));
+        now_ms+=3999;bootUpdate(&no_input);assert(boot_launches==launches);
+        now_ms++;bootUpdate(&no_input);
+        assert(!boot_phase && boot_launches==launches+1 && last_launch==SETTING_LK_AUTO);
+        assert(!strcmp(launched_path,"mc0:/BOOT/BOOT.ELF"));
+        bootUpdate(&no_input);assert(boot_launches==launches+1);
+    }
+    setting->Init_Delay=0;bootBegin();assert(boot_phase==2);
+    DashInput cancel={0,0,1};bootUpdate(&cancel);
+    now_ms+=10000;bootUpdate(&no_input);assert(!boot_phase && boot_launches==4);
+    /* A positive timeout with no target cannot start an application. */
+    setting->LK_Path[SETTING_LK_AUTO][0]=0;startDashboard();bootBegin();
+    now_ms+=10000;bootUpdate(&no_input);
+    assert(!boot_phase && boot_launches==4 && section==DASH_SEC_HOME && library_open);
     dashCfg.recent_count=0;dashLists.nrecent=0;
     dashAppCount=0;dashLists.npin=dashLists.nfav=0;homeEnter();
     assert(library_open && nhome==0); /* empty library has its normal scan prompt */
@@ -257,4 +435,4 @@ with tempfile.TemporaryDirectory() as temp:
     source_path.write_text(code)
     subprocess.run([cc, "-std=c99", "-Wall", "-Wextra", str(source_path), "-o", str(binary_path)], check=True)
     subprocess.run([str(binary_path)], check=True)
-print("PASS: Home favorites keep focus; empty disabled recents open Applications; all five startup choices, real application filters, startup All and readiness/scan empty states")
+print("PASS: Home favorites keep focus; empty disabled recents open Applications; all five startup choices, real application filters, hide/show menus, all-hidden recovery, stable filters, startup cache ordering, zero disables automatic start, held launch keys, countdown/cancellation and readiness states")

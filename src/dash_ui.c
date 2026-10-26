@@ -189,8 +189,9 @@ static float buttonWidth(int icon, const char *key)
 {
 	float w;
 
-	if (icon >= 0 || keyIcon(key) >= 0)
-		return 22.0f;
+	int resolved = icon >= 0 ? icon : keyIcon(key);
+	if (resolved >= 0)
+		return 22.0f + (resolved == DI_BTN_SELECT ? DASH_SELECT_EXTRA_W : 0.0f);
 	w = dashTextWidth(key, DASH_FS_CAPTION) + 14.0f;
 	return w < 22.0f ? 22.0f : w;
 }
@@ -201,7 +202,7 @@ static float drawButton(float x, float y, int icon, const char *key)
 
 	if (icon >= 0) {
 		dashIcon(icon, x, y, d, buttonColor(icon));
-		return d;
+		return buttonWidth(icon, key);
 	}
 	{
 		int ki = keyIcon(key);
@@ -210,7 +211,7 @@ static float drawButton(float x, float y, int icon, const char *key)
 		float w;
 		if (ki >= 0) {
 			dashIcon(ki, x, y, d, DASH_C_TEXT);
-			return d;
+			return buttonWidth(icon, key);
 		}
 		tw = dashTextWidth(key, DASH_FS_CAPTION);
 		w = buttonWidth(icon, key); /* one sizing rule for layout and drawing */

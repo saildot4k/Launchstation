@@ -495,17 +495,6 @@ void dashLibRefreshApp(DashApp *a)
 	dashLibSaveCache();
 }
 
-int dashLibRemove(int index)
-{
-	if (index < 0 || index >= dashAppCount)
-		return -1;
-	dashArtForget(&dashApps[index]);
-	memmove(&dashApps[index], &dashApps[index + 1], sizeof(DashApp) * (dashAppCount - index - 1));
-	dashAppCount--;
-	dashLibSaveCache();
-	return 0;
-}
-
 //--------------------------------------------------------------
 // Cache file
 //--------------------------------------------------------------
@@ -768,11 +757,11 @@ static void scanRun(void *arg)
 		 * (dashRescanLibrary does it first for a full refresh) */
 		if (!cheapToScan(j->dirs[i]))
 			continue;
-		/* A cold card has not had its asynchronous presence poll yet. Let
-		 * readMC perform the same readiness handshake as browsing it; only
-		 * skip a card whose absence is already confirmed. */
+		/* Probe the card afresh, just like opening it in Files. An early
+		 * absence snapshot must not block this scan. If the handshake fails,
+		 * leave this root unscanned so its cached entries survive. */
 		if (!strncmp(j->dirs[i], "mc", 2) &&
-		    filerRootMcPresent(j->dirs[i][2] - '0', NULL, NULL) == 0)
+		    filerPrepareMemoryCardRead(j->dirs[i][2] - '0') != 0)
 			continue;
 		scanDir(sc, j->dirs[i], 0);
 		dashStrCopy(scanned[nscanned++], j->dirs[i], DASH_PATH_MAX);
@@ -824,7 +813,8 @@ static void scanDone(void *arg)
 
 int dashLibScanRunning(void)
 {
-	return scan_job != NULL;
+	/* The viewer still has the old index until the main loop applies it. */
+	return scan_job != NULL || scan_result != NULL;
 }
 
 int dashLibScanStart(int interactive)

@@ -39,6 +39,7 @@
 #define DASH_MAX_SCAN 12
 #define DASH_MAX_FAV 48
 #define DASH_MAX_RECENT 16
+#define DASH_SELECT_EXTRA_W 4.0f
 
 //--------------------------------------------------------------
 // Colors
@@ -585,6 +586,9 @@ int dashStoreFlushWait(const char *title);
 const char *dashStoreDir(void);
 int dashStoreBuildPath(char *out, int out_size, const char *file);
 int dashStoreIsFavorite(const char *path);
+/* Hidden paths persist independently of library scans. Set: 1 changed, 0 unchanged, -1 failed. */
+int dashStoreIsHidden(const char *path);
+int dashStoreSetHidden(const char *path, int hidden);
 int dashStoreIsPinned(const char *path);
 int dashStoreToggleFavorite(const char *path);
 int dashStoreTogglePinned(const char *path);
@@ -660,7 +664,6 @@ int dashLibLoadArgs(const DashApp *app, char *buf, int buf_size);
 void dashLibDeviceLabel(const char *path, char *out, int out_size);
 int dashLibDeviceIcon(const char *path);
 void dashLibPrettyName(const char *path, char *out, int out_size);
-int dashLibRemove(int index);
 void dashLibRefreshApp(DashApp *app);
 void dashHomeRebuild(void);
 void dashHomeOpenApplications(void);
@@ -1042,6 +1045,7 @@ extern int gsScreenGeneration;
 /* filer.c accessors used by the device model. */
 int getDir(const char *path, FILEINFO *info);
 int filerRootMcPresent(int port, int *type, int *free_kb);
+int filerPrepareMemoryCardRead(int port);
 int filerUsbDriveMask(void);
 int filerUsbRefreshDriveMask(void); /* force one cached USB root refresh */
 int filerUsbDriversLoaded(void);
