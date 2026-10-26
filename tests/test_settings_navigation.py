@@ -31,6 +31,8 @@ code = "#include <assert.h>\n#include <stdio.h>\n#include <string.h>\n"
 code += "#define ETH 1\n#define WLE_NATIVE_HTTPS 1\n#define UDPFS 1\n#define MAX_PATH 1024\n#define DASH_FONT_SYSTEM 1\n"
 code += "enum { " + ", ".join(icons) + " };\n"
 code += classic[classic.index("enum SETTING_LK {"):classic.index("};", classic.index("enum SETTING_LK {")) + 2]
+code += classic[classic.index("enum TV_mode {"):classic.index("};", classic.index("enum TV_mode {")) + 2]
+code += re.search(r"static const char \*const tv_names\[\] = [^;]+;", settings).group() + "\n"
 code += declarations
 input_start = header.rfind("enum {", 0, header.index("DASH_IN_UP"))
 code += header[input_start:header.index("void dashInputPoll(")]
@@ -42,17 +44,28 @@ static void dashSoundPlay(int s) { assert(s == DASH_SND_CANCEL); }
 static void dashUiFocusPoke(void) {}
 static struct { int sound, bgm, artwork; } dashCfg;
 static struct { int font, wallpaper, clock; } dashTheme;
-static struct { int usbkbd_used,screen_x,screen_y,Init_Delay,timeout; char LK_Path[SETTING_LK_COUNT][MAX_PATH]; } config;
+static struct { int usbkbd_used,screen_x,screen_y,Init_Delay,timeout,TV_mode; char LK_Path[SETTING_LK_COUNT][MAX_PATH]; } config;
 static struct { int StartX,StartY; } gs_state={32,32}, *gsGlobal=&gs_state;
 static __typeof__(config) *setting = &config;
 static int session, begins, home, saves, reverts, changes, resets, edits, toast;
-static int modal_result = -1, dirty = 1, failed;
+static int modal_result = -1, dirty = 1, failed,can576=1,video_menus;
+static int is576pSupported(void) { return can576; }
 typedef struct { int icon; const char *label, *detail; int disabled; } DashMenuItem;
 static void sessionBegin(void) { if (!session) { session = 1; begins++; } }
 static int anyDirty(void) { return dirty; }
 static int failedSaves(void) { return failed; }
 static int dashModalMenu(const char *t,const char *d,DashMenuItem *m,int n,int s) {
-    (void)t; (void)d; (void)s; assert(n == 3); changes++;
+    (void)d; (void)s;
+    if(n==TV_mode_COUNT) {
+        assert(!strcmp(t,"Video mode"));video_menus++;
+        for(int i=0;i<n;i++)assert(m[i].disabled==(i==TV_mode_576P && !can576));
+        assert(!strcmp(m[TV_mode_576P].label,"576p") && !strcmp(m[TV_mode_576I].label,"576i"));
+        assert(!strcmp(m[TV_mode_576I].detail,"PAL, 50 Hz"));
+        if(!can576)assert(!strcmp(m[TV_mode_576P].detail,"Unsupported by this console"));
+        else assert(!m[TV_mode_576P].detail);
+        return modal_result;
+    }
+    assert(n == 3); changes++;
     assert(m[0].disabled == !(dirty || failed) && m[1].disabled == !dirty);
     return modal_result;
 }
@@ -68,16 +81,19 @@ static void editLaunchKey(const SetItem *it,int what) { (void)it; (void)what; ed
 static void setNumber(int id,int v) { (void)id; (void)v; edits++; }
 static int choiceInfo(int id,int *v,const char *const **names,const char **single) {
     static const char *const options[]={"Off","On"};
-    (void)id; *v=0; *names=options; *single=NULL; return 2;
+    *single=NULL;
+    if(id==S_TVMODE) { *v=setting->TV_mode;*names=tv_names;return TV_mode_COUNT; }
+    *v=0; *names=options; return 2;
 }
 static int dashModalChoice(const char *l,const char *const *o,int n,int c) {
     (void)l; (void)o; (void)n; return c;
 }
-static void setChoice(int id,int v) { (void)id; (void)v; edits++; }
+static void setChoice(int id,int v) { if(id==S_TVMODE)setting->TV_mode=v;edits++; }
 static int resetThemeSetting(int id) { (void)id; resets++; return 1; }
 """
 for signature in (
     "static int numberInfo(",
+    "static int chooseVideoMode(",
     "static int themeSettingResettable(",
     "static const SetItem *curItem(",
     "static void settingsEnter(",
@@ -179,6 +195,19 @@ int main(void) {
     dashCfg.artwork=1; dashTheme.wallpaper=1; press(DASH_IN_RIGHT); assert(edits==5);
     select_id(P_THEME_CLOCK,S_T_SECONDS); press(DASH_IN_OK); assert(edits==5);
     dashTheme.clock=1; press(DASH_IN_OK); assert(edits==6);
+    /* Separate 576i remains available; unsupported 576p is disabled in the
+     * popup and skipped by Left/Right, including wraparound. */
+    assert(sizeof(tv_names)/sizeof(tv_names[0])==TV_mode_COUNT);
+    select_id(P_SCREEN,S_TVMODE);can576=0;setting->TV_mode=TV_mode_AUTO;
+    press(DASH_IN_LEFT);assert(setting->TV_mode==TV_mode_576I);
+    press(DASH_IN_LEFT);assert(setting->TV_mode==TV_mode_480P);
+    press(DASH_IN_RIGHT);assert(setting->TV_mode==TV_mode_576I);
+    press(DASH_IN_RIGHT);assert(setting->TV_mode==TV_mode_AUTO);
+    modal_result=TV_mode_576I;press(DASH_IN_OK);assert(video_menus==1 && setting->TV_mode==TV_mode_576I);
+    can576=1;setting->TV_mode=TV_mode_AUTO;
+    press(DASH_IN_LEFT);assert(setting->TV_mode==TV_mode_576I);
+    press(DASH_IN_LEFT);assert(setting->TV_mode==TV_mode_576P);
+    modal_result=TV_mode_576P;press(DASH_IN_OK);assert(video_menus==2 && setting->TV_mode==TV_mode_576P);
     page=P_ROOT; page_depth=0; item=0; press(DASH_IN_BACK); assert(home==0);
     session=0; page=P_THEME_COLORS; settingsEnter(); assert(page==P_ROOT && begins==2);
     puts("PASS: all pages reachable, baseline controls unique, navigation/scroll, session menu and dependencies");

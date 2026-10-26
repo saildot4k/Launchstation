@@ -41,13 +41,15 @@ harness = r'''
 #define GS_SETTING_ON 1
 #define GS_SETTING_OFF 0
 #define ETM_INLINE 1
-enum {TV_mode_AUTO, TV_mode_NTSC, TV_mode_PAL, TV_mode_VGA, TV_mode_480P, TV_mode_576P, TV_mode_COUNT};
+enum {TV_mode_AUTO, TV_mode_NTSC, TV_mode_PAL, TV_mode_VGA, TV_mode_480P, TV_mode_576P, TV_mode_576I, TV_mode_COUNT};
 static struct {
     int Mode, Interlace, Field, Width, Height, StartX, StartY, DoubleBuffering, FirstFrame;
     unsigned CurrentPointer;
 } g, *gsGlobal = &g;
 static struct { int TV_mode,screen_x,screen_y; } config, *setting=&config;
 static int TV_mode,region=TV_mode_NTSC,gsScreenGeneration,gfx_screen_gen=-1;
+static char ROMVER_data[16]="0220E";
+static unsigned char console_is_PSX;
 static int fades,drains,finishes,inits,offsets,dma_busy,gs_busy,tex_resets,tex_modes;
 static int uLE_InitializeRegion(void) { return region; }
 static void fadeScreenToBlack(void) {
@@ -79,7 +81,26 @@ static int Frame_end_y, Menu_tooltip_y;
 static float g_sy = 1.0f, g_ox, g_oy;
 typedef struct { int x0,x1,y0,y1; } DashClipRect;
 typedef unsigned int u32;
-typedef struct { int unused; } GSTEXTURE;
+enum { GS_PSM_CT32,GS_PSM_T8,GS_PSM_T4 };
+typedef struct { int Width,Height,PSM,ClutPSM;void *Mem,*Clut; } GSTEXTURE;
+static int texture_binds;
+static unsigned gsKit_texture_size(int width,int height,int psm) {
+    /* GS block/page padding for the sizes exercised below; include palette
+     * blocks separately. The real wrapper must use the SDK size, not raw
+     * pixel bytes. gsKit's allocator cannot return an oversize failure. */
+    if(psm==GS_PSM_CT32 && width==16 && height==16)return 1024;
+    if(psm==GS_PSM_CT32 && width==8 && height==2)return 256;
+    if(psm==GS_PSM_CT32)return ((width+63u)/64)*64*((height+31u)/32)*32*4;
+    if(psm==GS_PSM_T8)return ((width+127u)/128)*128*((height+63u)/64)*64;
+    if(psm==GS_PSM_T4)return ((width+127u)/128)*128*((height+127u)/128)*128/2;
+    return ~0u;
+}
+static unsigned gsKit_TexManager_bind(__typeof__(g) *screen,GSTEXTURE *tex) {
+    assert(screen==&g);
+    unsigned size=gsKit_texture_size(tex->Width,tex->Height,tex->PSM);
+    if(tex->Clut)size+=gsKit_texture_size(tex->PSM==GS_PSM_T8?16:8,tex->PSM==GS_PSM_T8?16:2,tex->ClutPSM);
+    assert(size<=4u*1024*1024-g.CurrentPointer);texture_binds++;return 1;
+}
 #define DASH_PATH_MAX 512
 #define THEME_SLOTS 8
 #define DASH_JOB_THEME 1
@@ -108,12 +129,19 @@ static int dashWorkerSubmit(const char *name, int flags, void (*run)(void *), vo
 harness += function(gfx, "static inline float SX(") + function(gfx, "static inline float SY(")
 harness += function(gfx, "static DashClipRect clipFromLogical(")
 harness += function(gfx, "float dashGfxTextY(")
+harness += function(gfx, "int dashTexBind(")
 harness += function(gfx, "int dashGfxCheckScreenChange(")
+harness += function(gs, "int is576pSupported(") + function(gs, "static int requestedTVMode(")
 harness += function(gs, "static void applyGSParams(")
 harness += function(gs, "static void initScreenParams(") + function(gs, "void updateScreenMode(")
 harness += function(art, "GSTEXTURE *dashThemeTextureFile(")
 harness += r'''
-static int resolveMode(int choice) { return choice==TV_mode_AUTO?region:choice; }
+static int expected_native576=1;
+static int resolveMode(int choice) {
+    if(choice==TV_mode_576P && !expected_native576)return region;
+    if(choice==TV_mode_576I)return TV_mode_PAL;
+    return choice==TV_mode_AUTO?region:choice;
+}
 static int gsMode(int mode) {
     switch(mode) {
         case TV_mode_PAL:return GS_MODE_PAL;
@@ -124,6 +152,12 @@ static int gsMode(int mode) {
     }
 }
 static void checkSwitches(void) {
+    const struct { const char *rom;int psx,native; } consoles[]={
+        {"0200E",0,0},{"0220E",0,1},{"0180J",1,1},{"0210J",1,1}
+    };
+    for(unsigned model=0;model<sizeof(consoles)/sizeof(consoles[0]);model++) {
+        expected_native576=consoles[model].native;console_is_PSX=consoles[model].psx;
+        strcpy(ROMVER_data,consoles[model].rom);
     for(region=TV_mode_NTSC;region<=TV_mode_PAL;region++)
         for(int from=0;from<TV_mode_COUNT;from++)
             for(int to=0;to<TV_mode_COUNT;to++) {
@@ -139,6 +173,7 @@ static void checkSwitches(void) {
                 assert(fades==changed && drains==changed && finishes==changed && inits==changed);
                 assert(gsScreenGeneration==generation+changed && offsets==1);
                 assert(TV_mode==resolveMode(to) && g.Mode==gsMode(TV_mode));
+                assert(setting->TV_mode==((to==TV_mode_576P && !expected_native576)?TV_mode_AUTO:to));
                 int tall=TV_mode==TV_mode_PAL || TV_mode==TV_mode_576P;
                 assert(SCREEN_WIDTH==640 && g.Width==640);
                 assert(SCREEN_HEIGHT==(tall?512:448) && g.Height==SCREEN_HEIGHT);
@@ -160,11 +195,83 @@ static void checkSwitches(void) {
                 assert(panel.y0==(int)(96*g_sy) && panel.y1==(int)(392*g_sy)-1);
                 assert(fabsf((SY(102+29)-SY(102))-29*g_sy)<0.0001f);
             }
-    puts("PASS: 72 live video transitions, pending DMA/GS completion before reset, double buffering, "
-         "Auto region, calibration, texture recovery and NTSC/PAL/VGA/480p/576p scaling");
+    }
+    console_is_PSX=0;strcpy(ROMVER_data,"0220E");
+    puts("PASS: 392 live video transitions across PS2 2.00/2.20 and PSX 1.80J/2.10J, NTSC/PAL regions, DMA/GS completion, "
+         "double buffering, calibration, texture recovery, separate 576p/576i and Auto fallback scaling");
+}
+static void checkVramBudget(void) {
+    unsigned pixel=0;GSTEXTURE t={640,512,GS_PSM_CT32,GS_PSM_CT32,&pixel,NULL};
+    g.CurrentPointer=2u*640*512*4;assert(g.CurrentPointer==0x280000);
+    assert(4u*1024*1024-g.CurrentPointer==0x180000);
+    assert(dashTexBind(&t) && texture_binds==1); /* full-size wallpaper fits */
+    t.Width=1024;assert(!dashTexBind(&t) && texture_binds==1);
+    t.Width=511;t.Height=769;
+    assert(511u*769*4<0x180000 && gsKit_texture_size(511,769,GS_PSM_CT32)>0x180000);
+    assert(!dashTexBind(&t) && texture_binds==1); /* padded allocation does not fit */
+    t.Width=768;t.Height=512;assert(dashTexBind(&t) && texture_binds==2); /* exact fit */
+    t.Clut=&pixel;assert(!dashTexBind(&t) && texture_binds==2); /* plus palette exceeds pool */
+    t.Width=512;t.Height=544;t.PSM=GS_PSM_T8;assert(dashTexBind(&t) && texture_binds==3);
+    unsigned size=gsKit_texture_size(t.Width,t.Height,t.PSM);
+    g.CurrentPointer=4u*1024*1024-size-1023;
+    assert(!dashTexBind(&t) && texture_binds==3);
+    g.CurrentPointer--;assert(dashTexBind(&t) && texture_binds==4); /* exact fit including CLUT */
+    g.CurrentPointer=4u*1024*1024;assert(!dashTexBind(&t));
+    g.CurrentPointer++;assert(!dashTexBind(&t)); /* no unsigned underflow */
+    g.CurrentPointer=0x280000;t.PSM=99;assert(!dashTexBind(&t));
+    t.PSM=GS_PSM_T8;t.Width=0;assert(!dashTexBind(&t));
+    t.Width=512;t.Height=0;assert(!dashTexBind(&t));t.Height=-1;assert(!dashTexBind(&t));
+    t.Height=544;t.Mem=NULL;assert(!dashTexBind(&t) && !dashTexBind(NULL));
+    t=(GSTEXTURE){1024,448,GS_PSM_CT32,GS_PSM_CT32,&pixel,NULL};
+    g.CurrentPointer=2u*640*448*4;assert(dashTexBind(&t));
+    g.CurrentPointer=2u*640*512*4;int before=texture_binds;assert(!dashTexBind(&t) && texture_binds==before);
+    g.CurrentPointer=2u*640*448*4;assert(dashTexBind(&t));
+    puts("PASS: 2.5 MiB framebuffers / 1.5 MiB texture pool; oversized/padded/CLUT allocations "
+         "are rejected before the non-returning allocator; valid textures survive mode changes");
+}
+static void checkRomSupport(void) {
+    const struct { const char *rom;int psx,supported; } cases[]={
+        {"0100J",0,0},{"0160E",0,0},{"0200E",0,0},{"0210J",0,0},{"0219E",0,0},
+        {"0220E",0,1},{"0230E",0,1},{"0250E",0,1},{"",0,0},{"02x0E",0,0},
+        {"0180J",0,0},{"0180J",1,1},{"0210J",1,1},{"0180E",1,0},{"0210E",1,0},
+        {"0200J",1,0},{"0180",1,0},{"",1,0},{"01x0J",1,0}
+    };
+    for(unsigned i=0;i<sizeof(cases)/sizeof(cases[0]);i++) {
+        strcpy(ROMVER_data,cases[i].rom);console_is_PSX=cases[i].psx;
+        int supported=cases[i].supported;
+        assert(is576pSupported()==supported);
+        for(region=TV_mode_NTSC;region<=TV_mode_PAL;region++) {
+            setting->TV_mode=TV_mode_576P;
+            int mode=requestedTVMode();
+            assert(mode==(supported?TV_mode_576P:region));
+            assert(setting->TV_mode==(supported?TV_mode_576P:TV_mode_AUTO));
+            if(!supported) {
+                TV_mode=region;g.Mode=gsMode(region);applyGSParams();
+                g.DoubleBuffering=GS_SETTING_ON;
+                setting->TV_mode=TV_mode_576P;
+                fades=drains=finishes=inits=0;
+                updateScreenMode();
+                assert(!fades && !drains && !finishes && !inits);
+                assert(setting->TV_mode==TV_mode_AUTO && TV_mode==region);
+                assert(g.Mode==gsMode(region) && g.Interlace==GS_INTERLACED && g.Field==GS_FIELD);
+                assert(g.Height==(region==TV_mode_PAL?512:448));
+            }
+            setting->TV_mode=TV_mode_576I;
+            assert(requestedTVMode()==TV_mode_PAL && setting->TV_mode==TV_mode_576I);
+            const int invalid[]={-1,TV_mode_COUNT,9999};
+            for(unsigned j=0;j<sizeof(invalid)/sizeof(invalid[0]);j++) {
+                setting->TV_mode=invalid[j];
+                assert(requestedTVMode()==region && setting->TV_mode==TV_mode_AUTO);
+            }
+        }
+    }
+    console_is_PSX=0;strcpy(ROMVER_data,"0220E");
+    puts("PASS: 576p supports PS2 2.20+ and detected PSX 1.80J/2.10J; "
+         "unsupported/invalid saved modes become Auto before GS initialization; separate 576i stays PAL");
 }
 int main(void) {
-    checkSwitches();
+    assert(TV_mode_576P==5 && TV_mode_576I==6); /* saved IDs remain stable */
+    checkRomSupport();checkSwitches();checkVramBudget();
     int scale, offset, step;
     g.Interlace = GS_INTERLACED; g.Field = GS_FIELD;
     for (scale = 0; scale < 2; ++scale) {
@@ -222,4 +329,4 @@ font = (root / "src/dash_font.c").read_text()
 assert "top = dashGfxTextY(y + sel.yshift);" in function(font, "static float drawRun(")
 assert "TV_mode_480P,\n\tTV_mode_576P," in (root / "include/launchelf.h").read_text()
 assert gs.count("case TV_mode_576P:") == 2  # initial setup and live changes
-assert '"VGA", "480p", "576p"' in (root / "src/dash_settings.c").read_text()
+assert '"VGA", "480p", "576p", "576i"' in (root / "src/dash_settings.c").read_text()

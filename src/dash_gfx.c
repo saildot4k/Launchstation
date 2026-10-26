@@ -295,8 +295,25 @@ static void buildGlowTextures(void)
 //--------------------------------------------------------------
 int dashTexBind(GSTEXTURE *tex)
 {
-	if (tex == NULL || tex->Mem == NULL)
+	unsigned int available, size;
+
+	if (tex == NULL || tex->Mem == NULL || tex->Width <= 0 || tex->Height <= 0)
 		return 0;
+	/* gsKit's allocator evicts until a large-enough block exists. A texture
+	 * larger than the entire pool makes that loop infinite; reject it before
+	 * binding so input and the video-confirmation timer can keep running. */
+	if (gsGlobal->CurrentPointer >= 4u * 1024 * 1024)
+		return 0;
+	available = 4u * 1024 * 1024 - gsGlobal->CurrentPointer;
+	size = gsKit_texture_size(tex->Width, tex->Height, tex->PSM);
+	if (size == 0 || size > available)
+		return 0;
+	if (tex->Clut != NULL) {
+		unsigned int clut_size = gsKit_texture_size(tex->PSM == GS_PSM_T8 ? 16 : 8,
+		                                                tex->PSM == GS_PSM_T8 ? 16 : 2, tex->ClutPSM);
+		if (clut_size > available - size)
+			return 0;
+	}
 	gsKit_TexManager_bind(gsGlobal, tex);
 	return 1;
 }

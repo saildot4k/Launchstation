@@ -24,13 +24,21 @@ enum {STORAGE_STACK_DEFAULT, STORAGE_STACK_MMCE, STORAGE_STACK_MX4SIO};
 static int storage_driver_stack_mode, mx4sio_driver_running, loads, load_ok;
 static int loadMmceModules(void) { loads++; return load_ok; }
 static struct { int TV_mode, screen_x, screen_y; char Misc[64], Misc_PS2Net[64]; } config, *setting = &config;
-static int updates, checks, invalidations, accept;
-static void updateScreenMode(void) { updates++; if(setting->TV_mode==2) { setting->screen_x=0; setting->screen_y=0; } }
+enum {TV_mode_AUTO,TV_mode_NTSC,TV_mode_PAL,TV_mode_VGA,TV_mode_480P,TV_mode_576P,TV_mode_576I,TV_mode_COUNT};
+static int updates, checks, invalidations, accept,can576=1,effective_mode;
+static int is576pSupported(void) { return can576; }
+static int uLE_InitializeRegion(void) { return TV_mode_NTSC; }
+static int requestedTVMode(void);
+static void updateScreenMode(void) {
+    updates++;effective_mode=requestedTVMode();
+    if(effective_mode==TV_mode_PAL) { setting->screen_x=0; setting->screen_y=0; }
+}
 static int dashGfxCheckScreenChange(void) { checks++; return 1; }
 static void dashArtInvalidateVram(void) { invalidations++; }
 static int dashModalKeepVideo(void) { return accept; }
 """
 code += function("src/init.c", "int loadMmceModulesForGameID(")
+code += function("src/draw_gs.c", "static int requestedTVMode(")
 code += function("src/dash_settings.c", "static int previewVideoMode(")
 code += function("src/lang.c", "const char *getMiscEntryDisplayName(")
 code += r"""
@@ -56,6 +64,21 @@ int main(void) {
   assert(updates==(keep?1:2) && checks==updates && invalidations==updates);
   assert(!previewVideoMode(setting->TV_mode) && updates==(keep?1:2));
  }
+ for(can576=0;can576<=1;can576++) for(int keep=0;keep<=1;keep++)
+ for(int mode=TV_mode_576P;mode<=TV_mode_576I;mode++) {
+  setting->TV_mode=TV_mode_NTSC;setting->screen_x=12;setting->screen_y=-8;
+  effective_mode=TV_mode_NTSC;updates=checks=invalidations=0;accept=keep;
+  int available=mode==TV_mode_576I || can576;
+  assert(previewVideoMode(mode)==(available && keep));
+  assert(setting->TV_mode==((available && keep)?mode:TV_mode_NTSC));
+  assert(effective_mode==((available && keep)?(mode==TV_mode_576I?TV_mode_PAL:TV_mode_576P):TV_mode_NTSC));
+  assert(updates==(available?(keep?1:2):0) && checks==updates && invalidations==updates);
+  assert(setting->screen_x==((keep && mode==TV_mode_576I)?0:12));
+  assert(setting->screen_y==((keep && mode==TV_mode_576I)?0:-8));
+ }
+ updates=checks=invalidations=0;
+ assert(!previewVideoMode(-1) && !previewVideoMode(TV_mode_COUNT) && !previewVideoMode(9999));
+ assert(!updates && !checks && !invalidations);
  return 0;
 }
 """
@@ -66,4 +89,4 @@ with tempfile.TemporaryDirectory(prefix="r3z-feedback-") as td:
     exe=path/"test.exe"
     subprocess.run([cc,"-std=c99","-Wall","-Wextra","-Werror",str(path/"test.c"),"-o",str(exe)],check=True)
     subprocess.run([str(exe)],check=True)
-print("PASS: video acceptance/rollback, MMCE initialization without stack replacement")
+print("PASS: separate 576p/576i acceptance/rollback and offsets; unsupported/invalid previews leave graphics untouched, MMCE initialization without stack replacement")

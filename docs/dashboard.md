@@ -168,12 +168,28 @@ Screen calibration previews video modes for 10 seconds so the display has
 time to resync. Choose Keep to browse the full interface in that mode;
 cancel or let the countdown expire to restore the previous mode and offsets.
 Save Settings separately to retain an accepted mode after restarting.
-NTSC, VGA and 480p render at 640×448; PAL and 576p render at 640×512.
+NTSC, VGA and 480p render at 640×448; PAL, 576p and 576i render at 640×512.
 The dashboard scales its shared 640×448 canvas to the framebuffer, preserving
 relative panel, text, clipping and row spacing. Check Home, Files, Tools,
 Settings and the Text Editor after each switch. The graphics transfer and
 rendering finish before a live GS reset, and the texture pool is recreated
 for the new framebuffer layout.
+
+Retail PS2 native 576p requires ROM 2.20 or newer, as in
+[PS2SDK's mode check](https://github.com/ps2dev/ps2sdk/blob/329e2bb43287e16af16c4dde1c614e2662c24468/ee/graph/src/graph_mode.c#L156).
+Detected PSX/DESR consoles also support native 576p on ROM 1.80J and 2.10J;
+[OPL's GSM notes](https://github.com/ps2homebrew/Open-PS2-Loader/blob/b3a2199795fe89ba7e2dd7b843354472dff2c3eb/src/gsm.c)
+cover these earlier PSX versions. **576p** and **576i** are separate choices.
+Unsupported 576p is grayed out in the mode chooser and skipped when changing
+modes with Left/Right. 576i remains available and uses PAL at 50 Hz. If an
+unsupported 576p or an invalid mode was saved, startup changes the selection
+to **Auto** before graphics initialization and uses the console region.
+Confirmation and rollback still use the 10-second window.
+
+PAL, 576p and 576i use the same 2.5 MiB for two framebuffers, leaving 1.5 MiB of
+GS VRAM for managed textures. A texture whose padded allocation, including
+its palette, exceeds that pool is rejected before the allocator so the
+interface can continue responding.
 
 | Group | Contents |
 |-------|----------|
