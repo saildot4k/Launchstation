@@ -918,8 +918,9 @@ static void editorScene(void)
 		drawKeyboard();
 		dashDrawHints(h, 6);
 	} else {
-		DashHint h[] = {{dashOkIcon(), NULL, "Type"}, {DI_BTN_SQUARE, NULL, d->mark >= 0 ? "End select" : "Select"},
-		                {-1, "L1/R1", "Line"}, {-1, "L2/R2", "Page"}, {DI_BTN_TRIANGLE, NULL, "Options"}, {dashBackIcon(), NULL, "Exit"}};
+		DashHint h[] = {{DI_BTN_SQUARE, NULL, d->mark >= 0 ? "End select" : "Select"},
+		                {-1, "L1/R1", "Line"}, {-1, "L2/R2", "Page"}, {-1, "SELECT", "Keys"},
+		                {DI_BTN_TRIANGLE, NULL, "Options"}, {dashBackIcon(), NULL, "Exit"}};
 		dashDrawHints(h, 6);
 	}
 	dashDrawToasts();
