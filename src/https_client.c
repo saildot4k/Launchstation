@@ -309,7 +309,8 @@ static void tls_free(HttpsTls *tls)
 {
     if (tls == NULL)
         return;
-    mbedtls_ssl_close_notify(&tls->ssl);
+    /* This also handles fatal TLS errors and incomplete handshakes. Close the
+     * transport without sending another TLS record from a failed session. */
     if (tls->sock >= 0) {
         ps2ipc_disconnect(tls->sock);
         tls->sock = -1;

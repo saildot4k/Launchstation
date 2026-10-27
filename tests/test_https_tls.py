@@ -70,7 +70,7 @@ typedef struct { int sock, ssl, conf, ca, ctr, entropy; } HttpsTls;
 #define MBEDTLS_SSL_VERIFY_REQUIRED 4
 typedef int (*RngFn)(void *,unsigned char *,size_t);
 static int handshake_result, parse_result, want_once, timeout;
-static int required_mode, hostname_set, frees, handshakes, waits, verifies, connects;
+static int required_mode, hostname_set, frees, handshakes, waits, verifies, connects, disconnects;
 static uint32_t verify_flags;
 static u32 https_entropy_network_ticks;
 #define INIT(name) static void name(int *p) { *p=1; }
@@ -147,16 +147,23 @@ static int mbedtls_x509_crt_verify_info(char *out,size_t cap,const char *prefix,
 static int wait_tls_io(HttpsTls *tls,int result) {
     assert(tls->sock==42 && result==MBEDTLS_ERR_SSL_WANT_READ);waits++;return timeout?-1:0;
 }
-static void tls_free(HttpsTls *tls) { (void)tls;frees++; }
+static int ps2ipc_disconnect(int sock) { assert(sock==42);disconnects++;return 0; }
+static void mbedtls_ssl_free(int *ssl) { assert(*ssl);frees++; }
+static void mbedtls_ssl_config_free(int *conf) { assert(*conf); }
+static void mbedtls_x509_crt_free(int *ca) { assert(*ca); }
+static void mbedtls_ctr_drbg_free(int *ctr) { assert(*ctr); }
+static void mbedtls_entropy_free(int *entropy) { assert(*entropy); }
+#define mbedtls_ssl_close_notify(ssl) assert(!"cleanup must not write to a failed TLS session")
 '''
 program += function("static void set_error(")
+program += function("static void tls_free(")
 program += function("static void tls_verify_error(")
 program += function("static int tls_open(")
 program += r'''
 static void reset(int result,uint32_t flags) {
     handshake_result=result;verify_flags=flags;
     parse_result=want_once=timeout=0;
-    required_mode=hostname_set=frees=handshakes=waits=verifies=connects=0;
+    required_mode=hostname_set=frees=handshakes=waits=verifies=connects=disconnects=0;
 }
 static void expect_failure(uint32_t flags,const char *detail) {
     HttpsTls tls;char error[256];
@@ -199,6 +206,16 @@ int main(void) {
     reset(0,0);
     assert(tls_open(&tls,"api.github.com","",error,sizeof(error))<0);
     assert(strstr(error,"CA bundle is required") && !connects && frees==1);
+    /* Repeated fatal sessions release TCP and every TLS context before retry. */
+    for(int i=0;i<100;i++) {
+        reset(-29056,(uint32_t)-1);
+        assert(tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error))<0);
+        assert(disconnects==1 && frees==1 && tls.sock==-1);
+        reset(0,0);
+        assert(!tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error)));
+        tls_free(&tls);
+        assert(disconnects==1 && frees==1 && tls.sock==-1);
+    }
     puts("PASS: reviewed updater roots; strict TLS, failed-handshake diagnostics, timeouts and cleanup");
     return 0;
 }

@@ -1125,6 +1125,7 @@ static void setChoice(int id, int v)
 			dashCfg.sound = v;
 			if (v)
 				dashSoundInit();
+			dashSoundApplyVolume();
 			break;
 		case S_SVOL:
 			dashCfg.sound_vol = v * 10;

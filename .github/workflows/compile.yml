@@ -108,6 +108,7 @@ jobs:
           python3 tests/test_files_tab_lifecycle.py
           python3 tests/test_bgm_sidecar.py
           python3 tests/test_sound_recovery.py
+          python3 tests/test_sound_channels.py
           python3 tests/test_poweroff_shutdown.py
           python3 tests/test_opl_title_cfg.py
           python3 tests/test_root_mc_poll.py

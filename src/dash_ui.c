@@ -255,7 +255,7 @@ void dashDrawHints(const DashHint *hints, int n)
 	{
 		DashColor sh = dashColorScale(dashTheme.bg2, 0.6f);
 		sh.a = 0;
-		dashRectGradH(x - 40, y - 6, DASH_SAFE_R - x + 60, 34, sh, DC(sh.r, sh.g, sh.b, 150));
+		dashRectGradH(x - 40, y - 6, DASH_PANE_R - (x - 40), 34, sh, DC(sh.r, sh.g, sh.b, 150));
 	}
 	for (i = 0; i < n; i++) {
 		x += drawButton(x, y, hints[i].button, hints[i].key) + 8.0f;

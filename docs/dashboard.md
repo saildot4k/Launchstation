@@ -376,7 +376,10 @@ Settings > Sound has *Interface sounds* (the UI effects) and
 *Background music* (the music track), each with its own volume
 (`Dash_Sound` / `Dash_SoundVolume` / `Dash_BGM` / `Dash_BGMVolume` in
 DASHBOARD.CNF, all on at 80% by default). The two switches are independent;
-turning off interface effects keeps enabled music playing. When the audio driver cannot
+turning off interface effects keeps enabled music playing. Muting or disabling
+music preserves the interface volume. Effects use only voices 0–22, including
+when a busy voice needs a fallback; voice 23 stays reserved for music.
+When the audio driver cannot
 start, everything stays silent — the dashboard works normally without
 sound (a toast says why).
 

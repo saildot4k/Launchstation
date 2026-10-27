@@ -57,7 +57,9 @@ assert "#define SND_TRANS_CH_BASE 14" in sound
 assert "#define SND_TRANS_CH_COUNT 4" in sound
 assert "ch = SND_TRANS_CH_BASE + transSlot;" in sound
 assert "transSlot = (transSlot + 1) % SND_TRANS_CH_COUNT;" in sound
-assert "audsrv_ch_play_adpcm(-1, &samples[id]);" in sound
+assert "audsrv_ch_play_adpcm(-1, &samples[id]);" not in sound
+assert "#define SND_FALLBACK_CH_BASE 18" in sound
+assert "(SND_FALLBACK_CH_BASE + i) % SND_SFX_CH_MAX" in sound
 
 # #133: the current-hour clock rod is gently lit, with no white fill block.
 clock = bg[bg.index("void dashBgSceneClockRing("):bg.index("// Light streaks")]

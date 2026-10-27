@@ -1604,17 +1604,6 @@ static void browserDrawBody(void)
 	} else if (rows_total == 0)
 		dashTextCenter(FB_X + FB_W * 0.5f, FB_Y + 50, "This folder is empty", DASH_FS_SMALL, DASH_C_TEXT3);
 	dashDrawScrollbar(FB_X + FB_W + 10, FB_Y, FB_ROWS * FB_ROW_H, fb.top, FB_ROWS, rows_total);
-	{
-		DashHint h[5];
-		int n = 0;
-		h[n].button = dashOkIcon(), h[n].key = NULL, h[n].label = "Open", n++;
-		if (fb.dir[0] && !isMisc(fb.dir))
-			h[n].button = DI_BTN_SQUARE, h[n].key = NULL, h[n].label = "Select", n++;
-		h[n].button = DI_BTN_TRIANGLE, h[n].key = NULL, h[n].label = "Options", n++;
-		if (fb.dir[0] || !fb_tab_active)
-			h[n].button = dashBackIcon(), h[n].key = NULL, h[n].label = fb.dir[0] ? "Up" : "Close", n++;
-		dashDrawHints(h, n);
-	}
 	/* Temporary hardware diagnostic for the completed USB listing/input-loss
 	 * report. Rendering uses the cached UI snapshot, never polls the IOP. */
 	if (fb.pad_snapshot_valid && isUsbBrowsePath(fb.dir) &&
@@ -1627,6 +1616,20 @@ static void browserDrawBody(void)
 	}
 }
 
+static void browserDrawHints(void)
+{
+	DashHint h[5];
+	int n = 0;
+
+	h[n].button = dashOkIcon(), h[n].key = NULL, h[n].label = "Open", n++;
+	if (fb.dir[0] && !isMisc(fb.dir))
+		h[n].button = DI_BTN_SQUARE, h[n].key = NULL, h[n].label = "Select", n++;
+	h[n].button = DI_BTN_TRIANGLE, h[n].key = NULL, h[n].label = "Options", n++;
+	if (fb.dir[0] || !fb_tab_active)
+		h[n].button = dashBackIcon(), h[n].key = NULL, h[n].label = fb.dir[0] ? "Up" : "Close", n++;
+	dashDrawHints(h, n);
+}
+
 /* The modal still supplies its own scene, while the tab is drawn as one
  * component of dashRenderScene() with the shared header and footer. */
 static void browserScene(void)
@@ -1634,6 +1637,7 @@ static void browserScene(void)
 	dashGfxBeginFrame();
 	dashBgDraw();
 	browserDrawBody();
+	browserDrawHints();
 	dashDrawNotifications();
 }
 
@@ -1772,6 +1776,13 @@ static void browserTabDraw(void)
 		browserDrawBody();
 }
 
+static void browserTabHints(void)
+{
+	/* Let the shell draw hints outside the page slide/fade, like other tabs. */
+	if (fb_tab_active)
+		browserDrawHints();
+}
+
 void dashFileBrowserTabClose(void)
 {
 	if (!fb_tab_active)
@@ -1812,7 +1823,7 @@ void dashFileBrowserTabOpen(const char *start_dir)
 }
 
 const DashScreen dashFilesScreen = {
-	browserTabEnter, browserTabInput, browserTabUpdate, browserTabDraw, NULL
+	browserTabEnter, browserTabInput, browserTabUpdate, browserTabDraw, browserTabHints
 };
 
 //--------------------------------------------------------------

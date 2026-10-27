@@ -146,9 +146,10 @@ static void do_recv( void * rpcBuffer, int size )
 	recvlen = MIN(BUFF_SIZE, recv_pkt->length);
 
 	// Do actual TCP recv
+	memset(&rests, 0, sizeof(rests));
 	rlen = recv(recv_pkt->socket, lwip_buffer + s_offset, recvlen, recv_pkt->flags);
 
-	if(rlen <= 0) goto recv_end;
+	if(rlen <= 0) goto send_rest;
 	if(rlen <= 64) srest = rlen;
 
 	// fill sbuffer, calculate align buffer & erest valules, fill ebuffer
@@ -196,6 +197,7 @@ static void do_recv( void * rpcBuffer, int size )
 	rests.sbuf = recv_pkt->ee_addr;
 	rests.ebuf = aebuffer;
 
+send_rest:
 	while(sceSifDmaStat(dma_id) >= 0);
 
 	sifdma.src = &rests;
@@ -206,7 +208,8 @@ static void do_recv( void * rpcBuffer, int size )
 	dma_id = sceSifSetDma(&sifdma, 1);
 	CpuResumeIntr(intr_stat);
 
-recv_end:
+	/* The EE callback reads this metadata as soon as the RPC completes. */
+	while(sceSifDmaStat(dma_id) >= 0);
 	ret_pkt->ret = rlen;
 }
 
@@ -243,9 +246,10 @@ static void do_recvfrom( void * rpcBuffer, int size )
 	recvlen = MIN(BUFF_SIZE, recv_pkt->length);
 
 	// Do actual UDP recvfrom
+	memset(&rests, 0, sizeof(rests));
 	rlen = recvfrom(recv_pkt->socket, lwip_buffer + s_offset, recvlen, recv_pkt->flags, &sockaddr, &fromlen);
 
-	if(rlen <= 0) goto recv_end;
+	if(rlen <= 0) goto send_rest;
 	if(rlen <= 64) srest = rlen;
 
 	// fill sbuffer, calculate align buffer & erest valules, fill ebuffer
@@ -293,6 +297,7 @@ static void do_recvfrom( void * rpcBuffer, int size )
 	rests.sbuf = recv_pkt->ee_addr;
 	rests.ebuf = aebuffer;
 
+send_rest:
 	while(sceSifDmaStat(dma_id) >= 0);
 
 	sifdma.src = &rests;
@@ -303,7 +308,7 @@ static void do_recvfrom( void * rpcBuffer, int size )
 	dma_id = sceSifSetDma(&sifdma, 1);
 	CpuResumeIntr(intr_stat);
 
-recv_end:
+	while(sceSifDmaStat(dma_id) >= 0);
 	/* Request and reply share rpcBuffer. The sockaddr overlaps ee_addr and
 	 * intr_data: copy it only after all DMA destinations have been consumed. */
 	memcpy(&ret_pkt->sockaddr, &sockaddr, sizeof(sockaddr));

@@ -65,6 +65,7 @@ static int soundAlive(void)
 #define SND_CURSOR_CH_COUNT 6
 #define SND_TRANS_CH_BASE 14
 #define SND_TRANS_CH_COUNT 4
+#define SND_FALLBACK_CH_BASE 18
 
 static void *blob_data(int id)
 {
@@ -234,12 +235,22 @@ void dashSoundApplyVolume(void)
 		audsrv_adpcm_set_volume_and_pan(i, dashCfg.sound ? dashCfg.sound_vol : 0, 0);
 }
 
+static int soundPlayChannel(int ch, int id)
+{
+	if (audsrv_ch_play_adpcm(ch, &samples[id]) < 0)
+		return 0;
+	/* A reused voice must use the interface volume, including after toggles
+	 * or a failed launch temporarily muted the dashboard. */
+	audsrv_adpcm_set_volume_and_pan(ch, dashCfg.sound_vol, 0);
+	return 1;
+}
+
 void dashSoundPlay(int id)
 {
 	static int cursorSlot;
 	static int transSlot;
 	static u64 lastCursorMs;
-	int ch;
+	int ch, i;
 
 	if (!soundAlive() || !dashCfg.sound || id < 0 || id >= DASH_SND_COUNT)
 		return;
@@ -261,9 +272,15 @@ void dashSoundPlay(int id)
 	} else {
 		ch = id; /* any fixed voice < 8; cursor occupies 8..13, transition 14..17 */
 	}
-	if (audsrv_ch_play_adpcm(ch, &samples[id]) < 0) {
-		/* If targeted voice was busy, play on any free SFX voice (#136) */
-		audsrv_ch_play_adpcm(-1, &samples[id]);
+	if (soundPlayChannel(ch, id))
+		return;
+	/* Prefer spare voices, then other SFX voices. audsrv's automatic (-1)
+	 * allocation includes the music voice; a looping/muted track can appear
+	 * available through ENDX, causing silent effects or replacing the music. */
+	for (i = 0; i < SND_SFX_CH_MAX; i++) {
+		int fallback = (SND_FALLBACK_CH_BASE + i) % SND_SFX_CH_MAX;
+		if (fallback != ch && soundPlayChannel(fallback, id))
+			return;
 	}
 }
 

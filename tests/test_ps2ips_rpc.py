@@ -9,6 +9,9 @@ root = Path(__file__).resolve().parents[1]
 module = root / "iop/ps2ips_rpc"
 yaml = (root / "ps2.yaml").read_text()
 server = (module / "ps2ips.c").read_text()
+client = (root / "ee_libs/tcpips/ps2ipc.c").read_text()
+assert "      - ee_libs/tcpips/ps2ipc.c\n" in yaml
+assert '#include "../../iop/ps2ips_rpc/ps2ip_rpc.h"' in client
 
 
 def check_build_config(config):
@@ -47,16 +50,16 @@ assert "ps2build build -c iop/ps2ips_rpc/ps2.yaml" in workflow
 assert "I_DeleteThread" in (module / "imports.lst").read_text()
 
 
-def function(name):
+def function(name, source=server):
     match = re.search(r"(?:static )?(?:void \* |void \*|void |int )" +
-                      name + r"\([^)]*\)\n\{", server)
+                      name + r"\([^)]*\)\n\{", source)
     assert match, name
-    end = server.index("{", match.start()) + 1
+    end = source.index("{", match.start()) + 1
     depth = 1
     while depth:
-        depth += (server[end] == "{") - (server[end] == "}")
+        depth += (source[end] == "{") - (source[end] == "}")
         end += 1
-    return server[match.start():end] + "\n"
+    return source[match.start():end] + "\n"
 
 
 code = r'''
@@ -207,6 +210,8 @@ static u8 payload[BUFF_SIZE],sent[BUFF_SIZE];
 static rests_pkt received_rest;
 static u8 *expected_target;
 static int wanted,wire_length,transfer_error,dma_calls,address_capacity,sent_length;
+static int pending_dma;
+static struct t_SifDmaTransfer queued_dma;
 static struct sockaddr peer;
 static int copy_incoming(void *data,int size) {
     assert(size==wanted && (char *)data>=lwip_buffer);
@@ -241,18 +246,23 @@ static int rpc_send(int socket,const void *data,int size,int flags) {
 #define recv rpc_recv
 #define sendto rpc_sendto
 #define send rpc_send
-static int sceSifDmaStat(int id) { (void)id;return -1; }
+static int sceSifDmaStat(int id) {
+    if(pending_dma && id==pending_dma) {
+        memcpy(queued_dma.dest,queued_dma.src,queued_dma.size);pending_dma=0;
+    }
+    return -1;
+}
 static int CpuSuspendIntr(int *state) { *state=1;return 0; }
 static int CpuResumeIntr(int state) { assert(state==1);return 0; }
 static int sceSifSetDma(const struct t_SifDmaTransfer *dma,int count) {
-    assert(count==1 && !dma->attr);dma_calls++;
+    assert(count==1 && !dma->attr && !pending_dma);dma_calls++;
     if(dma->src==&rests) {
         assert(dma->dest==&received_rest && dma->size==sizeof(rests));
     } else {
         assert((u8 *)dma->dest>=expected_target && (u8 *)dma->dest+dma->size<=expected_target+wire_length);
         assert((char *)dma->src>=lwip_buffer && (char *)dma->src+dma->size<=lwip_buffer+sizeof(lwip_buffer));
     }
-    memcpy(dma->dest,dma->src,dma->size);return dma_calls;
+    queued_dma=*dma;pending_dma=dma_calls;return dma_calls;
 }
 static int sceSifGetOtherData(SifRpcReceiveData_t *data,void *source,void *dest,int size,int mode) {
     (void)data;assert(size>=0 && !mode);
@@ -262,13 +272,46 @@ static int sceSifGetOtherData(SifRpcReceiveData_t *data,void *source,void *dest,
 """
 for name in ("do_recvfrom", "do_recv", "do_sendto", "do_send"):
     transport += function(name)
+transport += re.search(r"static u8 _intr_data\[[^;]+;", client).group() + "\n"
+transport += r"""
+typedef struct { int server; } SifRpcClientData_t;
+static SifRpcClientData_t _ps2ip={1};
+static int lock_sema=1,locked,legacy_no_data;
+static union { s_recv_pkt s_recv_pkt;r_recv_pkt r_recv_pkt; } _rpc_buffer;
+#define UNCACHED_SEG(p) (p)
+#define IS_UNCACHED_SEG(p) ((void)(p),0)
+static void WaitSema(int sema) { assert(sema==1 && !locked);locked=1; }
+static void SignalSema(int sema) { assert(sema==1 && locked);locked=0; }
+static void sceSifWriteBackDCache(void *mem,int n) { assert(mem==expected_target && n==wanted); }
+static int sceSifCallRpc(SifRpcClientData_t *rpc,int command,int mode,void *request,int size,
+                         void *reply,int reply_size,void (*callback)(void *),void *arg) {
+    assert(rpc==&_ps2ip && locked && !mode && size==sizeof(s_recv_pkt));
+    assert(reply_size==sizeof(r_recv_pkt) && arg==_intr_data);
+    assert(sizeof(_intr_data)>=sizeof(rests_pkt));
+    assert(command==PS2IPS_ID_RECV || command==PS2IPS_ID_RECVFROM);
+    memcpy(&shared.rx,request,size);assert(shared.rx.intr_data==_intr_data);
+    shared.rx.intr_data=&received_rest;
+    if(legacy_no_data) {
+        assert(transfer_error==-1 && !wire_length);shared.reply.ret=-1;
+    } else {
+        (command==PS2IPS_ID_RECV?do_recv:do_recvfrom)(&shared,size);
+        assert(!pending_dma); /* Metadata must finish before the EE callback. */
+    }
+    memcpy(reply,&shared.reply,reply_size);
+    memcpy(_intr_data,&received_rest,sizeof(received_rest));
+    callback(arg);return 0;
+}
+"""
+for name in ("recv_intr", "ps2ipc_recv", "ps2ipc_recvfrom"):
+    transport += function(name, client)
 transport += r"""
 static void reset_transfer(int offset,int length) {
+    assert(!pending_dma);
     memset(&shared,0,sizeof(shared));memset(ee,0xcc,sizeof(ee));
     memset(&received_rest,0,sizeof(received_rest));memset(&rests,0,sizeof(rests));
     memset(&peer,0x5a,sizeof(peer));peer.sa_family=AF_INET;
     expected_target=ee+64+offset;wanted=length;wire_length=length;
-    transfer_error=dma_calls=sent_length=address_capacity=0;
+    transfer_error=dma_calls=sent_length=address_capacity=legacy_no_data=0;
     for(int i=0;i<BUFF_SIZE;i++)payload[i]=(u8)(i*43+17);
     payload[0]=0x24;payload[1]=2; /* NTP v4 server reply, stratum two. */
 }
@@ -276,8 +319,12 @@ static void check_receive(int udp,int offset,int length,int actual,int error) {
     reset_transfer(offset,length);wire_length=actual;transfer_error=error;
     shared.rx=(s_recv_pkt){7,length,0,expected_target,&received_rest};
     (udp?do_recvfrom:do_recv)(&shared,sizeof(shared.rx));
+    assert(!pending_dma);
     assert(shared.reply.ret==(error?error:actual));
-    if(error || actual==0) { assert(!dma_calls);return; }
+    if(error || actual==0) {
+        assert(dma_calls==1 && !received_rest.ssize && !received_rest.esize);
+        return;
+    }
     if(udp) {
         assert(!memcmp(&shared.reply.sockaddr,&peer,sizeof(peer)));
     }
@@ -309,6 +356,45 @@ static void check_send(int udp,int offset,int length,int error) {
     assert(result==(error?error:length));
     if(!error)assert(sent_length==length && !memcmp(sent,payload,length));
 }
+static void check_receive_retry(int udp) {
+    check_receive(udp,13,1024,1024,0);
+    /* Nonblocking retries and EOF must not replay the previous transfer's
+     * head/tail into memory that TLS has already decrypted or freed. */
+    memset(ee,0xa7,sizeof(ee));
+    for(int result=0;result>=-1;result--) {
+        shared.rx=(s_recv_pkt){7,1024,0,expected_target,&received_rest};
+        wire_length=0;transfer_error=result;
+        (udp?do_recvfrom:do_recv)(&shared,sizeof(shared.rx));
+        assert(!pending_dma);
+        assert(shared.reply.ret==result);
+        assert(!received_rest.ssize && !received_rest.esize);
+        for(unsigned i=0;i<sizeof(ee);i++)assert(ee[i]==0xa7);
+    }
+}
+static int client_receive(int udp) {
+    struct sockaddr from;int fromlen=sizeof(from);
+    int result=udp?ps2ipc_recvfrom(7,expected_target,wanted,0,&from,&fromlen):
+                   ps2ipc_recv(7,expected_target,wanted,0);
+    assert(!locked && !pending_dma);
+    if(udp && result>0)assert(fromlen==sizeof(peer) && !memcmp(&from,&peer,sizeof(peer)));
+    return result;
+}
+static void check_client_receive(int udp,int offset,int length) {
+    reset_transfer(offset,length);
+    assert(client_receive(udp)==length && !memcmp(expected_target,payload,length));
+    for(u8 *p=ee;p<expected_target;p++)assert(*p==0xcc);
+    for(u8 *p=expected_target+length;p<ee+sizeof(ee);p++)assert(*p==0xcc);
+    /* Even an old server's stale metadata must be ignored after a failed read. */
+    memset(ee,0xa7,sizeof(ee));wire_length=0;transfer_error=-1;legacy_no_data=1;
+    assert(client_receive(udp)==-1);
+    for(unsigned i=0;i<sizeof(ee);i++)assert(ee[i]==0xa7);
+    /* The owned server clears metadata on retries and EOF; a new read works. */
+    legacy_no_data=0;
+    assert(client_receive(udp)==-1);
+    transfer_error=0;assert(client_receive(udp)==0);
+    wire_length=length;
+    assert(client_receive(udp)==length && !memcmp(expected_target,payload,length));
+}
 int main(void) {
     const int lengths[]={1,47,48,63,64,65,127,128,960,1024};
     check_receive(1,0,48,48,0); /* Reproduce the NTP reply before other transfers. */
@@ -317,13 +403,16 @@ int main(void) {
             int length=lengths[l];
             check_receive(udp,offset,length,length,0);
             check_send(udp,offset,length,0);
+            check_client_receive(udp,offset,length);
         }
         check_receive(udp,offset,128,48,0); /* Short NTP datagram into a larger buffer. */
         check_receive(udp,offset,48,0,0);
         check_receive(udp,offset,48,0,-1);
         check_send(udp,offset,48,-1);
     }
-    puts("PASS: real UDP/TCP RPC transfers preserve NTP origin bytes, peer address, unaligned buffers, full-size payloads and guards");
+    check_receive_retry(0);
+    check_receive_retry(1);
+    puts("PASS: real EE/IOP UDP/TCP transfers preserve bytes, metadata capacity, DMA ordering, unaligned buffers and guards across retries/EOF and fresh reads");
 }
 """
 with tempfile.TemporaryDirectory(prefix="ps2ips-transfer-") as folder:

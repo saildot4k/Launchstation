@@ -13,7 +13,9 @@ Original source notices and copyrights are retained.
 The PS2BUILD SDK's `ps2ips` target supplies the EE client library. It is not an
 IRX artifact. Launchstation builds this server as the separate IOP target
 `ps2ips_rpc` and embeds it with `ps2ips_rpc:ps2ips`, retaining the runtime symbols
-`ps2ips_irx` / `size_ps2ips_irx`. The EE client remains linked as `ps2ips`.
+`ps2ips_irx` / `size_ps2ips_irx`. The standard PS2BUILD target compiles the
+corrected [EE client](../../ee_libs/tcpips/VENDORED.md) directly; `ps2ips`
+supplies its libc adapter.
 The runtime loads this server only for Internet clients, after their IP stack.
 
 Local changes to the upstream server:
@@ -29,6 +31,9 @@ Local changes to the upstream server:
    for the received packet and its DMA/reassembly metadata.
 5. The shared socket transfer buffer reserves 64 bytes of headroom, covering
    a full 1024-byte payload at every supported alignment.
+6. TCP/UDP reads with no payload return cleared receive metadata, preventing
+   the EE callback from replaying an earlier read's head/tail into TLS memory.
+   Metadata DMA completes before the RPC returns, including on errors and EOF.
 
 `ps2.yaml` provides an isolated PS2BUILD compile check. The root `ps2.yaml`
 builds the same source with DNS enabled. The legacy Makefile continues to use

@@ -16,6 +16,7 @@ Current ownership map, reviewed October 25, 2026. This describes the existing tr
 | Settings Save/Discard | `dash_settings.c`, `dash_store.c`, `config.c` |
 | Game launch | `main_actions.c`, selected core adapter, `elf.c`, then `loader/loader.c` |
 | Update download/install | `https_client.c`, `self_update.c`, `update_psu.c`, `scripts/build_https_tls.sh` |
+| Internet socket receive integrity | `ee_libs/tcpips/ps2ipc.c` (EE client), `iop/ps2ips_rpc/ps2ips.c` (IOP server); shared wire ABI in `iop/ps2ips_rpc/ps2ip_rpc.h` |
 
 ## Boundaries to preserve
 

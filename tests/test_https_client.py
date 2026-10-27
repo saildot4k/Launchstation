@@ -89,7 +89,7 @@ static void mbedtls_sha256_free(mbedtls_sha256_context *s) {(void)s;}
 static const char *replies[8];
 static char requests[8][4096], hosts[8][256], output[1024];
 static int connections, closed, reply_at, read_step, output_at, write_step;
-static int want_read, timeout, fail_write;
+static int want_read, timeout, fail_write, fail_read;
 static void set_error(char *e,int cap,const char *s,int r) {
     (void)r;if(e && cap>0)snprintf(e,cap,"%s",s);
 }
@@ -106,6 +106,7 @@ static int ssl_write_all(HttpsTls *tls,const void *p,int n,char *e,int cap) {
 static int wait_tls_io(HttpsTls *tls,int r) {(void)tls;(void)r;return timeout?-1:0;}
 static int mbedtls_ssl_read(int *ssl,unsigned char *p,size_t n) {
     size_t left;
+    if(fail_read){fail_read=0;return -29056;}
     if(want_read){want_read=0;return MBEDTLS_ERR_SSL_WANT_READ;}
     assert(replies[*ssl]);left=strlen(replies[*ssl])-reply_at;
     if(n>left)n=left;
@@ -126,7 +127,7 @@ static void reset(void) {
     memset(replies,0,sizeof(replies));memset(requests,0,sizeof(requests));
     memset(hosts,0,sizeof(hosts));memset(output,0,sizeof(output));
     connections=closed=reply_at=read_step=output_at=write_step=0;
-    want_read=timeout=fail_write=0;
+    want_read=timeout=fail_write=fail_read=0;
 }
 '''
 c += header
@@ -160,6 +161,19 @@ int main(void) {
     assert(strstr(requests[0],"User-Agent: Launchstation/HTTPS"));
     httpsResponseFree(&response);assert(!response.body && !response.body_len);
     assert(connections==1 && closed==1);
+
+    /* A record MAC error must release the session before a fresh check. */
+    for(i=0;i<3;i++) {
+        reset();replies[0]=replies[1]="HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}";
+        fail_read=1;
+        assert(httpsRequest("GET","api.github.com","/latest",NULL,NULL,0,
+                            "WLE-UPDATE-CA.PEM",&response,error,sizeof(error))<0);
+        assert(strstr(error,"HTTPS read") && !response.body && closed==1);
+        assert(!httpsRequest("GET","api.github.com","/latest",NULL,NULL,0,
+                             "WLE-UPDATE-CA.PEM",&response,error,sizeof(error)));
+        assert(response.status==200 && !strcmp(response.body,"{}") && closed==2);
+        httpsResponseFree(&response);
+    }
 
     reset();replies[0]="HTTP/1.1 302 Found\r\nLocation: https://objects.githubusercontent.com/pkg\r\n\r\n";
     replies[1]="HTTP/1.1 307 Temporary Redirect\r\nLocation: /final\r\n\r\n";
