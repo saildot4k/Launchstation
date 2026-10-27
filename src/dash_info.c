@@ -178,8 +178,8 @@ void dashShowAbout(void)
 	sheetAdd(&s, SL_TEXT, "kthu, Slam-Tilt, chip, pixel, Hermes, PCM720");
 	sheetAdd(&s, SL_TEXT, "and others in the PS2Dev community");
 	sheetAdd(&s, SL_HEAD, "Releases");
-	sheetAdd(&s, SL_TEXT, "github.com/ps2homebrew/wLaunchELF/releases");
-	sheetAdd(&s, SL_TEXT, "github.com/NathanNeurotic/Launchstation/releases");
+	sheetAdd(&s, SL_TEXT, "github.com/saildot4k/wLaunchELF_R3Z/releases");
+	sheetAdd(&s, SL_TEXT, "github.com/saildot4k/Launchstation/releases");
 	sheetAdd(&s, SL_GAP, NULL);
 	sheetAdd(&s, SL_MUTED, "Ancestral project: LaunchELF v3.41 by Mirakichi");
 	sheetAdd(&s, SL_MUTED, "Dashboard text: Roboto (Apache License 2.0)");
@@ -275,7 +275,7 @@ void dashShowBuildInfo(void)
 #endif
 #endif
 	sheetAdd(&s, SL_GAP, NULL);
-	sheetAdd(&s, SL_MUTED, "github.com/NathanNeurotic/Launchstation/releases");
+	sheetAdd(&s, SL_MUTED, "github.com/saildot4k/Launchstation/releases");
 	{
 		char sub[64];
 		snprintf(sub, sizeof(sub), "Launchstation %s (%s)", ULE_VERSION, GIT_HASH);

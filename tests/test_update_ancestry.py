@@ -36,9 +36,9 @@ program = r'''
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "self_update.h"
 #define MAX_PATH 256
 #define GIT_HASH "e70d903"
-#define SELF_UPDATE_ASSET "APP_LAUNCHSTATION.psu"
 #define DI_CHECK 1
 #define DI_WARNING 2
 typedef struct {
@@ -49,23 +49,37 @@ typedef struct {
 static char comparison[32] = "ahead";
 static char release_target[80] = "51e1e0c7bc1efcb5b51c6cc9de056ee858694a03";
 static const char *last_title;
+static char last_body[320];
 static int requests, compares, confirmations, installs, response_status = 200;
-static int launchstationUpdateCaPath(char *path, int n) {
-    snprintf(path,n,"ca.pem");
-    return 1;
+static int worker_ready, ca_ready, network_ready;
+static int waits, polls, ca_checks, network_checks;
+static int dashWorkerAwaitAll(const char *title) {
+    assert(title != NULL);waits++;return worker_ready;
 }
-static int ensureDashboardIpNetworkReady(void) { return 1; }
+static void filerRootMcPollIdle(void) {
+    assert(waits==1 && worker_ready);polls++;
+}
+static int launchstationUpdateCaPath(char *path, int n) {
+    assert(waits==1 && polls==1);ca_checks++;
+    snprintf(path,n,"ca.pem");
+    return ca_ready;
+}
+static int ensureDashboardIpNetworkReady(void) {
+    assert(ca_checks==1 && ca_ready);network_checks++;return network_ready;
+}
+static const char *dashboardIpNetworkError(void) { return "Detailed network startup failure"; }
 static void dashLoadingBegin(const char *s) { (void)s; }
 static void dashLoadingEnd(void) {}
 static void dashModalMessage(int kind,const char *title,const char *body,const char *detail) {
-    (void)kind;(void)body;(void)detail;
+    (void)kind;(void)detail;
     last_title=title;
+    snprintf(last_body,sizeof(last_body),"%s",body ? body : "");
 }
 static int dashModalConfirm(const char *title,const char *body,const char *action,int danger) {
     (void)title;(void)body;(void)action;(void)danger;
     confirmations++; return 1;
 }
-static int selfUpdateInstall(const char *ca,const char *digest,char *result,int cap) {
+int selfUpdateInstall(const char *ca,const char *digest,char *result,int cap) {
     (void)ca;(void)digest;
     installs++;
     snprintf(result,cap,"installed");
@@ -77,6 +91,9 @@ static int httpsRequest(const char *method,const char *host,const char *path,
     char json[512];
     (void)headers;(void)body;(void)body_len;(void)ca;(void)err;(void)err_size;
     assert(!strcmp(method,"GET") && !strcmp(host,"api.github.com"));
+    assert(network_checks==1 && network_ready);
+    assert(!strncmp(path,"/repos/saildot4k/Launchstation/",
+                    strlen("/repos/saildot4k/Launchstation/")));
     requests++;
     if (strstr(path,"/compare/")) {
         compares++;
@@ -85,9 +102,9 @@ static int httpsRequest(const char *method,const char *host,const char *path,
         snprintf(json,sizeof(json),"{\"status\":\"%s\"}",comparison);
         out->status=response_status;
     } else {
-        assert(strstr(path,"/releases/tags/latest"));
-        snprintf(json,sizeof(json),"{\"target_commitish\":\"%s\",\"assets\":[{\"name\":\"APP_LAUNCHSTATION.psu\",\"digest\":\"sha256:%064d\"}]}",
-                 release_target,0);
+        assert(!strcmp(path,"/repos/saildot4k/Launchstation/releases/tags/latest"));
+        snprintf(json,sizeof(json),"{\"target_commitish\":\"%s\",\"assets\":[{\"name\":\"%s\",\"digest\":\"sha256:%064d\"}]}",
+                 release_target,SELF_UPDATE_ASSET,0);
         out->status=200;
     }
     out->body=malloc(strlen(json)+1);
@@ -104,7 +121,10 @@ program += enums + sources
 program += r'''
 static void reset(const char *status,const char *release,int code) {
     requests=compares=confirmations=installs=0;
+    waits=polls=ca_checks=network_checks=0;
+    worker_ready=ca_ready=network_ready=1;
     last_title=NULL;
+    last_body[0]='\0';
     snprintf(comparison,sizeof(comparison),"%s",status);
     snprintf(release_target,sizeof(release_target),"%s",release);
     response_status=code;
@@ -114,6 +134,19 @@ int main(void) {
     reset("ahead",old,200);
     dashToolsCheckUpdates();
     assert(compares==1 && requests==2 && confirmations==1 && installs==1);
+    assert(waits==1 && polls==1 && ca_checks==1 && network_checks==1);
+    reset("ahead",old,200);worker_ready=0;
+    dashToolsCheckUpdates();
+    assert(waits==1 && !polls && !ca_checks && !network_checks && !requests && !installs);
+    reset("ahead",old,200);ca_ready=0;
+    dashToolsCheckUpdates();
+    assert(!network_checks && !requests && !installs);
+    assert(!strcmp(last_title,"Update check needs the CA bundle"));
+    reset("ahead",old,200);network_ready=0;
+    dashToolsCheckUpdates();
+    assert(!requests && !installs);
+    assert(!strcmp(last_title,"Update check unavailable"));
+    assert(!strcmp(last_body,"Detailed network startup failure"));
     reset("behind",old,200);
     dashToolsCheckUpdates();
     assert(compares==1 && confirmations==0 && installs==0);
@@ -149,6 +182,8 @@ with tempfile.TemporaryDirectory(prefix="launchstation-update-order-") as temp:
     path=Path(temp)/"check.c"
     binary=Path(temp)/"check"
     path.write_text(program)
-    subprocess.run([compiler,"-std=c11","-Wall","-Wextra","-Werror",
-                    str(path),"-o",str(binary)],check=True)
-    subprocess.run([str(binary)],check=True,timeout=5)
+    for variant in ([], ["-DDS34"]):
+        subprocess.run([compiler,"-std=c11","-Wall","-Wextra","-Werror",
+                        "-I",str(root/"include"),*variant,
+                        str(path),"-o",str(binary)],check=True)
+        subprocess.run([str(binary)],check=True,timeout=5)

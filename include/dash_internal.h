@@ -817,7 +817,7 @@ void dashAccentGlow(float cx, float cy, float rx, float ry, float strength);
 DashColor dashItemColor(int selected); /* text colour of a list row */
 void dashDrawSpinner(float cx, float cy, float r, DashColor c);
 void dashToast(int kind, const char *msg);
-void dashDrawToasts(void);
+void dashDrawNotifications(void); /* shared stack for toasts and worker activity */
 
 /* Disabled controls stay visibly dim even when a theme uses similar text
  * colours. Apply to the whole row, including icons and secondary values. */
@@ -914,7 +914,7 @@ int dashWorkerAwait(int id, const char *title, int cancelable); /* 0 = cancelled
 int dashWorkerAwaitAll(const char *title);                       /* 0 = cancelled */
 int dashWorkerOnThread(void);
 void dashWorkerStatus(const char *text, int done, int total);   /* worker side */
-void dashDrawActivity(void);
+void dashDrawActivity(float y); /* positioned by dashDrawNotifications */
 /* A background job rebooting the IOP parks the UI thread at its next
  * dashWorkerParkPoint(): no pad reads, no sound, until the IOP is back. */
 void dashWorkerParkPoint(void);

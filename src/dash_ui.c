@@ -578,7 +578,7 @@ void dashDrawSpinner(float cx, float cy, float r, DashColor c)
 }
 
 //--------------------------------------------------------------
-// Toasts
+// Notifications: transient toasts and worker activity share one stack.
 //--------------------------------------------------------------
 #define TOAST_MAX 3
 typedef struct
@@ -646,7 +646,7 @@ void dashUiUpdate(float dt)
 	}
 }
 
-void dashDrawToasts(void)
+void dashDrawNotifications(void)
 {
 	int i;
 	float y = 354.0f;
@@ -679,6 +679,8 @@ void dashDrawToasts(void)
 		dashGfxPopAlpha();
 		y -= 40.0f;
 	}
+	/* Reserve a separate row for background work, including its fade-out. */
+	dashDrawActivity(y);
 }
 
 //--------------------------------------------------------------
@@ -932,7 +934,7 @@ int dashModalChoice(const char *title, const char *const *options, int n, int cu
 }
 
 static int modalButtons(const char *title, const char *body, const char *detail, int icon, DashColor icon_col,
-                        const char *ok_label, const char *cancel_label, int default_sel, u64 deadline)
+                        const char *ok_label, const char *cancel_label, int default_sel, int direct_actions, u64 deadline)
 {
 	int sel = default_sel;
 	float open = 0.0f, sel_anim = (float)default_sel, title_age = 0.0f;
@@ -975,14 +977,15 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 			dashInputFlush();
 			return 0;
 		}
-		if (cancel_label != NULL && (in.pressed & (DASH_IN_LEFT | DASH_IN_RIGHT))) {
+		if (!direct_actions && cancel_label != NULL && (in.pressed & (DASH_IN_LEFT | DASH_IN_RIGHT))) {
 			sel ^= 1;
 			dashSoundPlay(DASH_SND_CURSOR);
 		}
 		if (in.pressed & DASH_IN_OK) {
-			dashSoundPlay(cancel_label == NULL || sel == 0 ? DASH_SND_CONFIRM : DASH_SND_CANCEL);
+			int accepted = direct_actions || cancel_label == NULL || sel == 0;
+			dashSoundPlay(accepted ? DASH_SND_CONFIRM : DASH_SND_CANCEL);
 			dashInputFlush();
-			return (cancel_label == NULL) ? 1 : (sel == 0);
+			return accepted;
 		}
 		if (in.pressed & DASH_IN_BACK) {
 			dashSoundPlay(DASH_SND_CANCEL);
@@ -1025,27 +1028,30 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 			dashPanel(bx0, by, bw, button_h, 9, DC(255, 255, 255, 18));
 			if (cancel_label != NULL)
 				dashPanel(bx1, by, bw, button_h, 9, DC(255, 255, 255, 18));
-			if (sel == 0 && icon == DI_WARNING && cancel_label) {
-				DashColor dz = dashColorScale(DASH_C_DANGER, 0.78f);
-				dz.a = 170;
-				dashPanel(fx, by, bw, button_h, 9, dz);
-				dashPanelBorder(fx, by, bw, button_h, 9, DASH_C_SELEDGE);
-			} else if (dashTheme.highlight == DASH_HL_TEXT) {
-				/* buttons need a visible focus even in text-only themes */
-				dashPanelBorder(fx, by, bw, button_h, 9, dashColorA(DASH_C_ACCENT, 0.8f));
-			} else
-				dashDrawSelection(fx, by, bw, button_h, 9, 1.0f);
+			/* Direct actions are always available; neither has movable focus. */
+			if (!direct_actions) {
+				if (sel == 0 && icon == DI_WARNING && cancel_label) {
+					DashColor dz = dashColorScale(DASH_C_DANGER, 0.78f);
+					dz.a = 170;
+					dashPanel(fx, by, bw, button_h, 9, dz);
+					dashPanelBorder(fx, by, bw, button_h, 9, DASH_C_SELEDGE);
+				} else if (dashTheme.highlight == DASH_HL_TEXT) {
+					/* buttons need a visible focus even in text-only themes */
+					dashPanelBorder(fx, by, bw, button_h, 9, dashColorA(DASH_C_ACCENT, 0.8f));
+				} else
+					dashDrawSelection(fx, by, bw, button_h, 9, 1.0f);
+			}
 			/* Confirmation actions use exactly the same sized glyph/badge
 			 * renderer as the dashboard footer and modal hints (#158). */
-			dashGfxPushAlpha(sel == 0 ? 1.0f : 0.55f);
+			dashGfxPushAlpha(direct_actions || sel == 0 ? 1.0f : 0.55f);
 			drawButton(bx0 + 12, by + 3, dashOkIcon(), NULL);
 			dashGfxPopAlpha();
-			dashTextCenter(bx0 + bw * 0.5f + 10, by + 4.0f, ok_label, DASH_FS_SMALL, dashItemColor(sel == 0));
+			dashTextCenter(bx0 + bw * 0.5f + 10, by + 4.0f, ok_label, DASH_FS_SMALL, direct_actions ? DASH_C_TEXT : dashItemColor(sel == 0));
 			if (cancel_label != NULL) {
-				dashGfxPushAlpha(sel == 1 ? 1.0f : 0.55f);
+				dashGfxPushAlpha(direct_actions || sel == 1 ? 1.0f : 0.55f);
 				drawButton(bx1 + 12, by + 3, dashBackIcon(), NULL);
 				dashGfxPopAlpha();
-				dashTextCenter(bx1 + bw * 0.5f + 10, by + 4.0f, cancel_label, DASH_FS_SMALL, dashItemColor(sel == 1));
+				dashTextCenter(bx1 + bw * 0.5f + 10, by + 4.0f, cancel_label, DASH_FS_SMALL, direct_actions ? DASH_C_TEXT : dashItemColor(sel == 1));
 			}
 		}
 		dashGfxPopOffset();
@@ -1057,19 +1063,20 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 int dashModalConfirm(const char *title, const char *body, const char *ok_label, int danger)
 {
 	return modalButtons(title, body, NULL, danger ? DI_WARNING : DI_INFO,
-	                    danger ? DASH_C_WARM : DASH_C_ACCENT, ok_label ? ok_label : "OK", "Cancel", danger ? 1 : 0, 0);
+	                    danger ? DASH_C_WARM : DASH_C_ACCENT, ok_label ? ok_label : "OK", "Cancel", danger ? 1 : 0, 0, 0);
 }
 
 int dashModalKeepVideo(void)
 {
+	/* Confirm keeps and Back reverts, without selecting an action first. */
 	return modalButtons("Keep this video mode?", "Confirm only if the picture is visible and stable.",
-	                    "", DI_INFO, DASH_C_ACCENT, "Keep", "Revert", 1, Timer() + 10000);
+	                    "", DI_INFO, DASH_C_ACCENT, "Keep", "Revert", 0, 1, Timer() + 10000);
 }
 
 void dashModalMessage(int icon, const char *title, const char *body, const char *detail)
 {
 	DashColor c = (icon == DI_WARNING) ? DASH_C_WARM : DASH_C_ACCENT;
-	modalButtons(title, body, detail, icon, c, "OK", NULL, 0, 0);
+	modalButtons(title, body, detail, icon, c, "OK", NULL, 0, 0, 0);
 }
 
 //--------------------------------------------------------------

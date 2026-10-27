@@ -326,6 +326,7 @@ int main(void) {
     strcpy(dashLists.pin[0],dashApps[1].path);dashLists.npin=1;
     popup_choice=3;appsMenu();
     assert(hidden_count==1 && list_saves==1 && norder==2 && dashAppCount==3);
+    assert(sel==1 && selApp()==&dashApps[2]); /* next visible app, not the top */
     assert(!homeHas(dashApps[1].path) && dashLists.nfav==1 && dashLists.npin==1);
     assert(dashStoreIsFavorite(dashApps[1].path) && dashStoreIsPinned(dashApps[1].path));
     popup_choice=4;appsMenu();assert(manual_rescans==1);
@@ -347,6 +348,26 @@ int main(void) {
     popup_choice=1;filter_choice=1;appsMenu();assert(norder==3 && filter==FILTER_ALL_HIDDEN);
     for(int i=0;i<3;i++)setAppHidden(&dashApps[i]);
     dashLists.nfav=dashLists.npin=0;
+    /* All three presentations retain the visible slot after hiding. */
+    for(int view=0;view<DASH_VIEW_COUNT;view++) {
+        dashCfg.view=view;dashCfg.app_filter=FILTER_ALL;appsEnter();
+        sel=2;popup_choice=3;appsMenu(); /* hide the last app */
+        assert(norder==2 && sel==1 && selApp()==&dashApps[1]);
+        appsMenu(); /* hide the new bottom, keeping the final visible entry */
+        assert(norder==1 && sel==0 && selApp()==&dashApps[0]);
+        appsMenu();
+        assert(!norder && sel==0 && selApp()==NULL);
+        for(int i=0;i<3;i++)dashStoreSetHidden(dashApps[i].path,0);
+        dashAppsRebuildView();
+        /* Already hidden entries are skipped when choosing the next app. */
+        dashStoreSetHidden(dashApps[1].path,1);dashAppsRebuildView();
+        sel=0;appsMenu();
+        assert(norder==1 && sel==0 && selApp()==&dashApps[2]);
+        /* Restoring earlier entries keeps the same focused application. */
+        for(int i=0;i<3;i++)dashStoreSetHidden(dashApps[i].path,0);
+        dashAppsRebuildView();
+        assert(norder==3 && sel==2 && selApp()==&dashApps[2]);
+    }
     /* Execute the complete firstInit, including cache load, with refresh
      * disabled. MC cache data must already exist when Apps is entered. */
     dashCfg.autoscan=0;dashCfg.start_section=DASH_SEC_APPS;cache_restore=1;

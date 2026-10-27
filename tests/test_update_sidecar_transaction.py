@@ -21,16 +21,17 @@ def function(signature):
         end+=1
     return source[start:end]+"\n"
 
-program=r'''
+url_definition=next(line for line in source.splitlines() if line.startswith("#define UPDATE_ELF_URL "))
+program=url_definition+"\n"+r'''
 #include <assert.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "self_update.h"
 #define MAX_PATH 256
 #define MAX_NAME 128
 #define UPDATE_MAX_ELF (16*1024*1024)
-#define UPDATE_ELF_URL "test://latest/APP_LAUNCHSTATION.psu"
 static const char *boot="mc0:/APP_LAUNCHSTATION/LAUNCHSTATION.ELF";
 static const char *parent="mc0:/APP_LAUNCHSTATION/";
 static char files[64][MAX_PATH];
@@ -65,16 +66,17 @@ static int parse_expected_sha(const char *text,unsigned char expected[32]) {
 static int download_file(const char *url,const char *path,const char *ca,
                          int max_bytes,unsigned char actual[32],
                          char *error,int error_size) {
-    (void)url;(void)ca;(void)error;(void)error_size;
+    (void)ca;(void)error;(void)error_size;
+    assert(!strcmp(url,"https://github.com/saildot4k/Launchstation/releases/download/latest/" SELF_UPDATE_ASSET));
     assert(max_bytes>=4096);downloads++;
     memset(actual,bad_digest?0:0x5a,32);
     put(path);
     return 8192;
 }
-static int selfUpdateExtractPsu(const char *pkg,const char *stage,int size) {
+int selfUpdateExtractPsu(const char *pkg,const char *stage,int size) {
     assert(has(pkg) && size==8192);put(stage);return 4096;
 }
-static int selfUpdateExtractPsuSidecar(const char *pkg,const char *asset,
+int selfUpdateExtractPsuSidecar(const char *pkg,const char *asset,
                                        const char *stage,int size) {
     assert(has(pkg) && size==8192);
     sidecar_calls++;
@@ -168,6 +170,8 @@ with tempfile.TemporaryDirectory(prefix="launchstation-update-transaction-") as 
     path=Path(tmp)/"test.c"
     exe=Path(tmp)/"test"
     path.write_text(program)
-    subprocess.run([compiler,"-std=c11","-Wall","-Wextra","-Werror",
-                    str(path),"-o",str(exe)],check=True)
-    subprocess.run([str(exe)],check=True,timeout=5)
+    for variant in ([], ["-DDS34"]):
+        subprocess.run([compiler,"-std=c11","-Wall","-Wextra","-Werror",
+                        "-I",str(root/"include"),*variant,
+                        str(path),"-o",str(exe)],check=True)
+        subprocess.run([str(exe)],check=True,timeout=5)

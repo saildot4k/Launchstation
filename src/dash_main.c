@@ -1074,8 +1074,7 @@ void dashRenderScene(void)
 	if (screens[section]->hints)
 		screens[section]->hints();
 	bootDraw();
-	dashDrawToasts();
-	dashDrawActivity();
+	dashDrawNotifications();
 
 	if (fade_in < 1.0f)
 		dashRect(0, 0, DASH_VW, DASH_VH, DC(0, 0, 0, (int)(255 * (1.0f - fade_in))));

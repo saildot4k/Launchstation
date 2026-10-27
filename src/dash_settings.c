@@ -209,7 +209,7 @@ static const SetItem appearance_items[] = {
 };
 
 static const SetItem display_items[] = {
-    {ST_CHOICE, S_TVMODE, "Video mode", "Auto follows the console region. 576p needs PS2 ROM 2.20+ or PSX 1.80J/2.10J; 576i uses PAL. Confirm within 10 seconds."},
+    {ST_CHOICE, S_TVMODE, "Video mode", "Confirm within 10 seconds after changing. If not confirmed, mode will revert to previous."},
     {ST_NUMBER, S_SCREEN_X, "Screen position X", "Moves the picture left or right to fit your TV (overscan)."},
     {ST_NUMBER, S_SCREEN_Y, "Screen position Y", "Moves the picture up or down to fit your TV."},
     {ST_ACTION, S_SCREEN_RESET, "Reset screen settings", "Video mode Auto and a centred picture."},
@@ -415,7 +415,7 @@ static const SetItem tmanage_items[] = {
 static const SetPage pages[P_COUNT] = {
     [P_ROOT] = PAGE("Settings", DI_SETTINGS, "Choose what you want to configure.", root_items),
     [P_APPEARANCE] = PAGE("Appearance", DI_PALETTE, "Preview changes here; save or discard them together.", appearance_items),
-    [P_SCREEN] = PAGE("Screen calibration", DI_SETTINGS, "Fit the picture to your TV. Changes apply immediately.", display_items),
+    [P_SCREEN] = PAGE("Screen calibration", DI_SETTINGS, "Select a video mode that your TV accepts.", display_items),
     [P_THEME] = PAGE("Customize theme", DI_PALETTE, "Choose which part of your theme to edit.", theme_items),
     [P_APPS] = PAGE("Home & applications", DI_HOME, "How applications are presented and discovered.", dash_items),
     [P_LIBRARY] = PAGE("Application library", DI_APPS, "Folders and refresh behavior for the ELF library.", library_items),

@@ -1,0 +1,1466 @@
+{
+  "review_date": "2026-10-25",
+  "checkout_head": "b84cac6a51be23d0435ff086587d6af97f6d8c77",
+  "scope": "Source analysis and implementation plan; no runtime or build configuration edits",
+  "source_snapshot_sha256": "bbffc0ca66c3cde845c845792798e1713f20f79ebbfb4095c7d21398818b8113",
+  "fingerprint_method": "SHA-256 of sorted relative path UTF-8 + NUL + binary SHA-256 of CRLF-normalized file contents, concatenated",
+  "source_snapshot_paths": [
+    ".github/workflows/compile.yml",
+    "Makefile",
+    "embed.make",
+    "include/cdvd_macro.h",
+    "include/config_private.h",
+    "include/dash.h",
+    "include/dash_autotest.h",
+    "include/dash_font_data.h",
+    "include/dash_internal.h",
+    "include/dash_sound.h",
+    "include/draw_private.h",
+    "include/editor_private.h",
+    "include/filer_actions.h",
+    "include/filer_copy.h",
+    "include/filer_internal.h",
+    "include/filer_shared.h",
+    "include/gui_colors.h",
+    "include/gui_hdd0_format.h",
+    "include/gui_neutrino.h",
+    "include/gui_sort.h",
+    "include/gui_texteditor.h",
+    "include/hdd_header_injector.h",
+    "include/hdl_rpc.h",
+    "include/https_client.h",
+    "include/init.h",
+    "include/kelf_signer.h",
+    "include/lang.h",
+    "include/launchelf.h",
+    "include/main_actions.h",
+    "include/main_boot.h",
+    "include/main_console_info.h",
+    "include/main_exploit_installer.h",
+    "include/main_gameid.h",
+    "include/main_history.h",
+    "include/main_info_screens.h",
+    "include/main_menu.h",
+    "include/main_modules.h",
+    "include/main_startup.h",
+    "include/main_title.h",
+    "include/neutrino_gameid.h",
+    "include/pccf_control.h",
+    "include/psu_functions.h",
+    "include/psu_types.h",
+    "include/self_update.h",
+    "loader/linkfile",
+    "loader/loader.c",
+    "ps2.yaml",
+    "scripts/build_https_tls.sh",
+    "scripts/configure_ds34.py",
+    "src/chkesr.c",
+    "src/config.c",
+    "src/config_advanced.c",
+    "src/config_network.c",
+    "src/config_screen.c",
+    "src/config_startup.c",
+    "src/dash_apps.c",
+    "src/dash_art.c",
+    "src/dash_bg.c",
+    "src/dash_bg_geo.c",
+    "src/dash_bg_ps2.c",
+    "src/dash_browser.c",
+    "src/dash_clock_sync.c",
+    "src/dash_devices.c",
+    "src/dash_editor.c",
+    "src/dash_exploit.c",
+    "src/dash_files.c",
+    "src/dash_font.c",
+    "src/dash_font_data.c",
+    "src/dash_gfx.c",
+    "src/dash_hdd.c",
+    "src/dash_home.c",
+    "src/dash_icons.c",
+    "src/dash_image.c",
+    "src/dash_info.c",
+    "src/dash_jpeg.c",
+    "src/dash_lib.c",
+    "src/dash_main.c",
+    "src/dash_png.c",
+    "src/dash_settings.c",
+    "src/dash_sound.c",
+    "src/dash_store.c",
+    "src/dash_theme.c",
+    "src/dash_themes.c",
+    "src/dash_tools.c",
+    "src/dash_ui.c",
+    "src/dash_widgets.c",
+    "src/dash_worker.c",
+    "src/draw.c",
+    "src/draw_gs.c",
+    "src/draw_text.c",
+    "src/editor.c",
+    "src/editor_file.c",
+    "src/editor_input.c",
+    "src/editor_menu.c",
+    "src/editor_rules.c",
+    "src/elf.c",
+    "src/embed_blobs.S",
+    "src/ember.c",
+    "src/filer.c",
+    "src/filer_actions.c",
+    "src/filer_browser.c",
+    "src/filer_copy.c",
+    "src/filer_device.c",
+    "src/filer_fileops.c",
+    "src/filer_mount.c",
+    "src/font_uLE.c",
+    "src/gui.c",
+    "src/gui_colors.c",
+    "src/gui_hdd0_format.c",
+    "src/gui_neutrino.c",
+    "src/gui_sort.c",
+    "src/gui_texteditor.c",
+    "src/hdd.c",
+    "src/hdd_header_injector.c",
+    "src/hdl_rpc.c",
+    "src/https_client.c",
+    "src/icon.c",
+    "src/init.c",
+    "src/kelf_signer.c",
+    "src/lang.c",
+    "src/main.c",
+    "src/main_actions.c",
+    "src/main_boot.c",
+    "src/main_console_info.c",
+    "src/main_exploit_installer.c",
+    "src/main_fileops.c",
+    "src/main_gameid.c",
+    "src/main_gameid_table.c",
+    "src/main_history.c",
+    "src/main_info_screens.c",
+    "src/main_menu.c",
+    "src/main_modules.c",
+    "src/main_startup.c",
+    "src/main_title.c",
+    "src/makeicon.c",
+    "src/neutrino_gameid.c",
+    "src/neutrino_iso.c",
+    "src/pad.c",
+    "src/pad_ds34.c",
+    "src/pc_game_receiver.c",
+    "src/popstarter.c",
+    "src/popstarter_elf.c",
+    "src/popstarter_gameid.c",
+    "src/popstarter_internal.h",
+    "src/popstarter_path.c",
+    "src/popstarter_vcd.c",
+    "src/psu_functions.c",
+    "src/remote_control.c",
+    "src/self_update.c",
+    "src/timer.c",
+    "src/update_psu.c",
+    "src/virtual_keyboard.c"
+  ],
+  "methodology": {
+    "source_counts": "Top-level src/*.c and include/*.h only; physical lines include whitespace, comments, conditional branches and generated data",
+    "include_counts": "Lexical quoted include traversal through top-level include/*.h; does not evaluate preprocessor conditions",
+    "function_spans": "Approximate lexical spans including comments/conditional branches; copy() manually bounded at lines 568 through 1420",
+    "payload_bytes": "Lengths of FILE/SLICE/TAIL contents explicitly referenced by src/embed_blobs.S, without alignment or symbol overhead",
+    "font_experiment": "Parse exact pixel-array bytes; zlib.compress(data,9), then verify decompression byte equality; not a PS2PACK size experiment",
+    "tests": "Invoke every distinct tests/test_*.py command referenced by compile.yml, sequentially, using python3; this excludes later artifact-dependent CI checks"
+  },
+  "environment": {
+    "python": "Python 3.10.12",
+    "host_c_compiler_available": false,
+    "ps2build_available": false,
+    "cross_compiler_available": false,
+    "existing_elf_available": false,
+    "emulator_or_hardware_validation": false
+  },
+  "counts": {
+    "top_level_c_sources": 101,
+    "standard_main_target_c_sources": 100,
+    "top_level_c_physical_lines": 75516,
+    "top_level_include_headers": 41,
+    "top_level_include_header_lines": 2952,
+    "main_embed_irx_entries": 43,
+    "launchelf_direct_c_consumers": 42,
+    "launchelf_transitive_c_consumers": 89,
+    "dash_internal_direct_c_consumers": 34
+  },
+  "maintenance_candidates": [
+    {
+      "path": "src/filer_browser.c",
+      "function": "getFilePath",
+      "start_line": 1093,
+      "approximate_physical_lines": 907
+    },
+    {
+      "path": "src/filer_copy.c",
+      "function": "copy",
+      "start_line": 568,
+      "approximate_physical_lines": 853
+    },
+    {
+      "path": "src/editor.c",
+      "function": "TextEditor",
+      "start_line": 112,
+      "approximate_physical_lines": 574
+    },
+    {
+      "path": "src/main_actions.c",
+      "function": "ExecuteMainAction",
+      "start_line": 169,
+      "approximate_physical_lines": 512
+    },
+    {
+      "path": "src/hdd.c",
+      "function": "hddManager",
+      "start_line": 1509,
+      "approximate_physical_lines": 464
+    },
+    {
+      "path": "src/https_client.c",
+      "function": "httpsDownloadFd",
+      "start_line": 829,
+      "approximate_physical_lines": 299
+    }
+  ],
+  "font_atlases": [
+    {
+      "symbol": "face0_px",
+      "raw_bytes": 34816,
+      "zlib_level9_bytes": 8666,
+      "roundtrip_verified": true,
+      "raw_sha256": "82e6f86e9543c52a8c81103963d60c0e93222a265101ef0012ccb9f8df3cc412"
+    },
+    {
+      "symbol": "face1_px",
+      "raw_bytes": 57344,
+      "zlib_level9_bytes": 13629,
+      "roundtrip_verified": true,
+      "raw_sha256": "b7a6c125bcff48c67cca14552c5cf1dc038235f39d6d7cc836ebdd813ab25fbf"
+    },
+    {
+      "symbol": "face2_px",
+      "raw_bytes": 122880,
+      "zlib_level9_bytes": 24851,
+      "roundtrip_verified": true,
+      "raw_sha256": "f2273364948283285e6b5615b9e8a3421f055a8634e9e38b7bbd64f09e4d4298"
+    }
+  ],
+  "payload_groups": {
+    "exploits_bytes": 88590,
+    "udpfs_peers_bytes": 16658,
+    "sound_effects_bytes": 238656,
+    "assembly_payload_total_bytes": 343904,
+    "font_pixels_bytes": 215040,
+    "legacy_icon_arrays_bytes": 2048
+  },
+  "plain_embedded_payloads": [
+    {
+      "symbol": "exploit_system_xlf_header",
+      "path": "exploits/SYSTEM.XLF",
+      "kind": "SLICE",
+      "file_bytes": 13896,
+      "embedded_bytes": 128
+    },
+    {
+      "symbol": "exploit_xsystem_xlf_header",
+      "path": "exploits/XSYSTEM.XLF",
+      "kind": "SLICE",
+      "file_bytes": 13896,
+      "embedded_bytes": 128
+    },
+    {
+      "symbol": "exploit_dtl_system_xlf_header",
+      "path": "exploits/DTL-SYSTEM.XLF",
+      "kind": "SLICE",
+      "file_bytes": 13896,
+      "embedded_bytes": 128
+    },
+    {
+      "symbol": "exploit_xlf_body",
+      "path": "exploits/SYSTEM.XLF",
+      "kind": "TAIL",
+      "file_bytes": 13896,
+      "embedded_bytes": 13768
+    },
+    {
+      "symbol": "exploit_osdsys_kernel",
+      "path": "exploits/OSDSYS.KERNEL",
+      "kind": "FILE",
+      "file_bytes": 7056,
+      "embedded_bytes": 7056
+    },
+    {
+      "symbol": "exploit_osd110_kernel",
+      "path": "exploits/OSD110.KERNEL",
+      "kind": "FILE",
+      "file_bytes": 6992,
+      "embedded_bytes": 6992
+    },
+    {
+      "symbol": "exploit_jpn_sys",
+      "path": "exploits/JPN.sys",
+      "kind": "FILE",
+      "file_bytes": 964,
+      "embedded_bytes": 964
+    },
+    {
+      "symbol": "exploit_usa_sys",
+      "path": "exploits/USA.sys",
+      "kind": "FILE",
+      "file_bytes": 964,
+      "embedded_bytes": 964
+    },
+    {
+      "symbol": "exploit_eur_sys",
+      "path": "exploits/EUR.sys",
+      "kind": "FILE",
+      "file_bytes": 964,
+      "embedded_bytes": 964
+    },
+    {
+      "symbol": "exploit_chn_sys",
+      "path": "exploits/CHN.sys",
+      "kind": "FILE",
+      "file_bytes": 964,
+      "embedded_bytes": 964
+    },
+    {
+      "symbol": "exploit_list_icn",
+      "path": "exploits/list.icn",
+      "kind": "FILE",
+      "file_bytes": 37882,
+      "embedded_bytes": 37882
+    },
+    {
+      "symbol": "exploit_ioprp_img",
+      "path": "exploits/IOPRP_LTS.IMG",
+      "kind": "FILE",
+      "file_bytes": 18652,
+      "embedded_bytes": 18652
+    },
+    {
+      "symbol": "udpfs_ministack_irx",
+      "path": "iop/__precompiled/udpfs_ministack.irx",
+      "kind": "FILE",
+      "file_bytes": 5025,
+      "embedded_bytes": 5025
+    },
+    {
+      "symbol": "udpfs_ioman_irx",
+      "path": "iop/__precompiled/udpfs_ioman.irx",
+      "kind": "FILE",
+      "file_bytes": 11633,
+      "embedded_bytes": 11633
+    },
+    {
+      "symbol": "sfx_cursor_adp",
+      "path": "res/sfx/cursor.adp",
+      "kind": "FILE",
+      "file_bytes": 1872,
+      "embedded_bytes": 1872
+    },
+    {
+      "symbol": "sfx_confirm_adp",
+      "path": "res/sfx/confirm.adp",
+      "kind": "FILE",
+      "file_bytes": 2160,
+      "embedded_bytes": 2160
+    },
+    {
+      "symbol": "sfx_cancel_adp",
+      "path": "res/sfx/cancel.adp",
+      "kind": "FILE",
+      "file_bytes": 2128,
+      "embedded_bytes": 2128
+    },
+    {
+      "symbol": "sfx_transition_adp",
+      "path": "res/sfx/transition.adp",
+      "kind": "FILE",
+      "file_bytes": 20496,
+      "embedded_bytes": 20496
+    },
+    {
+      "symbol": "sfx_message_adp",
+      "path": "res/sfx/message.adp",
+      "kind": "FILE",
+      "file_bytes": 17168,
+      "embedded_bytes": 17168
+    },
+    {
+      "symbol": "sfx_boot_adp",
+      "path": "res/sfx/boot.adp",
+      "kind": "FILE",
+      "file_bytes": 143984,
+      "embedded_bytes": 143984
+    },
+    {
+      "symbol": "sfx_connect_adp",
+      "path": "res/sfx/bd_connect.adp",
+      "kind": "FILE",
+      "file_bytes": 23696,
+      "embedded_bytes": 23696
+    },
+    {
+      "symbol": "sfx_disconnect_adp",
+      "path": "res/sfx/bd_disconnect.adp",
+      "kind": "FILE",
+      "file_bytes": 27152,
+      "embedded_bytes": 27152
+    }
+  ],
+  "validation_summary": {
+    "ci_referenced_python_scripts": 105,
+    "passed": 25,
+    "blocked_missing_host_compiler": 79,
+    "blocked_python_version": 1,
+    "extra_non_ci_script": "tests/test_zack_launch_sizing.py",
+    "extra_non_ci_script_status": "passed",
+    "ds34_generator_anchor_check": "passed in memory without overwriting generated configuration",
+    "compiled_size_savings": "not measured",
+    "documentation_site_build": "passed: 31 pages, 230 search entries; temporary output only",
+    "source_map_coverage": "passed: all 101 C sources and 41 top-level headers",
+    "document_relative_links": "passed",
+    "source_fingerprints_and_asset_totals": "passed"
+  },
+  "ci_python_script_results": [
+    {
+      "test": "tests/test_display_feedback.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_font_weight.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_tools_caution_scroll.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_r3z_feedback.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_udpfs_smap_fifo_tail.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_udpfs_smap_startup.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_pccf.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_pccf_owner.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_pccf_fs.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_paste_replace.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_copy_short_io.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_copy_pipeline.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_udpfs_directory_errors.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_copy_test_pack.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_transfer_stack_preflight.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_transfer_progress.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_settings_persistence.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_storage_probe_frames.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_mmce_bus_restore.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_poweroff_init.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_settings_save_prompt.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_settings_navigation.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_navigation_wraparound.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_device_handoff.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_browser_devices.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_zack_feedback.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_hardware_clock.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_temperature.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_clock_sync.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_startup_status.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_transition_latency.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_native_four_browser_modes.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_feedback_35_82.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_editor_keyboard.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_storage_devices.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_neutrino_iso.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_r3z_loader_disable.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_r3z_neutrino_options.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_neutrino_profiles.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_neutrino_cancel_feedback.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_r3z_neutrino_gameid.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_neutrino_mmce_launch.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_r3z_four_browser_modes.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_ember_launch.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_ember_paths.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_ember_iop_handoff.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_ember_two_usb_handoff.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_scene_override_nesting.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_gage_alignment.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_modal_animation.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_nested_scissor.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_hdd_manager_browse.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_zack_oct_2026.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_wallpaper_docs.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_r3z_oct15_backport.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_background_only_hotkeys.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_dashboard_present_buffers.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_theme_motion.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_orb_seamless.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_tile_styles.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_rounded_borders.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_worker_queue.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_device_input.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_usb_storage_lifecycle.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_usb_iop_pad_handoff.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_zack_storage_drivers.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_dev9_transition.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_ps2ips_rpc.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_mmce_presence_probe.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_usb_probe_status.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_usb_unit_diagnostics.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_mc_poll_usb_barrier.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_usb_browse_cache.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_usb_shared_namespace.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_usb_boot_paths.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_device_autostart_safe_mode.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_home_focus.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_unified_dashboard_navigation.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_dashboard_start.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_files_tab_lifecycle.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_bgm_sidecar.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_sound_recovery.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_poweroff_shutdown.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_opl_title_cfg.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_root_mc_poll.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_pad_icon_order.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_hint_clearance.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_project_branding.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_console_region.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_dashboard_console_summary.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_selector_centering.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_zack_round3.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_zack_quickwins.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_mmce_protocol.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_mmce_upstream_contract.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_mmce_paths.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_loader_linkfile.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_self_update.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_https_client.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_app_packages.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_rolling_release_workflow.py",
+      "status": "passed",
+      "reason": null
+    },
+    {
+      "test": "tests/test_release_notes.py",
+      "status": "blocked_by_environment",
+      "reason": "Python 3.10 lacks hashlib.file_digest"
+    },
+    {
+      "test": "tests/test_update_sidecar_transaction.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_update_ancestry.py",
+      "status": "blocked_by_environment",
+      "reason": "No host C compiler (gcc/cc/clang) available"
+    },
+    {
+      "test": "tests/test_png_viewer.py",
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "source_metrics": [
+    {
+      "path": "src/chkesr.c",
+      "physical_lines": 60,
+      "normalized_sha256": "6e4068ca3af697bab0557ec306fea1e0cd99501753979b81ac89223f3cbe0bc4"
+    },
+    {
+      "path": "src/config.c",
+      "physical_lines": 1683,
+      "normalized_sha256": "6f3f1a9a5170f7f030339ef8e4036979fc63d0f7415e97ab4dd8ad8dca2bf25b"
+    },
+    {
+      "path": "src/config_advanced.c",
+      "physical_lines": 329,
+      "normalized_sha256": "96c80c0f1821e85671cbf8024c951cf39890b316f75484c08db61f4a6dcdaa79"
+    },
+    {
+      "path": "src/config_network.c",
+      "physical_lines": 360,
+      "normalized_sha256": "0d862e1286a1ee7d9b9743ad23f44b01d4170ca6daa0dc5b3c0bda7941a319d8"
+    },
+    {
+      "path": "src/config_screen.c",
+      "physical_lines": 361,
+      "normalized_sha256": "95da86d9fe71c9b8b43431aeeb90cce7317a53c1823722e8017cd60d2bb382b0"
+    },
+    {
+      "path": "src/config_startup.c",
+      "physical_lines": 364,
+      "normalized_sha256": "d6de3b89c9cd720a5aeedd90a95eef8a5419c028609f1c317a21f465d805418a"
+    },
+    {
+      "path": "src/dash_apps.c",
+      "physical_lines": 743,
+      "normalized_sha256": "b0150488c75714d8c9411db8b9f96a8d074af2322f1faa42f7ea229bb3a5e0b7"
+    },
+    {
+      "path": "src/dash_art.c",
+      "physical_lines": 815,
+      "normalized_sha256": "44d6114cb1c15ead2a49ee262a528726a212b5fe51de8040a6eeb21a9abd8153"
+    },
+    {
+      "path": "src/dash_bg.c",
+      "physical_lines": 602,
+      "normalized_sha256": "65f951db7a33065b0da27632724d4ef862e652c0b9acb8e4db33343a3454fd02"
+    },
+    {
+      "path": "src/dash_bg_geo.c",
+      "physical_lines": 333,
+      "normalized_sha256": "41e31f556898a1c81b3ffec5bdbfda04faf40314e04c31205e4ad2c4a4974d65"
+    },
+    {
+      "path": "src/dash_bg_ps2.c",
+      "physical_lines": 825,
+      "normalized_sha256": "ebe461fcfca713c86cd93ab1a92a3243a060dbff47f4969f2efd256df3f9eb51"
+    },
+    {
+      "path": "src/dash_browser.c",
+      "physical_lines": 1858,
+      "normalized_sha256": "f08a5e817e336f22254a3329dc8ce8c35a4771f6ea4ac1af026bb44d5e86c3e4"
+    },
+    {
+      "path": "src/dash_clock_sync.c",
+      "physical_lines": 482,
+      "normalized_sha256": "9ca82153d99819b7e9cc1c0b0ca289e7bdb88bff130de31dcb26d94dd924a97f"
+    },
+    {
+      "path": "src/dash_devices.c",
+      "physical_lines": 678,
+      "normalized_sha256": "098614d719ead0cfc460a9c7a3aaf2f748829297dd0239a99bf1bd7f54aaf74a"
+    },
+    {
+      "path": "src/dash_editor.c",
+      "physical_lines": 1188,
+      "normalized_sha256": "6a53988c13731fb08a4b67470fa1119a08877ba2d480ea885f386fcdfaf12d89"
+    },
+    {
+      "path": "src/dash_exploit.c",
+      "physical_lines": 169,
+      "normalized_sha256": "01b6f90e35ee5e588dc95c61a261b9740fb77d49151275d754ab2d8dd5e8653f"
+    },
+    {
+      "path": "src/dash_files.c",
+      "physical_lines": 708,
+      "normalized_sha256": "ba5632a6592c38367c9ed40cd08fae125850377667f9ea0e82ef6d5069f45c14"
+    },
+    {
+      "path": "src/dash_font.c",
+      "physical_lines": 742,
+      "normalized_sha256": "c0028f92cfa5fc80d42b5668b5e8ecef32d1aedc6a53f3ed99bd4b782fa74c80"
+    },
+    {
+      "path": "src/dash_font_data.c",
+      "physical_lines": 9657,
+      "normalized_sha256": "44e51f9ec56ed5f65c59f51b388869a7b772e0ad153d2caf1701bf34e649fb5b"
+    },
+    {
+      "path": "src/dash_gfx.c",
+      "physical_lines": 972,
+      "normalized_sha256": "2f0bbaf26dafb422d6f075cf23731e3c47859fcb5cd7943a94593f8ef811e5a3"
+    },
+    {
+      "path": "src/dash_hdd.c",
+      "physical_lines": 1281,
+      "normalized_sha256": "900d60834cf8dc69e2127a7d3ba6ece48d560260e9025a54f3a9259f21ffef04"
+    },
+    {
+      "path": "src/dash_home.c",
+      "physical_lines": 579,
+      "normalized_sha256": "1280e74559a53baad51e7b827e8638b7d64d6bc8236d7c1221f67d3a05e41b19"
+    },
+    {
+      "path": "src/dash_icons.c",
+      "physical_lines": 637,
+      "normalized_sha256": "825999f01976698687fa23429f0702a55d723938279bb7412136a4cc7bec3c1b"
+    },
+    {
+      "path": "src/dash_image.c",
+      "physical_lines": 313,
+      "normalized_sha256": "862b44da69d51039c73eaba8a3453bb002e5e98f8a25d51753662e9ae38d687f"
+    },
+    {
+      "path": "src/dash_info.c",
+      "physical_lines": 433,
+      "normalized_sha256": "1e613abf182cf7d3bb81c1bd7e270d21eb40189d836b85af331dc6e1bd95183e"
+    },
+    {
+      "path": "src/dash_jpeg.c",
+      "physical_lines": 183,
+      "normalized_sha256": "902be2c378c63119d38432feb518fa7c54f3ee320b1dc32bc5986c0efad04174"
+    },
+    {
+      "path": "src/dash_lib.c",
+      "physical_lines": 904,
+      "normalized_sha256": "996ae7aa02b0591ac8f5e8cf0741d81901e7c59b124aae93d4cb10490fca2d66"
+    },
+    {
+      "path": "src/dash_main.c",
+      "physical_lines": 1326,
+      "normalized_sha256": "1fafd4903ed44635495e4e62fc202e67302f7b5d7289dbcf4f373db2380e344c"
+    },
+    {
+      "path": "src/dash_png.c",
+      "physical_lines": 241,
+      "normalized_sha256": "52a5e28a8735baefa015eed3139f5331dc4a964ff4850d642b84592985dfe284"
+    },
+    {
+      "path": "src/dash_settings.c",
+      "physical_lines": 2882,
+      "normalized_sha256": "9b5820bdf1c09f4f396c81703c72217f3623e61f626fffb231f2995bd3d28d4c"
+    },
+    {
+      "path": "src/dash_sound.c",
+      "physical_lines": 409,
+      "normalized_sha256": "0e2432449505a93ad5d7bb955b7bf5d850897a6443a40924dccb91b1f4f9054d"
+    },
+    {
+      "path": "src/dash_store.c",
+      "physical_lines": 791,
+      "normalized_sha256": "124b01df1e0ec1b4bfe223235b28e7c477dc4acf0e87c5b3546cb124e979e9e2"
+    },
+    {
+      "path": "src/dash_theme.c",
+      "physical_lines": 148,
+      "normalized_sha256": "17e9cf732e9b894c9dba89ac58a58638c0ba32c9f5120061b7dad53ebe2f5e52"
+    },
+    {
+      "path": "src/dash_themes.c",
+      "physical_lines": 1288,
+      "normalized_sha256": "434384f051f4c5d612480916aad6cb9dfafe013295cff99cc99cd5f0ef374c2a"
+    },
+    {
+      "path": "src/dash_tools.c",
+      "physical_lines": 619,
+      "normalized_sha256": "a137e93ee4bee4ba0484dd860c96f608e75daba6966c67d43008043e5edee290"
+    },
+    {
+      "path": "src/dash_ui.c",
+      "physical_lines": 1239,
+      "normalized_sha256": "1fd9c2a7521600ba2f8f24426647595e155cb3963e144fa38684e791793098d7"
+    },
+    {
+      "path": "src/dash_widgets.c",
+      "physical_lines": 1267,
+      "normalized_sha256": "21c4b00807c382e11cb39ec861899d43e2ff78f99163de691e8a110327cdc752"
+    },
+    {
+      "path": "src/dash_worker.c",
+      "physical_lines": 405,
+      "normalized_sha256": "816c88a39b2feeff72cd669584a0fabbd2a66521418fa9939f919392f052d7c6"
+    },
+    {
+      "path": "src/draw.c",
+      "physical_lines": 402,
+      "normalized_sha256": "6080d679f1c530d28f1c90b9af9fcb9a3ce970147982e539ac14f1d3149158a0"
+    },
+    {
+      "path": "src/draw_gs.c",
+      "physical_lines": 195,
+      "normalized_sha256": "96daa93cf4d8fbaccf104b6337f5ea786bab8e66a566fd2644684198ceca7122"
+    },
+    {
+      "path": "src/draw_text.c",
+      "physical_lines": 363,
+      "normalized_sha256": "874888c98a531ff4ebbb8c3745329371bb64e57f766fb234d2c1d0868255c8fd"
+    },
+    {
+      "path": "src/editor.c",
+      "physical_lines": 688,
+      "normalized_sha256": "07801d854ea2eaaa005e9d8ec63ddda4a917efe833792408b003e1ccd9cee772"
+    },
+    {
+      "path": "src/editor_file.c",
+      "physical_lines": 324,
+      "normalized_sha256": "78a1043ae5c5faef3796df5a4922bbddfc43f7896b8b8ecd77b94648bbdc8257"
+    },
+    {
+      "path": "src/editor_input.c",
+      "physical_lines": 705,
+      "normalized_sha256": "aad5ce404ac48dfe07ca37d4963e38d4081e96085f1275c00ba82279572d6d43"
+    },
+    {
+      "path": "src/editor_menu.c",
+      "physical_lines": 229,
+      "normalized_sha256": "222afecc2a965c17e38c9d5a2497d620f8b62854104fad5015c8de7e96c0686d"
+    },
+    {
+      "path": "src/editor_rules.c",
+      "physical_lines": 123,
+      "normalized_sha256": "8afcab0e0b0090a7a9d8eca0f6476afbeb64751a4caa0e05bd683510173866b5"
+    },
+    {
+      "path": "src/elf.c",
+      "physical_lines": 854,
+      "normalized_sha256": "c7997cf811eec2e80898b2f258693783b37e963df31fd5919dcb4cd0ea432b33"
+    },
+    {
+      "path": "src/ember.c",
+      "physical_lines": 384,
+      "normalized_sha256": "afd978d777d05851db887dfdf5806b14d4acec073f057a5e64be5046422a508a"
+    },
+    {
+      "path": "src/filer.c",
+      "physical_lines": 2144,
+      "normalized_sha256": "94ca269c0e4d969aced387d416c39b11a55eeff8931e207664e0bbffecbd6967"
+    },
+    {
+      "path": "src/filer_actions.c",
+      "physical_lines": 2039,
+      "normalized_sha256": "3135bd13cfc1a36e3973bf933f421726911a2439a20ec0c557dececc7dedab51"
+    },
+    {
+      "path": "src/filer_browser.c",
+      "physical_lines": 2461,
+      "normalized_sha256": "4e26d5b5ed59db3097dd54930779bace92e4e413c6b84f04c44f41be3a2e55f0"
+    },
+    {
+      "path": "src/filer_copy.c",
+      "physical_lines": 1423,
+      "normalized_sha256": "83d8648c93008ec350b6ddf6257304da1022215e477b4f7ae791efbdd79bee03"
+    },
+    {
+      "path": "src/filer_device.c",
+      "physical_lines": 175,
+      "normalized_sha256": "548861dbc54683bc6e2fcde051ddaf21a5a119524a5edac02e82a156ab47a2d6"
+    },
+    {
+      "path": "src/filer_fileops.c",
+      "physical_lines": 631,
+      "normalized_sha256": "16ca236005928a90aa9d1ca208a5e5bb091406565933db12d0e76865704b025e"
+    },
+    {
+      "path": "src/filer_mount.c",
+      "physical_lines": 238,
+      "normalized_sha256": "2dc813fad546f4a574ff283c055ae28eae02a6482126deeee95090e045017282"
+    },
+    {
+      "path": "src/font_uLE.c",
+      "physical_lines": 653,
+      "normalized_sha256": "1a0e0930ec57cc104cfd43eddc2ba201f4b941a767fc6a5b15e692f567734d5e"
+    },
+    {
+      "path": "src/gui.c",
+      "physical_lines": 443,
+      "normalized_sha256": "77b6e352a5512a31bf5c20e59fd2fc33b61dfecabc47e25da51c3a9388ab38b3"
+    },
+    {
+      "path": "src/gui_colors.c",
+      "physical_lines": 86,
+      "normalized_sha256": "81ab7e06e7bf5e683f6ff0a5b33531bdaab32288cc340f4a3afd71039a60daab"
+    },
+    {
+      "path": "src/gui_hdd0_format.c",
+      "physical_lines": 75,
+      "normalized_sha256": "2ba66389701d2582fd522534864d95c17eca9e36cc63e07331114affa6ba443e"
+    },
+    {
+      "path": "src/gui_neutrino.c",
+      "physical_lines": 480,
+      "normalized_sha256": "007de7d0d47e6d74eee2284d6b698d0b7a83bea2852aba51688061110bb9d7bc"
+    },
+    {
+      "path": "src/gui_sort.c",
+      "physical_lines": 95,
+      "normalized_sha256": "756c449bf30cc5fc49fe884085e4eaebd4e20990d928089485ca9e8e97a00521"
+    },
+    {
+      "path": "src/gui_texteditor.c",
+      "physical_lines": 26,
+      "normalized_sha256": "da8949cc51d5891289d4a852715190c27a2fc92d55f2718ccddc1205225c7868"
+    },
+    {
+      "path": "src/hdd.c",
+      "physical_lines": 1975,
+      "normalized_sha256": "b905097a9d7aa2a4ab027bab0f786377bc8016f33e63f0aac06977eaa9e5fe6d"
+    },
+    {
+      "path": "src/hdd_header_injector.c",
+      "physical_lines": 1156,
+      "normalized_sha256": "b336966fc44c97cc904fa8671e21336448b19b9eee81d57896320ad31aeb1560"
+    },
+    {
+      "path": "src/hdl_rpc.c",
+      "physical_lines": 83,
+      "normalized_sha256": "809e85b6a42a20c569f6b87fbc4ca4a86e63b59ba416793cae02963c846eec6b"
+    },
+    {
+      "path": "src/https_client.c",
+      "physical_lines": 1127,
+      "normalized_sha256": "20117e2a0fe431f8a9e3fc08c2b6738a6df2d35367d94fd80576df53e3df7cab"
+    },
+    {
+      "path": "src/icon.c",
+      "physical_lines": 2055,
+      "normalized_sha256": "f598d357d26bea8a2d9b3f3315530dc65775db5f55c44c9d86f9b08f04a566df"
+    },
+    {
+      "path": "src/init.c",
+      "physical_lines": 2748,
+      "normalized_sha256": "aca5b5b3ca410823e67c4924b78000276e1e0afd3b6786242a6d26c206c6ae35"
+    },
+    {
+      "path": "src/kelf_signer.c",
+      "physical_lines": 1153,
+      "normalized_sha256": "e61e06090c1f628d08e915dead87a88bb0502293dffc0521934b95d4360c738d"
+    },
+    {
+      "path": "src/lang.c",
+      "physical_lines": 584,
+      "normalized_sha256": "1f3c444ff47e8778c4d18d84394982fbcbb36854abc0559f737f5629d938af2e"
+    },
+    {
+      "path": "src/main.c",
+      "physical_lines": 236,
+      "normalized_sha256": "d0554d8359fefe5660e12a8530e98472774e6926e2151a1fd61db92393c9efd3"
+    },
+    {
+      "path": "src/main_actions.c",
+      "physical_lines": 700,
+      "normalized_sha256": "bff01fe0d38175563094c0c2ef793965c35f8800f33b818da632215c3590bc8f"
+    },
+    {
+      "path": "src/main_boot.c",
+      "physical_lines": 81,
+      "normalized_sha256": "240d8ee4eec87125de33d3b85519369b761769fb8d5c18546f7ccc94e418575b"
+    },
+    {
+      "path": "src/main_console_info.c",
+      "physical_lines": 254,
+      "normalized_sha256": "4700edbcba568e96ba5457f3638cb5babf07e3c63bdf143e836ed86267ae830b"
+    },
+    {
+      "path": "src/main_exploit_installer.c",
+      "physical_lines": 2519,
+      "normalized_sha256": "aba3fa734290f526fd0439fdd6bb6858b87491ae223ec3cdb1998b81d8dcae0a"
+    },
+    {
+      "path": "src/main_fileops.c",
+      "physical_lines": 88,
+      "normalized_sha256": "7c4361820dd7e175fcb941cdda2bce3967ec0999c6a90d9a169d62434ea9e823"
+    },
+    {
+      "path": "src/main_gameid.c",
+      "physical_lines": 241,
+      "normalized_sha256": "c4d48360636518c0ad4252f1413a85cc6898a8266e062c62e07c9e97d6493718"
+    },
+    {
+      "path": "src/main_gameid_table.c",
+      "physical_lines": 136,
+      "normalized_sha256": "7229a4f6cef0583c5ebd4b6d1331806a2050a8f1ab237cb89b7d9443dd75a42f"
+    },
+    {
+      "path": "src/main_history.c",
+      "physical_lines": 208,
+      "normalized_sha256": "ef7a395c00ff04208270b535502dfae40951f3fd288f91bbf1324c27b68eb5e5"
+    },
+    {
+      "path": "src/main_info_screens.c",
+      "physical_lines": 394,
+      "normalized_sha256": "f0ffc1e6a408e86b7347561a5a4e87582959dda7a55def2f15770ad554cc1d8e"
+    },
+    {
+      "path": "src/main_menu.c",
+      "physical_lines": 350,
+      "normalized_sha256": "63892523986eb8bc65b30865dcdcdc46b8553945f76503b11d07558a73e2a0d8"
+    },
+    {
+      "path": "src/main_modules.c",
+      "physical_lines": 69,
+      "normalized_sha256": "360a94aa34ea64247127a707fd0b41f2de7f711eb60194fd4272639ca030a060"
+    },
+    {
+      "path": "src/main_startup.c",
+      "physical_lines": 720,
+      "normalized_sha256": "ab1a16b5d00346cd68f5174e16d2afaf5389931ba5cdeebb582f65852167daf4"
+    },
+    {
+      "path": "src/main_title.c",
+      "physical_lines": 662,
+      "normalized_sha256": "3661797f156f644fe01c1852b818affe66f8d35fc5786ec4a32159006f9a5637"
+    },
+    {
+      "path": "src/makeicon.c",
+      "physical_lines": 426,
+      "normalized_sha256": "6c6e7bf907cdcd6035d76438d88fa5b0ca3c13c4da1138f18c237385359e5291"
+    },
+    {
+      "path": "src/neutrino_gameid.c",
+      "physical_lines": 256,
+      "normalized_sha256": "688406fd76a81d22041f9323cd25afa32406c1c7515f44619de49381ef4cb84e"
+    },
+    {
+      "path": "src/neutrino_iso.c",
+      "physical_lines": 319,
+      "normalized_sha256": "41852e549cdf0b0e9bed9fbd582c8f892c5bb7f4d857a31ecb66c6373f060b79"
+    },
+    {
+      "path": "src/pad.c",
+      "physical_lines": 456,
+      "normalized_sha256": "876ecededad511cb0c3d49e44e4fefc376687a04eecb04d0492b1468c3e0cc94"
+    },
+    {
+      "path": "src/pad_ds34.c",
+      "physical_lines": 519,
+      "normalized_sha256": "ec97e703c23b4363cf954b2dedfea64223ced659b65b62b511eabf3fecee7600"
+    },
+    {
+      "path": "src/pc_game_receiver.c",
+      "physical_lines": 354,
+      "normalized_sha256": "b1d30010f1a4f5fcd768cdcbc3287f04903b2385f13d7fc0c18c84716542d8a9"
+    },
+    {
+      "path": "src/popstarter.c",
+      "physical_lines": 112,
+      "normalized_sha256": "de94599e9838dd9802eff2150a5540ca4da5207995fd242a259a4ec6fc885704"
+    },
+    {
+      "path": "src/popstarter_elf.c",
+      "physical_lines": 217,
+      "normalized_sha256": "a383f6b04136f1b77565f710cad78f332969efd2ed22c901bc39c231e04639e2"
+    },
+    {
+      "path": "src/popstarter_gameid.c",
+      "physical_lines": 186,
+      "normalized_sha256": "13040e742a814737be6dfb2c151b25a79b8892e29c3969916b404b870fce6997"
+    },
+    {
+      "path": "src/popstarter_path.c",
+      "physical_lines": 399,
+      "normalized_sha256": "f755d09798b3f48f8ef1c1b987cb5f6f14d5d008e72d5bb52db28ad0894e1bf2"
+    },
+    {
+      "path": "src/popstarter_vcd.c",
+      "physical_lines": 231,
+      "normalized_sha256": "0b9b716ac992a3f8700c4cf333bbafd1be6d38de1cc23ac755721c7475b1aa60"
+    },
+    {
+      "path": "src/psu_functions.c",
+      "physical_lines": 191,
+      "normalized_sha256": "28127fdb2f3316c504b36176379ee5007015058301bc563dc6e90fa992103633"
+    },
+    {
+      "path": "src/remote_control.c",
+      "physical_lines": 111,
+      "normalized_sha256": "30c8b50c1b38d181d38d7f76e32f0587243031179094d10df03929fa12947762"
+    },
+    {
+      "path": "src/self_update.c",
+      "physical_lines": 395,
+      "normalized_sha256": "9b5ca682e6f68997ada13d9c64c3712e6fc9b31594e481b84bf064d9173ca0d9"
+    },
+    {
+      "path": "src/timer.c",
+      "physical_lines": 8,
+      "normalized_sha256": "dedbde44f9641c03356786547d3f0d2b518fb2678973929b603085695867f135"
+    },
+    {
+      "path": "src/update_psu.c",
+      "physical_lines": 220,
+      "normalized_sha256": "cd7f9b46711d6a2cb6ec63b8b54cce2ef81a202560ded277c92ae5d991aa3cc9"
+    },
+    {
+      "path": "src/virtual_keyboard.c",
+      "physical_lines": 467,
+      "normalized_sha256": "889b1b0289a5ada70699d9d2238eabe6418a206daefd7f21fb5c578dcf24e428"
+    }
+  ],
+  "primary_technical_references": [
+    "https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html",
+    "https://sourceware.org/binutils/docs/ld/Input-Section-Keep.html",
+    "https://mbed-tls.readthedocs.io/en/latest/kb/how-to/reduce-polarssl-memory-and-storage-footprint/"
+  ]
+}

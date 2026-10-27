@@ -36,7 +36,8 @@ gfx = read("src/dash_gfx.c")
 header = read("include/dash_internal.h")
 orbs = read("src/dash_bg_ps2.c")
 menu = function(ui, "int dashModalMenu(")
-buttons = function(ui, "static int modalButtons(") + function(ui, "int dashModalKeepVideo(")
+buttons = (function(ui, "static int modalButtons(") + function(ui, "int dashModalKeepVideo(")
+           + function(ui, "int dashModalConfirm("))
 symbols = sorted(set(re.findall(r"\b(?:DI_|DASH_FS_|DASH_SND_|DASH_HL_)\w+",
                                menu + buttons)))
 colors = sorted(set(re.findall(r"\bDASH_C_\w+", menu + buttons)))
@@ -56,7 +57,8 @@ static float anim_time,frame_dt,section_anim=1,fade_in=1,bg_time,ui_time;
 static u64 last_frame_ms,now_ms;
 static int bg_calls,ui_calls,renders,depth,nested,frames[2],step_ms[3]={16,20,33};
 static int preview_calls;
-static int nav_scenario, timed_scenario;
+static int nav_scenario, timed_scenario, video_scenario, video_direction;
+static int selections;
 static int dashboard_pending;
 static int dashDashboardPending(void) { return dashboard_pending; }
 static u64 Timer(void) { return now_ms; }
@@ -90,11 +92,12 @@ code += header[input_start:header.index("};", input_start) + 2] + "\n"
 for color in colors:
     code += f"#define {color} ((DashColor){{255,255,255,255}})\n"
 for draw in ("modalBackdrop", "dashGfxPushAlpha", "dashGfxPushOffset", "modalPanel",
-             "dashTextS", "dashTextFit", "dashTextScrollTimed", "dashTextScroll", "dashGfxScissor", "dashDrawSelection",
+             "dashTextS", "dashTextFit", "dashTextScrollTimed", "dashTextScroll", "dashGfxScissor",
              "dashIcon", "drawButton", "dashTextRight", "dashGfxScissorReset", "dashDrawScrollbar",
              "modalHintRow", "dashGfxPopOffset", "dashGfxPopAlpha", "dashGfxBlend",
              "dashGlow", "dashTextWrap", "dashPanel", "dashPanelBorder", "dashTextCenter"):
     code += f"#define {draw}(...) ((void)0)\n"
+code += "#define dashDrawSelection(...) (++selections)\n"
 code += function(gfx, "float dashApproach(")
 code += function(shell, "float dashTime(")
 code += function(shell, "float dashAnimSpeed(")
@@ -117,7 +120,7 @@ static int menuTitleGetClockFields(int *y,int *mo,int *d,int *h,int *mi,int *s,i
 code += function(orbs, "static void osdTime(")
 code += r"""
 static int modalButtons(const char *,const char *,const char *,int,DashColor,
-                        const char *,const char *,int,u64);
+                        const char *,const char *,int,int,u64);
 static void dashInputPoll(DashInput *in) {
     int f=++frames[depth];
     if(nav_scenario==4)dashboard_pending=1;
@@ -129,9 +132,16 @@ static void dashInputPoll(DashInput *in) {
         else if(f==2)
             in->pressed=DASH_IN_OK;
     }
+    if(video_scenario) {
+        in->pressed=0;
+        if(f==1)
+            in->pressed=video_direction;
+        if(f==2)
+            in->pressed=video_scenario==1?DASH_IN_OK:DASH_IN_BACK;
+    }
     if(nested && depth==0 && f==2) {
         depth=1;
-        assert(!modalButtons("nested","confirm",NULL,0,(DashColor){0},"OK","Cancel",0,0));
+        assert(!modalButtons("nested","confirm",NULL,0,(DashColor){0},"OK","Cancel",0,0,0));
         depth=0;
     }
 }
@@ -145,7 +155,8 @@ static void reset(void) {
     section_anim=fade_in=0;
     now_ms=last_frame_ms=1000; frame_dt=0;
     dashboard_pending=0;
-    depth=nested=nav_scenario=timed_scenario=0; memset(frames,0,sizeof(frames)); modal_preview=NULL;
+    depth=nested=nav_scenario=timed_scenario=video_scenario=0; memset(frames,0,sizeof(frames)); modal_preview=NULL;
+    video_direction=selections=0;
     dashCfg.anim=100; dashCfg.effects=100;
 }
 static void check(void) {
@@ -214,18 +225,40 @@ int main(void) {
     reset();nav_scenario=4;
     assert(dashModalMenu("interrupted",NULL,items,2,0)==-1 && !renders);
     reset();nav_scenario=4;
-    assert(!modalButtons("interrupted","confirm",NULL,0,(DashColor){0},"OK","Cancel",0,0) && !renders);
+    assert(!modalButtons("interrupted","confirm",NULL,0,(DashColor){0},"OK","Cancel",0,0,0) && !renders);
+    /* Video actions are direct shortcuts, unaffected by D-pad input. */
+    const int directions[]={DASH_IN_RIGHT,DASH_IN_LEFT,0,DASH_IN_UP,DASH_IN_DOWN,
+                            DASH_IN_LEFT|DASH_IN_RIGHT};
+    for(unsigned d=0;d<sizeof(directions)/sizeof(directions[0]);d++) {
+        reset(); video_scenario=1; video_direction=directions[d];
+        assert(dashModalKeepVideo() && frames[0]==2);
+        assert(!selections); /* no movable focus suggests a required choice */
+        reset(); video_scenario=2; video_direction=directions[d];
+        assert(!dashModalKeepVideo() && frames[0]==2 && !selections);
+    }
+    /* Normal/dangerous confirmations retain their own default choices. */
+    reset(); video_scenario=1;
+    assert(dashModalConfirm("ordinary","confirm","Apply",0));
+    reset(); video_scenario=1;
+    assert(!dashModalConfirm("dangerous","confirm","Delete",1));
+    reset(); video_scenario=1; video_direction=DASH_IN_RIGHT;
+    assert(!dashModalConfirm("ordinary","confirm","Apply",0));
+    reset(); video_scenario=1; video_direction=DASH_IN_LEFT;
+    assert(dashModalConfirm("dangerous","confirm","Delete",1));
     reset(); timed_scenario=1; step_ms[0]=step_ms[1]=step_ms[2]=100;
     assert(!dashModalKeepVideo());
     assert(now_ms==11000 && frames[0]==100); /* allow display resync, then revert at ten seconds */
     reset(); timed_scenario=1; now_ms=7000;
-    assert(!modalButtons("expired","visible?","",0,(DashColor){0},"Keep","Revert",1,7000));
+    assert(!modalButtons("expired","visible?","",0,(DashColor){0},"Keep","Revert",0,1,7000));
     assert(frames[0]==0); /* expired confirmation cannot accept a late button */
+    reset(); video_scenario=1; step_ms[0]=step_ms[1]=step_ms[2]=16;
+    assert(!modalButtons("expired on input","visible?","",0,(DashColor){0},"Keep","Revert",0,1,1032));
+    assert(frames[0]==2); /* a confirm arriving at the deadline still reverts */
     reset(); now_ms+=2000;
     assert(dashVisualUpdate()==0.1f); /* retain the long-stall clamp */
     now_ms=last_frame_ms-1;
     assert(dashVisualUpdate()==0); /* timer reset cannot unsigned-underflow */
-    puts("PASS: ordinary/preview/nested menus, measured timing, RTC interpolation, no double ticks, motion off and stalls");
+    puts("PASS: ordinary/preview/nested menus, video Keep/Revert/Back/timeout, measured timing, RTC interpolation, no double ticks, motion off and stalls");
 }
 """
 compiler = shutil.which("gcc") or shutil.which("clang")

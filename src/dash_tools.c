@@ -228,7 +228,7 @@ static int updateCommitRelation(const char *current, const char *latest,
     /* compare/base...head: ahead means the release is newer; behind
      * means the installed build is newer. Diverged is NOT an upgrade. */
     n = snprintf(path, sizeof(path),
-                 "/repos/NathanNeurotic/Launchstation/compare/%s...%s?per_page=1&page=2",
+                 SELF_UPDATE_API_PATH "/compare/%s...%s?per_page=1&page=2",
                  current, latest);
     if (n <= 0 || n >= (int)sizeof(path)) {
         snprintf(error, error_size, "Commit comparison URL was too long.");
@@ -268,6 +268,12 @@ void dashToolsCheckUpdates(void)
 	    "Accept: application/vnd.github+json\r\n";
 	int same = 0;
 
+	/* CA/device access and network stack changes use synchronous IOP RPCs.
+	 * Finish queued IO and any root-card status request before starting. */
+	if (!dashWorkerAwaitAll("Finishing background storage work"))
+		return;
+	filerRootMcPollIdle();
+
 	if (!launchstationUpdateCaPath(ca_path, sizeof(ca_path))) {
 		dashModalMessage(DI_WARNING, "Update check needs the CA bundle",
 		                 "WLE-UPDATE-CA.PEM was not found beside the running ELF or in the dashboard settings folder.",
@@ -276,7 +282,7 @@ void dashToolsCheckUpdates(void)
 	}
 	if (!ensureDashboardIpNetworkReady()) {
 		dashModalMessage(DI_WARNING, "Update check unavailable",
-		                 "The Ethernet stack could not be started.", NULL);
+		                 dashboardIpNetworkError(), NULL);
 		return;
 	}
 
@@ -284,7 +290,7 @@ void dashToolsCheckUpdates(void)
 	error[0] = latest[0] = asset_digest[0] = '\0';
 	dashLoadingBegin("Checking for Launchstation updates");
 	if (httpsRequest("GET", "api.github.com",
-	                     "/repos/NathanNeurotic/Launchstation/releases/tags/latest",
+	                     SELF_UPDATE_API_PATH "/releases/tags/latest",
 	                     headers, NULL, 0, ca_path, &response,
 	                     error, sizeof(error)) < 0) {
 		dashLoadingEnd();

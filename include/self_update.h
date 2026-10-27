@@ -1,6 +1,10 @@
 #ifndef WLE_SELF_UPDATE_H
 #define WLE_SELF_UPDATE_H
 
+/* Keep release metadata, ancestry checks and package downloads on one fork. */
+#define SELF_UPDATE_REPOSITORY "saildot4k/Launchstation"
+#define SELF_UPDATE_API_PATH "/repos/" SELF_UPDATE_REPOSITORY
+
 #ifdef DS34
 #define SELF_UPDATE_FOLDER "APP_LAUNCHSTATION-DS"
 #define SELF_UPDATE_ELF "LAUNCHSTATION-DS.ELF"

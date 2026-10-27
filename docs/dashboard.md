@@ -165,8 +165,9 @@ back on rows that do not use Left/Right to change a value. L2/R2 jump to the
 first/last row. The breadcrumb shows where the page lives.
 
 Screen calibration previews video modes for 10 seconds so the display has
-time to resync. Choose Keep to browse the full interface in that mode;
-cancel or let the countdown expire to restore the previous mode and offsets.
+time to resync. Press the shown Confirm button to keep the mode or the Back
+button to revert. Both actions work directly; D-pad input does not select an
+action. Letting the countdown expire also restores the previous mode and offsets.
 Save Settings separately to retain an accepted mode after restarting.
 NTSC, VGA and 480p render at 640×448; PAL, 576p and 576i render at 640×512.
 The dashboard scales its shared 640×448 canvas to the framebuffer, preserving
@@ -512,6 +513,6 @@ their loader-specific arguments. The IOP reset option remains independent.
 
 ### Video mode preview and browser navigation
 
-Video mode changes require confirmation within **5 seconds**. Keep retains the mode in the current settings session; Cancel or timeout restores the previous mode and screen offsets. Settings are written only through the existing Save action. Physical-console timing and display compatibility still require testing.
+Video mode changes require confirmation within **10 seconds**. The shown Confirm button directly keeps the mode for this settings session; the Back button directly reverts it. D-pad input does not select an action. Timeout also restores the previous mode and screen offsets. Settings are written only through the existing Save action. Physical-console timing and display compatibility still require testing.
 
 The native File Browser provides eleven rows and the path picker ten, with centered scrolling and endpoint-first Left/Right paging. A page that overshoots lands at the first/last item; the next press at that endpoint wraps. USB entries appear immediately after Memory Card Slot 2. Device rows use two left-aligned columns: the browse path on the left and the device description on the right. Examples include `mc0:/` / Memory Card Slot 1, `mmce0:/` / SD2PSX SD Card Slot 1, and `usbN:/` / USB Storage. Both APA and exFAT HDD units are listed when enabled; mounted VMCs appear once each. PSX Internal Flash uses the driver’s `xfrom0:/` path. Diagnostic status remains in device tools and opening a device reports initialization/errors. MISC/Configure opens dashboard Settings while the dashboard owns the screen; its classic configuration behavior remains available outside the dashboard.

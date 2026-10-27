@@ -923,8 +923,7 @@ static void editorScene(void)
 		                {DI_BTN_TRIANGLE, NULL, "Options"}, {dashBackIcon(), NULL, "Exit"}};
 		dashDrawHints(h, 6);
 	}
-	dashDrawToasts();
-	dashDrawActivity();
+	dashDrawNotifications();
 }
 
 //--------------------------------------------------------------

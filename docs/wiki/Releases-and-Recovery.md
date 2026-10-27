@@ -2,11 +2,15 @@
 
 ## Download and select the right package
 
-[Rolling latest](https://github.com/NathanNeurotic/Launchstation/releases/tag/latest) contains four installable packages: `APP_LAUNCHSTATION.zip`, `APP_LAUNCHSTATION.psu`, `APP_LAUNCHSTATION-DS.zip`, `APP_LAUNCHSTATION-DS.psu`. The DS variant includes the inherited DS34 controller drivers; use standard packages for ordinary PS2 controllers.
+[Rolling latest](https://github.com/saildot4k/Launchstation/releases/tag/latest) contains four installable packages: `APP_LAUNCHSTATION.zip`, `APP_LAUNCHSTATION.psu`, `APP_LAUNCHSTATION-DS.zip`, `APP_LAUNCHSTATION-DS.psu`. The DS variant includes the inherited DS34 controller drivers; use standard packages for ordinary PS2 controllers.
 
 A standard install folder has `LAUNCHSTATION.ELF`, `title.cfg`, `WLE-UPDATE-CA.PEM` and `BGM.ADP`. The DS package has `LAUNCHSTATION-DS.ELF` and its own APP folder. Keep customized configuration and sidecar files when upgrading.
 
 ## Native updater
+
+Update checks, commit ancestry comparisons and package downloads use `saildot4k/Launchstation` on GitHub. Builds compiled with the previous NathanNeurotic endpoint need one manual installation of the corrected matching ZIP/PSU package before they can use this update source. Preserve existing settings and custom sidecars when installing it.
+
+If an older build reports `TLS handshake: X509 ... (-9984)`, install the corrected ELF **and the updated `WLE-UPDATE-CA.PEM` beside it** from the matching package. The old bundled CA file lacks Sectigo Root E46, used by GitHub's API and website when checked on October 26, 2026. Replacing only the ELF leaves that outdated file in use. Back up a custom CA bundle before replacing or extending it. Certificate date errors also require the PS2's date and time to be correct; verification remains required.
 
 A native check verifies ancestry so that older/divergent releases are refused. It selects a matching verified PSU, downloads it over trusted HTTPS and verifies the published SHA-256 digest, validates the packed ELF and stages replacement. It can install **missing only** CA/BGM sidecars from a verified four-file PSU; existing custom sidecars remain untouched. The old app ELF is retained as a `.BAK` recovery copy during replacement. Restart to execute the installed build.
 

@@ -1636,8 +1636,7 @@ static void browserScene(void)
 	dashGfxBeginFrame();
 	dashBgDraw();
 	browserDrawBody();
-	dashDrawToasts();
-	dashDrawActivity();
+	dashDrawNotifications();
 }
 
 static int browserOpenState(const char *start_dir, const char *select)

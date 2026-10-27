@@ -10,7 +10,7 @@
 #include <malloc.h>
 #include <ctype.h>
 
-#define UPDATE_ELF_URL "https://github.com/NathanNeurotic/Launchstation/releases/download/latest/" SELF_UPDATE_ASSET
+#define UPDATE_ELF_URL "https://github.com/" SELF_UPDATE_REPOSITORY "/releases/download/latest/" SELF_UPDATE_ASSET
 #define UPDATE_MAX_ELF (16 * 1024 * 1024)
 
 static int device_path(const char *path, const char *name, int allow_bare)

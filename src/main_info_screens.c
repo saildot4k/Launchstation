@@ -86,9 +86,9 @@ void Show_About_uLE(void)
 			PrintPos(-1, hpos, "  and others in the PS2Dev community", COLOR_TEXT);
 			PrintPos(-1, hpos, " ", COLOR_TEXT);
 			PrintPos(-1, hpos, "Main release site:", COLOR_TEXT);
-			PrintPos(-1, hpos, "   github.com/ps2homebrew/wLaunchELF/releases", COLOR_TEXT);
+			PrintPos(-1, hpos, "   github.com/saildot4k/wLaunchELF_R3Z/releases", COLOR_TEXT);
 			PrintPos(-1, hpos, "Mod Release site:", COLOR_SELECT);
-			PrintPos(-1, hpos, "   github.com/NathanNeurotic/Launchstation/releases", COLOR_TEXT);
+			PrintPos(-1, hpos, "   github.com/saildot4k/Launchstation/releases", COLOR_TEXT);
 			PrintPos(-1, hpos, "Ancestral project: LaunchELF v3.41 by Mirakichi", COLOR_TEXT);
 		}  //ends if(event||post_event)
 		drawScr();
@@ -200,7 +200,7 @@ void Show_build_info(void)
 			         , COLOR_TEXT);
 #endif
 			PrintPos(-1, hpos, "Mod Release site:", COLOR_TEXT);
-			PrintPos(-1, hpos, "   github.com/NathanNeurotic/Launchstation/releases", COLOR_TEXT);
+			PrintPos(-1, hpos, "   github.com/saildot4k/Launchstation/releases", COLOR_TEXT);
 		}  //ends if(event||post_event)
 		drawScr();
 		post_event = event;

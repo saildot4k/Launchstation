@@ -345,19 +345,19 @@ int dashWorkerAwaitAll(const char *title)
 }
 
 //--------------------------------------------------------------
-// Activity indicator: a small pill above the button hints while visible
-// work runs. Drawn by dashRenderScene on every screen.
+// Activity indicator: a small pill while visible work runs. The shared
+// notification renderer places it above any transient toasts.
 //--------------------------------------------------------------
 static int visibleWork(void)
 {
 	return dashWorkerQueued(DASH_JOB_VISIBLE);
 }
 
-void dashDrawActivity(void)
+void dashDrawActivity(float y)
 {
 	int active = visibleWork();
 	u64 now = Timer();
-	float target, w, x, y = 364.0f;
+	float target, w, x;
 	char s[96];
 	int done, total;
 

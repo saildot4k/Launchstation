@@ -82,7 +82,8 @@ void dashAppsRebuildView(void)
 	for (i = 0; i < dashAppCount; i++)
 		if (matchFilter(&dashApps[i]))
 			order[norder++] = i;
-	sel = 0;
+	/* If the focused app disappears, its visible slot selects the next app.
+	 * The clamp below keeps focus at the bottom when the last app is hidden. */
 	for (i = 0; i < norder && keep[0]; i++)
 		if (!stricmp(dashApps[order[i]].path, keep))
 			sel = i;

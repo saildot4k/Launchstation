@@ -1182,8 +1182,7 @@ static void hddScene(void)
 		DashHint h[] = {{dashOkIcon(), NULL, "Actions"}, {-1, "L2/R2", "Page"}, {-1, "L1", "Status"}, {-1, "R1", "Game info"}, {dashBackIcon(), NULL, "Exit"}};
 		dashDrawHints(h, (int)(sizeof(h) / sizeof(h[0])));
 	}
-	dashDrawToasts();
-	dashDrawActivity();
+	dashDrawNotifications();
 }
 
 //--------------------------------------------------------------
