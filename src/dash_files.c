@@ -386,13 +386,12 @@ static void filesDraw(void)
 
 static void filesHints(void)
 {
-	DashHint h[4];
+	DashHint h[3];
 
 	h[0].button = dashOkIcon(), h[0].key = NULL, h[0].label = "Open";
 	h[1].button = DI_BTN_TRIANGLE, h[1].key = NULL, h[1].label = "Options";
 	h[2].button = -1, h[2].key = "SELECT", h[2].label = "Devices";
-	h[3].button = -1, h[3].key = "START", h[3].label = "Menu";
-	dashDrawHints(h, 4);
+	dashDrawHints(h, 3);
 }
 
 static const DashScreen dashFilesListScreen = {filesEnter, filesInput, filesUpdate, filesDraw, filesHints};
@@ -642,13 +641,12 @@ static void devDraw(void)
 
 static void devHints(void)
 {
-	DashHint h[4];
+	DashHint h[3];
 
 	h[0].button = dashOkIcon(), h[0].key = NULL, h[0].label = "Browse";
 	h[1].button = DI_BTN_TRIANGLE, h[1].key = NULL, h[1].label = "Options";
 	h[2].button = -1, h[2].key = "SELECT", h[2].label = "Files";
-	h[3].button = -1, h[3].key = "START", h[3].label = "Menu";
-	dashDrawHints(h, 4);
+	dashDrawHints(h, 3);
 }
 
 static const DashScreen dashDevicesGridScreen = {devEnter, devInput, devUpdate, devDraw, devHints};

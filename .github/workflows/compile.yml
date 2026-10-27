@@ -104,7 +104,7 @@ jobs:
           python3 tests/test_device_autostart_safe_mode.py
           python3 tests/test_home_focus.py
           python3 tests/test_unified_dashboard_navigation.py
-          python3 tests/test_dashboard_start.py
+          python3 tests/test_editor_leave.py
           python3 tests/test_files_tab_lifecycle.py
           python3 tests/test_bgm_sidecar.py
           python3 tests/test_sound_recovery.py

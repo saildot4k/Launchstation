@@ -15,6 +15,7 @@ extern u32 paddata;
 
 static u64 last_input_ms;
 static u32 held_prev;
+static u32 text_repeat_armed;
 
 //--------------------------------------------------------------
 // Input
@@ -27,7 +28,7 @@ void dashInputPoll(DashInput *in)
 /* usb_kb_as_pad = 0 leaves the USB keyboard to the caller (text entry). */
 void dashInputPollEx(DashInput *in, int usb_kb_as_pad)
 {
-	u32 np;
+	u32 np, repeat;
 	int ret;
 	u32 ok_btn = swapKeys ? PAD_CROSS : PAD_CIRCLE;
 	u32 back_btn = swapKeys ? PAD_CIRCLE : PAD_CROSS;
@@ -47,6 +48,15 @@ void dashInputPollEx(DashInput *in, int usb_kb_as_pad)
 	                      PAD_L3_H0 | PAD_L3_H1 | PAD_L3_V0 | PAD_L3_V1 |
 	                      PAD_R3_H0 | PAD_R3_H1 | PAD_R3_V0 | PAD_R3_V1 |
 	                      PAD_L2 | PAD_R2) | ~(paddata & held_prev)) : 0;
+	/* Text entry consumes the pad's existing scroll repeat cadence separately
+	 * from one-press UI actions. A flush requires a fresh press before repeating. */
+	text_repeat_armed &= paddata;
+	text_repeat_armed |= np & paddata & (ok_btn | back_btn);
+	repeat = ret ? new_pad & (text_repeat_armed | ~paddata) : 0;
+	if (repeat & ok_btn)
+		in->text_repeat |= DASH_IN_OK;
+	if (repeat & back_btn)
+		in->text_repeat |= DASH_IN_BACK;
 	if (paddata != held_prev)
 		last_input_ms = Timer();
 	held_prev = paddata;
@@ -86,20 +96,8 @@ void dashInputPollEx(DashInput *in, int usb_kb_as_pad)
 		in->pressed |= DASH_IN_R3;
 	in->any = (in->pressed != 0);
 	/* The editor consumes right-stick directions directly from raw_new. */
-	if (in->any || (np & (PAD_R3_H0 | PAD_R3_H1 | PAD_R3_V0 | PAD_R3_V1)))
+	if (in->any || in->text_repeat || (np & (PAD_R3_H0 | PAD_R3_H1 | PAD_R3_V0 | PAD_R3_V1)))
 		last_input_ms = Timer();
-	if (in->pressed & DASH_IN_START) {
-		/* Consume the entire chord: START cannot also type, accept a dialog
-		 * or trigger a SELECT launch key after the Dashboard popup closes.
-		 * A second press cancels only the open Dashboard through normal Back. */
-		memset(in, 0, sizeof(*in));
-		if (dashDashboardMenuIsOpen()) {
-			in->pressed = DASH_IN_BACK;
-			in->any = 1;
-		} else {
-			dashDashboardMenu();
-		}
-	}
 }
 
 void dashInputFlush(void)
@@ -111,6 +109,7 @@ void dashInputFlush(void)
 		readpad_noRepeat();
 	}
 	held_prev = paddata;
+	text_repeat_armed = 0;
 	last_input_ms = Timer();
 }
 
@@ -739,6 +738,11 @@ float dashDrawButton(float x, float y, int icon, const char *key)
 	return drawButton(x, y, icon, key);
 }
 
+float dashButtonWidth(int icon, const char *key)
+{
+	return buttonWidth(icon, key);
+}
+
 /* Optional live preview for the next dashModalMenu(): called whenever the
  * highlighted row changes, with a light backdrop so the effect is visible. */
 static void (*modal_preview)(int index);
@@ -797,8 +801,6 @@ int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *i
 
 	while (1) {
 		dashInputPoll(&in);
-		if (dashDashboardPending())
-			return -1;
 		if (in.pressed & DASH_IN_UP) {
 			int s = sel;
 			do
@@ -934,10 +936,9 @@ int dashModalChoice(const char *title, const char *const *options, int n, int cu
 }
 
 static int modalButtons(const char *title, const char *body, const char *detail, int icon, DashColor icon_col,
-                        const char *ok_label, const char *cancel_label, int default_sel, int direct_actions, u64 deadline)
+                        const char *ok_label, const char *cancel_label, u64 deadline)
 {
-	int sel = default_sel;
-	float open = 0.0f, sel_anim = (float)default_sel, title_age = 0.0f;
+	float open = 0.0f, title_age = 0.0f;
 	float w = 440.0f, h;
 	const float button_h = 28.0f;
 	float x = (DASH_VW - w) * 0.5f, y;
@@ -971,21 +972,14 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 			detail = countdown;
 		}
 		dashInputPoll(&in);
-		if (dashDashboardPending())
-			return 0;
 		if (deadline && Timer() >= deadline) {
 			dashInputFlush();
 			return 0;
 		}
-		if (!direct_actions && cancel_label != NULL && (in.pressed & (DASH_IN_LEFT | DASH_IN_RIGHT))) {
-			sel ^= 1;
-			dashSoundPlay(DASH_SND_CURSOR);
-		}
 		if (in.pressed & DASH_IN_OK) {
-			int accepted = direct_actions || cancel_label == NULL || sel == 0;
-			dashSoundPlay(accepted ? DASH_SND_CONFIRM : DASH_SND_CANCEL);
+			dashSoundPlay(DASH_SND_CONFIRM);
 			dashInputFlush();
-			return accepted;
+			return 1;
 		}
 		if (in.pressed & DASH_IN_BACK) {
 			dashSoundPlay(DASH_SND_CANCEL);
@@ -995,7 +989,6 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 		float dt = dashVisualUpdate();
 		title_age += dt;
 		open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dt);
-		sel_anim = dashApproach(sel_anim, (float)sel, 20.0f * dashAnimSpeed(), dt);
 		{
 			float oe = dashEaseOutCubic(open);
 
@@ -1023,35 +1016,18 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 			float bw = (cancel_label != NULL) ? 150.0f : 180.0f;
 			float bx0 = (cancel_label != NULL) ? x + w * 0.5f - bw - 10 : x + (w - bw) * 0.5f;
 			float bx1 = x + w * 0.5f + 10;
-			float fx = dashLerpf(bx0, bx1, sel_anim);
 
 			dashPanel(bx0, by, bw, button_h, 9, DC(255, 255, 255, 18));
 			if (cancel_label != NULL)
 				dashPanel(bx1, by, bw, button_h, 9, DC(255, 255, 255, 18));
-			/* Direct actions are always available; neither has movable focus. */
-			if (!direct_actions) {
-				if (sel == 0 && icon == DI_WARNING && cancel_label) {
-					DashColor dz = dashColorScale(DASH_C_DANGER, 0.78f);
-					dz.a = 170;
-					dashPanel(fx, by, bw, button_h, 9, dz);
-					dashPanelBorder(fx, by, bw, button_h, 9, DASH_C_SELEDGE);
-				} else if (dashTheme.highlight == DASH_HL_TEXT) {
-					/* buttons need a visible focus even in text-only themes */
-					dashPanelBorder(fx, by, bw, button_h, 9, dashColorA(DASH_C_ACCENT, 0.8f));
-				} else
-					dashDrawSelection(fx, by, bw, button_h, 9, 1.0f);
-			}
-			/* Confirmation actions use exactly the same sized glyph/badge
+			/* Both actions are direct button shortcuts, without selection.
+			 * Confirmation actions use exactly the same sized glyph/badge
 			 * renderer as the dashboard footer and modal hints (#158). */
-			dashGfxPushAlpha(direct_actions || sel == 0 ? 1.0f : 0.55f);
 			drawButton(bx0 + 12, by + 3, dashOkIcon(), NULL);
-			dashGfxPopAlpha();
-			dashTextCenter(bx0 + bw * 0.5f + 10, by + 4.0f, ok_label, DASH_FS_SMALL, direct_actions ? DASH_C_TEXT : dashItemColor(sel == 0));
+			dashTextCenter(bx0 + bw * 0.5f + 10, by + 4.0f, ok_label, DASH_FS_SMALL, DASH_C_TEXT);
 			if (cancel_label != NULL) {
-				dashGfxPushAlpha(direct_actions || sel == 1 ? 1.0f : 0.55f);
 				drawButton(bx1 + 12, by + 3, dashBackIcon(), NULL);
-				dashGfxPopAlpha();
-				dashTextCenter(bx1 + bw * 0.5f + 10, by + 4.0f, cancel_label, DASH_FS_SMALL, direct_actions ? DASH_C_TEXT : dashItemColor(sel == 1));
+				dashTextCenter(bx1 + bw * 0.5f + 10, by + 4.0f, cancel_label, DASH_FS_SMALL, DASH_C_TEXT);
 			}
 		}
 		dashGfxPopOffset();
@@ -1063,20 +1039,20 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 int dashModalConfirm(const char *title, const char *body, const char *ok_label, int danger)
 {
 	return modalButtons(title, body, NULL, danger ? DI_WARNING : DI_INFO,
-	                    danger ? DASH_C_WARM : DASH_C_ACCENT, ok_label ? ok_label : "OK", "Cancel", danger ? 1 : 0, 0, 0);
+	                    danger ? DASH_C_WARM : DASH_C_ACCENT, ok_label ? ok_label : "OK", "Cancel", 0);
 }
 
 int dashModalKeepVideo(void)
 {
 	/* Confirm keeps and Back reverts, without selecting an action first. */
 	return modalButtons("Keep this video mode?", "Confirm only if the picture is visible and stable.",
-	                    "", DI_INFO, DASH_C_ACCENT, "Keep", "Revert", 0, 1, Timer() + 10000);
+	                    "", DI_INFO, DASH_C_ACCENT, "Keep", "Revert", Timer() + 10000);
 }
 
 void dashModalMessage(int icon, const char *title, const char *body, const char *detail)
 {
 	DashColor c = (icon == DI_WARNING) ? DASH_C_WARM : DASH_C_ACCENT;
-	modalButtons(title, body, detail, icon, c, "OK", NULL, 0, 0, 0);
+	modalButtons(title, body, detail, icon, c, "OK", NULL, 0);
 }
 
 //--------------------------------------------------------------

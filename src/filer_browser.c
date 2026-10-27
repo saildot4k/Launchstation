@@ -1413,7 +1413,7 @@ int getFilePath(char *out, int cnfmode)
 							strcpy(msg0, LNG(Rename_Failed));
 						} else {
 							strcpy(tmp, files[browser_sel].name);
-							if (filenameKeyboard(tmp, 36) > 0) {
+							if (filenameKeyboard(tmp, 36, path) > 0) {
 								if (Rename(path, &files[browser_sel], tmp) < 0) {
 									browser_pushed = FALSE;
 									strcpy(msg0, LNG(Rename_Failed));
@@ -1435,7 +1435,7 @@ int getFilePath(char *out, int cnfmode)
 					}
 					else if (ret == NEWDIR) {
 						tmp[0] = 0;
-						if (filerConfirmExploitModify(path, NULL) > 0 && filenameKeyboard(tmp, 36) > 0) {
+						if (filerConfirmExploitModify(path, NULL) > 0 && filenameKeyboard(tmp, 36, path) > 0) {
 							ret = newdir(path, tmp);
 							if (ret == -17) {
 								strcpy(msg0, LNG(directory_already_exists));

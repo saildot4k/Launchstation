@@ -977,7 +977,7 @@ static void colorEditor(const char *title, int id)
 			dashInputFlush();
 			return;
 		}
-		if (dashDashboardPending() || (in.pressed & DASH_IN_BACK)) {
+		if (in.pressed & DASH_IN_BACK) {
 			*c = orig;
 			if (!classic)
 				dashThemeApply();
@@ -2806,8 +2806,12 @@ static void settingsDraw(void)
 				numberInfo(it->id, &num, &lo, &hi, text, sizeof(text));
 			else if (it->type == ST_PATH) {
 				pathInfo(it->id, &ps);
-				v = pathLeaf(ps.field, leaf, sizeof(leaf));
 				set = ps.field[0] != '\0';
+				/* Show which loader installation is configured, not just its name. */
+				if (set && (it->id == S_POPS_PATH || it->id == S_NEUTRINO_PATH || it->id == S_EMBER_DIR))
+					v = ps.field;
+				else
+					v = pathLeaf(ps.field, leaf, sizeof(leaf));
 			} else if (it->type == ST_IP)
 				v = ipField(it->id);
 			else {
@@ -2853,7 +2857,7 @@ static void settingsDraw(void)
 
 static void settingsHints(void)
 {
-	DashHint h[6];
+	DashHint h[5];
 	int n = 0;
 
 	{
@@ -2872,7 +2876,6 @@ static void settingsHints(void)
 			h[n].button = dashBackIcon(), h[n].key = NULL, h[n].label = "Back", n++;
 	}
 	h[n].button = DI_BTN_TRIANGLE, h[n].key = NULL, h[n].label = "Changes", n++;
-	h[n].button = -1, h[n].key = "START", h[n].label = "Menu", n++;
 	dashDrawHints(h, n);
 }
 

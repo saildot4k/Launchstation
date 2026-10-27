@@ -675,95 +675,6 @@ static void pollRemotePcCommand(void)
 }
 
 //--------------------------------------------------------------
-// Global (START) menu
-//--------------------------------------------------------------
-static int dashboard_action = -1;
-static int dashboard_menu_open;
-static int dashboard_leave_guard;
-
-int dashDashboardMenuIsOpen(void)
-{
-	return dashboard_menu_open;
-}
-
-int dashDashboardPending(void)
-{
-	return dashboard_action >= 0 && !dashboard_leave_guard;
-}
-
-int dashDashboardConfirmLeave(int (*leave)(void))
-{
-	int ok;
-	/* Save/Discard dialogs must remain usable while the editor unwinds. */
-	dashboard_leave_guard++;
-	ok = leave();
-	dashboard_leave_guard--;
-	if (!ok)
-		dashboard_action = -1;
-	return ok;
-}
-
-void dashDashboardMenu(void)
-{
-	DashMenuItem items[] = {
-	    {DI_HOME, "Home", NULL, 0},
-	    {DI_REFRESH, "Refresh application library", NULL, 0},
-	    {DI_FOLDER, "File Browser", NULL, 0},
-	    {DI_SETTINGS, "Settings", NULL, 0},
-	    {DI_REFRESH, "Reboot IOP (reset drivers)", NULL, 0},
-	    {DI_POWER, "Power off", NULL, 0}};
-	int r;
-
-	if (!dash_active || dashboard_menu_open || dashboard_action >= 0 || dashboard_leave_guard)
-		return;
-	background_only = 0;
-	boot_phase = 0;
-	ql_down = ql_used = 0;
-	dashboard_menu_open = 1;
-	r = dashModalMenu("Dashboard", NULL, items, sizeof(items) / sizeof(items[0]), 0);
-	dashboard_menu_open = 0;
-	if (r >= 0)
-		dashboard_action = r;
-}
-
-static void globalMenu(void)
-{
-	int r = dashboard_action;
-	/* Dispatch only in DashRun, after modal resources and scene overrides
-	 * have been released. Clear first so Settings leave dialogs can run. */
-	dashboard_action = -1;
-	if (r < 0)
-		return;
-
-	/* Switching tabs handles any unsaved Settings confirmation inside
-	 * dashSwitchSection(). System actions require their own leave guard. */
-	if ((r == 4 || r == 5) && !dashConfirmLeave())
-		return;
-	switch (r) {
-		case 0:
-			dashSwitchSection(DASH_SEC_HOME);
-			break;
-		case 1:
-			dashRescanLibrary(1);
-			break;
-		case 2:
-			dashSwitchSection(DASH_SEC_FILES);
-			break;
-		case 3:
-			dashSwitchSection(DASH_SEC_SETTINGS);
-			break;
-		case 4:
-			if (dashModalConfirm("Reboot IOP", "All loaded device drivers will be restarted. Devices will be detected again when used.", "Reboot", 0))
-				dashRunMisc(setting->Misc_Reboot_IOP);
-			break;
-		case 5:
-			if (dashModalConfirm("Power off", "Turn off the PlayStation 2 now?", "Power off", 1))
-				dashRunMisc(setting->Misc_PS2PowerOff);
-			break;
-	}
-}
-
-//--------------------------------------------------------------
 // Boot behaviour (mirrors the classic menu's Init_Delay / LK_auto logic)
 //--------------------------------------------------------------
 extern u32 paddata;
@@ -1242,8 +1153,6 @@ void DashRun(const MainExecuteContext *ctx, int from_boot)
 			dashSwitchSection(dashAdjacentSection(section, 1));
 		else if (in.any && screens[section]->input)
 			screens[section]->input(&in);
-		if (dashDashboardPending())
-			globalMenu();
 		if (screens[section]->update)
 			screens[section]->update(dt);
 

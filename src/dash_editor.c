@@ -536,7 +536,7 @@ static int docSaveAs(EdDoc *d)
 		dashStrCopy(name, "NEWFILE.TXT", sizeof(name));
 	if (!dashPickPath("Save in which folder?", dir, DASH_PICK_FOLDER, NULL, dir, sizeof(dir)))
 		return 0;
-	if (!dashModalFilename("File name", name, sizeof(name) - 1) || name[0] == '\0')
+	if (!dashModalFilename("File name", name, sizeof(name) - 1, dir) || name[0] == '\0')
 		return 0;
 	if (snprintf(full, sizeof(full), "%s%s", dir, name) >= (int)sizeof(full)) {
 		dashModalMessage(DI_WARNING, "Path too long", "Choose a shorter name or folder.", NULL);
@@ -997,11 +997,6 @@ int dashTextEditorEx(const char *path, int create_if_missing)
 		EdDoc *d;
 		int rows, cols, action = -1;
 
-		if (dashDashboardPending()) {
-			if (dashDashboardConfirmLeave(leaveEditor))
-				goto done;
-			continue;
-		}
 		if (ndocs == 0) {
 			if (!emptyMenu())
 				break;
@@ -1012,8 +1007,6 @@ int dashTextEditorEx(const char *path, int create_if_missing)
 		cols = visibleCols();
 
 		dashInputPollEx(&in, 0);
-		if (dashDashboardPending())
-			continue;
 		if (usbKeys(d, rows) == 1)
 			action = editorMenu(d);
 
@@ -1040,9 +1033,10 @@ int dashTextEditorEx(const char *path, int create_if_missing)
 				moveLines(d, -1);
 			if (in.raw_new & PAD_R3_V1)
 				moveLines(d, 1);
-			if (in.pressed & DASH_IN_OK)
+			if ((in.pressed & DASH_IN_OK) ||
+			    ((in.text_repeat & DASH_IN_OK) && dashKeyboardCanRepeat(&editor_keyboard)))
 				kbTypeKey(d);
-			if (in.pressed & DASH_IN_BACK)
+			if (in.text_repeat & DASH_IN_BACK)
 				docBackspace(d);
 			if (in.pressed & DASH_IN_FAV)
 				editor_keyboard.caps = !editor_keyboard.caps;

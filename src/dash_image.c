@@ -146,8 +146,6 @@ int dashShowImageViewer(const char *path, const char *title, DashImageViewerStat
 		char status[160];
 
 		dashInputPoll(&in);
-		if (dashDashboardPending())
-			break;
 		now = Timer();
 
 		if (state->slideshow && slide_deadline && now >= slide_deadline) {

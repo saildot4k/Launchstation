@@ -146,7 +146,7 @@ int main(void) {
     for(int p=0;p<P_COUNT;p++) assert(seen[p]);
     for(int i=0;i<NITEMS(expected);i++) assert(occurrences[expected[i]]==1);
     for(int k=SETTING_LK_AUTO;k<SETTING_LK_START;k++) assert(occurrences[S_LK_0+k]==1);
-    assert(!occurrences[S_LK_0+SETTING_LK_START]); /* START belongs to Dashboard. */
+    assert(!occurrences[S_LK_0+SETTING_LK_START]); /* START is reserved for contextual actions. */
     for(int s=0;s<S_T_RESETCAT;s++) assert(occurrences[s]<=1);
     settingsEnter(); assert(page==P_ROOT && begins==1);
     /* Root shortcuts never interpret a page ID as an overlapping SetId. */

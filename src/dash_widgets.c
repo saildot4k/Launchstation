@@ -160,7 +160,7 @@ static int kbSelectInRow(DashKeyboard *kb, int row, int col)
 	return 1;
 }
 
-void dashKeyboardMove(DashKeyboard *kb, int dx, int dy)
+static void kbMoveFocus(DashKeyboard *kb, int dx, int dy)
 {
 	int row, col, tries, a;
 
@@ -202,11 +202,35 @@ void dashKeyboardMove(DashKeyboard *kb, int dx, int dy)
 	}
 }
 
+void dashKeyboardMove(DashKeyboard *kb, int dx, int dy)
+{
+	int selected = kb->selected, action = kb->action;
+
+	/* Space spans several columns. Reversing the move that entered it
+	 * returns to the actual previous key rather than Space's fixed column. */
+	if (action < 0 && selected == KB_SPACE_KEY &&
+	    dx == -kb->space_dx && dy == -kb->space_dy &&
+	    (kb->space_action >= 0 ? kbHasAction(kb, kb->space_action) :
+	     (kb->space_selected != KB_SPACE_KEY && kbIsKey(kb, kb->space_selected)))) {
+		kb->selected = kb->space_selected;
+		kb->action = kb->space_action;
+		return;
+	}
+	kbMoveFocus(kb, dx, dy);
+	if (kb->action < 0 && kb->selected == KB_SPACE_KEY && (action >= 0 || selected != KB_SPACE_KEY)) {
+		kb->space_selected = selected;
+		kb->space_action = action;
+		kb->space_dx = dx;
+		kb->space_dy = dy;
+	}
+}
+
 void dashKeyboardInit(DashKeyboard *kb, int layout)
 {
 	memset(kb, 0, sizeof(*kb));
 	kb->layout = normalizeVirtualKeyboardLayout(layout);
 	kb->action = -1;
+	kb->space_selected = kb->space_action = -1;
 	kb->selected = getVirtualKeyboardLayoutNextKey(kb->layout,
 	                                               VKEY_LAYOUT_COLS + getVirtualKeyboardLayoutFirstColumn(kb->layout), 0, 0);
 }
@@ -230,9 +254,16 @@ int dashKeyboardPress(DashKeyboard *kb)
 		case KA_SYMBOLS:
 			kb->page = (kb->page + 1) % (kbSymbolPageCount() + 1);
 			kb->selected = KB_SPACE_KEY;
+			kb->space_selected = kb->space_action = -1;
 			break;
 	}
 	return 0;
+}
+
+int dashKeyboardCanRepeat(const DashKeyboard *kb)
+{
+	return kb->action < 0 ? kbIsKey(kb, kb->selected) :
+	       kbHasAction(kb, kb->action) && kb->action != KA_SYMBOLS;
 }
 
 static float kbActionWidth(int action)
@@ -414,14 +445,36 @@ static int kbUsb(char *buf, int max_len, int *cur, int filename)
 	return 0;
 }
 
-static int modalKeyboard(const char *title, char *buf, int max_len, int filename)
+static void kbDrawHints(float center_x, float y)
 {
-	const float w = 572.0f, h = 276.0f;
+	DashHint hints[] = {{dashOkIcon(), NULL, "Type"}, {dashBackIcon(), NULL, "Delete"},
+	                    {DI_BTN_SQUARE, NULL, "Caps"}, {DI_BTN_R3, NULL, "Cursor"},
+	                    {-1, "START", "Done"}, {DI_BTN_TRIANGLE, NULL, "Cancel"}};
+	const int count = sizeof(hints) / sizeof(hints[0]);
+	float width = 0.0f, x;
+	int i;
+
+	for (i = 0; i < count; i++)
+		width += dashButtonWidth(hints[i].button, hints[i].key) + 4.0f +
+		         dashTextWidth(hints[i].label, DASH_FS_SMALL) + (i ? 12.0f : 0.0f);
+	x = center_x - width * 0.5f;
+	for (i = 0; i < count; i++) {
+		if (i)
+			x += 12.0f;
+		x += dashDrawButton(x, y, hints[i].button, hints[i].key) + 4.0f;
+		x = dashTextS(x, y + 4.5f, hints[i].label, DASH_FS_SMALL, DASH_C_TEXT2);
+	}
+}
+
+static int modalKeyboard(const char *title, char *buf, int max_len, int filename, const char *directory)
+{
+	const int has_directory = directory != NULL && directory[0] != '\0';
+	const float w = 572.0f, h = has_directory ? 300.0f : 276.0f;
 	const float x = (DASH_VW - w) * 0.5f, y = (DASH_VH - h) * 0.5f;
 	char orig[256];
 	DashKeyboard keyboard;
 	int cur, result = 0;
-	float open = 0.0f;
+	float open = 0.0f, title_age = 0.0f;
 	DashInput in;
 
 	if (max_len > (int)sizeof(orig) - 1)
@@ -437,23 +490,26 @@ static int modalKeyboard(const char *title, char *buf, int max_len, int filename
 		int r;
 
 		dashInputPollEx(&in, 0);
-		if (dashDashboardPending())
-			break;
 		r = kbUsb(buf, max_len, &cur, filename);
 		if (r != 0) {
 			result = (r > 0);
 			break;
 		}
-		if (in.pressed & DASH_IN_UP)
+		/* Match the editor: D-pad selects keys, right stick moves the caret. */
+		if (in.raw_new & PAD_UP)
 			dashKeyboardMove(&keyboard, 0, -1);
-		if (in.pressed & DASH_IN_DOWN)
+		if (in.raw_new & PAD_DOWN)
 			dashKeyboardMove(&keyboard, 0, 1);
-		if (in.pressed & DASH_IN_LEFT)
+		if (in.raw_new & PAD_LEFT)
 			dashKeyboardMove(&keyboard, -1, 0);
-		if (in.pressed & DASH_IN_RIGHT)
+		if (in.raw_new & PAD_RIGHT)
 			dashKeyboardMove(&keyboard, 1, 0);
-		if (in.pressed & (DASH_IN_UP | DASH_IN_DOWN | DASH_IN_LEFT | DASH_IN_RIGHT))
+		if (in.raw_new & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT))
 			dashSoundPlay(DASH_SND_CURSOR);
+		if ((in.raw_new & PAD_R3_H0) && cur > 0)
+			cur--;
+		if ((in.raw_new & PAD_R3_H1) && cur < (int)strlen(buf))
+			cur++;
 		if (in.pressed & DASH_IN_L1) {
 			if (cur > 0)
 				cur--;
@@ -469,11 +525,11 @@ static int modalKeyboard(const char *title, char *buf, int max_len, int filename
 				kbSelectInRow(&keyboard, keyboard.selected / VKEY_LAYOUT_COLS,
 				              keyboard.selected % VKEY_LAYOUT_COLS);
 		}
-		if (in.pressed & DASH_IN_BACK) { /* cancel button deletes, as before */
+		if (in.text_repeat & DASH_IN_BACK) { /* cancel button deletes, as before */
 			kbDelete(buf, &cur);
 			dashSoundPlay(DASH_SND_CANCEL);
 		}
-		if (in.pressed & DASH_IN_SELECT) {
+		if (in.pressed & DASH_IN_START) {
 			result = 1;
 			break;
 		}
@@ -481,7 +537,8 @@ static int modalKeyboard(const char *title, char *buf, int max_len, int filename
 			result = 0;
 			break;
 		}
-		if (in.pressed & DASH_IN_OK) {
+		if ((in.pressed & DASH_IN_OK) ||
+		    ((in.text_repeat & DASH_IN_OK) && dashKeyboardCanRepeat(&keyboard))) {
 			int key = dashKeyboardPress(&keyboard);
 
 			dashSoundPlay(DASH_SND_CONFIRM);
@@ -489,10 +546,14 @@ static int modalKeyboard(const char *title, char *buf, int max_len, int filename
 				kbInsert(buf, max_len, &cur, (char)key);
 		}
 
-		open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dashVisualUpdate());
+		{
+			float dt = dashVisualUpdate();
+			title_age += dt;
+			open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dt);
+		}
 		{
 			float oe = dashEaseOutCubic(open);
-			float fx = x + 30, fy = y + 56, fw = w - 60;
+			float fx = x + 30, fy = y + (has_directory ? 80 : 56), fw = w - 60;
 			float gy = fy + 48;
 
 			dashRenderScene();
@@ -507,6 +568,8 @@ static int modalKeyboard(const char *title, char *buf, int max_len, int filename
 				snprintf(count, sizeof(count), "%d/%d", (int)strlen(buf), max_len);
 				dashTextRight(x + w - 26, y + 22, count, DASH_FS_CAPTION, DASH_C_TEXT3);
 			}
+			if (has_directory)
+				dashTextScrollTimed(x + 30, y + 44, w - 60, directory, DASH_FS_CAPTION, DASH_C_TEXT3, title_age);
 
 			/* text field with a blinking caret */
 			dashPanel(fx, fy, fw, 36, 10, dashColorA(DASH_C_PANEL, 1.0f));
@@ -531,23 +594,7 @@ static int modalKeyboard(const char *title, char *buf, int max_len, int filename
 
 			dashKeyboardDraw(&keyboard, DASH_VW * 0.5f, gy);
 
-			/* hints */
-			{
-				float hx = x + 24, hy = y + h - 36;
-				hx += dashDrawButton(hx, hy, dashOkIcon(), NULL) + 4;
-				hx = dashTextS(hx, hy + 4.5f, "Type", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
-				hx += dashDrawButton(hx, hy, dashBackIcon(), NULL) + 4;
-				hx = dashTextS(hx, hy + 4.5f, "Delete", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
-				hx += dashDrawButton(hx, hy, DI_BTN_SQUARE, NULL) + 4;
-				hx = dashTextS(hx, hy + 4.5f, "Caps", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
-				hx += dashDrawButton(hx, hy, -1, "L1") + 2;
-				hx += dashDrawButton(hx, hy, -1, "R1") + 4;
-				hx = dashTextS(hx, hy + 4.5f, "Move", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
-				hx += dashDrawButton(hx, hy, -1, "SELECT") + 4;
-				hx = dashTextS(hx, hy + 4.5f, "Done", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
-				hx += dashDrawButton(hx, hy, DI_BTN_TRIANGLE, NULL) + 4;
-				dashTextS(hx, hy + 4.5f, "Cancel", DASH_FS_SMALL, DASH_C_TEXT2);
-			}
+			kbDrawHints(x + w * 0.5f, y + h - 36);
 			dashGfxPopOffset();
 			dashGfxPopAlpha();
 			dashGfxPresent();
@@ -562,12 +609,12 @@ static int modalKeyboard(const char *title, char *buf, int max_len, int filename
 
 int dashModalKeyboard(const char *title, char *buf, int max_len)
 {
-	return modalKeyboard(title, buf, max_len, 0);
+	return modalKeyboard(title, buf, max_len, 0, NULL);
 }
 
-int dashModalFilename(const char *title, char *buf, int max_len)
+int dashModalFilename(const char *title, char *buf, int max_len, const char *directory)
 {
-	return modalKeyboard(title, buf, max_len, 1);
+	return modalKeyboard(title, buf, max_len, 1, directory);
 }
 
 //--------------------------------------------------------------
@@ -630,9 +677,11 @@ static void classicProgress(const char *message)
 	dashLoadingStatus(line, 0, 0);
 }
 
-static int classicKeyboard(char *out, int max, int filename)
+static int classicKeyboard(char *out, int max, int filename, const char *directory)
 {
-	if (!(filename ? dashModalFilename : dashModalKeyboard)("Enter a name", out, max))
+	int accepted = filename ? dashModalFilename("Enter a name", out, max, directory) :
+	                          dashModalKeyboard("Enter a name", out, max);
+	if (!accepted)
 		return -1;
 	return (int)strlen(out);
 }
@@ -708,8 +757,6 @@ int dashModalIp(const char *title, const char *help, char *ip_str, int size)
 		int step = 0;
 
 		dashInputPoll(&in);
-		if (dashDashboardPending())
-			break;
 		if (in.pressed & DASH_IN_LEFT) {
 			sel = (sel + 3) % 4;
 			dashSoundPlay(DASH_SND_CURSOR);
@@ -1040,8 +1087,6 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 		int first_entry; /* index of the first listing row */
 
 		dashInputPoll(&in);
-		if (dashDashboardPending())
-			break;
 		if (pk.starting && pk.start_done) {
 			pk.starting = 0;
 			if (pk.start_ok) {

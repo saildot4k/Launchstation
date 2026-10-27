@@ -11,6 +11,12 @@ tools ask (yes/no, names, progress) are dashboard dialogs. Commands with no
 screen of their own (start disc, OSDSYS, PS2 browser, network, power off,
 reboot IOP) run behind the loading overlay.
 
+Confirmation popups use the displayed face buttons directly: Confirm performs
+the named action, and Back/Cancel dismisses it. For example, Confirm clears
+recent applications and Cancel keeps the list. D-pad input does not select
+between these actions, and neither action has a selection highlight. Button
+icons follow the configured Confirm/Cancel mapping.
+
 File Browser: Confirm opens a folder, previews PNG/JPG/JPEG images, starts an ELF/KELF/VCD/ISO or opens a
 text file in the Text Editor. The image viewer supports sibling-image browsing,
 90-degree rotation, 1x-4x zoom, left-stick panning, fullscreen mode and a
@@ -41,6 +47,15 @@ Also in the File Browser menu, as in the classic browser:
 In file pickers (Settings, launch keys) R3 chooses the highlighted file as
 a `uLE:/` path, relative to Launchstation's own folder, like the classic R3;
 elsewhere R3 opens that folder.
+
+In the file/folder naming keyboard, use the D-pad to select keys and tilt the
+right stick left or right to move the text cursor. The popup shows its title,
+the destination folder path, the typing field, and then the keyboard. Long
+paths scroll within their own line. START accepts the name;
+Triangle cancels. In both the naming and editor keyboards, reversing the move
+into Space restores the previous key, even after inserting several spaces.
+Holding Type or Delete repeats with the same initial delay and acceleration
+as scrolling through lists.
 
 The cursor never waits for the memory card or a slow device: file reads
 and writes (artwork, saves, library scans, folder listings) run on a
@@ -252,7 +267,7 @@ Input > Confirm button), as the classic browser did.
 | Square | Add to / remove from Favorites |
 | L1 / R1 | Previous / next section |
 | L2 / R2 | Page jump |
-| START | Open / close the Dashboard menu (home, refresh library, File Browser, settings, reboot IOP, power off) |
+| START in naming dialogs | Accept the file or folder name (Done) |
 | SELECT | Tap: switch application view (APPS). Hold: your launch keys appear; press a button to start its application |
 
 `Init_Delay` is honoured, and a launch key held when the delay ends
@@ -285,7 +300,7 @@ active list and lets the user add or remove exact scan roots.
   are refreshed (Settings > Home & applications > Application library >
   Refresh at startup). Nothing else is
   initialised for the dashboard.
-* *Refresh library* (APPS > Triangle, START menu or Settings) scans every
+* *Refresh library* (APPS > Triangle or Settings) scans every
   folder, starting the drivers it needs first; the search itself runs in
   the background while you keep using the dashboard.
 * Results are cached in `DASHLIB.CNF` and shown instantly next boot.

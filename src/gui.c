@@ -5,14 +5,14 @@
  * NULL: the classic dialogs below. */
 int (*ynDialogOverride)(const char *message) = NULL;
 void (*nonDialogOverride)(const char *message) = NULL;
-int (*keyboardOverride)(char *out, int max, int filename) = NULL;
+int (*keyboardOverride)(char *out, int max, int filename, const char *directory) = NULL;
 
 int ynDialog(const char *message)
 {
 	char msg[512];
 	int dh, dw, dx, dy;
-	int sel = 0, a = 6, b = 4, c = 2, n, tw;
-	int i, x, len, ret;
+	int a = 6, b = 4, c = 2, n, tw;
+	int i, x, len, ret, ok_width, cancel_width;
 	int event, post_event = 0;
 
 	if (ynDialogOverride != NULL)
@@ -33,6 +33,11 @@ int ynDialog(const char *message)
 	}
 	if (tw < 96)
 		tw = 96;
+	ok_width = printXY(LNG(OK), 0, 0, 0, FALSE, 0);
+	cancel_width = printXY(LNG(CANCEL), 0, 0, 0, FALSE, 0);
+	/* Room for both localized labels, their button glyphs and spacing. */
+	if (tw < ok_width + cancel_width + 8 * FONT_WIDTH)
+		tw = ok_width + cancel_width + 8 * FONT_WIDTH;
 
 	dh = FONT_HEIGHT * (n + 1) + 2 * 2 + a + b + c;
 	dw = 2 * 2 + a * 2 + tw;
@@ -43,17 +48,11 @@ int ynDialog(const char *message)
 	while (1) {
 		waitPadReady(0, 0);
 		if (readpad()) {
-			if (new_pad & PAD_LEFT) {
-				event |= 2;
-				sel = 0;
-			} else if (new_pad & PAD_RIGHT) {
-				event |= 2;
-				sel = 1;
-			} else if ((!swapKeys && new_pad & PAD_CROSS) || (swapKeys && new_pad & PAD_CIRCLE)) {
+			if ((!swapKeys && new_pad & PAD_CROSS) || (swapKeys && new_pad & PAD_CIRCLE)) {
 				ret = -1;
 				break;
 			} else if ((swapKeys && new_pad & PAD_CROSS) || (!swapKeys && new_pad & PAD_CIRCLE)) {
-				ret = (sel == 0) ? 1 : -1;
+				ret = 1;
 				break;
 			}
 		}
@@ -68,16 +67,16 @@ int ynDialog(const char *message)
 				len += strlen(&msg[len]) + 1;
 			}
 
-			x = (tw - 96) / 4;
-			printXY(LNG(OK), dx + a + x + FONT_WIDTH,
+			x = dx + a + 2;
+			printXY(swapKeys ? "\xff\x31" : "\xff\x30", x,
 			        (dy + a + b + 2 + n * FONT_HEIGHT), setting->color[COLOR_TEXT], TRUE, 0);
-			printXY(LNG(CANCEL), dx + dw - x - (strlen(LNG(CANCEL)) + 1) * FONT_WIDTH,
+			printXY(LNG(OK), x + 3 * FONT_WIDTH,
 			        (dy + a + b + 2 + n * FONT_HEIGHT), setting->color[COLOR_TEXT], TRUE, 0);
-			if (sel == 0)
-				drawChar(LEFT_CUR, dx + a + x, (dy + a + b + 2 + n * FONT_HEIGHT), setting->color[COLOR_TEXT]);
-			else
-				drawChar(LEFT_CUR, dx + dw - x - (strlen(LNG(CANCEL)) + 2) * FONT_WIDTH - 1,
-				         (dy + a + b + 2 + n * FONT_HEIGHT), setting->color[COLOR_TEXT]);
+			x = dx + dw - a - 2 - cancel_width;
+			printXY(swapKeys ? "\xff\x30" : "\xff\x31", x - 3 * FONT_WIDTH,
+			        (dy + a + b + 2 + n * FONT_HEIGHT), setting->color[COLOR_TEXT], TRUE, 0);
+			printXY(LNG(CANCEL), x,
+			        (dy + a + b + 2 + n * FONT_HEIGHT), setting->color[COLOR_TEXT], TRUE, 0);
 		}
 		drawLastMsg();
 		post_event = event;
@@ -165,7 +164,7 @@ static int keyboardNextKey(int index, int dx, int dy, int caps, int filename)
 }
 
 // keyboard returns string length, or -1 when cancelled.
-static int keyboardImpl(char *out, int max, int filename)
+static int keyboardImpl(char *out, int max, int filename, const char *directory)
 {
 	int event, post_event = 0;
 	const int
@@ -185,7 +184,7 @@ static int keyboardImpl(char *out, int max, int filename)
 	const char *key_label;
 
 	if (keyboardOverride != NULL)
-		return keyboardOverride(out, max, filename);
+		return keyboardOverride(out, max, filename, directory);
 	p = strrchr(out, '.');
 	if (p == NULL)
 		cur = strlen(out);
@@ -434,10 +433,10 @@ static int keyboardImpl(char *out, int max, int filename)
 
 int keyboard(char *out, int max)
 {
-	return keyboardImpl(out, max, 0);
+	return keyboardImpl(out, max, 0, NULL);
 }
 
-int filenameKeyboard(char *out, int max)
+int filenameKeyboard(char *out, int max, const char *directory)
 {
-	return keyboardImpl(out, max, 1);
+	return keyboardImpl(out, max, 1, directory);
 }

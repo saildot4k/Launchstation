@@ -770,6 +770,7 @@ typedef struct
 {
 	u32 pressed; /* includes auto-repeat */
 	u32 raw_new;
+	u32 text_repeat; /* Type/Delete (OK/Back), including the initial press; text entry only */
 	int any;
 } DashInput;
 
@@ -839,11 +840,14 @@ void dashModalBackdrop(float k);
 void dashModalPanel(float x, float y, float w, float h, float k);
 void dashModalHintRow(float x, float y, int ok_icon, const char *ok, int back_icon, const char *back);
 float dashDrawButton(float x, float y, int icon, const char *key);
+float dashButtonWidth(int icon, const char *key); /* same sizing without drawing */
 
 /* Shared native keyboard for the editor and single-line naming dialogs. */
 typedef struct
 {
 	int layout, selected, action, caps, page;
+	int space_selected, space_action; /* focus before entering the wide Space key */
+	int space_dx, space_dy; /* reverse this move to return to the previous focus */
 	int single_line; /* text prompts expose only the Symbols action */
 	int filename; /* names omit actions and slash/backslash key pairs */
 } DashKeyboard;
@@ -851,14 +855,16 @@ typedef struct
 void dashKeyboardInit(DashKeyboard *kb, int layout);
 void dashKeyboardMove(DashKeyboard *kb, int dx, int dy);
 int dashKeyboardPress(DashKeyboard *kb); /* typed byte, or 0 for a page change */
+int dashKeyboardCanRepeat(const DashKeyboard *kb); /* text keys repeat; Symbols is one press */
 float dashKeyboardHeight(void); /* first key top to Space bottom */
 void dashKeyboardDraw(const DashKeyboard *kb, float center_x, float y0);
 
 /* Native text entry (dash_widgets.c): the user's virtual keyboard layout,
  * USB keyboard typing. Edits `buf` in place; 1 = accepted, 0 = cancelled. */
 int dashModalKeyboard(const char *title, char *buf, int max_len);
-/* File/folder name entry: no Symbols switcher or path separators. */
-int dashModalFilename(const char *title, char *buf, int max_len);
+/* File/folder name entry: show the parent directory above the input field.
+ * No Symbols switcher or path separators. */
+int dashModalFilename(const char *title, char *buf, int max_len, const char *directory);
 /* IPv4 editor for "a.b.c.d" strings; 1 = changed/accepted, 0 = cancelled. */
 int dashModalIp(const char *title, const char *help, char *ip_str, int size);
 
@@ -873,6 +879,7 @@ enum {
 int dashPickPath(const char *title, const char *start_dir, int mode, const char *ext, char *out, int out_size);
 void dashModalSetPreview(void (*fn)(int index)); /* applies to the next dashModalMenu() */
 int dashModalKeepVideo(void);
+/* Direct Confirm/Back actions; D-pad input never selects a button. */
 int dashModalConfirm(const char *title, const char *body, const char *ok_label, int danger);
 void dashModalMessage(int icon, const char *title, const char *body, const char *detail);
 int dashModalChoice(const char *title, const char *const *options, int n, int current);
@@ -947,13 +954,6 @@ const char *dashSectionName(int section);
 int dashSectionIcon(int section);
 void dashSwitchSection(int section);
 int dashConfirmLeave(void); /* asks the current section; 0 = stay */
-/* START opens Dashboard from any native screen and closes it when open.
- * Actions wait for blocking tools/dialogs to unwind; editor leave confirmation
- * can cancel navigation. */
-void dashDashboardMenu(void);
-int dashDashboardMenuIsOpen(void);
-int dashDashboardPending(void);
-int dashDashboardConfirmLeave(int (*leave)(void));
 int dashCurrentSection(void);
 int dashVisibleSectionCount(void);
 int dashVisibleSectionAt(int index);

@@ -572,8 +572,8 @@ char *makeHostPath(char *dp, char *sp);
 int ynDialog(const char *message);
 void nonDialog(char *message);
 int keyboard(char *out, int max);
-/* Filename entry omits forward/back slashes. */
-int filenameKeyboard(char *out, int max);
+/* Filename entry omits forward/back slashes; directory is shown by the dashboard. */
+int filenameKeyboard(char *out, int max, const char *directory);
 void filerPasteInto(char *mess, char *path);
 void filerPasteModeInto(char *mess, char *path, int rename);
 void filerPsuPasteInto(char *mess, char *path);
@@ -589,7 +589,7 @@ int filerFormatUsbPathForDisplay(const char *path, char *out, int size);
 /* dashboard replacements for the three dialogs above (NULL = classic) */
 extern int (*ynDialogOverride)(const char *message);
 extern void (*nonDialogOverride)(const char *message);
-extern int (*keyboardOverride)(char *out, int max, int filename);
+extern int (*keyboardOverride)(char *out, int max, int filename, const char *directory);
 void genLimObjName(char *uLE_path, int reserve);
 int genFixPath(const char *inp_path, char *gen_path);
 /* mode must use fileXio-compatible flags (FIO_O_*). */

@@ -83,12 +83,55 @@ static int readpad_noRepeat(void) {
 }
 static u64 last_input_ms;
 static u32 held_prev;
-static int dashboard_menus,dashboard_menu_open;
-static void dashDashboardMenu(void) { dashboard_menus++; }
+static u32 text_repeat_armed;
 """
-padcode += function(read("src/dash_main.c"), "int dashDashboardMenuIsOpen(")
 padcode += function(ui, "void dashInputPollEx(") + function(ui, "void dashInputFlush(")
 padcode += r"""
+static int repeatTimes(int port,int button,int text_action,int *times) {
+    DashInput in;int count=0,presses=0;
+    clearPadPressState();held_prev=text_repeat_armed=0;
+    connected[0]=port==0;connected[1]=port==1;
+    good[0]=good[1]=1;keys[0]=keys[1]=0;padtype_t[0]=padtype_t[1]=0;
+    kb=0;keys[port]=button;
+    for(int ms=0;ms<=3200;ms++) {
+        now_ms=20000+ms;dashInputPollEx(&in,0);
+        if(text_action) {
+            presses+=!!(in.pressed & text_action);
+            if(!(in.text_repeat & text_action))continue;
+            assert(in.text_repeat==text_action && last_input_ms==now_ms);
+        } else if(!(in.pressed & DASH_IN_DOWN))continue;
+        assert(count<128);times[count++]=ms;
+    }
+    if(text_action)assert(presses==1); /* ordinary confirmations never repeat */
+    keys[port]=0;now_ms++;dashInputPollEx(&in,0);assert(!in.text_repeat);
+    return count;
+}
+static void checkTextRepeat(void) {
+    int scroll[128],text[128];DashInput in;
+    for(int port=0;port<2;port++)for(swapKeys=0;swapKeys<=1;swapKeys++) {
+        int count=repeatTimes(port,PAD_DOWN,0,scroll);
+        assert(count>22 && scroll[1]==401 && scroll[2]-scroll[1]==84);
+        assert(scroll[22]-scroll[21]==41); /* same acceleration as navigation */
+        const int actions[]={DASH_IN_OK,DASH_IN_BACK};
+        const int buttons[]={swapKeys?PAD_CROSS:PAD_CIRCLE,swapKeys?PAD_CIRCLE:PAD_CROSS};
+        for(int i=0;i<2;i++) {
+            int typed=repeatTimes(port,buttons[i],actions[i],text);
+            assert(typed==count && !memcmp(scroll,text,count*sizeof(int)));
+            keys[port]=buttons[i];now_ms++;dashInputPollEx(&in,0);assert(in.text_repeat==actions[i]);
+            dashInputFlush();now_ms+=1000;dashInputPollEx(&in,0);
+            assert(!in.text_repeat && !(in.pressed & actions[i])); /* no held press crosses dialogs */
+            keys[port]=0;dashInputPollEx(&in,0);
+            keys[port]=buttons[i];dashInputPollEx(&in,0);assert(in.text_repeat==actions[i]);
+            now_ms+=401;dashInputPollEx(&in,0);assert(in.text_repeat==actions[i]);
+            good[port]=0;dashInputPollEx(&in,0);assert(!in.text_repeat);
+            good[port]=1;now_ms+=401;dashInputPollEx(&in,0);assert(in.text_repeat==actions[i]);
+            keys[port]=0;dashInputPollEx(&in,0);
+        }
+    }
+    connected[0]=1;connected[1]=0;keys[0]=keys[1]=0;
+    clearPadPressState();held_prev=text_repeat_armed=0;
+    puts("PASS: Type/Delete repeat matches every scroll event through delay and acceleration, both mappings/ports, release, failed reads and dialog flushes");
+}
 int main(void) {
     DashInput in;
     connected[0]=connected[1]=3;
@@ -122,6 +165,15 @@ int main(void) {
     dashInputFlush(); now_ms=5200; dashInputPollEx(&in,1); assert(!in.any);
     keys[0]=PAD_DOWN; dashInputPollEx(&in,1); assert(in.pressed==DASH_IN_DOWN);
     now_ms+=401; dashInputPollEx(&in,1); assert(in.pressed==DASH_IN_DOWN);
+    /* Both configured face-button mappings feed the direct popup actions. */
+    for(swapKeys=0;swapKeys<=1;swapKeys++) {
+        keys[0]=0; dashInputPollEx(&in,1);
+        keys[0]=swapKeys?PAD_CROSS:PAD_CIRCLE; dashInputPollEx(&in,1);
+        assert(in.pressed==DASH_IN_OK);
+        keys[0]=0; dashInputPollEx(&in,1);
+        keys[0]=swapKeys?PAD_CIRCLE:PAD_CROSS; dashInputPollEx(&in,1);
+        assert(in.pressed==DASH_IN_BACK);
+    }
     keys[0]=PAD_CROSS; swapKeys=1; dashInputPollEx(&in,1); assert(in.pressed==DASH_IN_OK);
     now_ms+=600; dashInputPollEx(&in,1); assert(!in.any);
     keys[0]=0; dashInputPollEx(&in,1);
@@ -129,21 +181,22 @@ int main(void) {
     kb=PAD_CROSS; dashInputPollEx(&in,1); assert(in.pressed==DASH_IN_OK);
     busy=1; kb=PAD_CROSS; dashInputPollEx(&in,1); assert(!in.any && kb);
     busy=0; dashInputPollEx(&in,0); assert(!in.any && kb);
-    /* START is consumed globally, even with another action/chord held.
-     * Holding it never reopens the popup through the repeat path. */
+    /* START reaches the active screen once, preserving other buttons in a chord. */
     keys[0]=PAD_START|PAD_SELECT|PAD_CROSS;clearPadPressState();held_prev=0;
-    dashInputPollEx(&in,0);assert(dashboard_menus==1 && !in.any && !in.pressed && !in.raw_new);
-    dashboard_menu_open=1;
-    now_ms+=600;dashInputPollEx(&in,0);assert(dashboard_menus==1 && !in.any);
-    /* Release/repress closes via Back, even with Confirm and SELECT held.
-     * The whole chord is consumed so no selection or launch leaks through. */
+    dashInputPollEx(&in,0);
+    assert(in.any && in.pressed==(DASH_IN_START|DASH_IN_SELECT|DASH_IN_OK));
+    assert(in.raw_new==(PAD_START|PAD_SELECT|PAD_CROSS) && in.text_repeat==DASH_IN_OK);
+    now_ms+=600;dashInputPollEx(&in,0);assert(!in.any && in.text_repeat==DASH_IN_OK);
     keys[0]=0;dashInputPollEx(&in,0);keys[0]=PAD_START|PAD_SELECT|PAD_CROSS;
     dashInputPollEx(&in,1);
-    assert(dashboard_menus==1 && in.any && in.pressed==DASH_IN_BACK && !in.raw_new);
-    dashboard_menu_open=0;dashInputFlush();
-    now_ms+=600;dashInputPollEx(&in,0);assert(dashboard_menus==1 && !in.any);
+    assert(in.any && in.pressed==(DASH_IN_START|DASH_IN_SELECT|DASH_IN_OK));
+    dashInputFlush();
+    now_ms+=600;dashInputPollEx(&in,0);assert(!in.any && !in.text_repeat);
     keys[0]=0;dashInputPollEx(&in,0);keys[0]=PAD_START;
-    dashInputPollEx(&in,1);assert(dashboard_menus==2 && !in.any && !in.raw_new);
+    dashInputPollEx(&in,1);assert(in.any && in.pressed==DASH_IN_START && in.raw_new==PAD_START);
+    for(int i=0;i<30;i++) {
+        now_ms+=100;dashInputPollEx(&in,0);assert(!in.any && !in.text_repeat);
+    }
     /* A tilted stick plus Triangle must not alternate held button masks. */
     kb=0; clearPadPressState(); held_prev=0; padtype_t[0]=2;
     left_v=0xff; keys[0]=PAD_TRIANGLE; now_ms=6000;
@@ -197,7 +250,8 @@ int main(void) {
         right_h=right_v=0x80;keys[port]=0;dashInputPollEx(&in,0);
         assert(!in.any && !in.raw_new);
     }
-    puts("PASS: failed/disconnected reads, both ports, flush timing, START open/close and chord/hold isolation, both sticks' direction/repeat/raw bits, right-stick activity, independent D-pad navigation and keyboard");
+    checkTextRepeat();
+    puts("PASS: failed/disconnected reads, both ports, flush timing, START pass-through/chords/hold suppression, both sticks' direction/repeat/raw bits, right-stick activity, independent D-pad navigation and keyboard");
 }
 """
 
@@ -565,8 +619,79 @@ int main(void) {
     puts("PASS: loading overlays use cached theme textures and defer new IO until loading ends");
 }
 """
+dialogcode = common + r"""
+#define LNG(x) (x)
+#define FONT_WIDTH 8
+#define FONT_HEIGHT 16
+#define SCREEN_WIDTH 640
+#define SCREEN_HEIGHT 448
+enum { FALSE,TRUE, COLOR_BACKGR,COLOR_FRAME,COLOR_TEXT, LEFT_CUR=0x10b };
+enum { PAD_LEFT=128,PAD_RIGHT=32,PAD_UP=16,PAD_DOWN=64,PAD_CROSS=16384,PAD_CIRCLE=8192 };
+static struct {u64 color[8];} config,*setting=&config;
+static int swapKeys,new_pad,polls,direction,action,chord,cursors,rendered,box_left,box_right;
+static const char *OK="OK",*CANCEL="Cancel";
+static struct {int x,w,icon;} labels[4];
+static int (*ynDialogOverride)(const char *);
+static void waitPadReady(int port,int slot) {(void)port;(void)slot;}
+static int readpad(void) {
+    assert(++polls<=2);
+    new_pad=polls==1?direction:action|(chord?direction:0);return 1;
+}
+static int printXY(const char *s,int x,int y,u64 color,int draw,int extra) {
+    (void)y;(void)color;(void)extra;
+    int icon=(unsigned char)s[0]==255;
+    int w=icon?2*FONT_WIDTH:(int)strlen(s)*FONT_WIDTH;
+    if(draw) {
+        assert(x>=box_left && x+w<=box_right);
+        if(icon || s==OK || s==CANCEL) {
+            assert(rendered<4);
+            labels[rendered++]=(__typeof__(labels[0])){x,w,icon?s[1]:0};
+        }
+    }
+    return x+w;
+}
+static void drawPopSprite(u64 c,int x,int y,int r,int b) {
+    (void)c;(void)y;(void)b;box_left=x;box_right=r;
+}
+static void drawFrame(int x,int y,int r,int b,u64 c) {(void)x;(void)y;(void)r;(void)b;(void)c;}
+static void drawSprite(u64 c,int x,int y,int r,int b) {(void)c;(void)x;(void)y;(void)r;(void)b;}
+static void drawChar(int c,int x,int y,u64 color) {(void)c;(void)x;(void)y;(void)color;cursors++;}
+static void drawLastMsg(void) {}
+static void drawScr(void) {}
+"""
+dialogcode += function(read("src/gui.c"), "int ynDialog(")
+dialogcode += r"""
+static int override_calls;
+static int overridden(const char *message) {
+    assert(!strcmp(message,"delegated"));override_calls++;return -1;
+}
+int main(void) {
+    const int directions[]={0,PAD_LEFT,PAD_RIGHT,PAD_LEFT|PAD_RIGHT,PAD_UP,PAD_DOWN};
+    const char *ok_labels[]={"OK","Proceed with action"};
+    const char *cancel_labels[]={"Cancel","Leave without changes"};
+    for(int language=0;language<2;language++) {
+        OK=ok_labels[language];CANCEL=cancel_labels[language];
+        for(swapKeys=0;swapKeys<=1;swapKeys++)
+            for(int accept=0;accept<=1;accept++)
+                for(chord=0;chord<=1;chord++)
+                    for(unsigned i=0;i<sizeof(directions)/sizeof(directions[0]);i++) {
+                        direction=directions[i];
+                        action=(accept==swapKeys)?PAD_CROSS:PAD_CIRCLE;
+                        polls=cursors=rendered=0;
+                        assert(ynDialog("Apply this change?\nCheck the details.")==(accept?1:-1));
+                        assert(polls==2 && !cursors && rendered==4);
+                        assert(labels[0].icon==(swapKeys?'1':'0'));
+                        assert(labels[2].icon==(swapKeys?'0':'1'));
+                        for(int j=1;j<4;j++)assert(labels[j-1].x+labels[j-1].w<=labels[j].x);
+                    }
+    }
+    ynDialogOverride=overridden;polls=0;
+    assert(ynDialog("delegated")==-1 && override_calls==1 && !polls);
+    puts("PASS: classic confirmations use direct face buttons, both mappings, D-pad/chord isolation, localized labels and no selection cursor");
+}
+"""
 with tempfile.TemporaryDirectory(prefix="wle-device-input-") as tmp:
-    for name, code in (("input", padcode), ("devices", devcode), ("pad-waits", waitcode), ("theme-io", themecode)):
+    for name, code in (("input", padcode), ("devices", devcode), ("pad-waits", waitcode), ("theme-io", themecode), ("confirmations", dialogcode)):
         source = Path(tmp) / f"{name}.c"
         exe = Path(tmp) / f"{name}.exe"
         source.write_text(code)

@@ -99,7 +99,7 @@ static int readpad(void){return cancel_copy;}
 static int DashIsActive(void){return 1;}
 static int DashFileProgress(const char *a,const char *b,u64 r,u64 t){(void)a;(void)b;assert(r<=t);return 1;}
 static void nonDialog(char *s){(void)s;}
-static int filenameKeyboard(char *s,int n){(void)s;(void)n;return 0;}
+static int filenameKeyboard(char *s,int n,const char *directory){(void)s;(void)n;(void)directory;return 0;}
 static int isPcCardCfPath(const char *s){(void)s;return 0;}
 static int isPcCardCfOnline(void){return 1;}
 static void ensureMemoryCardPortAccessible(int p){assert(p==0||p==1);}

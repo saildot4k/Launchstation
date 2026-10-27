@@ -626,7 +626,7 @@ restart_copy:  //restart point for PM_PSU_RESTORE to reprocess modified argument
 	newfile = file;  //assume that no renaming is to be done
 
 	if (PasteMode == PM_RENAME && recurses == 0) {  //if renaming requested and valid
-		if (filenameKeyboard(newfile.name, 36) <= 0)        //if name entered by user made the result invalid
+		if (filenameKeyboard(newfile.name, 36, outPath) <= 0) //if name entered by user made the result invalid
 			strcpy(newfile.name, file.name);        //  recopy newname from file.name
 	}                                               //ends if clause for renaming name entry
 	//Here the struct 'newfile' is FILEINFO for destination, regardless of renaming

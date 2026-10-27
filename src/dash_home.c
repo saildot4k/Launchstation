@@ -547,7 +547,7 @@ static void homeDraw(void)
 
 static void homeHints(void)
 {
-	DashHint h[5];
+	DashHint h[4];
 
 	if (library_open) {
 		if (dashAppsScreen.hints)
@@ -561,7 +561,6 @@ static void homeHints(void)
 		h[n].button = DI_BTN_SQUARE, h[n].key = NULL, h[n].label = "Favorite", n++;
 		h[n].button = DI_BTN_TRIANGLE, h[n].key = NULL, h[n].label = "Options", n++;
 	}
-	h[n].button = -1, h[n].key = "START", h[n].label = "Menu", n++;
 	/* Advertise the R3 display toggle on HOME, not only the way back
 	 * after the interface has already been hidden (#137). */
 	h[n].button = -1, h[n].key = "R3", h[n].label = "Show background", n++;

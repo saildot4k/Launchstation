@@ -612,11 +612,10 @@ static void toolsDraw(void)
 
 static void toolsHints(void)
 {
-	DashHint h[2];
+	DashHint h[1];
 
 	h[0].button = dashOkIcon(), h[0].key = NULL, h[0].label = "Open";
-	h[1].button = -1, h[1].key = "START", h[1].label = "Menu";
-	dashDrawHints(h, 2);
+	dashDrawHints(h, 1);
 }
 
 const DashScreen dashToolsScreen = {toolsEnter, toolsInput, toolsUpdate, toolsDraw, toolsHints};
