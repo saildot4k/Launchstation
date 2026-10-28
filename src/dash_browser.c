@@ -786,7 +786,7 @@ static void opRename(void)
 		return;
 	}
 	dashStrCopy(name, f->name, sizeof(name));
-	if (!dashModalFilename("New name", name, 36, fb.dir) || name[0] == '\0' || !strcmp(name, f->name))
+	if (!dashModalFilename("New name", name, MAX_NAME - 1, fb.dir) || name[0] == '\0' || !strcmp(name, f->name))
 		return;
 	if (!prepareOp())
 		return;

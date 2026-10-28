@@ -822,7 +822,11 @@ int mmce_fs_getstat(iomanX_iop_file_t *file, const char *name, iox_stat_t *stat)
     u8 wrbuf[0xFF];
     u8 rdbuf[0x2B];
 
-    u8 len = strlen(name) + 1;
+    u8 len;
+
+    if (!mmce_fs_wire_name_ok(name))
+        return -ENAMETOOLONG;
+    len = strlen(name) + 1;
 
     DPRINTF("%s filename: %s\n", __func__, name);
 
@@ -831,6 +835,7 @@ int mmce_fs_getstat(iomanX_iop_file_t *file, const char *name, iox_stat_t *stat)
     wrbuf[0x0] = MMCE_ID;               //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_GETSTAT;   //Command
     wrbuf[0x2] = MMCE_RESERVED;         //Reserved
+    wrbuf[0x3] = 0xff;                  //Padding
 
     mmce_sio2_lock();
 
@@ -865,6 +870,13 @@ int mmce_fs_getstat(iomanX_iop_file_t *file, const char *name, iox_stat_t *stat)
     }
 
     mmce_sio2_unlock();
+
+    /* Firmware GETSTAT returns 1 when its read-only path open fails.
+     * Translate that completed response to fileXio's missing-path errno;
+     * transport failures above must remain errors, not permission to create.
+     * Do not decode stale stat fields from a failed firmware response. */
+    if (rdbuf[0x29] != 0)
+        return rdbuf[0x29] == 1 ? -ENOENT : -EIO;
 
     //Could cast but not sure about alignment?
     stat->mode  = rdbuf[0x1] << 24;
@@ -913,13 +925,6 @@ int mmce_fs_getstat(iomanX_iop_file_t *file, const char *name, iox_stat_t *stat)
     stat->hisize |= rdbuf[0x26] << 16;
     stat->hisize |= rdbuf[0x27] << 8;
     stat->hisize |= rdbuf[0x28];
-
-    if (rdbuf[0x29] != 0) {
-        DPRINTF("Got bad return: %i\n", rdbuf[0x29]);
-        return -1;
-    } else {
-        DPRINTF("Got good return\n");
-    }
 
     return 0;
 }

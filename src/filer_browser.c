@@ -457,6 +457,8 @@ void filerMenuEnables(const char *path, const FILEINFO *file, int nmarked, char 
 		enable[NEWICON] = FALSE;
 		enable[TITLE_CFG] = FALSE;
 	}
+	if (!genCanRenamePath(path))
+		enable[RENAME] = FALSE;
 
 	if (nmarked == 0) {
 		if (!strcmp(file->name, "..")) {
@@ -1413,7 +1415,7 @@ int getFilePath(char *out, int cnfmode)
 							strcpy(msg0, LNG(Rename_Failed));
 						} else {
 							strcpy(tmp, files[browser_sel].name);
-							if (filenameKeyboard(tmp, 36, path) > 0) {
+							if (filenameKeyboard(tmp, MAX_NAME - 1, path) > 0) {
 								if (Rename(path, &files[browser_sel], tmp) < 0) {
 									browser_pushed = FALSE;
 									strcpy(msg0, LNG(Rename_Failed));

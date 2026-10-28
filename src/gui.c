@@ -272,7 +272,7 @@ static int keyboardImpl(char *out, int max, int filename, const char *directory)
 			} else if ((swapKeys && new_pad & PAD_CROSS) || (!swapKeys && new_pad & PAD_CIRCLE)) {
 				i = strlen(out);
 				if (sel <= KEY_LAST && keyboardIsKey(sel, caps, filename)) {
-					if (i < max && i < 33) {
+					if (i < max && i < (int)sizeof(tmp) - 1) {
 						strcpy(tmp, out);
 						out[cur] = getVirtualKeyboardLayoutChar(setting->virtual_keyboard_layout, sel, caps);
 						out[cur + 1] = 0;
@@ -331,7 +331,7 @@ static int keyboardImpl(char *out, int max, int filename, const char *directory)
 					break;
 				} else {
 					i = strlen(out);
-					if (i < max && i < 33 && (!filename || isVirtualKeyboardFilenameChar((unsigned char)KeyPress))) {
+					if (i < max && i < (int)sizeof(tmp) - 1 && (!filename || isVirtualKeyboardFilenameChar((unsigned char)KeyPress))) {
 						strcpy(tmp, out);
 						out[cur] = KeyPress;
 						out[cur + 1] = 0;

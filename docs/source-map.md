@@ -64,15 +64,22 @@ Current ownership map, reviewed October 25, 2026. This describes the existing tr
 
 ## Storage, browser operations and save archives
 
+The [device transfer audit](plans/2026-10-26-device-transfer-audit.md) records
+R3Z parity, device-specific replacement contracts, HDD-OSD/card attributes,
+regression coverage and console acceptance checks.
+The [rename audit](plans/2026-10-26-device-rename-audit.md) covers files/folders,
+card RPC completion, device limits, conflict checks, case-only rename recovery
+and the HOST ioctl.
+
 | Existing file | Responsibility |
 | --- | --- |
 | [init.c](../src/init.c) | IOP reset generation, module loading, device stack transitions, network/input bring-up, power-off and Ember USB rebuild. Highest-risk lifecycle owner. |
 | [filer.c](../src/filer.c) | Filesystem path translation, directory readers, partitions, USB/root device enumeration and shared browser/clipboard/transfer state. |
 | [filer_device.c](../src/filer_device.c) | Ensure source/destination device stacks and reject incompatible transfer combinations. |
 | [filer_mount.c](../src/filer_mount.c) | HDD/DVR partition mounts, VMC relationships and clipboard-aware unmounting. |
-| [filer_fileops.c](../src/filer_fileops.c) | Device-aware `gen*` open/read/write/seek/stat/directory/delete wrappers and filename limits. |
+| [filer_fileops.c](../src/filer_fileops.c) | Device-aware `gen*` open/read/write/seek/stat/directory/delete wrappers, shared sibling rename implementation and filename limits. |
 | [filer_browser.c](../src/filer_browser.c) | Classic browser loop/menu plus clipboard/paste entry points, VMC actions, free-space queries and launch-folder helper. |
-| [filer_actions.c](../src/filer_actions.c) | Delete/rename/mkdir, exploit-folder protection, title.cfg creation and timestamp editing/organization. |
+| [filer_actions.c](../src/filer_actions.c) | Delete/rename/mkdir, case-only rename staging/rollback, exploit-folder protection, title.cfg creation and timestamp editing/organization. |
 | [filer_copy.c](../src/filer_copy.c) | Recursive transfer engine, replacement staging/verification, metadata restoration, diagnostics and save-title reads. |
 | [gui_sort.c](../src/gui_sort.c) | FILEINFO comparison and browser sort ordering. |
 | [gui_hdd0_format.c](../src/gui_hdd0_format.c) | HDD/DVR partition path and selection formatting helpers; not disk formatting implementation. |

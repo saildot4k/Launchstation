@@ -103,31 +103,7 @@ static u32 copyChecksum(u32 hash, const void *data, int size)
 
 static int copyRenameFile(const char *from, const char *to)
 {
-	iox_stat_t stat;
-	int ret = genGetStat(to, &stat);
-	if (!copyPathMissing(ret))
-		return ret < 0 ? ret : -EEXIST;
-	if (!strncmp(from, "mc", 2)) {
-		sceMcTblGetDir info;
-		const char *leaf = strrchr(to, '/');
-		if (leaf == NULL) leaf = strchr(to, ':');
-		if (leaf == NULL || !leaf[1] || strlen(leaf + 1) > sizeof(info.EntryName))
-			return -EINVAL;
-		memset(&info, 0, sizeof(info));
-		memcpy(info.EntryName, leaf + 1, strlen(leaf + 1));
-		ensureMemoryCardPortAccessible(from[2] - '0');
-		ret = mcSetFileInfo(from[2] - '0', 0, from + 4, &info, 0x0010);
-		if (ret < 0) return ret;
-		if (mcSync(0, NULL, &ret) <= 0) return -EIO;
-		if (ret < 0) return ret;
-	} else {
-		ret = fileXioRename(from, to);
-	}
-	if (ret < 0) return ret;
-	/* Do not discard a recovery copy on an ambiguous/false success. */
-	ret = genGetStat(from, &stat);
-	if (!copyPathMissing(ret)) return -EIO;
-	return genGetStat(to, &stat) < 0 ? -EIO : 0;
+	return genRenameNoReplace(from, to);
 }
 
 static int copyPrepareTarget(char *out, char *target, char *backup)
@@ -1040,10 +1016,11 @@ non_PSU_RESTORE_init:
 			genRemove(out);
 			open_mode = FIO_O_WRONLY | FIO_O_TRUNC | FIO_O_CREAT;
 		} else
-#ifdef ETH
-		/* The legacy host driver has no stat/rename operations. Retain its
-		 * direct-write behavior; sibling replacement requires those operations. */
-		if (!strncmp(out, "host:", 5))
+#if defined(ETH) || defined(UDPFS)
+		/* HOST lacks stat/standard rename; UDPFS has stat but no rename. Keep R3Z's
+		 * direct-write replacement on these drivers instead of staging a file
+		 * that cannot be published. Failed transfers still retain move sources. */
+		if (!strncmp(out, "host:", 5) || !strncmp(out, "udpfs:", 6))
 			open_mode = FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC;
 		else
 #endif

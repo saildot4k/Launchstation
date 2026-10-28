@@ -9,6 +9,14 @@ source = (root / 'src/filer_copy.c').read_text()
 start = source.index('static int copyPathMissing(')
 end = source.index('static int isMemoryCardLikePath(', start)
 production = source[start:end]
+fileops = (root / 'src/filer_fileops.c').read_text()
+def function(signature):
+    a=fileops.index(signature);b=fileops.index('{',a)+1;depth=1
+    while depth:
+        depth+=(fileops[b]=='{')-(fileops[b]=='}');b+=1
+    return fileops[a:b]+'\n'
+rename_backend=''.join(function(sig) for sig in (
+    'int genCanRenamePath(', 'static int renameCardResult(', 'int genRenameNoReplace('))
 # These guards connect the tested transaction to normal/recursive/PSU-restored files.
 copy = source[source.index('int copy('):]
 assert 'dummy = genRemove(out)' not in copy
@@ -29,10 +37,14 @@ typedef uint32_t u32;
 typedef struct { unsigned mode; } iox_stat_t;
 typedef struct { char EntryName[32]; } sceMcTblGetDir;
 #define MAX_PATH 1024
+#define MAX_NAME 256
 #define FIO_O_RDONLY O_RDONLY
 #define FIO_S_ISDIR S_ISDIR
 static int rename_calls, fail_rename, fail_rollback, mc_result, denied, removed, fail_close;
-static int false_rename, sync_calls, fail_sync, fail_read, fail_eof, verified;
+static int false_rename, sync_calls, fail_sync, fail_read, fail_eof, verified,card_rename;
+static int ensurePathPcCardCfOnline(const char *p) { (void)p;return 1; }
+static void normalizePcCardCfPath(char *p,size_t n) { (void)p;(void)n; }
+static int mcGetInfo(int p,int s,int *type,int *a,int *b) { (void)p;(void)s;(void)a;(void)b;*type=2;card_rename=0;return 0; }
 static int DashFileProgress(const char *a,const char *n,u64 r,u64 t) {
  assert(!strcmp(a,"Verifying file")&&!strcmp(n,"BOOT.ELF"));assert(r<=t);
  if(!r)verified++;
@@ -55,9 +67,9 @@ static int mcSetFileInfo(int p,int slot,const char *from,sceMcTblGetDir *s,int f
  char a[MAX_PATH],b[MAX_PATH], *leaf; assert(!slot && flag==0x10);
  snprintf(a,sizeof(a),"mc%d:%s",p,from); strcpy(b,a); leaf=strrchr(b,'/');
  assert(leaf); snprintf(leaf+1,sizeof(b)-(leaf+1-b),"%.32s",s->EntryName);
- mc_result=rename_file(a,b); return 0;
+ card_rename=1;mc_result=rename_file(a,b); return 0;
 }
-static int mcSync(int m,void *c,int *r) { (void)m;(void)c;if(++sync_calls==fail_sync)return -1;*r=mc_result;return 1; }
+static int mcSync(int m,void *c,int *r) { (void)m;(void)c;if(card_rename&&++sync_calls==fail_sync)return -1;*r=card_rename?mc_result:0;return 1; }
 static int genOpen(const char *p,int flags) { int r=open(p,flags,0600);return r<0?-errno:r; }
 static int genRead(int fd,void *p,int n) { if(fail_read)return -ETIMEDOUT;if(fail_eof&&n==1)return -EACCES;return read(fd,p,n>17?17:n); }
 static int genClose(int fd) { int r=close(fd);return fail_close?-EIO:r; }
@@ -121,6 +133,6 @@ int main(void) {
 '''
 with tempfile.TemporaryDirectory(prefix='paste-replace-') as folder:
     path = Path(folder)
-    (path / 'test.c').write_text(header + production + main)
+    (path / 'test.c').write_text(header + rename_backend + production + main)
     subprocess.run([shutil.which('gcc'), '-std=c99', '-Wall', '-Wextra', '-Werror', str(path / 'test.c'), '-o', str(path / 'test')], check=True)
     subprocess.run([str(path / 'test')], cwd=path, check=True)

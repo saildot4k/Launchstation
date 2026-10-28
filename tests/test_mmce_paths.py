@@ -26,6 +26,7 @@ for signature, guard in (
     ('int mmce_fs_remove(', 'if (!mmce_fs_wire_name_ok(name))'),
     ('int mmce_fs_mkdir(', 'if (!mmce_fs_wire_name_ok(name))'),
     ('int mmce_fs_rmdir(', 'if (!mmce_fs_wire_name_ok(name))'),
+    ('int mmce_fs_getstat(', 'if (!mmce_fs_wire_name_ok(name))'),
     ('int\tmmce_fs_rename(', 'if (!mmce_fs_wire_name_ok(old_name) ||'),
 ):
     body = function(signature)
