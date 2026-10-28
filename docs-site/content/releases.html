@@ -41,6 +41,7 @@
 <p>Each package includes the ELF plus updater support files (<code>title.cfg</code>, <code>WLE-UPDATE-CA.PEM</code>, <code>BGM.ADP</code>). ZIP and PSU payloads match.</p>
 
 <p><strong>Upgrading an older installation:</strong> updaters expecting standalone ELFs or two-file PSUs need one manual installation of the new package before using the newer four-file PSU format. Back up existing settings before replacing an app folder.</p>
+<p><strong>Update order could not be verified:</strong> this is a failed check, not the normal up-to-date result. Earlier PS2BUILD releases omitted their commit ID and show <code>local</code> in Build information. Those installs need one manual installation of a corrected package and a restart. A build matching the published commit should report <em>Launchstation is up to date</em>.</p>
 
 <h2 id="changelog">Rolling changelog summary</h2>
 <ul>

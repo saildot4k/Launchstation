@@ -309,7 +309,7 @@ static void homeInput(const DashInput *in)
 			int next = wrapCol(col[row] - 1, n);
 			if (next != col[row])
 				dashUiFocusPoke();
-			if ((col[row] == 0 && next == n - 1) || (col[row] == n - 1 && next == 0))
+			if (next > col[row])
 				snapHomeColumn(next);
 			col[row] = next;
 		}
@@ -318,7 +318,7 @@ static void homeInput(const DashInput *in)
 			int next = wrapCol(col[row] + 1, n);
 			if (next != col[row])
 				dashUiFocusPoke();
-			if ((col[row] == 0 && next == n - 1) || (col[row] == n - 1 && next == 0))
+			if (next < col[row])
 				snapHomeColumn(next);
 			col[row] = next;
 		}

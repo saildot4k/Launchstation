@@ -455,18 +455,32 @@ void dashDrawEmptyState(float cx, float cy, int icon, const char *title, const c
 	}
 }
 
+/* Five-pixel bars need matching pixel columns at both edges. Mirroring the
+ * panel's 2.5-pixel texture corners samples differently on the GS pixel grid.
+ * The three disjoint strips keep translucent track/thumb fills uniform. */
+static void scrollbarShape(float x, float y, float h, DashColor color)
+{
+	if (h <= 2.0f || dashThemeRadius(2.5f) < 1.0f) {
+		dashRect(x, y, 5, h, color);
+		return;
+	}
+	dashRect(x + 1, y, 3, h, color);
+	dashRect(x, y + 1, 1, h - 2, color);
+	dashRect(x + 4, y + 1, 1, h - 2, color);
+}
+
 void dashDrawScrollbar(float x, float y, float h, int first, int visible, int total)
 {
 	float th, ty;
 
 	if (total <= visible || total <= 0)
 		return;
-	dashPanel(x, y, 5, h, 2.5f, dashColorA(DASH_C_TEXT3, 0.22f));
+	scrollbarShape(x, y, h, dashColorA(DASH_C_TEXT3, 0.22f));
 	th = h * visible / (float)total;
 	if (th < 18)
 		th = 18;
 	ty = y + (h - th) * first / (float)(total - visible);
-	dashPanel(x, ty, 5, th, 2.5f, dashColorA(DASH_C_ACCENT, 0.75f));
+	scrollbarShape(x, ty, th, dashColorA(DASH_C_ACCENT, 0.75f));
 }
 
 void dashDrawFocusFrame(float x, float y, float w, float h, float r, float strength)
@@ -808,6 +822,8 @@ int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *i
 			while (items[s].disabled && s != sel);
 			if (s != sel)
 				dashSoundPlay(DASH_SND_CURSOR);
+			if (s > sel)
+				sel_anim = (float)s; /* wrapped past the first enabled row */
 			sel = s;
 		}
 		if (in.pressed & DASH_IN_DOWN) {
@@ -817,6 +833,8 @@ int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *i
 			while (items[s].disabled && s != sel);
 			if (s != sel)
 				dashSoundPlay(DASH_SND_CURSOR);
+			if (s < sel)
+				sel_anim = (float)s; /* wrapped past the last enabled row */
 			sel = s;
 		}
 		if (in.pressed & DASH_IN_L2) {

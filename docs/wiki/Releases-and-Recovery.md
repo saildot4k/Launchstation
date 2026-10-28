@@ -14,6 +14,16 @@ If an older build reports `TLS handshake: X509 ... (-9984)`, install the correct
 
 A native check verifies ancestry so that older/divergent releases are refused. It selects a matching verified PSU, downloads it over trusted HTTPS and verifies the published SHA-256 digest, validates the packed ELF and stages replacement. It can install **missing only** CA/BGM sidecars from a verified four-file PSU; existing custom sidecars remain untouched. The old app ELF is retained as a `.BAK` recovery copy during replacement. Restart to execute the installed build.
 
+An installed commit matching the published release reports **Launchstation is up
+to date**. **Could not verify update order** indicates missing build identity or
+a failed ancestry check, rather than a successful no-update result. Earlier
+PS2BUILD releases omitted `githash.h` and identified their commit as `local`, so
+they could not establish update order even when current. Install a matching
+package from a corrected build and restart once; an ELF without its own commit
+ID cannot safely update itself. Corrected builds report **Update check needs
+build information** when this metadata is missing. Check the commit displayed
+in Build information when diagnosing an affected install.
+
 If `.UPDATE` or `.PACKAGE` remains from an interrupted attempt, the updater refuses to overwrite it. Preserve the original ELF and settings, inspect the incomplete staging files and resolve the conflict manually; do not delete them blindly. Old updater versions that expect the retired package format may need one manual new-package install.
 
 ## Hardware regression recovery

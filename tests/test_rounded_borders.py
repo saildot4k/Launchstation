@@ -1,7 +1,7 @@
 """Sample production selection primitives for continuous, uniformly tinted borders.
 
 This host raster model checks geometry and alpha composition, not GS scanout.
-An optional source path runs the same assertions against an older dash_gfx.c.
+Optional source paths test an older dash_gfx.c and dash_ui.c respectively.
 """
 from pathlib import Path
 import shutil
@@ -11,7 +11,7 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 gfx = Path(sys.argv[1]).read_text() if len(sys.argv) > 1 else (root / "src/dash_gfx.c").read_text()
-ui = (root / "src/dash_ui.c").read_text()
+ui = Path(sys.argv[2]).read_text() if len(sys.argv) > 2 else (root / "src/dash_ui.c").read_text()
 theme = (root / "src/dash_themes.c").read_text()
 header = (root / "include/dash_internal.h").read_text()
 
@@ -45,6 +45,7 @@ enum { DASH_CORNER_SQUARE,DASH_CORNER_SOFT,DASH_CORNER_ROUND };
 enum { DASH_HL_FILL,DASH_HL_BAR,DASH_HL_OUTLINE,DASH_HL_TEXT };
 static DashColor DASH_C_SELECT={23,61,117,111},DASH_C_SELEDGE={149,227,93,181};
 static DashColor DASH_C_ACCENT={219,83,167,213};
+static DashColor DASH_C_TEXT3={112,122,150,255};
 static float dashClampf(float v,float lo,float hi) { return v<lo?lo:v>hi?hi:v; }
 static u32 *allocTexMem(int w,int h) { return calloc(w*h,sizeof(u32)); }
 static void setupTex(GSTEXTURE *t,int w,int h,u32 *mem) { t->Width=w;t->Height=h;t->Mem=mem; }
@@ -127,6 +128,9 @@ for signature in ("void dashPanelGradV(", "void dashRoundedGradV(", "void dashPa
                   "void dashPanelBorder(", "void dashRoundedBorder("):
     code += function(gfx, signature)
 code += function(ui, "void dashDrawSelection(")
+if "static void scrollbarShape(" in ui:
+    code += function(ui, "static void scrollbarShape(")
+code += function(ui, "void dashDrawScrollbar(")
 code += r'''
 static void samePixel(float x,float y,const float expected[3]) {
     float actual[3];sample(x,y,actual);
@@ -168,8 +172,37 @@ int main(void) {
     }
     count=0;dashRoundedBorder(0,0,120,40,9,(DashColor){1,2,3,0});assert(!count);
     g_alpha=0;dashRoundedBorder(0,0,120,40,9,DASH_C_ACCENT);assert(!count);g_alpha=1;
+    /* Integer framebuffer sample positions expose asymmetry hidden by
+     * sampling the ideal continuous shape at half-pixel centres. Check the
+     * track and thumb at their top/middle/bottom positions, including modal
+     * offsets, all corner styles, and a thumb limited to the 18-pixel minimum. */
+    const float origins[]={20.0f,20.25f,20.5f,20.75f};
+    const float heights[]={60,240,284,286};
+    const int starts[]={0,7,15};
+    for(int corner=0;corner<3;corner++)
+    for(unsigned origin=0;origin<sizeof(origins)/sizeof(origins[0]);origin++)
+    for(unsigned height=0;height<sizeof(heights)/sizeof(heights[0]);height++)
+    for(unsigned first=0;first<sizeof(starts)/sizeof(starts[0]);first++) {
+        float x=origins[origin],y=10.25f,h=heights[height];
+        float left=ceilf(x),background[3]={11,17,23};
+        dashTheme.corner=corner;count=0;
+        dashDrawScrollbar(x,y,h,starts[first],5,20);
+        assert(count>0);
+        for(int row=(int)ceilf(y);row<y+h;row++)
+        for(int col=0;col<2;col++) {
+            float reference[3];sample(left+col,row,reference);
+            samePixel(left+4-col,row,reference);
+        }
+        if(corner!=DASH_CORNER_SQUARE) {
+            samePixel(left,ceilf(y),background);
+            samePixel(left+4,ceilf(y),background);
+        }
+    }
+    count=0;dashDrawScrollbar(20,10,240,0,5,5);assert(!count);
+    count=0;dashDrawScrollbar(20,10,240,0,5,0);assert(!count);
     free(tex_corner.Mem);free(tex_ring.Mem);
     puts("PASS: equal border tint/opacity on all four corners and straight edges, square/soft/round, solid/outline, translucent strength and rounded cutouts");
+    puts("PASS: scrollbar track and thumb match left-to-right on the pixel grid at every scroll position and corner style");
 }
 '''
 cc = shutil.which("gcc") or shutil.which("clang")

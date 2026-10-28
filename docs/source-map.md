@@ -216,6 +216,7 @@ and the HOST ioctl.
 | `igr/`, `research/`, `windows/` | Auxiliary inputs/research/platform material; not top-level EE sources in ps2.yaml. Inspect their own references before cleanup. |
 | [scripts/gen_dash_font.py](../scripts/gen_dash_font.py) | Authoritative generator for pre-rasterized proportional glyph atlases. |
 | [scripts/build_https_tls.sh](../scripts/build_https_tls.sh) | Pinned Mbed TLS source/checksum and EE dependency configuration. |
+| `scripts/gen_githash.py`, `scripts/check_build_identity.py` | Installed commit metadata generation and compiled release identity checks. |
 | `Makefile`, `embed.make`, `scripts/ci/resolve_make_args.sh` | Retained historical/profile build workflow; not release CI source of truth. |
 | `tests/`, `scripts/check_*.py`, `scripts/check_loader_layout.sh` | Host behavior contracts, linked-artifact checks and loader bounds. |
 | `scripts/package_apps.py`, `scripts/release_notes.py`, `.github/workflows/compile.yml` | ZIP/PSU packages, release metadata and build/publication gates. |

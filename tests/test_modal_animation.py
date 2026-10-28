@@ -61,7 +61,7 @@ static int bg_calls,ui_calls,renders,depth,nested,frames[2],step_ms[3]={16,20,33
 static int preview_calls;
 static int nav_scenario, timed_scenario, video_scenario, video_direction;
 static int scroll_scenario, scroll_top, scroll_rows, scroll_count;
-static float selection_y;
+static float selection_y,selection_row;
 static int selections;
 static int swapKeys,button_count,drawn_icons[2];
 static void recordButton(int icon) { if(button_count<2)drawn_icons[button_count]=icon;button_count++; }
@@ -72,6 +72,7 @@ static void recordSelection(float x,float y,float w,float h,float r,float a) {
 static void recordScrollbar(float x,float y,float h,int top,int rows,int count) {
     (void)x;
     scroll_top=top; scroll_rows=rows; scroll_count=count;
+    selection_row=top+(selection_y-y-2)/((h+4)/rows);
     if(scroll_scenario) assert(selection_y>=y && selection_y<y+h);
 }
 static u64 Timer(void) { return now_ms; }
@@ -180,7 +181,7 @@ static void reset(void) {
     now_ms=last_frame_ms=1000; frame_dt=0;
     depth=nested=nav_scenario=timed_scenario=video_scenario=0; memset(frames,0,sizeof(frames)); modal_preview=NULL;
     video_direction=selections=0;
-    scroll_scenario=scroll_top=scroll_rows=scroll_count=0; selection_y=0;
+    scroll_scenario=scroll_top=scroll_rows=scroll_count=0; selection_y=selection_row=0;
     swapKeys=button_count=0;
     dashCfg.anim=100; dashCfg.effects=100;
 }
@@ -259,6 +260,25 @@ int main(void) {
         assert(dashModalMenu("wrap/jump",NULL,long_menu,20,bottom?0:19)==(bottom?19:0));
         assert(scroll_top==(bottom?11:0) && renders==1);
     }
+    /* Both endpoints fit in short popups, so visibility alone cannot detect
+     * a sweep through intervening entries during wraparound. */
+    for(int count=2;count<=20;count++) {
+        for(int scenario=2;scenario<=3;scenario++) {
+            int target=scenario==2?count-1:0;
+            reset(); scroll_scenario=scenario;
+            assert(dashModalMenu("wrap",NULL,long_menu,count,scenario==2?0:count-1)==target);
+            assert(fabsf(selection_row-target)<0.0001f);
+        }
+    }
+    reset(); scroll_scenario=2;
+    assert(dashModalMenu("disabled wrap up",NULL,disabled_ends,5,1)==3);
+    assert(fabsf(selection_row-3)<0.0001f);
+    reset(); scroll_scenario=3;
+    assert(dashModalMenu("disabled wrap down",NULL,disabled_ends,5,3)==1);
+    assert(fabsf(selection_row-1)<0.0001f);
+    reset(); scroll_scenario=3;
+    assert(dashModalMenu("adjacent",NULL,long_menu,2,0)==1);
+    assert(selection_row>0 && selection_row<1); /* retain ordinary easing */
     /* Video actions are direct shortcuts, unaffected by D-pad input. */
     const int directions[]={DASH_IN_RIGHT,DASH_IN_LEFT,0,DASH_IN_UP,DASH_IN_DOWN,
                             DASH_IN_LEFT|DASH_IN_RIGHT};

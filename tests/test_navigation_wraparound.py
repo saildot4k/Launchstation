@@ -31,8 +31,8 @@ for expr in (
 # Applications: list/grid/carousel moves now cycle through all entries.
 assert "next = (sel + delta) % norder;" in apps
 assert "if (next < 0)" in apps and "next += norder;" in apps
-assert "move(sel == 0 ? norder - 1" in apps
-assert "move(sel == norder - 1 ? -sel" in apps
+assert "move(sel == 0 ? -1" in apps
+assert "move(sel == norder - 1 ? 1" in apps
 
 # Files list and Devices grid: movement wraps and keeps skipping non-selectable rows.
 assert "if (s < 0)\n\t\t\ts = nfentries - 1;" in files
@@ -150,8 +150,44 @@ code += "static void browserMove(const DashInput *in, int total) {\n" + browser_
 pick_start = widgets.index("\t\tif ((in.pressed & DASH_IN_UP)", widgets.index("int dashPickPath("))
 pick_end = widgets.index("\n\t\tif (in.pressed & DASH_IN_MENU)", pick_start)
 code += "#define DASH_SND_CURSOR 0\nstatic void dashSoundPlay(int s) { (void)s; }\n"
-code += "static int pickerMove(int sel, int n_rows, DashInput in) { const int rows=10;\n" + widgets[pick_start:pick_end] + "\nreturn sel; }\n"
+code += "static float picker_anim;\n"
+code += "static int pickerMove(int sel, int n_rows, DashInput in) { const int rows=10; int wrapped=0; float sel_anim=picker_anim;\n" + widgets[pick_start:pick_end] + "\npicker_anim=sel_anim; return sel; }\n"
 code += "static void gridMove(const DashInput *in) {\n" + grid_move + "\n}\n"
+code += r"""
+#define DASH_IN_OK 64
+#define TA_HEADER 0
+#define FE_HEADER 0
+static const struct { int action; } tools[]={{0},{1},{0},{1},{1},{0},{1}};
+#define NTOOLS 7
+static const struct { int kind; } fentries[]={{0},{1},{0},{1},{1},{0},{1}};
+static int nfentries=7,tsel=1,fsel=1;
+static float tsel_anim=1,fsel_anim=1;
+"""
+code += function(tools, "static int tMove(") + "\n"
+code += function(files, "static int fMove(") + "\n"
+for source, name in ((tools, "tools"), (files, "files")):
+    body = function(source, f"static void {name}Input(")
+    code += f"static void {name}Navigate(const DashInput *in) {{\n"
+    code += body[body.index("int i"):body.index("\tif (in->pressed & DASH_IN_OK)")] + "}\n"
+code += r"""
+#define DEV_COLS 3
+#define DEV_PY 88.0f
+static int dsel,ndevs;
+static float dsel_anim,dcam;
+static unsigned dev_selectable;
+static int devSelectable(int index) { return (dev_selectable >> index) & 1; }
+"""
+code += function(files, "static float devScrollTarget(") + "\n"
+code += function(files, "static void devMove(") + "\n"
+ip_start = widgets.index("\t\tif (in.pressed & DASH_IN_LEFT)", widgets.index("int dashModalIp("))
+ip_end = widgets.index("\t\tif (in.pressed & DASH_IN_UP)", ip_start)
+code += "static void ipMove(int *selected, float *animated, DashInput in) { int sel=*selected; float sel_anim=*animated;\n"
+code += widgets[ip_start:ip_end] + "*selected=sel; *animated=sel_anim; }\n"
+code += re.search(r"^#define ROWS \d+$", hdd, re.M).group() + "\n"
+code += "static struct { int n; } hm;\n"
+hdd_start = hdd.index("\t\tif (hm.n > 0)", hdd.index("void dashHddManager("))
+hdd_end = hdd.index("\t\tif (sel != prev)", hdd_start)
+code += "static void hddNavigate(DashInput in) { int wrapped=0;\n" + hdd[hdd_start:hdd_end] + "}\n"
 code += r"""
 static void checkParentCompletion(void) {
  static FILEINFO files[MAX_ENTRY];static unsigned char marks[MAX_ENTRY];
@@ -204,20 +240,35 @@ int main(void) {
  for(unsigned i=0;i<sizeof(counts)/sizeof(counts[0]);i++) {
   int n=counts[i]; fb.dir[0]=1; fb.n=n; fb.sel=fb.top=0; fb.sel_anim=0;
   browserMove(&up,n); assert(fb.sel==(n?n-1:0));
+  assert(fb.sel_anim==fb.sel); /* wrap must snap even in short lists */
   assert(fb.sel>=fb.top && fb.sel<fb.top+FB_ROWS);
   assert(fb.sel_anim>=fb.top && fb.sel_anim<fb.top+FB_ROWS);
   fb.sel_anim=(float)fb.sel;
   browserMove(&down,n); assert(fb.sel==0 && fb.top==0);
+  assert(fb.sel_anim==0);
   assert(fb.sel_anim>=fb.top && fb.sel_anim<fb.top+FB_ROWS);
  }
  for(int n=0;n<=127;n++) {
   DashInput left={DASH_IN_LEFT}, right={DASH_IN_RIGHT};
   for(int i=0;i<n;i++) {
    /* The separate path picker still pages ten rows; Files now pages eleven. */
+   picker_anim=i;
    assert(pickerMove(i,n,left)==(i==0?n-1:(i<10?0:i-10)));
+   if(i==0)assert(picker_anim==n-1);
+   picker_anim=i;
    assert(pickerMove(i,n,right)==(i==n-1?0:(i+10>=n?n-1:i+10)));
+   if(i==n-1)assert(picker_anim==0);
+   picker_anim=i;
    assert(pickerMove(i,n,up)==(i?i-1:n-1));
+   assert(picker_anim==(i?i:n-1));
+   picker_anim=i;
    assert(pickerMove(i,n,down)==(i<n-1?i+1:0));
+   assert(picker_anim==(i<n-1?i:0));
+  }
+  if(n>0) {
+   fb.dir[0]=1;fb.n=n;fb.sel=0;fb.sel_anim=0;
+   browserMove(&left,n);assert(fb.sel==n-1 && fb.sel_anim==n-1);
+   browserMove(&right,n);assert(fb.sel==0 && fb.sel_anim==0);
   }
   for(int i=0;i<n;i++) {
    int left=pageIndex(i,n,-1), right=pageIndex(i,n,1);
@@ -229,6 +280,37 @@ int main(void) {
  }
  fb.dir[0]=1;fb.n=127;fb.sel=5;fb.top=0;fb.sel_anim=5;
  browserMove(&down,127);assert(fb.sel==6 && fb.sel_anim==5); /* retain adjacent easing */
+ /* Header-skipping lists snap in both directions; ordinary steps keep easing. */
+ tsel=1;tsel_anim=1;assert(tMove(-1) && tsel==6 && tsel_anim==6);
+ assert(tMove(1) && tsel==1 && tsel_anim==1);
+ assert(!tMove(1) && tsel==3 && tsel_anim==1);
+ fsel=1;fsel_anim=1;assert(fMove(-1) && fsel==6 && fsel_anim==6);
+ assert(fMove(1) && fsel==1 && fsel_anim==1);
+ assert(!fMove(1) && fsel==3 && fsel_anim==1);
+ /* A six-step page may wrap more than once; snap the final selection. */
+ DashInput page={DASH_IN_R2};
+ tsel=6;tsel_anim=6;toolsNavigate(&page);assert(tsel==3 && tsel_anim==3);
+ fsel=6;fsel_anim=6;filesNavigate(&page);assert(fsel==3 && fsel_anim==3);
+ ndevs=11;dev_selectable=(1u<<ndevs)-1;dsel=0;dsel_anim=dcam=0;
+ devMove(-DEV_COLS);assert(dsel==8 && dsel_anim==8 && dcam==devScrollTarget());
+ dsel=10;dsel_anim=10;devMove(1);assert(dsel==0 && dsel_anim==0 && dcam==0);
+ devMove(1);assert(dsel==1 && dsel_anim==0); /* adjacent device tile */
+ ndevs=6;dev_selectable=(1u<<0)|(1u<<3);dsel=0;dsel_anim=0;
+ devMove(-1);assert(dsel==3 && dsel_anim==3); /* skip absent edge devices */
+ int octet=0;float octet_anim=0;
+ DashInput left={DASH_IN_LEFT},right={DASH_IN_RIGHT};
+ ipMove(&octet,&octet_anim,left);assert(octet==3 && octet_anim==3);
+ ipMove(&octet,&octet_anim,right);assert(octet==0 && octet_anim==0);
+ ipMove(&octet,&octet_anim,right);assert(octet==1 && octet_anim==0);
+ for(int n=1;n<=31;n++) {
+  hm.n=n;sel=0;sel_anim=0;hddNavigate(up);assert(sel==n-1 && sel_anim==sel);
+  hddNavigate(down);assert(sel==0 && sel_anim==0);
+  if(n>1) {hddNavigate(down);assert(sel==1 && sel_anim==0);}
+ }
+ hm.n=31;sel=3;sel_anim=3;page.pressed=DASH_IN_L2;
+ hddNavigate(page);assert(sel==24 && sel_anim==24);
+ sel=28;sel_anim=28;page.pressed=DASH_IN_R2;
+ hddNavigate(page);assert(sel==7 && sel_anim==7);
  for(norder=1;norder<=17;norder++) {
   sel=0;sel_anim=grid_cam=0;gridMove(&up);assert(sel==norder-1 && sel_anim==sel);
   gridMove(&down);assert(sel==0 && sel_anim==0 && grid_cam==0);
@@ -239,6 +321,14 @@ int main(void) {
    if(old+GRID_COLS<norder)assert(sel==old+GRID_COLS);
   }
  }
+ /* Two applications have an ordinary adjacent move as well as a wrap. */
+ norder=2;sel=0;sel_anim=0;move(1);assert(sel==1 && sel_anim==0);
+ sel_anim=1;move(-1);assert(sel==0 && sel_anim==1);
+ move(-1);assert(sel==1 && sel_anim==1);
+ move(1);assert(sel==0 && sel_anim==0);
+ /* Page wrapping may cross the boundary from the middle of a grid. */
+ norder=40;sel=3;sel_anim=3;move(-15);assert(sel==28 && sel_anim==28 && grid_cam>0);
+ sel=37;sel_anim=37;move(15);assert(sel==12 && sel_anim==12 && grid_cam>0);
  row=1;nchips=12;chip_cam=0;snapHomeColumn(11);
  assert(chip_cam==homeChipScrollTarget(11) && chip_cam>0 && col_anim[1]==11);
  snapHomeColumn(0);assert(chip_cam==0 && col_anim[1]==0);
@@ -255,4 +345,4 @@ with tempfile.TemporaryDirectory(prefix="navigation-wrap-") as folder:
     binary = path / "test.exe"
     subprocess.run([cc, "-std=c99", "-Wall", "-Wextra", "-Werror", str(path / "test.c"), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
-print("PASS: production browser endpoint/viewport transitions and incomplete application grids")
+print("PASS: immediate wrap highlights in browsers, header/device lists, picker, IP editor and application views; adjacent easing retained")

@@ -85,8 +85,9 @@ code += r'''
 static const struct { int action; } tools[]={{TA_HEADER},{1},{1}};
 #define NTOOLS 3
 static int tsel=1;
+static float tsel_anim=1;
 '''
-code += function(tools, "static void tMove(") + function(tools, "static void toolsEnter(")
+code += function(tools, "static int tMove(") + function(tools, "static void toolsEnter(")
 code += r'''
 static void clear(void) { rendered_count=fits=pushes=pops=0;assert(!depth); }
 static void compact(char *out,const char *in) {

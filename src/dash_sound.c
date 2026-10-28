@@ -43,6 +43,13 @@ static unsigned int sound_reboot_generation; /* reset epoch when audsrv was star
 static unsigned int sound_tried_generation = (unsigned int)-1; /* last automatic attempt */
 static int sound_retry;
 
+typedef struct SoundPlaybackStats {
+	unsigned int requests, started, failed;
+	int last_result, failed_result, failed_id;
+	const char *failed_reason;
+} SoundPlaybackStats;
+static SoundPlaybackStats playback;
+
 
 /* audsrv lives on the IOP: after any IOP reboot the server and the uploaded
  * samples are gone, and calling into the stale RPC client hangs. Every
@@ -235,13 +242,55 @@ void dashSoundApplyVolume(void)
 		audsrv_adpcm_set_volume_and_pan(i, dashCfg.sound ? dashCfg.sound_vol : 0, 0);
 }
 
+static void soundPlayFailed(int id, int result, const char *reason)
+{
+	playback.failed++;
+	playback.failed_id = id;
+	playback.failed_result = result;
+	playback.failed_reason = reason;
+}
+
+void dashSoundGetStatus(char *out, int out_size)
+{
+	static const char *const names[DASH_SND_COUNT] = {
+	    "Cursor", "Confirm", "Cancel", "Section switch", "Notification",
+	    "Startup", "Device connect", "Device disconnect"};
+	char failure[128];
+
+	if (out == NULL || out_size <= 0)
+		return;
+	if (playback.failed)
+		snprintf(failure, sizeof(failure), "%s: %s (%d)", names[playback.failed_id],
+		         playback.failed_reason, playback.failed_result);
+	else
+		snprintf(failure, sizeof(failure), "None");
+	/* EE snapshots only: opening diagnostics must never probe a stale IOP. */
+	snprintf(out, out_size,
+	         "Service: %s\nEffects: %s %d%%; music: %s %d%%\n"
+	         "Requested: %u; started: %u; failed: %u\nLast failure: %s",
+	         soundAlive() ? "ready" : "unavailable",
+	         dashCfg.sound ? "On" : "Off", dashCfg.sound_vol,
+	         dashCfg.bgm ? "On" : "Off", dashCfg.bgm_vol,
+	         playback.requests, playback.started, playback.failed, failure);
+}
+
 static int soundPlayChannel(int ch, int id)
 {
-	if (audsrv_ch_play_adpcm(ch, &samples[id]) < 0)
+	int result;
+
+	/* Restore the interface gain before key-on, so a previously muted voice
+	 * cannot lose the attack of a short effect while a second RPC unmutes it. */
+	result = audsrv_adpcm_set_volume_and_pan(ch, dashCfg.sound_vol, 0);
+	if (result != 0) {
+		playback.last_result = result;
 		return 0;
-	/* A reused voice must use the interface volume, including after toggles
-	 * or a failed launch temporarily muted the dashboard. */
-	audsrv_adpcm_set_volume_and_pan(ch, dashCfg.sound_vol, 0);
+	}
+	result = audsrv_ch_play_adpcm(ch, &samples[id]);
+	if (result != ch) {
+		playback.last_result = result;
+		return 0;
+	}
+	playback.started++;
 	return 1;
 }
 
@@ -249,21 +298,27 @@ void dashSoundPlay(int id)
 {
 	static int cursorSlot;
 	static int transSlot;
-	static u64 lastCursorMs;
 	int ch, i;
 
-	if (!soundAlive() || !dashCfg.sound || id < 0 || id >= DASH_SND_COUNT)
+	if (!dashCfg.sound || id < 0 || id >= DASH_SND_COUNT)
 		return;
-	if (dashIopParked())
-		return; /* a background job is rebooting the IOP */
-	if (samples[id].buffer == NULL)
+	playback.requests++;
+	if (!soundAlive()) {
+		soundPlayFailed(id, 0, "audio service unavailable");
 		return;
+	}
+	if (dashIopParked()) {
+		soundPlayFailed(id, 0, "IOP parked for a worker job");
+		return;
+	}
+	if (samples[id].buffer == NULL) {
+		soundPlayFailed(id, 0, "sample not loaded");
+		return;
+	}
 	if (id == DASH_SND_CURSOR) {
-		u64 now = Timer();
-
-		if (now - lastCursorMs < 45)
-			return; /* OPL: no machine-gun ticks on autorepeat */
-		lastCursorMs = now;
+		/* Input already applies the scroll repeat delay/ramp (down to 40ms).
+		 * A separate 45ms sound gate drops valid navigation feedback. The
+		 * rotating voices let short cursor effects overlap without a gate. */
 		ch = SND_CURSOR_CH_BASE + cursorSlot;
 		cursorSlot = (cursorSlot + 1) % SND_CURSOR_CH_COUNT;
 	} else if (id == DASH_SND_TRANSITION) {
@@ -282,6 +337,7 @@ void dashSoundPlay(int id)
 		if (fallback != ch && soundPlayChannel(fallback, id))
 			return;
 	}
+	soundPlayFailed(id, playback.last_result, "audsrv rejected playback");
 }
 
 //--------------------------------------------------------------

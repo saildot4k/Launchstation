@@ -1695,14 +1695,26 @@ static void browserProcessInput(const DashInput *in, int *running)
 	prev = fb.sel;
 	if (!fb.loading) {
 		if (total > 0) {
-			if (in->pressed & DASH_IN_UP)
+			int wrapped = 0;
+			if (in->pressed & DASH_IN_UP) {
+				wrapped |= fb.sel == 0;
 				fb.sel = wrapIndex(fb.sel - 1, total);
-			if (in->pressed & DASH_IN_DOWN)
+			}
+			if (in->pressed & DASH_IN_DOWN) {
+				wrapped |= fb.sel == total - 1;
 				fb.sel = wrapIndex(fb.sel + 1, total);
-			if (in->pressed & (DASH_IN_L2 | DASH_IN_LEFT))
+			}
+			if (in->pressed & (DASH_IN_L2 | DASH_IN_LEFT)) {
+				wrapped |= fb.sel == 0;
 				fb.sel = pageIndex(fb.sel, total, -1);
-			if (in->pressed & (DASH_IN_R2 | DASH_IN_RIGHT))
+			}
+			if (in->pressed & (DASH_IN_R2 | DASH_IN_RIGHT)) {
+				wrapped |= fb.sel == total - 1;
 				fb.sel = pageIndex(fb.sel, total, 1);
+			}
+			/* Wrapping relocates focus even when both endpoints fit on screen. */
+			if (wrapped)
+				fb.sel_anim = (float)fb.sel;
 		}
 		if (fb.sel != prev && running != NULL)
 			dashSoundPlay(DASH_SND_CURSOR);
@@ -1714,8 +1726,11 @@ static void browserProcessInput(const DashInput *in, int *running)
 		if ((in->pressed & DASH_IN_FAV) && fb.dir[0] && !isMisc(fb.dir) && fb.sel < fb.n) {
 			fb.mark[fb.sel] = !fb.mark[fb.sel];
 			fb.nmarked += fb.mark[fb.sel] ? 1 : -1;
-			if (fb.n > 0)
+			if (fb.n > 0) {
+				if (fb.sel == fb.n - 1)
+					fb.sel_anim = 0.0f;
 				fb.sel = wrapIndex(fb.sel + 1, fb.n);
+			}
 		}
 		if (in->pressed & DASH_IN_MENU)
 			actionsMenu();

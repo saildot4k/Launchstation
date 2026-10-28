@@ -2592,6 +2592,8 @@ static void settingsInput(const DashInput *in)
 			int next = item > 0 ? item - 1 : total - 1;
 			if (next != item)
 				dashUiFocusPoke();
+			if (next > item)
+				item_anim = (float)next;
 			item = next;
 		}
 	} else if (in->pressed & DASH_IN_DOWN) {
@@ -2599,6 +2601,8 @@ static void settingsInput(const DashInput *in)
 			int next = item < total - 1 ? item + 1 : 0;
 			if (next != item)
 				dashUiFocusPoke();
+			if (next < item)
+				item_anim = (float)next;
 			item = next;
 		}
 	} else if (in->pressed & DASH_IN_L2) {

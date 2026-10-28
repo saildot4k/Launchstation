@@ -255,6 +255,7 @@ PSX_DS34_ASM_DIR = asm-psx-ds34/
 EE_OBJS := $(EE_OBJS:%=$(EE_OBJS_DIR)%) # remap all EE_OBJ to obj subdir
 
 all: githash.h $(EE_BIN_PKD)
+$(EE_OBJS): githash.h
 all-ds34-off:
 	$(MAKE) all DS34=0 EE_OBJS_DIR=$(DS34_OFF_OBJ_DIR) EE_ASM_DIR=$(DS34_OFF_ASM_DIR)
 
@@ -340,13 +341,11 @@ run: all
 reset: clean
 	ps2client -h 192.168.0.10 reset
 
-githash.h:
-	printf '#ifndef ULE_VERDATE\n#define ULE_VERDATE "' > $@ && \
-	git show -s --format=%cd --date=local | tr -d "\n" >> $@ && \
-	printf '"\n#endif\n' >> $@
-	printf '#ifndef GIT_HASH\n#define GIT_HASH "' >> $@ && \
-	git rev-parse --short HEAD | tr -d "\n" >> $@ && \
-	printf '"\n#endif\n' >> $@
+.PHONY: FORCE_GITHASH
+FORCE_GITHASH:
+
+githash.h: FORCE_GITHASH
+	python3 scripts/gen_githash.py
 
 clean:
 	$(MAKE) -C loader clean

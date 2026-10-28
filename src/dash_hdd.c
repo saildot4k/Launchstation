@@ -1208,21 +1208,31 @@ void dashHddManager(void)
 	dashInputFlush();
 	while (1) {
 		int prev = sel;
+		int wrapped = 0;
 
 		dashInputPoll(&in);
 		if (hm.n > 0) {
-			if (in.pressed & DASH_IN_UP)
+			if (in.pressed & DASH_IN_UP) {
+				wrapped |= sel == 0;
 				sel = sel > 0 ? sel - 1 : hm.n - 1;
-			if (in.pressed & DASH_IN_DOWN)
+			}
+			if (in.pressed & DASH_IN_DOWN) {
+				wrapped |= sel == hm.n - 1;
 				sel = (sel + 1) % hm.n;
+			}
 			if (in.pressed & DASH_IN_L2) {
+				wrapped |= sel < ROWS;
 				sel = (sel - ROWS) % hm.n;
 				if (sel < 0)
 					sel += hm.n;
 			}
-			if (in.pressed & DASH_IN_R2)
+			if (in.pressed & DASH_IN_R2) {
+				wrapped |= sel + ROWS >= hm.n;
 				sel = (sel + ROWS) % hm.n;
+			}
 		}
+		if (wrapped)
+			sel_anim = (float)sel;
 		if (sel != prev) {
 			dashSoundPlay(DASH_SND_CURSOR);
 			last_move = Timer();

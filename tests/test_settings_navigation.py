@@ -149,6 +149,19 @@ int main(void) {
     assert(!occurrences[S_LK_0+SETTING_LK_START]); /* START is reserved for contextual actions. */
     for(int s=0;s<S_T_RESETCAT;s++) assert(occurrences[s]<=1);
     settingsEnter(); assert(page==P_ROOT && begins==1);
+    /* Wrap snaps regardless of page length, including a still-moving bar.
+     * An ordinary adjacent move must leave the animation to settingsUpdate. */
+    for(int p=0;p<P_COUNT;p++) {
+        page=p;item=0;item_anim=0.25f;
+        press(DASH_IN_UP);assert(item==pages[p].n-1 && item_anim==item);
+        item_anim=item-0.25f;
+        press(DASH_IN_DOWN);assert(item==0 && item_anim==0);
+        if(pages[p].n>1) {
+            press(DASH_IN_DOWN);assert(item==1 && item_anim==0);
+            item_anim=1;press(DASH_IN_UP);assert(item==0 && item_anim==1);
+        }
+    }
+    page=P_ROOT;item=0;
     /* Root shortcuts never interpret a page ID as an overlapping SetId. */
     for(item=0;item<pages[P_ROOT].n;item++) press(DASH_IN_FAV);
     assert(!resets && !edits);

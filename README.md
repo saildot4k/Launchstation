@@ -44,6 +44,7 @@ icons and clock, plus shareable theme folders. See
 Launchstation is built and validated with the **PS2BUILD SDK by [TechWritesCode](https://github.com/techwritescode)**. It provides our EE/IOP toolchains, SDK packages and `ps2.yaml` build workflow, locally and in CI. Start with the [official PS2BUILD installation and guide](https://ps2.techwritescode.dev/guide/getting-started).
 
 ```
+python3 scripts/gen_githash.py
 ps2build build
 ```
 
@@ -54,10 +55,17 @@ off). Ethernet/FTP support is embedded but remains demand-driven: no network
 driver is started during normal boot. The legacy Makefile is kept for the
 other feature profiles.
 
+Regenerate `githash.h` after changing commits, before either PS2BUILD variant.
+It embeds the installed commit ID used by Build information and the updater;
+without it the ELF identifies itself as `local` and cannot verify update order.
+Source archives without Git metadata remain local builds. CI requires a valid
+checkout and verifies the full commit ID in both compiled release ELFs.
+
 For the optional PS3/PS4 DualShock USB/Bluetooth build (the legacy
 `DS34=1` option), run:
 
 ```
+python3 scripts/gen_githash.py
 python scripts/configure_ds34.py
 ps2build build -c .ps2-ds34.yaml -o build-ds34
 ```

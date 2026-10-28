@@ -359,7 +359,9 @@ static void move(int delta)
 	if (next < 0)
 		next += norder;
 	sel = next;
-	if ((old == 0 && sel == norder - 1) || (old == norder - 1 && sel == 0)) {
+	/* Use the actual boundary crossing; ordinary moves in a two-item list
+	 * visit the same endpoints and must retain their animation. */
+	if (old + delta < 0 || old + delta >= norder) {
 		float target = (sel / GRID_COLS - 1) * GRID_PITCH_Y;
 		float maxcam = ((norder - 1) / GRID_COLS - 2) * GRID_PITCH_Y;
 		sel_anim = (float)sel;
@@ -394,9 +396,9 @@ static void appsInput(const DashInput *in)
 		if (in->pressed & DASH_IN_RIGHT)
 			move(1);
 		if (in->pressed & DASH_IN_UP)
-			move(sel == 0 ? norder - 1 : (sel < GRID_COLS ? -sel : -GRID_COLS));
+			move(sel == 0 ? -1 : (sel < GRID_COLS ? -sel : -GRID_COLS));
 		if (in->pressed & DASH_IN_DOWN)
-			move(sel == norder - 1 ? -sel : (sel + GRID_COLS >= norder ? norder - 1 - sel : GRID_COLS));
+			move(sel == norder - 1 ? 1 : (sel + GRID_COLS >= norder ? norder - 1 - sel : GRID_COLS));
 		if (in->pressed & DASH_IN_L2)
 			move(-GRID_COLS * 3);
 		if (in->pressed & DASH_IN_R2)

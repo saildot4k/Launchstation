@@ -379,6 +379,13 @@ DASHBOARD.CNF, all on at 80% by default). The two switches are independent;
 turning off interface effects keeps enabled music playing. Muting or disabling
 music preserves the interface volume. Effects use only voices 0–22, including
 when a busy voice needs a fallback; voice 23 stays reserved for music.
+Cursor clicks follow the controller's scrolling repeat and acceleration without
+an additional audio rate limit. Each effect's volume is applied before playback,
+including when a voice was muted by an earlier interface-sound toggle or launch.
+Tools > Audio diagnostics shows the number of requested, started and failed
+effects and the last failure since Launchstation started. It reads cached state;
+use it after reproducing missing audio to distinguish a rejected playback request
+from an accepted request that was not audible at the speakers.
 When the audio driver cannot
 start, everything stays silent — the dashboard works normally without
 sound (a toast says why).
@@ -533,6 +540,6 @@ their loader-specific arguments. The IOP reset option remains independent.
 
 Video mode changes require confirmation within **10 seconds**. The shown Confirm button directly keeps the mode for this settings session; the Back button directly reverts it. D-pad input does not select an action. Timeout also restores the previous mode and screen offsets. Settings are written only through the existing Save action. Physical-console timing and display compatibility still require testing.
 
-Scrollable dashboard lists keep the selection near the middle, following the File Browser. The viewport stops at the first and last page so it never introduces empty rows. Settings, Tools, the Files device list, Applications list, HDD Manager, path picker, folder-date editor and menu popups share this behavior. Wrapping or jumping to an endpoint keeps the highlight visible immediately.
+Scrollable dashboard lists keep the selection near the middle, following the File Browser. The viewport stops at the first and last page so it never introduces empty rows. Settings, Tools, the Files device list, Applications list, HDD Manager, path picker, folder-date editor and menu popups share this behavior. Wrapping places the highlight directly on the new selection, including in short lists and when skipping headings or disabled entries. Grid views also place the viewport at the wrapped selection immediately. Ordinary adjacent movement keeps its animation.
 
 The native File Browser provides eleven rows and the path picker ten, with centered scrolling and endpoint-first Left/Right paging. A page that overshoots lands at the first/last item; the next press at that endpoint wraps. USB entries appear immediately after Memory Card Slot 2. Device rows use two left-aligned columns: the browse path on the left and the device description on the right. Examples include `mc0:/` / Memory Card Slot 1, `mmce0:/` / SD2PSX SD Card Slot 1, and `usbN:/` / USB Storage. Both APA and exFAT HDD units are listed when enabled; mounted VMCs appear once each. PSX Internal Flash uses the driver’s `xfrom0:/` path. Diagnostic status remains in device tools and opening a device reports initialization/errors. MISC/Configure opens dashboard Settings while the dashboard owns the screen; its classic configuration behavior remains available outside the dashboard.

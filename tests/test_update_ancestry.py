@@ -38,7 +38,9 @@ program = r'''
 #include <string.h>
 #include "self_update.h"
 #define MAX_PATH 256
+#ifndef GIT_HASH
 #define GIT_HASH "e70d903"
+#endif
 #define DI_CHECK 1
 #define DI_WARNING 2
 typedef struct {
@@ -98,7 +100,7 @@ static int httpsRequest(const char *method,const char *host,const char *path,
     if (strstr(path,"/compare/")) {
         compares++;
         assert(strstr(path,"?per_page=1&page=2"));
-        assert(strstr(path,"/compare/e70d903..."));
+        assert(strstr(path,"/compare/" GIT_HASH "..."));
         snprintf(json,sizeof(json),"{\"status\":\"%s\"}",comparison);
         out->status=response_status;
     } else {
@@ -131,6 +133,15 @@ static void reset(const char *status,const char *release,int code) {
 }
 int main(void) {
     const char *old="51e1e0c7bc1efcb5b51c6cc9de056ee858694a03";
+    if (!updateIsCommitId(GIT_HASH)) {
+        reset("ahead",old,200);
+        dashToolsCheckUpdates();
+        assert(!waits && !requests && !confirmations && !installs);
+        assert(!strcmp(last_title,"Update check needs build information"));
+        assert(strstr(last_body,GIT_HASH));
+        puts("PASS: missing installed commit gets a specific diagnostic without network or installation");
+        return 0;
+    }
     reset("ahead",old,200);
     dashToolsCheckUpdates();
     assert(compares==1 && requests==2 && confirmations==1 && installs==1);
@@ -182,7 +193,10 @@ with tempfile.TemporaryDirectory(prefix="launchstation-update-order-") as temp:
     path=Path(temp)/"check.c"
     binary=Path(temp)/"check"
     path.write_text(program)
-    for variant in ([], ["-DDS34"]):
+    for variant in ([], ["-DDS34"],
+                    ['-DGIT_HASH="local"'], ["-DDS34", '-DGIT_HASH="local"'],
+                    ['-DGIT_HASH="e70d903c7811a1b95b95771fa6fd813f48f5ecd4"'],
+                    ["-DDS34", '-DGIT_HASH="e70d903c7811a1b95b95771fa6fd813f48f5ecd4"']):
         subprocess.run([compiler,"-std=c11","-Wall","-Wextra","-Werror",
                         "-I",str(root/"include"),*variant,
                         str(path),"-o",str(binary)],check=True)

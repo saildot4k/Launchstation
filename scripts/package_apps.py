@@ -87,9 +87,9 @@ def package(standard, dualshock, output, revision, epoch):
             raise ValueError(f"Not a little-endian ELF32 MIPS executable: {source}")
         cfg = (f"title=[APP] {title}\nboot={elf_name}\nTitle={title}\nCfgVersion=8\n"
                f"Version={revision[:8]}\nPackage=1.0\nRelease=Preview\n"
-               "Developer=github.com/nathanneurotic/\nGenre=Homebrew\n"
+               "Developer=github.com/saildot4k\nGenre=Homebrew\n"
                "Description=PlayStation 2 file manager, launcher and device toolkit.\n"
-               "PlayersText=1\nSource=github.com/nathanneurotic/Launchstation/\n").encode()
+               "PlayersText=1\nSource=github.com/saildot4k/Launchstation\n").encode()
         members = {elf_name: elf, "title.cfg": cfg, **bundled_sidecars()}
         psu = make_psu(folder, members, date)
         assert inspect_psu(psu) == (folder, members)

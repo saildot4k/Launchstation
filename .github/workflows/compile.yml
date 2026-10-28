@@ -133,6 +133,7 @@ jobs:
           python3 tests/test_release_notes.py
           python3 tests/test_update_sidecar_transaction.py
           python3 tests/test_update_ancestry.py
+          python3 tests/test_build_identity.py
           python3 tests/test_png_viewer.py
 
       - name: Validate documentation site
@@ -194,6 +195,9 @@ jobs:
       - name: Build isolated network socket server
         run: ps2build build -c iop/ps2ips_rpc/ps2.yaml
 
+      - name: Generate installed-build identity
+        run: python3 scripts/gen_githash.py --require-git
+
       - name: Build Launchstation with ps2build
         run: |
           ps2build build
@@ -202,6 +206,11 @@ jobs:
         run: |
           python3 scripts/configure_ds34.py
           ps2build build -c .ps2-ds34.yaml -o build-ds34
+
+      - name: Verify installed-build identity in both release ELFs
+        run: |
+          python3 scripts/check_build_identity.py --revision "${GITHUB_SHA}" \
+            build/bin/wLaunchELF.elf build-ds34/bin/wLaunchELF.elf
 
       - name: Verify controller variants in linked ELFs
         run: |

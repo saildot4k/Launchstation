@@ -22,7 +22,8 @@ enum ToolAction {
 	TA_BROWSER_AT,
 	TA_MISC_MENU,
 	TA_EDITOR,
-	TA_USB_DIAG
+	TA_USB_DIAG,
+	TA_SOUND_DIAG
 };
 
 typedef struct
@@ -53,6 +54,7 @@ static const Tool tools[] = {
     {TA_MISC, DI_HDD, "HDD Manager", "Create, remove, rename and expand APA partitions, view HDL game information and format the internal HDD.", "Partition changes and formatting are permanent.", 0, MISC(Misc_HddManager), NULL},
     {TA_MISC, DI_MC, "Memory card exploit installer", "Install a memory card system-update exploit for this console, another model or region, or PSX/DESR.", "Writes system folders to the memory card. Follow the on-screen checks carefully.", 0, MISC(Misc_Exploit_Installer), NULL},
     {TA_HEADER, -1, "SYSTEM", NULL, NULL, 0, 0, NULL},
+    {TA_SOUND_DIAG, DI_PLAY, "Audio diagnostics", "View interface playback counters and the last rejected sound request.", "After reproducing missing sounds, open this page and report the requested, started and failed counts. Values cover this Launchstation session; accepted playback does not measure output at the speakers.", 0, 0, NULL},
     {TA_MISC, DI_APP, "PS2 system browser", "Leave Launchstation and open the console's own Browser.", NULL, 2, MISC(Misc_PS2Browser), NULL},
     {TA_MISC, DI_APP, "OSDSYS", "Start the console's OSD (or the OSDSYS path configured in Launchstation).", NULL, 2, MISC(Misc_OSDSYS), NULL},
 #ifdef ETH
@@ -72,15 +74,17 @@ static const Tool tools[] = {
 static int tsel = 1, ttop;
 static float tsel_anim = 1.0f;
 
-static void tMove(int d)
+/* Report wrapping so a multi-step page move can snap its final selection. */
+static int tMove(int d)
 {
-	int start, s;
+	int start, s, wrapped = 0;
 
 	if (NTOOLS <= 0 || d == 0)
-		return;
+		return 0;
 	start = s = tsel;
 	do {
 		s += d;
+		wrapped |= s < 0 || s >= NTOOLS;
 		if (s < 0)
 			s = NTOOLS - 1;
 		else if (s >= NTOOLS)
@@ -89,9 +93,12 @@ static void tMove(int d)
 			if (s != tsel)
 				dashUiFocusPoke();
 			tsel = s;
-			return;
+			if (wrapped)
+				tsel_anim = (float)tsel;
+			return wrapped;
 		}
 	} while (s != start);
+	return 0;
 }
 
 static void toolsEnter(void)
@@ -267,6 +274,15 @@ void dashToolsCheckUpdates(void)
 	    "User-Agent: Launchstation-PS2\r\n"
 	    "Accept: application/vnd.github+json\r\n";
 	int same = 0;
+
+	if (!updateIsCommitId(GIT_HASH)) {
+		snprintf(body, sizeof(body),
+		         "This ELF identifies its commit as '%s'. Update checks need a usable Git commit ID.",
+		         GIT_HASH);
+		dashModalMessage(DI_WARNING, "Update check needs build information", body,
+		                 "Install a complete release package built with commit information, then restart Launchstation.");
+		return;
+	}
 
 	/* CA/device access and network stack changes use synchronous IOP RPCs.
 	 * Finish queued IO and any root-card status request before starting. */
@@ -495,6 +511,14 @@ static void showMiscCommands(void)
 		dashRunMisc(paths[selected]);
 }
 
+static void showSoundDiagnostics(void)
+{
+	char status[512];
+
+	dashSoundGetStatus(status, sizeof(status));
+	dashModalMessage(DI_PLAY, "Audio diagnostics", status, NULL);
+}
+
 static void runTool(const Tool *t)
 {
 	if (t->confirm) {
@@ -526,23 +550,28 @@ static void runTool(const Tool *t)
 		case TA_USB_DIAG:
 			dashToolsUsbUnitDiagnostics();
 			break;
+		case TA_SOUND_DIAG:
+			showSoundDiagnostics();
+			break;
 	}
 }
 
 static void toolsInput(const DashInput *in)
 {
-	int i;
+	int i, wrapped = 0;
 
 	if (in->pressed & DASH_IN_UP)
-		tMove(-1);
+		wrapped |= tMove(-1);
 	if (in->pressed & DASH_IN_DOWN)
-		tMove(1);
+		wrapped |= tMove(1);
 	if (in->pressed & (DASH_IN_L2 | DASH_IN_LEFT))
 		for (i = 0; i < 6; i++)
-			tMove(-1);
+			wrapped |= tMove(-1);
 	if (in->pressed & (DASH_IN_R2 | DASH_IN_RIGHT))
 		for (i = 0; i < 6; i++)
-			tMove(1);
+			wrapped |= tMove(1);
+	if (wrapped)
+		tsel_anim = (float)tsel;
 	if (in->pressed & DASH_IN_OK)
 		runTool(&tools[tsel]);
 }

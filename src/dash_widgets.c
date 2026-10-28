@@ -758,10 +758,14 @@ int dashModalIp(const char *title, const char *help, char *ip_str, int size)
 
 		dashInputPoll(&in);
 		if (in.pressed & DASH_IN_LEFT) {
+			if (sel == 0)
+				sel_anim = 3.0f;
 			sel = (sel + 3) % 4;
 			dashSoundPlay(DASH_SND_CURSOR);
 		}
 		if (in.pressed & DASH_IN_RIGHT) {
+			if (sel == 3)
+				sel_anim = 0.0f;
 			sel = (sel + 1) % 4;
 			dashSoundPlay(DASH_SND_CURSOR);
 		}
@@ -1085,6 +1089,7 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 	while (1) {
 		int n_rows, has_use = (mode == DASH_PICK_FOLDER && pk.dir[0] != '\0');
 		int first_entry; /* index of the first listing row */
+		int wrapped = 0;
 
 		dashInputPoll(&in);
 		if (pk.starting && pk.start_done) {
@@ -1109,18 +1114,22 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 			sel = n_rows > 0 ? n_rows - 1 : 0;
 
 		if ((in.pressed & DASH_IN_UP) && n_rows > 0) {
+			wrapped |= sel == 0;
 			sel = sel > 0 ? sel - 1 : n_rows - 1;
 			dashSoundPlay(DASH_SND_CURSOR);
 		}
 		if ((in.pressed & DASH_IN_DOWN) && n_rows > 0) {
+			wrapped |= sel == n_rows - 1;
 			sel = sel < n_rows - 1 ? sel + 1 : 0;
 			dashSoundPlay(DASH_SND_CURSOR);
 		}
 		if ((in.pressed & DASH_IN_LEFT) && n_rows > 0) {
+			wrapped |= sel == 0;
 			sel = sel == 0 ? n_rows - 1 : (sel < rows ? 0 : sel - rows);
 			dashSoundPlay(DASH_SND_CURSOR);
 		}
 		if ((in.pressed & DASH_IN_RIGHT) && n_rows > 0) {
+			wrapped |= sel == n_rows - 1;
 			sel = sel == n_rows - 1 ? 0 : (sel + rows >= n_rows ? n_rows - 1 : sel + rows);
 			dashSoundPlay(DASH_SND_CURSOR);
 		}
@@ -1128,6 +1137,8 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 			sel = 0;
 		if (in.pressed & DASH_IN_R2)
 			sel = n_rows > 0 ? n_rows - 1 : 0;
+		if (wrapped)
+			sel_anim = (float)sel;
 		if (in.pressed & DASH_IN_MENU) {
 			result = 0;
 			break;

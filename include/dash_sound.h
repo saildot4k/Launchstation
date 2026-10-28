@@ -23,6 +23,7 @@ void dashSoundShutdown(void);
 void dashSoundSuspend(void); /* mute while a launch can still return */
 void dashSoundPlay(int id);
 void dashSoundApplyVolume(void);
+void dashSoundGetStatus(char *out, int out_size); /* cached counters/status; no IO */
 void dashBgmStart(void);
 void dashBgmStop(void);
 void dashBgmSetVolume(void); /* apply dashCfg.bgm_vol to the music bus */

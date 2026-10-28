@@ -223,15 +223,17 @@ static void filesEnter(void)
 	fsel_anim = (float)fsel;
 }
 
-static void fMove(int d)
+/* Report wrapping so a multi-step page move can snap its final selection. */
+static int fMove(int d)
 {
-	int start, s;
+	int start, s, wrapped = 0;
 
 	if (nfentries <= 0 || d == 0)
-		return;
+		return 0;
 	start = s = fsel;
 	do {
 		s += d;
+		wrapped |= s < 0 || s >= nfentries;
 		if (s < 0)
 			s = nfentries - 1;
 		else if (s >= nfentries)
@@ -240,9 +242,12 @@ static void fMove(int d)
 			if (s != fsel)
 				dashUiFocusPoke();
 			fsel = s;
-			return;
+			if (wrapped)
+				fsel_anim = (float)fsel;
+			return wrapped;
 		}
 	} while (s != start);
+	return 0;
 }
 
 static void filesActivate(void)
@@ -272,18 +277,20 @@ static void filesActivate(void)
 
 static void filesInput(const DashInput *in)
 {
-	int i;
+	int i, wrapped = 0;
 
 	if (in->pressed & DASH_IN_UP)
-		fMove(-1);
+		wrapped |= fMove(-1);
 	if (in->pressed & DASH_IN_DOWN)
-		fMove(1);
+		wrapped |= fMove(1);
 	if (in->pressed & DASH_IN_L2)
 		for (i = 0; i < 6; i++)
-			fMove(-1);
+			wrapped |= fMove(-1);
 	if (in->pressed & DASH_IN_R2)
 		for (i = 0; i < 6; i++)
-			fMove(1);
+			wrapped |= fMove(1);
+	if (wrapped)
+		fsel_anim = (float)fsel;
 	if (in->pressed & DASH_IN_OK)
 		filesActivate();
 	if (in->pressed & DASH_IN_MENU) {
@@ -439,21 +446,35 @@ static void devRefresh(void)
 		devSelectFirst();
 }
 
+static float devScrollTarget(void)
+{
+	float target = (((dsel >= 0 ? dsel : 0) / DEV_COLS) - 1) * DEV_PY;
+	float maxcam = ((ndevs - 1) / DEV_COLS - 2) * DEV_PY;
+	if (target > maxcam)
+		target = maxcam;
+	return target > 0 ? target : 0.0f;
+}
+
 static void devMove(int delta)
 {
-	int start, s, step;
+	int start, s, step, wrapped = 0;
 	if (dsel < 0 || ndevs <= 0 || delta == 0)
 		return;
 
 	start = s = dsel;
 	do {
 		s += delta;
+		wrapped |= s < 0 || s >= ndevs;
 		while (s < 0)
 			s += ndevs;
 		while (s >= ndevs)
 			s -= ndevs;
 		if (devSelectable(s)) {
 			dsel = s;
+			if (wrapped) {
+				dsel_anim = (float)dsel;
+				dcam = devScrollTarget();
+			}
 			dashUiFocusPoke();
 			return;
 		}
@@ -461,14 +482,20 @@ static void devMove(int delta)
 
 	step = delta < 0 ? -1 : 1;
 	s = start;
+	wrapped = 0;
 	do {
 		s += step;
+		wrapped |= s < 0 || s >= ndevs;
 		if (s < 0)
 			s = ndevs - 1;
 		else if (s >= ndevs)
 			s = 0;
 		if (devSelectable(s)) {
 			dsel = s;
+			if (wrapped) {
+				dsel_anim = (float)dsel;
+				dcam = devScrollTarget();
+			}
 			dashUiFocusPoke();
 			return;
 		}
@@ -542,18 +569,10 @@ static void devInput(const DashInput *in)
 static void devUpdate(float dt)
 {
 	static float t;
-	float target;
 
 	if (dsel >= 0)
 		dsel_anim = dashApproach(dsel_anim, (float)dsel, 14.0f * dashAnimSpeed(), dt);
-	target = (((dsel >= 0 ? dsel : 0) / DEV_COLS) - 1) * DEV_PY;
-	if (target < 0)
-		target = 0;
-	if (target > ((ndevs - 1) / DEV_COLS - 2) * DEV_PY)
-		target = ((ndevs - 1) / DEV_COLS - 2) * DEV_PY;
-	if (target < 0)
-		target = 0;
-	dcam = dashApproach(dcam, target, 10.0f * dashAnimSpeed(), dt);
+	dcam = dashApproach(dcam, devScrollTarget(), 10.0f * dashAnimSpeed(), dt);
 	t += dt;
 	if (t > 0.5f) {
 		t = 0.0f;
