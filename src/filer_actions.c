@@ -1840,7 +1840,7 @@ int delete (const char *path, const FILEINFO *file)
 	return ret;
 }
 //--------------------------------------------------------------
-static int filerRenameHost(const char *old_path, const char *new_path, int directory)
+static int filerRenameHost(const char *old_path, const char *new_path, int directory, int case_alias)
 {
 	/* fileXio copies IOCTL_BUF_SIZE bytes on EE; the HOST peer uses 256. */
 	char payload[IOCTL_BUF_SIZE] = {0};
@@ -1851,7 +1851,9 @@ static int filerRenameHost(const char *old_path, const char *new_path, int direc
 	if (relative == NULL || old_relative == NULL) return -EINVAL;
 	if (strlen(++relative) >= HOST_RENAME_PATH_BYTES || strlen(old_relative + 1) >= HOST_RENAME_PATH_BYTES)
 		return -ENAMETOOLONG;
-	if (filerPathExistsForConflict(new_path)) return -EEXIST;
+	/* case_alias is allowed only after checking stored directory spellings;
+	 * that caller also verifies the spelling after this native operation. */
+	if (!case_alias && filerPathExistsForConflict(new_path)) return -EEXIST;
 	memcpy(payload, relative, strlen(relative));
 	/* HOST's ioctl applies only to the most recently opened descriptor.
 	 * Finish all conflict probes before opening the source, then issue it
@@ -1862,6 +1864,7 @@ static int filerRenameHost(const char *old_path, const char *new_path, int direc
 	closed = directory ? fileXioDclose(fd) : fileXioClose(fd);
 	if (ret < 0) return ret == -6 ? -EEXIST : ret;
 	if (closed < 0) return closed;
+	if (case_alias) return 0;
 	if (filerPathExistsForConflict(old_path)) return -EIO;
 	ret = filerPathConflictType(new_path);
 	return ret == (directory ? FILER_CONFLICT_DIR : FILER_CONFLICT_FILE) ? 0 : -EIO;
@@ -1869,18 +1872,16 @@ static int filerRenameHost(const char *old_path, const char *new_path, int direc
 
 static int filerRenameSiblingOnce(const char *from, const char *to, int directory)
 {
-	return !strncmp(from, "host", 4) ? filerRenameHost(from, to, directory) : genRenameNoReplace(from, to);
+	return !strncmp(from, "host", 4) ? filerRenameHost(from, to, directory, 0) : genRenameNoReplace(from, to);
 }
 
 enum {
 	FILER_RENAME_OLD = 1,
 	FILER_RENAME_NEW = 2,
-	FILER_RENAME_TEMP = 4,
-	FILER_RENAME_COLLISION = 8,
-	FILER_RENAME_TEMP_ALIAS = 16
+	FILER_RENAME_COLLISION = 4
 };
 
-static int filerRenameCaseState(char *parent, const char *old_name, const char *new_name, const char *temporary)
+static int filerRenameCaseState(char *parent, const char *old_name, const char *new_name)
 {
 	iox_dirent_t entry;
 	int fd, ret, closed, state = 0;
@@ -1900,8 +1901,6 @@ static int filerRenameCaseState(char *parent, const char *old_name, const char *
 		if (!strcmp(entry.name, old_name)) state |= FILER_RENAME_OLD;
 		else if (!strcmp(entry.name, new_name)) state |= FILER_RENAME_NEW;
 		else if (!stricmp(entry.name, old_name)) state |= FILER_RENAME_COLLISION;
-		if (!strcmp(entry.name, temporary)) state |= FILER_RENAME_TEMP;
-		else if (!stricmp(entry.name, temporary)) state |= FILER_RENAME_TEMP_ALIAS;
 	}
 	closed = genDclose(fd);
 	return ret < 0 ? ret : closed < 0 ? closed : state;
@@ -1910,47 +1909,39 @@ static int filerRenameCaseState(char *parent, const char *old_name, const char *
 static int filerRenameCaseOnly(const char *from, const char *to, const char *old_name,
                                const char *new_name, int directory)
 {
-	char parent[MAX_PATH], temporary[MAX_PATH];
-	size_t length = strlen(old_name), prefix = strlen(from) - length;
-	size_t available = sizeof(temporary) - prefix;
-	char *temporary_name = temporary + prefix;
-	int candidate, attempts = length == 1 ? 10 : length == 2 ? 100 : 1000;
-	int ret, state;
+	char parent[MAX_PATH];
+	iox_stat_t target;
+	size_t prefix = strlen(from) - strlen(old_name);
+	int ret, state, host = !strncmp(from, "host", 4);
 
+	/* MC/VMC, PFS (including mounted HDD/DVR partitions) and XFROM compare
+	 * names exactly. Use their normal checked rename without listing or staging. */
+	if (!strncmp(from, "mc", 2) || !strncmp(from, "vmc", 3) || !strncmp(from, "pfs", 3) ||
+	    !strncmp(from, "dvr_pfs", 7) || !strncmp(from, "xfrom", 5))
+		return filerRenameSiblingOnce(from, to, directory);
+	if (host) {
+		/* HOST's case behavior belongs to the PC filesystem/server. */
+		if (!filerPathExistsForConflict(to)) return filerRenameSiblingOnce(from, to, directory);
+	} else {
+		ret = genGetStat(to, &target);
+		if (ret == -ENOENT) return filerRenameSiblingOnce(from, to, directory);
+		if (ret < 0) return ret;
+	}
 	memcpy(parent, from, prefix);
 	parent[prefix] = '\0';
-	memcpy(temporary, parent, prefix);
-	for (candidate = 0; candidate < attempts; candidate++) {
-		/* Never require more path/name space than the original entry. This
-		 * also fits PS1 cards, MMCE's wire limit and HOST's 256-byte path. */
-		if (length >= 11) snprintf(temporary_name, available, "LSRN%03d.TMP", candidate);
-		else if (length >= 4) snprintf(temporary_name, available, "R%03d", candidate);
-		else snprintf(temporary_name, available, "%0*d", (int)length, candidate);
-		if (!stricmp(temporary_name, old_name)) continue;
-		state = filerRenameCaseState(parent, old_name, new_name, temporary_name);
-		if (state < 0) return state;
-		/* A case-sensitive filesystem may contain BOTH requested spellings.
-		 * Never treat that as a case alias, or overwrite another entry. */
-		if (state & (FILER_RENAME_NEW | FILER_RENAME_COLLISION)) return -EEXIST;
-		if (!(state & FILER_RENAME_OLD)) return -ENOENT;
-		if (!(state & (FILER_RENAME_TEMP | FILER_RENAME_TEMP_ALIAS))) break;
-	}
-	if (candidate == attempts) return -EEXIST;
-
-	ret = filerRenameSiblingOnce(from, temporary, directory);
-	state = filerRenameCaseState(parent, old_name, new_name, temporary_name);
-	if (state != FILER_RENAME_TEMP) return ret < 0 ? ret : state < 0 ? state : -EIO;
-	if (ret >= 0) {
-		ret = filerRenameSiblingOnce(temporary, to, directory);
-		state = filerRenameCaseState(parent, old_name, new_name, temporary_name);
-		if (state == FILER_RENAME_NEW) return ret < 0 ? ret : 0;
-		if (state != FILER_RENAME_TEMP) return ret < 0 ? ret : state < 0 ? state : -EIO;
-	}
-	/* Only roll back a verified temporary entry with both real names absent.
-	 * Keep the temporary entry if rollback fails; never delete recovery data.
-	 * Errors after an applied rename are reported without repeating it. */
-	(void)filerRenameSiblingOnce(temporary, from, directory);
-	return ret < 0 ? ret : -EIO;
+	state = filerRenameCaseState(parent, old_name, new_name);
+	if (state < 0) return state;
+	if (state & (FILER_RENAME_NEW | FILER_RENAME_COLLISION)) return -EEXIST;
+	if (state != FILER_RENAME_OLD) return -ENOENT;
+	/* The target lookup aliases the one exact source entry. Ask its driver
+	 * once; unsupported case changes are not emulated with temporary names.
+	 * Ordinary no-replace renames retain their strict checks, including copy. */
+	ret = host ? filerRenameHost(from, to, directory, 1) : fileXioRename(from, to);
+	state = filerRenameCaseState(parent, old_name, new_name);
+	if (state == FILER_RENAME_NEW) return ret < 0 ? ret : 0;
+	if (ret < 0) return ret;
+	if (state < 0) return state;
+	return state == FILER_RENAME_OLD ? -EOPNOTSUPP : -EIO;
 }
 
 int Rename(const char *path, const FILEINFO *file, const char *name)

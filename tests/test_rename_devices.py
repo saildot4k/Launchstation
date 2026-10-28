@@ -61,7 +61,9 @@ static int load_ok,loaded,protected_path,cf_online,stat_error,driver_error,false
 static int submit_error,sync_error,info_error,card_type,card_job,card_result,mctype_PSx,completion_error;
 static int host_use_Bsl;
 static int handles,last_fd=-1,rename_calls,ioctl_calls,set_calls,close_error;
-static int case_insensitive,mutation_calls,fail_at,fail_again,false_at,applied_error_at;
+static int case_insensitive,mutation_calls,fail_at,applied_error_at;
+static int native_case_calls,case_support,case_error,case_applied_error,dread_calls;
+static int case_stat_error;
 static int scan_calls,scan_fail_at,scan_close_fail_at,scan_open_fail_at,scan_bad_name_at;
 static char fd_path[1024][MAX_PATH];
 static int fd_directory[1024];
@@ -102,18 +104,26 @@ static void resolve_case(char *path){
  closedir(d);
 }
 static int mutate(const char *from,const char *to){
- mutation_calls++;
- if(mutation_calls==fail_at||mutation_calls==fail_again)return -ENOSPC;
- if(mutation_calls==false_at)return 0;
  char a[MAX_PATH],b[MAX_PATH];strcpy(a,from);strcpy(b,to);resolve_case(a);resolve_case(b);
- /* A case-insensitive driver need not support a direct case-only rename. */
- if(case_insensitive&&!strcmp(a,b))return -EEXIST;
+ if(!strcasecmp(from,to)&&strcmp(from,to)){
+  native_case_calls++;
+  if(case_insensitive&&!strcmp(a,b)){
+   if(case_error)return -case_error;
+   if(case_support==0)return -EEXIST;
+   if(case_support==2)return 0;
+   strcpy(b,to); /* Driver preserves the requested spelling. */
+  }
+ }
+ mutation_calls++;
+ if(mutation_calls==fail_at)return -ENOSPC;
  if(rename(a,b))return -errno;
+ if(case_applied_error&&!strcasecmp(from,to)&&strcmp(from,to))return -case_applied_error;
  return mutation_calls==applied_error_at?-EIO:0;
 }
 static int genGetStat(const char *p,iox_stat_t *out){
  if(!strncmp(p,"host",4))return -ENOSYS;
  if(stat_error&&strstr(p,"/NEW.BIN"))return -stat_error;
+ if(case_stat_error&&strstr(p,"/old.bin"))return -case_stat_error;
  if(!strncmp(p,"mmce",4)&&strlen(strchr(p,':')+1)>254)return -ENAMETOOLONG;
  char path[MAX_PATH];physical(p,path);resolve_case(path);struct stat s;if(stat(path,&s))return -errno;out->mode=s.st_mode;return 0;
 }
@@ -134,6 +144,7 @@ static int genDopen(char *p){
  return fileXioDopen(p);
 }
 static int fileXioDread(int fd,iox_dirent_t *out){
+ dread_calls++;
  assert(fd_directory[fd]);if(scan_calls==scan_fail_at)return -EIO;
  if(scan_calls==scan_bad_name_at){memset(out->name,'X',sizeof(out->name));return 1;}
  if(!fd_stream[fd]){fd_stream[fd]=fdopendir(dup(fd));assert(fd_stream[fd]);}
@@ -187,7 +198,9 @@ static int fileXioIoctl(int fd,int request,void *data){
 static void reset(void){assert(!handles);load_ok=cf_online=1;card_type=2;last_fd=-1;
  loaded=protected_path=stat_error=driver_error=false_success=submit_error=sync_error=info_error=0;
  rename_calls=ioctl_calls=set_calls=close_error=completion_error=host_use_Bsl=0;
- case_insensitive=mutation_calls=fail_at=fail_again=false_at=applied_error_at=0;
+ case_insensitive=mutation_calls=fail_at=applied_error_at=0;
+ native_case_calls=case_support=case_error=case_applied_error=dread_calls=0;
+ case_stat_error=0;
  scan_calls=scan_fail_at=scan_close_fail_at=scan_open_fail_at=scan_bad_name_at=0;}
 static void put(const char *p){int fd=open(p,O_CREAT|O_TRUNC|O_WRONLY,0644);assert(fd>=0);assert(write(fd,"exact file bytes",16)==16);assert(!close(fd));}
 static void remove_entry(const char *p){
@@ -216,13 +229,15 @@ if 'static const char *getXfromRelativePath(' in actions:
 code += function(actions, 'int Rename(')
 code += r'''
 int main(void){
- const char *devices[]={"mc0:/","mc1:/","vmc0:/","vmc1:/","usb0:/","usb1:/","mass:/","mass0:/","mass9:/",
-  "ata0:/","ata1:/","mx4sio:/","mmce0:/","mmce1:/","cf:/","cf0:/","pfs4:/","pfs7:/",
-  "hdd0:/__common/","hdd1:/__common/","dvr_hdd0:/__xcontents/","dvr_hdd0:/__xdata/","xfrom0:/","host:/"};
+ const struct {const char *path;int sensitive;} devices[]={
+  {"mc0:/",1},{"mc1:/",1},{"vmc0:/",1},{"vmc1:/",1},{"usb0:/",0},{"usb1:/",0},{"mass:/",0},{"mass0:/",0},{"mass9:/",0},
+  {"ata0:/",0},{"ata1:/",0},{"mx4sio:/",0},{"mmce0:/",0},{"mmce1:/",0},{"cf:/",0},{"cf0:/",0},{"pfs4:/",1},{"pfs7:/",1},
+  {"hdd0:/__common/",1},{"hdd1:/__common/",1},{"dvr_hdd0:/__xcontents/",1},{"dvr_hdd0:/__xdata/",1},{"xfrom0:/",1},{"host:/",0}
+ };
  char path[MAX_PATH],parent[MAX_PATH],old[MAX_PATH],to[MAX_PATH];int operations=0;
  for(unsigned d=0;d<sizeof(devices)/sizeof(devices[0]);d++)for(int nested=0;nested<2;nested++){
-  snprintf(path,sizeof(path),"%s%s",devices[d],nested?"NESTED/":"");reset();
-  char root_path[MAX_PATH],mapped[MAX_PATH];assert(!genFixPath(devices[d],root_path));char *colon=strchr(root_path,':');assert(colon);
+  snprintf(path,sizeof(path),"%s%s",devices[d].path,nested?"NESTED/":"");reset();
+  char root_path[MAX_PATH],mapped[MAX_PATH];assert(!genFixPath(devices[d].path,root_path));char *colon=strchr(root_path,':');assert(colon);
   colon[1]=0;mkdir(root_path,0700);assert(!genFixPath(path,mapped));physical(mapped,parent);if(nested)mkdir(parent,0700);
   snprintf(old,sizeof(old),"%sOLD.BIN",parent);snprintf(to,sizeof(to),"%sNEW.BIN",parent);
   for(int directory=0;directory<2;directory++){
@@ -252,10 +267,17 @@ int main(void){
     assert(!rename_calls&&!set_calls&&!handles&&!access(old,F_OK));operations++;
    }
    char case_to[MAX_PATH];snprintf(case_to,sizeof(case_to),"%sold.bin",parent);
-   for(int insensitive=0;insensitive<2;insensitive++){
-    reset();case_insensitive=insensitive;remove_entry(case_to);make_entry(old,directory);
+   for(int insensitive=0;insensitive<(devices[d].sensitive?1:2);insensitive++){
+    reset();case_insensitive=insensitive;case_support=1;remove_entry(case_to);make_entry(old,directory);
     assert(!stat(old,&before));
-    assert(!Rename(path,&file,"old.bin")&&mutation_calls==2&&!handles);
+    if(insensitive&&!strncmp(path,"mmce",4)){
+     case_error=1;
+     assert(Rename(path,&file,"old.bin")==-1&&native_case_calls==1&&!mutation_calls&&!handles);
+     assert(!memcmp(&file,&unchanged,sizeof(file))&&!stat(old,&after)&&after.st_ino==before.st_ino&&access(case_to,F_OK)<0);
+     operations++;continue;
+    }
+    assert(!Rename(path,&file,"old.bin")&&mutation_calls==1&&!handles);
+    if(!insensitive)assert(!dread_calls&&native_case_calls==1);
     assert(!memcmp(&file,&unchanged,sizeof(file))&&access(old,F_OK)<0&&!stat(case_to,&after));
     assert(after.st_ino==before.st_ino&&after.st_mode==before.st_mode&&after.st_mtime==before.st_mtime);
     if(directory){char child[MAX_PATH];snprintf(child,sizeof(child),"%s/CHILD.BIN",case_to);assert(!access(child,F_OK));}
@@ -267,90 +289,125 @@ int main(void){
     assert(Rename(path,&file,"old.bin")==-EEXIST&&!mutation_calls&&!handles);
     assert(!access(old,F_OK)&&!access(case_to,F_OK));remove_entry(case_to);operations++;
    }
+   /* A third case-equivalent entry is valid on a case-sensitive filesystem.
+    * Renaming OLD.BIN to unused old.bin must leave Old.Bin untouched. */
+   reset();char third[MAX_PATH];snprintf(third,sizeof(third),"%sOld.Bin",parent);
+   make_entry(old,directory);make_entry(third,!directory);assert(!stat(third,&before));
+   assert(!Rename(path,&file,"old.bin")&&mutation_calls==1&&native_case_calls==1&&!dread_calls&&!handles);
+   assert(!stat(third,&after)&&after.st_ino==before.st_ino&&after.st_mode==before.st_mode);
+   assert(!access(case_to,F_OK)&&access(old,F_OK)<0);remove_entry(case_to);remove_entry(third);operations++;
    remove_entry(old);remove_entry(to);
   }
  }
- /* Case-only transaction failures: only verified surviving temporary data
-  * may be rolled back, with no overwrite or blind retry after ambiguous I/O. */
- const char *case_devices[]={"usb0:/","mmce0:/","mmce1:/","mc0:/","mc1:/","vmc0:/","xfrom0:/","host:/"};
- for(unsigned d=0;d<sizeof(case_devices)/sizeof(case_devices[0]);d++)for(int directory=0;directory<2;directory++)for(int fault=0;fault<10;fault++){
-  reset();case_insensitive=1;FILEINFO f={0};strcpy(f.name,"OLD.BIN");f.stats.AttrFile=directory?sceMcFileAttrSubdir:0;
-  snprintf(old,sizeof(old),"%sOLD.BIN",case_devices[d]);snprintf(to,sizeof(to),"%sold.bin",case_devices[d]);
-  char temp[MAX_PATH];snprintf(temp,sizeof(temp),"%sR000",case_devices[d]);
-  remove_entry(to);remove_entry(temp);make_entry(old,directory);struct stat before,after;assert(!stat(old,&before));
-  if(fault==0)fail_at=1;                /* First step did not apply. */
-  if(fault==1)false_at=1;               /* Driver falsely claims it applied. */
-  if(fault==2)fail_at=2;                /* Publish fails; original restored. */
-  if(fault==3){fail_at=2;fail_again=3;}  /* Rollback fails; temp retained. */
-  if(fault==4)false_at=2;               /* Publish false success; roll back. */
-  if(fault==5)applied_error_at=1;       /* First step applied with RPC error. */
-  if(fault==6)applied_error_at=2;       /* Publish applied with RPC error. */
-  if(fault==7){fail_at=2;false_at=3;}   /* Rollback falsely reports success. */
-  if(fault==8){fail_at=2;applied_error_at=3;} /* Rollback applied with RPC error. */
-  if(fault==9){applied_error_at=1;fail_at=2;} /* First-step error, rollback fails. */
-  assert(Rename(case_devices[d],&f,"old.bin")<0&&!handles);
-  const char *surviving=fault==3||fault==7||fault==9?temp:fault==6?to:old;
-  assert(!stat(surviving,&after)&&after.st_ino==before.st_ino&&after.st_mode==before.st_mode&&after.st_mtime==before.st_mtime);
-  assert((!access(old,F_OK))+(!access(to,F_OK))+(!access(temp,F_OK))==1);
-  assert(mutation_calls==(fault<2?1:fault==5||fault==6||fault==9?2:3));
+ /* Case-sensitive drivers never stage/retry a failed case-only rename. */
+ for(unsigned d=0;d<sizeof(devices)/sizeof(devices[0]);d++)if(devices[d].sensitive)for(int directory=0;directory<2;directory++)for(int fault=0;fault<3;fault++){
+  reset();char mapped[MAX_PATH];assert(!genFixPath(devices[d].path,mapped));physical(mapped,parent);
+  snprintf(old,sizeof(old),"%sOLD.BIN",parent);snprintf(to,sizeof(to),"%sold.bin",parent);make_entry(old,directory);
+  FILEINFO f={0};strcpy(f.name,"OLD.BIN");f.stats.AttrFile=directory?sceMcFileAttrSubdir:0;
+  if(fault==0)fail_at=1;if(fault==1)false_success=1;if(fault==2)applied_error_at=1;
+  assert(Rename(devices[d].path,&f,"old.bin")== (fault==0?-ENOSPC:-EIO));
+  assert(rename_calls+set_calls==1&&!dread_calls&&!handles&&mutation_calls==(fault==1?0:1));
+  assert(!access(fault==2?to:old,F_OK));remove_entry(old);remove_entry(to);operations++;
+ }
+ /* Each driver gets ONE native attempt. A successful no-op is unsupported,
+  * including a hypothetical MMCE firmware that differs from today's SdFat. */
+ const char *native_devices[]={"usb0:/","usb1:/","mass:/","mass9:/","ata0:/","ata1:/","mx4sio:/","cf:/","cf0:/","host:/","host:/NESTED/","mmce0:/","mmce1:/"};
+ for(unsigned d=0;d<sizeof(native_devices)/sizeof(native_devices[0]);d++)for(int directory=0;directory<2;directory++)for(int mode=0;mode<2;mode++){
+  reset();case_insensitive=1;case_support=mode?2:1;host_use_Bsl=1;
+  char mapped[MAX_PATH];assert(!genFixPath(native_devices[d],mapped));physical(mapped,parent);
+  snprintf(old,sizeof(old),"%sOLD.BIN",parent);snprintf(to,sizeof(to),"%sold.bin",parent);make_entry(old,directory);
+  FILEINFO f={0};strcpy(f.name,"OLD.BIN");f.stats.AttrFile=directory?sceMcFileAttrSubdir:0;FILEINFO unchanged=f;
+  struct stat before,after;assert(!stat(old,&before));
+  assert(Rename(native_devices[d],&f,"old.bin")== (mode?-EOPNOTSUPP:0)&&mutation_calls==(mode?0:1)&&native_case_calls==1&&!handles);
+  const char *surviving=mode?old:to;
+  assert(!memcmp(&f,&unchanged,sizeof(f))&&!stat(surviving,&after)&&after.st_ino==before.st_ino&&after.st_mode==before.st_mode&&after.st_mtime==before.st_mtime);
+  assert(access(mode?to:old,F_OK)<0);
   if(directory){char child[MAX_PATH];snprintf(child,sizeof(child),"%s/CHILD.BIN",surviving);assert(!access(child,F_OK));}
   else{char bytes[17]={0};int fd=open(surviving,O_RDONLY);assert(read(fd,bytes,sizeof(bytes))==16&&!memcmp(bytes,"exact file bytes",16));close(fd);}
   remove_entry(surviving);operations++;
  }
- /* The temporary hop also fits names and complete paths already at each
-  * device's limit; it must not impose a new minimum filename length. */
- const struct {const char *path;int length,type,windows;} case_limits[]={
-  {"usb0:/",255,2,0},{"mc0:/",20,1,0},{"mc1:/",32,2,0},
-  {"vmc0:/",20,1,0},{"vmc1:/",32,2,0},{"xfrom0:/",32,2,0},
-  {"host:/",255,2,0},{"host:/",255,2,1},{"host:/NESTED/",248,2,0},{"host:/NESTED/",248,2,1}
+ const int native_errors[]={EACCES,EIO,ENOSPC,ETIMEDOUT,ENOSYS,EOPNOTSUPP,EEXIST,8,1};
+ for(unsigned d=0;d<sizeof(native_devices)/sizeof(native_devices[0]);d++)for(int directory=0;directory<2;directory++)for(unsigned e=0;e<sizeof(native_errors)/sizeof(native_errors[0]);e++){
+  reset();case_insensitive=1;case_error=native_errors[e];
+  char mapped[MAX_PATH];assert(!genFixPath(native_devices[d],mapped));physical(mapped,parent);
+  snprintf(old,sizeof(old),"%sOLD.BIN",parent);make_entry(old,directory);
+  FILEINFO f={0};strcpy(f.name,"OLD.BIN");f.stats.AttrFile=directory?sceMcFileAttrSubdir:0;
+  assert(Rename(native_devices[d],&f,"old.bin")==-native_errors[e]&&native_case_calls==1&&!mutation_calls&&!handles&&!access(old,F_OK));
+  remove_entry(old);operations++;
+ }
+ for(unsigned d=0;d<sizeof(native_devices)/sizeof(native_devices[0]);d++)for(int directory=0;directory<2;directory++){
+  reset();case_insensitive=1;case_support=1;case_applied_error=EIO;
+  char mapped[MAX_PATH];assert(!genFixPath(native_devices[d],mapped));physical(mapped,parent);
+  snprintf(old,sizeof(old),"%sOLD.BIN",parent);snprintf(to,sizeof(to),"%sold.bin",parent);make_entry(old,directory);
+  FILEINFO f={0};strcpy(f.name,"OLD.BIN");f.stats.AttrFile=directory?sceMcFileAttrSubdir:0;
+  assert(Rename(native_devices[d],&f,"old.bin")==-EIO&&native_case_calls==1&&mutation_calls==1&&!handles&&!access(to,F_OK)&&access(old,F_OK)<0);
+  remove_entry(to);operations++;
+ }
+ for(unsigned e=0;e<sizeof(native_errors)/sizeof(native_errors[0]);e++){
+  reset();case_insensitive=1;case_stat_error=native_errors[e];FILEINFO f={0};strcpy(f.name,"OLD.BIN");put("usb0:/OLD.BIN");
+  assert(Rename("usb0:/",&f,"old.bin")==-native_errors[e]&&!mutation_calls&&!native_case_calls&&!dread_calls&&!handles&&!access("usb0:/OLD.BIN",F_OK));
+  remove_entry("usb0:/OLD.BIN");operations++;
+ }
+ for(int phase=1;phase<=2;phase++)for(int fault=0;fault<4;fault++){
+  reset();case_insensitive=case_support=1;FILEINFO f={0};strcpy(f.name,"OLD.BIN");put("usb0:/OLD.BIN");
+  if(fault==0)scan_open_fail_at=phase;if(fault==1)scan_fail_at=phase;
+  if(fault==2)scan_close_fail_at=phase;if(fault==3)scan_bad_name_at=phase;
+  assert(Rename("usb0:/",&f,"old.bin")<0&&!handles&&mutation_calls==phase-1&&native_case_calls==phase-1);
+  const char *surviving=phase==1?"usb0:/OLD.BIN":"usb0:/old.bin";assert(!access(surviving,F_OK));remove_entry(surviving);operations++;
+ }
+ /* Native support and rejection at maximum name/path lengths. */
+ const struct {const char *path;int length,type,windows,insensitive;} case_limits[]={
+  {"usb0:/",255,2,0,1},{"mc0:/",20,1,0,0},{"mc1:/",32,2,0,0},
+  {"vmc0:/",20,1,0,0},{"vmc1:/",32,2,0,0},{"xfrom0:/",32,2,0,0},
+  {"host:/",255,2,0,1},{"host:/",255,2,1,1},{"host:/NESTED/",248,2,0,1},{"host:/NESTED/",248,2,1,1}
  };
- for(unsigned i=0;i<sizeof(case_limits)/sizeof(case_limits[0]);i++)for(int directory=0;directory<2;directory++){
-  reset();case_insensitive=1;card_type=case_limits[i].type;host_use_Bsl=case_limits[i].windows;
+ for(unsigned i=0;i<sizeof(case_limits)/sizeof(case_limits[0]);i++)for(int directory=0;directory<2;directory++)for(int support=0;support<(case_limits[i].insensitive?2:1);support++){
+  reset();case_insensitive=case_limits[i].insensitive;case_support=support;card_type=case_limits[i].type;host_use_Bsl=case_limits[i].windows;
   char source[256],target[256];memset(source,'A',case_limits[i].length);source[case_limits[i].length]=0;
   memset(target,'a',case_limits[i].length);target[case_limits[i].length]=0;
   snprintf(old,sizeof(old),"%s%s",case_limits[i].path,source);snprintf(to,sizeof(to),"%s%s",case_limits[i].path,target);
   make_entry(old,directory);FILEINFO f={0};strcpy(f.name,source);f.stats.AttrFile=directory?sceMcFileAttrSubdir:0;
-  assert(!Rename(case_limits[i].path,&f,target)&&mutation_calls==2&&!handles&&!access(to,F_OK)&&access(old,F_OK)<0);
-  remove_entry(to);operations++;
+  int rejected=case_limits[i].insensitive&&!support;
+  assert(Rename(case_limits[i].path,&f,target)== (rejected?-EEXIST:0)&&mutation_calls==(rejected?0:1)&&!handles);
+  assert(!access(rejected?old:to,F_OK)&&access(rejected?to:old,F_OK)<0);
+  remove_entry(old);remove_entry(to);operations++;
  }
- for(int port=0;port<2;port++)for(int directory=0;directory<2;directory++){
-  reset();case_insensitive=1;char folder[247];memset(folder,'D',246);folder[246]=0;
+ for(int port=0;port<2;port++)for(int directory=0;directory<2;directory++)for(int support=0;support<2;support++){
+  reset();case_insensitive=1;case_support=support;if(!support)case_error=1;char folder[247];memset(folder,'D',246);folder[246]=0;
   snprintf(path,sizeof(path),"mmce%d:/%s/",port,folder);mkdir(path,0700);
   snprintf(old,sizeof(old),"%sAA.BIN",path);snprintf(to,sizeof(to),"%saa.bin",path);
   make_entry(old,directory);FILEINFO f={0};strcpy(f.name,"AA.BIN");f.stats.AttrFile=directory?sceMcFileAttrSubdir:0;
-  assert(!Rename(path,&f,"aa.bin")&&mutation_calls==2&&!handles&&!access(to,F_OK)&&access(old,F_OK)<0);
-  remove_entry(to);operations++;
+  assert(Rename(path,&f,"aa.bin")== (support?0:-1)&&mutation_calls==support&&native_case_calls==1&&!handles);
+  assert(!access(support?to:old,F_OK)&&access(support?old:to,F_OK)<0);
+  remove_entry(old);remove_entry(to);operations++;
  }
- /* Directory errors before/after either mutation must stop without guessing. */
- for(int phase=1;phase<=3;phase++)for(int fault=0;fault<4;fault++){
-  reset();case_insensitive=1;FILEINFO f={0};strcpy(f.name,"OLD.BIN");put("usb0:/OLD.BIN");
+ /* Directory errors before/after one native MMCE attempt stop without retry. */
+ for(int phase=1;phase<=2;phase++)for(int fault=0;fault<4;fault++){
+  reset();case_insensitive=case_support=1;FILEINFO f={0};strcpy(f.name,"OLD.BIN");put("mmce0:/OLD.BIN");
   if(fault==0)scan_open_fail_at=phase;if(fault==1)scan_fail_at=phase;
   if(fault==2)scan_close_fail_at=phase;if(fault==3)scan_bad_name_at=phase;
-  assert(Rename("usb0:/",&f,"old.bin")<0&&!handles&&mutation_calls==phase-1);
-  const char *surviving=phase==1?"usb0:/OLD.BIN":phase==2?"usb0:/R000":"usb0:/old.bin";
+  assert(Rename("mmce0:/",&f,"old.bin")<0&&!handles&&mutation_calls==phase-1);
+  const char *surviving=phase==1?"mmce0:/OLD.BIN":"mmce0:/old.bin";
   assert(!access(surviving,F_OK));remove_entry(surviving);operations++;
  }
- /* Stale case aliases cannot identify the source, and distinct third
-  * spellings must never be overwritten on a case-sensitive filesystem. */
- for(int stale=0;stale<2;stale++){
-  reset();FILEINFO f={0};strcpy(f.name,"OLD.BIN");put("usb0:/Old.Bin");if(!stale)put("usb0:/OLD.BIN");
-  assert(Rename("usb0:/",&f,"old.bin")==-EEXIST&&!mutation_calls&&!handles);
-  assert(!access("usb0:/Old.Bin",F_OK));remove_entry("usb0:/Old.Bin");remove_entry("usb0:/OLD.BIN");operations++;
- }
- /* Skip occupied temporary spellings, including case aliases. A fully
-  * occupied short-name namespace must leave every entry untouched. */
- for(int length=1;length<=11;length++){
-  reset();case_insensitive=1;char source[12],target[12],temp[12];memset(source,'A',length);source[length]=0;memset(target,'a',length);target[length]=0;
+ /* A stale spelling must not identify a case-insensitive source. */
+ reset();case_insensitive=1;FILEINFO stale_file={0};strcpy(stale_file.name,"OLD.BIN");put("usb0:/Old.Bin");
+ assert(Rename("usb0:/",&stale_file,"old.bin")==-EEXIST&&!mutation_calls&&!handles);
+ assert(!access("usb0:/Old.Bin",F_OK));remove_entry("usb0:/Old.Bin");operations++;
+ /* Old workaround candidate names are ordinary unrelated entries now. */
+ for(int length=1;length<=11;length++)for(int support=0;support<2;support++){
+  reset();case_insensitive=1;case_support=support;char source[12],target[12],temp[12];memset(source,'A',length);source[length]=0;memset(target,'a',length);target[length]=0;
   if(length>=11)strcpy(temp,"lsrn000.tmp");else if(length>=4)strcpy(temp,"r000");else snprintf(temp,sizeof(temp),"%0*d",length,0);
   snprintf(old,sizeof(old),"usb0:/%s",source);snprintf(to,sizeof(to),"usb0:/%s",target);char occupied[MAX_PATH];snprintf(occupied,sizeof(occupied),"usb0:/%s",temp);
   put(old);put(occupied);FILEINFO f={0};strcpy(f.name,source);
-  assert(!Rename("usb0:/",&f,target)&&mutation_calls==2&&!handles&&!access(occupied,F_OK)&&!access(to,F_OK));
-  remove_entry(occupied);remove_entry(to);operations++;
+  assert(Rename("usb0:/",&f,target)== (support?0:-EEXIST)&&mutation_calls==support&&native_case_calls==1&&!handles&&!access(occupied,F_OK));
+  assert(!access(support?to:old,F_OK)&&access(support?old:to,F_OK)<0);
+  remove_entry(occupied);remove_entry(old);remove_entry(to);operations++;
  }
- reset();FILEINFO short_file={0};strcpy(short_file.name,"A");put("usb0:/A");
+ reset();case_insensitive=case_support=1;FILEINFO short_file={0};strcpy(short_file.name,"A");put("usb0:/A");
  for(int i=0;i<10;i++){snprintf(to,sizeof(to),"usb0:/%d",i);put(to);}
- assert(Rename("usb0:/",&short_file,"a")==-EEXIST&&!mutation_calls&&!handles&&!access("usb0:/A",F_OK));
- for(int i=0;i<10;i++){snprintf(to,sizeof(to),"usb0:/%d",i);assert(!access(to,F_OK));remove_entry(to);}remove_entry("usb0:/A");operations++;
+ assert(!Rename("usb0:/",&short_file,"a")&&mutation_calls==1&&native_case_calls==1&&!handles&&!access("usb0:/a",F_OK));
+ for(int i=0;i<10;i++){snprintf(to,sizeof(to),"usb0:/%d",i);assert(!access(to,F_OK));remove_entry(to);}remove_entry("usb0:/a");operations++;
  /* Card name limits: never shorten the requested name or write FILEINFO. */
  const char *cards[]={"mc0:/","mc1:/","vmc0:/","vmc1:/","xfrom0:/"};
  for(unsigned d=0;d<sizeof(cards)/sizeof(cards[0]);d++)for(int type=1;type<=2;type++){
@@ -420,7 +477,7 @@ int main(void){
   assert(too_long?(!rename_calls&&!access(old,F_OK)&&access(to,F_OK)<0):(!access(to,F_OK)&&access(old,F_OK)<0));
   remove_entry(old);remove_entry(to);operations++;
  }
- printf("PASS: %d host rename cases across 24 device/alias paths: ordinary/case-only files/folders, case-insensitive drivers, metadata, conflicts, rollback/recovery, directory/RPC failures, name/path limits and HOST ioctl\n",operations);
+ printf("PASS: %d host rename cases across 24 device/alias paths: native-only rename, unsupported case changes, case-sensitive coexistence, metadata, conflicts, driver/directory/RPC failures and name/path limits\n",operations);
 }
 '''
 

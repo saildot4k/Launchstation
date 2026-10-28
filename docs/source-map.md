@@ -68,7 +68,7 @@ The [device transfer audit](plans/2026-10-26-device-transfer-audit.md) records
 R3Z parity, device-specific replacement contracts, HDD-OSD/card attributes,
 regression coverage and console acceptance checks.
 The [rename audit](plans/2026-10-26-device-rename-audit.md) covers files/folders,
-card RPC completion, device limits, conflict checks, case-only rename recovery
+card RPC completion, device limits, conflict checks, driver-specific case-only renames
 and the HOST ioctl.
 
 | Existing file | Responsibility |
@@ -79,7 +79,7 @@ and the HOST ioctl.
 | [filer_mount.c](../src/filer_mount.c) | HDD/DVR partition mounts, VMC relationships and clipboard-aware unmounting. |
 | [filer_fileops.c](../src/filer_fileops.c) | Device-aware `gen*` open/read/write/seek/stat/directory/delete wrappers, shared sibling rename implementation and filename limits. |
 | [filer_browser.c](../src/filer_browser.c) | Classic browser loop/menu plus clipboard/paste entry points, VMC actions, free-space queries and launch-folder helper. |
-| [filer_actions.c](../src/filer_actions.c) | Delete/rename/mkdir, case-only rename staging/rollback, exploit-folder protection, title.cfg creation and timestamp editing/organization. |
+| [filer_actions.c](../src/filer_actions.c) | Delete/rename/mkdir, native case-only rename validation/dispatch, exploit-folder protection, title.cfg creation and timestamp editing/organization. |
 | [filer_copy.c](../src/filer_copy.c) | Recursive transfer engine, replacement staging/verification, metadata restoration, diagnostics and save-title reads. |
 | [gui_sort.c](../src/gui_sort.c) | FILEINFO comparison and browser sort ordering. |
 | [gui_hdd0_format.c](../src/gui_hdd0_format.c) | HDD/DVR partition path and selection formatting helpers; not disk formatting implementation. |
