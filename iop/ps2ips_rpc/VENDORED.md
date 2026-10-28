@@ -34,6 +34,20 @@ Local changes to the upstream server:
 6. TCP/UDP reads with no payload return cleared receive metadata, preventing
    the EE callback from replaying an earlier read's head/tail into TLS memory.
    Metadata DMA completes before the RPC returns, including on errors and EOF.
+7. The shared wire header uses libcglue socket/configuration types on EE and
+   legacy `tcpip.h` only on IOP. EE completes the IPv4 address tag and uses the
+   same default TCP/UDP connection counts (5/4) as the IOP stack for select's
+   bitmap, while respecting an already-active configuration.
+8. The DNS IPv4 field is named `address`. `h_addr` is a lwIP macro expanding to
+   `h_addr_list[0]`; using that name declared a zero-length array on IOP and
+   omitted the address from the RPC reply. Both peers now agree on a 12-byte
+   reply, including the four IPv4 bytes.
+
+The 2026-10-27 build correction was checked with CI's SDK core
+`v2026.10.13.1` and toolchain `v2026.09.27`: real EE client and IOP server
+objects compile, and both compilers agree on 12-byte DNS replies, 36-byte
+select packets and 144-byte receive metadata. The host regression uses
+libcglue's split type contract and lwIP's real `h_addr` macro spelling.
 
 `ps2.yaml` provides an isolated PS2BUILD compile check. The root `ps2.yaml`
 builds the same source with DNS enabled. The legacy Makefile continues to use

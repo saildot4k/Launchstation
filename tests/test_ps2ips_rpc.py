@@ -153,7 +153,7 @@ int main(void) {
         if(!lookup_case) {
             assert(!reply->result && reply->hostent.h_addrtype==AF_INET && reply->hostent.h_length==4);
             /* Return IP bytes, never the address of an IOP-side pointer. */
-            assert(!memcmp(&reply->hostent.h_addr,resolved_ip,4));
+            assert(!memcmp(&reply->hostent.address,resolved_ip,4));
         } else assert(reply->result==-1);
     }
     dns_setserver_pkt *request=(void *)_rpc_buffer;
@@ -170,12 +170,84 @@ int main(void) {
 '''
 compiler = shutil.which("gcc") or shutil.which("cc")
 assert compiler, "Host C compiler required"
+
+# Compile the WHOLE EE client with the SDK's split header contract. Previous
+# tests extracted receive functions and never saw the conflicting include chain.
+with tempfile.TemporaryDirectory(prefix="ps2ips-ee-headers-") as folder:
+    path = Path(folder)
+    (path / "sys").mkdir()
+    (path / "tamtypes.h").write_text("#pragma once\n#include <stdint.h>\n"
+                                    "typedef uint8_t u8;typedef int16_t s16;\n"
+                                    "typedef int32_t s32;typedef uint32_t u32;\n")
+    (path / "tcpip.h").write_text('#error "Legacy IOP socket types must not reach EE"\n')
+    (path / "sys/socket.h").write_text(r'''
+#pragma once
+#include <tamtypes.h>
+typedef u32 socklen_t;
+struct sockaddr {u8 sa_len,sa_family;char sa_data[14];};
+struct in_addr {u32 s_addr;};
+struct ip4_addr;
+typedef struct ip4_addr ip4_addr_t;
+typedef struct ip4_addr ip_addr_t;
+#define h_addr h_addr_list[0]
+typedef struct {char netif_name[4];struct in_addr ipaddr,netmask,gw;
+               u32 dhcp_enabled,dhcp_status;u8 hw_addr[8];} t_ip_info;
+struct fd_set {unsigned long bits[16];};
+#define FD_ZERO(p) memset((p),0,sizeof(*(p)))
+#define FD_ISSET(n,p) (((p)->bits[(n)/64] >> ((n)%64)) & 1UL)
+#define FD_SET(n,p) ((p)->bits[(n)/64] |= 1UL << ((n)%64))
+''')
+    (path / "sys/time.h").write_text("#pragma once\nstruct timeval {long tv_sec,tv_usec;};\n")
+    (path / "ps2ips.h").write_text("#pragma once\n#include <sys/socket.h>\n"
+                                   "int ps2ip_init(void);void ps2ip_deinit(void);\n")
+    (path / "kernel.h").write_text(r'''
+#pragma once
+#include <tamtypes.h>
+typedef struct {int init_count,max_count;u32 option;int attr;} ee_sema_t;
+int CreateSema(ee_sema_t *);
+int WaitSema(int);int SignalSema(int);int DeleteSema(int);
+void nopdelay(void);
+#define UNCACHED_SEG(p) ((void *)(p))
+#define IS_UNCACHED_SEG(p) 0
+''')
+    (path / "sifrpc.h").write_text(r'''
+#pragma once
+typedef struct {void *server;} SifRpcClientData_t;
+int sceSifBindRpc(SifRpcClientData_t *,unsigned,int);
+int sceSifCallRpc(SifRpcClientData_t *,unsigned,int,void *,int,void *,int,
+                  void (*)(void *),void *);
+void sceSifWriteBackDCache(void *,int);
+''')
+    (path / "iopcontrol.h").write_text("int HasIopRebootedSinceLastCall(void);\n")
+    (path / "string.h").write_text("#include_next <string.h>\n"
+                                  "size_t strlcpy(char *,const char *,size_t);\n")
+    flags = [compiler,"-std=c11","-Wall","-Werror",
+             "-Wno-pointer-to-int-cast","-D_EE","-I"+str(path),
+             "-I"+str(module),"-fsyntax-only"]
+    subprocess.run(flags + [str(root / "ee_libs/tcpips/ps2ipc.c")],check=True)
+    (path / "layout.c").write_text(r'''
+#include <stddef.h>
+#include "ps2ip_rpc.h"
+_Static_assert(sizeof(ip_addr_t)==4,"IPv4 wire address");
+_Static_assert(sizeof(t_ip_info)==32,"IP configuration ABI");
+_Static_assert(sizeof(struct sockaddr)==16,"socket address ABI");
+_Static_assert(sizeof(gethostbyname_res_pkt)==12,"DNS reply includes IPv4 bytes");
+_Static_assert(sizeof(ps2ip_rpc_fd_set)==EXPECTED_BITMAP,"select wire bitmap");
+_Static_assert(offsetof(select_pkt,writeset)-offsetof(select_pkt,readset)==EXPECTED_BITMAP,
+               "select field offsets must not use EE fd_set size");
+''')
+    for config in (["-DEXPECTED_BITMAP=2"],
+                   ["-DMEMP_NUM_NETCONN=40","-DEXPECTED_BITMAP=5"]):
+        subprocess.run(flags + ["-DPS2IP_DNS"] + config + [str(path/"layout.c")],check=True)
+    print("PASS: complete EE client uses libcglue types, complete DNS views and matching/default-or-configured select bitmap")
+
 with tempfile.TemporaryDirectory(prefix="ps2ips-rpc-") as folder:
     path = Path(folder)
     (path / "tamtypes.h").write_text("#include <stdint.h>\ntypedef uint8_t u8;\n"
                                     "typedef int16_t s16;\ntypedef int32_t s32;\n"
                                     "typedef uint32_t u32;\n")
     (path / "tcpip.h").write_text("#include <sys/socket.h>\n#define MEMP_NUM_NETCONN 32\n"
+                                 "#define h_addr h_addr_list[0]\n"
                                  "typedef struct { u32 addr; } ip_addr_t;\n"
                                  "#define ip_addr_copy(d,s) ((d)=(s))\n")
     (path / "server.c").write_text(code)
@@ -421,6 +493,7 @@ with tempfile.TemporaryDirectory(prefix="ps2ips-transfer-") as folder:
                                     "typedef int16_t s16;\ntypedef int32_t s32;\n"
                                     "typedef uint32_t u32;\n")
     (path / "tcpip.h").write_text("#include <sys/socket.h>\n#define MEMP_NUM_NETCONN 32\n"
+                                 "#define h_addr h_addr_list[0]\n"
                                  "typedef struct { u32 addr; } ip_addr_t;\n")
     (path / "transfer.c").write_text(transport)
     executable = path / "transfer"

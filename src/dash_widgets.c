@@ -1214,11 +1214,7 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 			}
 		}
 
-		top = sel - (rows - 1) / 2;
-		if (top > n_rows - rows)
-			top = n_rows - rows;
-		if (top < 0)
-			top = 0;
+		top = listCenteredTop(sel, n_rows, rows);
 		if (sel_anim < top || sel_anim >= top + rows)
 			sel_anim = (float)sel;
 		float dt = dashVisualUpdate();

@@ -56,11 +56,14 @@ static struct {
 /* rests_pkt is 144 bytes on the PS2, exceeding the SDK's old 128-byte buffer. */
 static u8 _intr_data[sizeof(rests_pkt)] __attribute__((aligned(64)));
 
+#ifndef DNS_MAX_SERVERS
+#define DNS_MAX_SERVERS 2
+#endif
 static ip_addr_t dns_servers[DNS_MAX_SERVERS];
 
 //Copied from LWIP, to be independent of the full LWIP source.
 /* used by IP4_ADDR_ANY and IP_ADDR_BROADCAST in ip_addr.h */
-const ip_addr_t ip_addr_any = IPADDR4_INIT(IPADDR_ANY);
+const ip_addr_t ip_addr_any = {0};
 
 /* The following are defined in ps2ipc_ps2sdk.c */
 extern void _ps2sdk_ps2ipc_init(void);
@@ -724,7 +727,15 @@ struct hostent *ps2ipc_gethostbyname(const char *name)
 	struct hostent *result;
 	static ip_addr_t addr;
 	static ip_addr_t *addr_list[2];
-	static struct hostent hostent;
+	/* EE libcglue forward-declares hostent. Keep its standard pointer/int
+	 * ABI here without importing the conflicting legacy tcpip.h definition. */
+	static struct {
+		char *h_name;
+		char **h_aliases;
+		int h_addrtype;
+		int h_length;
+		char **h_addr_list;
+	} hostent;
 
 	if(!_ps2ip.server) return NULL;
 
@@ -740,11 +751,11 @@ struct hostent *ps2ipc_gethostbyname(const char *name)
 			hostent.h_length = res_pkt->hostent.h_length;
 			hostent.h_name = (char*)name;
 			hostent.h_aliases = NULL;
-			memcpy(&addr, &res_pkt->hostent.h_addr, sizeof(addr));
+			memcpy(&addr, &res_pkt->hostent.address, sizeof(addr));
 			addr_list[0] = &addr;
 			addr_list[1] = NULL;
 			hostent.h_addr_list = (char**)&addr_list;
-			result = &hostent;
+			result = (struct hostent *)&hostent;
 		}
 	}
 
@@ -762,12 +773,12 @@ void ps2ipc_dns_setserver(u8 numdns, const ip_addr_t *dnsserver)
 	WaitSema(lock_sema);
 
 	pkt->numdns = numdns;
-	pkt->dnsserver = (dnsserver != NULL) ? (*dnsserver) : *IP4_ADDR_ANY;
+	pkt->dnsserver = (dnsserver != NULL) ? (*dnsserver) : ip_addr_any;
 
 	sceSifCallRpc(&_ps2ip, PS2IPS_ID_DNS_SETSERVER, 0, (void*)pkt, sizeof(dns_setserver_pkt), NULL, 0, NULL, NULL);
 
 	if (numdns < DNS_MAX_SERVERS)
-		dns_servers[numdns] = (dnsserver != NULL) ? (*dnsserver) : *IP4_ADDR_ANY;
+		dns_servers[numdns] = (dnsserver != NULL) ? (*dnsserver) : ip_addr_any;
 
 	SignalSema(lock_sema);
 }
@@ -778,7 +789,7 @@ const ip_addr_t *ps2ipc_dns_getserver(u8 numdns)
 	ip_addr_t *dns;
 
 	if ((!_ps2ip.server) || (numdns >= DNS_MAX_SERVERS))
-		return IP4_ADDR_ANY;
+		return &ip_addr_any;
 
 	WaitSema(lock_sema);
 
@@ -787,7 +798,7 @@ const ip_addr_t *ps2ipc_dns_getserver(u8 numdns)
 
 	//If this fails, use the cached copy.
 	if(sceSifCallRpc(&_ps2ip, PS2IPS_ID_DNS_GETSERVER, 0, (void*)&_rpc_buffer.numdns, sizeof(u8), (void*)res_pkt, sizeof(dns_getserver_res_pkt), NULL, NULL) >=0)
-		ip_addr_copy(*dns, res_pkt->dnsserver);
+		*dns = res_pkt->dnsserver;
 
 	SignalSema(lock_sema);
 

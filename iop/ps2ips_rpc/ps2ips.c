@@ -532,12 +532,12 @@ static void do_gethostbyname( void *rpcBuffer, int size )
 
 	if((ret = gethostbyname((char*)_rpc_buffer)) != NULL &&
 	   ret->h_addr_list != NULL && ret->h_addr_list[0] != NULL &&
-	   ret->h_length == (int)sizeof(resPtr->hostent.h_addr))
+	   ret->h_length == (int)sizeof(resPtr->hostent.address))
 	{
 		resPtr->result = 0;
 		resPtr->hostent.h_addrtype = ret->h_addrtype;
 		resPtr->hostent.h_length = ret->h_length;
-		memcpy(&resPtr->hostent.h_addr, ret->h_addr_list[0], sizeof(resPtr->hostent.h_addr));
+		memcpy(&resPtr->hostent.address, ret->h_addr_list[0], sizeof(resPtr->hostent.address));
 	}else{
 		resPtr->result = -1;
 	}

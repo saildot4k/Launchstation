@@ -172,7 +172,7 @@ and the HOST ioctl.
 
 ## Public and private headers
 
-`launchelf.h` and `dash_internal.h` are current umbrella headers, not the desired boundary for new features. Prefer the narrowest existing owner header. These groups cover all 41 top-level `include/*.h` files.
+`launchelf.h` and `dash_internal.h` are current umbrella headers, not the desired boundary for new features. Prefer the narrowest existing owner header. These groups cover all 42 top-level `include/*.h` files.
 
 | Header(s) | Current contract |
 | --- | --- |
@@ -189,6 +189,7 @@ and the HOST ioctl.
 | `draw_private.h`, `editor_private.h` | Shared rendering generation and legacy editor state/functions. |
 | `dash.h` | Dashboard integration facade used by classic application code. |
 | `dash_internal.h` | Dashboard types/settings/models, renderer, worker, screens, widgets and legacy accessors in one header. |
+| [list_scroll.h](../include/list_scroll.h) | Shared centered viewport calculation for dashboard lists, path pickers and menu popups; clamps at the first/last page. |
 | `dash_font_data.h`, `dash_sound.h`, `dash_autotest.h` | Generated font layout, audio API and conditional dashboard automation. |
 | `hdd_header_injector.h`, `hdl_rpc.h`, `neutrino_gameid.h` | HDD headers, HDL EE/IOP RPC and Neutrino/MMCE game-ID interface. |
 | `lang.h`, `https_client.h`, `self_update.h` | Language keys, HTTPS API and updater/package contract. |

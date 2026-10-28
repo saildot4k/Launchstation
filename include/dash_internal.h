@@ -12,6 +12,7 @@
 #include "launchelf.h"
 #include "main_actions.h"
 #include "dash.h"
+#include "list_scroll.h"
 
 #define DASH_VW 640
 #define DASH_VH 448

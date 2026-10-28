@@ -159,12 +159,7 @@ static int pageIndex(int index, int total, int direction)
 static void revealSelection(void)
 {
 	int total = fb.dir[0] ? fb.n : fb.ndevs;
-	int max_top = total > FB_ROWS ? total - FB_ROWS : 0;
-	fb.top = fb.sel - (FB_ROWS - 1) / 2;
-	if (fb.top < 0)
-		fb.top = 0;
-	if (fb.top > max_top)
-		fb.top = max_top;
+	fb.top = listCenteredTop(fb.sel, total, FB_ROWS);
 	/* A viewport jump must not leave the animated highlight off screen. */
 	if (fb.sel_anim < fb.top || fb.sel_anim >= fb.top + FB_ROWS)
 		fb.sel_anim = (float)fb.sel;
@@ -991,10 +986,7 @@ static int tsEdit(FilerDateEditor *e)
 		idx = filerDateEditorSync(e);
 		if (idx < 0)
 			idx = 0;
-		if (idx < top)
-			top = idx;
-		if (idx >= top + TS_ROWS)
-			top = idx - TS_ROWS + 1;
+		top = listCenteredTop(idx, e->count, TS_ROWS);
 		open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dashVisualUpdate());
 		{
 			float oe = dashEaseOutCubic(open), fx, fy;

@@ -843,10 +843,9 @@ int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *i
 			dashInputFlush();
 			return -1;
 		}
-		if (sel < top)
-			top = sel;
-		if (sel >= top + rows)
-			top = sel - rows + 1;
+		top = listCenteredTop(sel, n, rows);
+		if (sel_anim < top || sel_anim >= top + rows)
+			sel_anim = (float)sel;
 		if (preview != NULL) {
 			if (sel != previewed) {
 				preview(sel);

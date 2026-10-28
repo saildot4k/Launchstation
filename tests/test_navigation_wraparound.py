@@ -122,6 +122,7 @@ static float sel_anim, grid_cam;
 static void dashUiFocusPoke(void) {}
 """
 code = re.sub(r"^#define FB_ROWS \d+$", re.search(r"^#define FB_ROWS \d+$", browser, re.M).group(0), code, flags=re.M)
+code += (root / "include/list_scroll.h").read_text() + "\n"
 job_start = browser.index("typedef struct", browser.index("// Listing"))
 code += browser[job_start:browser.index("} FbListJob;", job_start) + len("} FbListJob;")] + "\n"
 code += function(browser, "static int fbShowsTitles(") + "\n"

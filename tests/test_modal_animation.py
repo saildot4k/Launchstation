@@ -60,9 +60,20 @@ static u64 last_frame_ms,now_ms;
 static int bg_calls,ui_calls,renders,depth,nested,frames[2],step_ms[3]={16,20,33};
 static int preview_calls;
 static int nav_scenario, timed_scenario, video_scenario, video_direction;
+static int scroll_scenario, scroll_top, scroll_rows, scroll_count;
+static float selection_y;
 static int selections;
 static int swapKeys,button_count,drawn_icons[2];
 static void recordButton(int icon) { if(button_count<2)drawn_icons[button_count]=icon;button_count++; }
+static void recordSelection(float x,float y,float w,float h,float r,float a) {
+    (void)x;(void)w;(void)h;(void)r;(void)a;
+    selections++; selection_y=y;
+}
+static void recordScrollbar(float x,float y,float h,int top,int rows,int count) {
+    (void)x;
+    scroll_top=top; scroll_rows=rows; scroll_count=count;
+    if(scroll_scenario) assert(selection_y>=y && selection_y<y+h);
+}
 static u64 Timer(void) { return now_ms; }
 static void dashBgUpdate(float dt) { bg_calls++; bg_time+=dt*dashCfg.effects/100.0f; }
 static void dashUiUpdate(float dt) { ui_calls++; ui_time+=dt; }
@@ -94,11 +105,12 @@ for color in colors:
     code += f"#define {color} ((DashColor){{255,255,255,255}})\n"
 for draw in ("modalBackdrop", "dashGfxPushAlpha", "dashGfxPushOffset", "modalPanel",
              "dashTextS", "dashTextFit", "dashTextScrollTimed", "dashTextScroll", "dashGfxScissor",
-             "dashIcon", "dashTextRight", "dashGfxScissorReset", "dashDrawScrollbar",
+             "dashIcon", "dashTextRight", "dashGfxScissorReset",
              "modalHintRow", "dashGfxPopOffset", "dashGfxPopAlpha", "dashGfxBlend",
              "dashGlow", "dashTextWrap", "dashPanel", "dashPanelBorder", "dashTextCenter"):
     code += f"#define {draw}(...) ((void)0)\n"
-code += "#define dashDrawSelection(...) (++selections)\n"
+code += "#define dashDrawSelection(...) recordSelection(__VA_ARGS__)\n"
+code += "#define dashDrawScrollbar(...) recordScrollbar(__VA_ARGS__)\n"
 code += "#define drawButton(x,y,icon,key) recordButton(icon)\n"
 code += function(gfx, "float dashApproach(")
 code += function(shell, "float dashTime(")
@@ -133,6 +145,15 @@ static void dashInputPoll(DashInput *in) {
         else if(f==2)
             in->pressed=DASH_IN_OK;
     }
+    if(scroll_scenario) {
+        if(f==1)
+            in->pressed=scroll_scenario==2?DASH_IN_UP:
+                        scroll_scenario==3?DASH_IN_DOWN:
+                        scroll_scenario==4?DASH_IN_R2:
+                        scroll_scenario==5?DASH_IN_L2:0;
+        else
+            in->pressed=DASH_IN_OK;
+    }
     if(video_scenario) {
         in->pressed=0;
         if(f==1)
@@ -149,6 +170,7 @@ static void dashInputPoll(DashInput *in) {
 """
 if "static int modalEnabledEdge(" in ui:
     code += function(ui, "static int modalEnabledEdge(")
+code += (root / "include/list_scroll.h").read_text() + "\n"
 code += menu + buttons
 code += function(widgets, "static void classicClean(") + function(widgets, "static int classicYesNo(")
 code += r"""
@@ -158,6 +180,7 @@ static void reset(void) {
     now_ms=last_frame_ms=1000; frame_dt=0;
     depth=nested=nav_scenario=timed_scenario=video_scenario=0; memset(frames,0,sizeof(frames)); modal_preview=NULL;
     video_direction=selections=0;
+    scroll_scenario=scroll_top=scroll_rows=scroll_count=0; selection_y=0;
     swapKeys=button_count=0;
     dashCfg.anim=100; dashCfg.effects=100;
 }
@@ -223,6 +246,19 @@ int main(void) {
     reset(); modal_preview=preview;
     assert(dashModalMenu("all disabled",NULL,all_disabled,2,0)==-1);
     assert(renders==0 && modal_preview==NULL); /* no stranded preview callback */
+    /* Long menus center an existing selection, and wrap/jump immediately keeps
+     * the animated highlight inside the newly visible rows. */
+    DashMenuItem long_menu[20];
+    for(int i=0;i<20;i++) long_menu[i]=(DashMenuItem){-1,"entry",NULL,0};
+    reset(); scroll_scenario=1;
+    assert(dashModalMenu("middle",NULL,long_menu,20,8)==8);
+    assert(scroll_top==4 && scroll_rows==9 && scroll_count==20);
+    for(int scenario=2;scenario<=5;scenario++) {
+        int bottom=scenario==2 || scenario==4;
+        reset(); scroll_scenario=scenario;
+        assert(dashModalMenu("wrap/jump",NULL,long_menu,20,bottom?0:19)==(bottom?19:0));
+        assert(scroll_top==(bottom?11:0) && renders==1);
+    }
     /* Video actions are direct shortcuts, unaffected by D-pad input. */
     const int directions[]={DASH_IN_RIGHT,DASH_IN_LEFT,0,DASH_IN_UP,DASH_IN_DOWN,
                             DASH_IN_LEFT|DASH_IN_RIGHT};

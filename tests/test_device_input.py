@@ -388,6 +388,7 @@ static struct { char Misc[24]; } cfg,*setting=&cfg;
 static int fb_tab_active;
 """
 devcode += re.search(r"^#define FB_ROWS \d+$", browser, re.M).group() + "\n"
+devcode += (root / "include/list_scroll.h").read_text() + "\n"
 devcode += function(browser, "static void revealSelection(")
 devcode += "static void openRoot(const char *select) {\n" + root_body[:-1] + "}\n"
 devcode += r"""
