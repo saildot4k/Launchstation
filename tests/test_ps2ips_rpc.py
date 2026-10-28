@@ -250,6 +250,19 @@ with tempfile.TemporaryDirectory(prefix="ps2ips-rpc-") as folder:
                                  "#define h_addr h_addr_list[0]\n"
                                  "typedef struct { u32 addr; } ip_addr_t;\n"
                                  "#define ip_addr_copy(d,s) ((d)=(s))\n")
+    # CI searches SDK/common before our module directory. Preprocess the
+    # production server's actual includes so a same-named SDK wire header
+    # cannot silently replace the header used by the owned EE client.
+    sdk = path / "sdk"
+    sdk.mkdir()
+    for name in ("types.h", "loadcore.h", "sifman.h", "sifcmd.h", "sysclib.h",
+                 "thbase.h", "intrman.h", "ps2ip.h"):
+        (sdk / name).write_text("")
+    (sdk / "ps2ip_rpc.h").write_text('#error "SDK RPC header selected instead of the owned wire format"\n')
+    subprocess.run([compiler,"-E","-D_IOP","-DPS2IP_DNS","-I"+str(sdk),
+                    "-I"+str(path),"-I"+str(module),str(module/"ps2ips.c"),
+                    "-o",str(path/"includes.i")],check=True)
+    print("PASS: production IOP includes keep the owned RPC header ahead of a conflicting SDK copy")
     (path / "server.c").write_text(code)
     executable = path / "server"
     subprocess.run([compiler,"-std=c11","-Wall","-Wextra","-Werror","-DPS2IP_DNS",

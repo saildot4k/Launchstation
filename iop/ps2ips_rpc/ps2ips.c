@@ -32,7 +32,8 @@ NOTES:
 #include <thbase.h>
 #include <intrman.h>
 #include <ps2ip.h>
-#include <ps2ip_rpc.h>
+/* Use our EE/IOP wire format even when SDK/common comes first in -I paths. */
+#include "ps2ip_rpc.h"
 
 #define MODNAME	"TCP/IP_Stack_RPC"
 IRX_ID(MODNAME, 1, 1);
