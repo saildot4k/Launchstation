@@ -55,6 +55,8 @@ enum { SESSION_SAVE_CNF=1, SESSION_SAVE_NET=2, SESSION_SAVE_DASH=4,
 static int dashStoreSettingsFailed(void) { return 0; }
 static int modal_result = -1, dirty = 1, failed,can576=1,video_menus;
 static int is576pSupported(void) { return can576; }
+static int auto_mode=TV_mode_NTSC;
+static int uLE_InitializeRegion(void) { return auto_mode; }
 typedef struct { int icon; const char *label, *detail; int disabled; } DashMenuItem;
 static void sessionBegin(void) { if (!session) { session = 1; begins++; } }
 static int anyDirty(void) { return dirty; }
@@ -65,11 +67,17 @@ static int dashModalMenu(const char *t,const char *d,DashMenuItem *m,int n,int s
     (void)d; (void)s;
     if(n==TV_mode_COUNT) {
         assert(!strcmp(t,"Video mode"));video_menus++;
-        for(int i=0;i<n;i++)assert(m[i].disabled==(i==TV_mode_576P && !can576));
-        assert(!strcmp(m[TV_mode_576P].label,"576p") && !strcmp(m[TV_mode_576I].label,"576i"));
-        assert(!strcmp(m[TV_mode_576I].detail,"PAL, 50 Hz"));
-        if(!can576)assert(!strcmp(m[TV_mode_576P].detail,"Unsupported by this console"));
-        else assert(!m[TV_mode_576P].detail);
+        const char *expected[]={NULL,"720x480i 60Hz","720x576i 50Hz",
+                                "640x480p 60Hz","720x480p 60Hz",
+                                "720x576p 50Hz","720x576i 50Hz"};
+        expected[TV_mode_AUTO]=auto_mode==TV_mode_PAL ? "720x576i 50Hz" : "720x480i 60Hz";
+        if(!can576)expected[TV_mode_576P]="720x576p 50Hz (unsupported)";
+        for(int i=0;i<n;i++) {
+            assert(m[i].disabled==(i==TV_mode_576P && !can576));
+            assert(m[i].icon==(i==s ? DI_CHECK : -1));
+            assert(!strcmp(m[i].label,tv_names[i]));
+            assert(m[i].detail && !strcmp(m[i].detail,expected[i]));
+        }
         return modal_result;
     }
     assert(n == 3);
@@ -102,6 +110,7 @@ static int resetThemeSetting(int id) { (void)id; resets++; return 1; }
 """
 for signature in (
     "static int numberInfo(",
+    "static const char *videoModeDetail(",
     "static int chooseVideoMode(",
     "static int themeSettingResettable(",
     "static const SetItem *curItem(",
@@ -253,6 +262,19 @@ int main(void) {
     press(DASH_IN_LEFT);assert(setting->TV_mode==TV_mode_576I);
     press(DASH_IN_LEFT);assert(setting->TV_mode==TV_mode_576P);
     modal_result=TV_mode_576P;press(DASH_IN_OK);assert(video_menus==2 && setting->TV_mode==TV_mode_576P);
+    /* Details cover all choices. Auto follows the console even while a
+     * different mode is selected; opening/canceling a chooser changes nothing. */
+    for(auto_mode=TV_mode_NTSC;auto_mode<=TV_mode_PAL;auto_mode++)
+    for(can576=0;can576<=1;can576++)
+    for(int current=0;current<TV_mode_COUNT;current++) {
+        setting->TV_mode=current;
+        for(modal_result=-1;modal_result<TV_mode_COUNT;modal_result++) {
+            assert(chooseVideoMode(tv_names,TV_mode_COUNT,current)==modal_result);
+            assert(setting->TV_mode==current);
+        }
+    }
+    assert(!videoModeDetail(-1) && !videoModeDetail(TV_mode_COUNT));
+    puts("PASS: resolution/scan/refresh details for every video mode, console-dependent Auto, unsupported 576p and unchanged choices");
     page=P_ROOT; page_depth=0; item=0; press(DASH_IN_BACK); assert(home==0);
     /* The overview itself also remembers a lower, scrolled selection. */
     press(DASH_IN_R2); selected=item; item_top=item-ITEM_ROWS+1; top=item_top;

@@ -481,6 +481,8 @@ enum DashIcon {
 void dashIconsInit(void);
 void dashIconsShutdown(void);
 void dashIcon(int id, float x, float y, float size, DashColor c);
+/* Header emblem centered at cx/cy: hexagon CCW, triangle CW, one turn/30 seconds. */
+void dashHeaderIcon(float cx, float cy, float size, DashColor c);
 DashColor dashIconTint(DashColor c);
 GSTEXTURE *dashIconsTexture(void);
 
@@ -885,7 +887,12 @@ int dashModalConfirm(const char *title, const char *body, const char *ok_label, 
 void dashModalMessage(int icon, const char *title, const char *body, const char *detail);
 int dashModalChoice(const char *title, const char *const *options, int n, int current);
 
-/* Synchronous work feedback: draws a full frame immediately. */
+/* Synchronous work feedback: draws a full frame immediately.
+ * A scoped alternate view receives the operation title, draws/presents its own
+ * frame, and keeps low-level probe details private. Restore the returned view
+ * after the synchronous operation, including failed/canceled exits. */
+typedef void (*DashLoadingView)(const char *title);
+DashLoadingView dashLoadingSetView(DashLoadingView view);
 void dashLoadingBegin(const char *title);
 void dashLoadingStatus(const char *status, int done, int total);
 void dashLoadingFrame(const char *status, int done, int total); /* always draws */

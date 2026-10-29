@@ -72,6 +72,13 @@ int main(void){
  assert(!resets&&!loads&&mx4sio_driver_running);
  reset();assert(prepareTransferDeviceStacks("mc1:/","mx4sio:/")==TRANSFER_STACK_INCOMPATIBLE);
  assert(!resets&&!loads&&mx4sio_driver_running);
+ for(int slot=0;slot<2;slot++) {
+  const char *mmce=slot?"mmce1:/":"mmce0:/";
+  reset();assert(prepareTransferDeviceStacks("mx4sio:/",mmce)==TRANSFER_STACK_INCOMPATIBLE);
+  assert(!resets&&!loads&&mx4sio_driver_running);
+  reset();assert(prepareTransferDeviceStacks(mmce,"mx4sio:/")==TRANSFER_STACK_INCOMPATIBLE);
+  assert(!resets&&!loads&&mx4sio_driver_running);
+ }
  reset();reset_allowed=0;assert(prepareTransferDeviceStacks("udpfs:/","mc1:/")==TRANSFER_STACK_LOAD_FAILED);
  assert(!resets&&!loads&&mx4sio_driver_running);
  reset();assert(prepareTransferDeviceStacks("udpfs:/","mc0:/")==TRANSFER_STACK_READY);

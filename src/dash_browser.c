@@ -44,12 +44,10 @@ static struct
 	DashDevice devs[DASH_MAX_DEVICES];
 	int ndevs;
 	char msg[MAX_PATH]; /* result text from classic operations */
+	char startup_status[64]; /* driver-start title in the path bar */
 	u64 free_bytes;     /* free space of this folder's device */
 	int free_valid;
 	int args_loaded;    /* launch arguments loaded here, not started yet */
-	int pad_state[2], pad_request[2]; /* UI-thread DMA snapshot, no recovery RPC */
-	unsigned int pad_generation;
-	int pad_snapshot_valid;
 } fb;
 
 /* View and sort choices last the session, like the classic browser's
@@ -89,6 +87,22 @@ static char fb_tab_selection[MAX_NAME];
  * independent of any browser session (modal or tab). */
 static int browser_usb_jobs;
 static int browser_usb_input_rearm;
+
+static void browserStartupDraw(const char *title);
+
+static void browserStartupEnd(DashLoadingView previous)
+{
+	dashLoadingSetView(previous);
+	fb.startup_status[0] = '\0';
+}
+
+static int browserStartDevice(const DashDevice *dev)
+{
+	DashLoadingView previous = dashLoadingSetView(browserStartupDraw);
+	int result = dashDevicesStart(dev, NULL, NULL);
+	browserStartupEnd(previous);
+	return result;
+}
 
 //--------------------------------------------------------------
 // Listing
@@ -351,7 +365,9 @@ static void listMisc(void)
 	}
 }
 
-static void openDir(const char *dir, const char *select)
+static void openDir(const char *dir, const char *select);
+
+static void openDirInternal(const char *dir, const char *select)
 {
 	FbListJob *j;
 	char usb_dir[8] = "usb0:/";
@@ -426,17 +442,28 @@ static void openDir(const char *dir, const char *select)
 	/* drivers and the HDD partition list are set up here on the UI thread;
 	 * the worker only reads (it must never load IOP modules) */
 	if (filerDirReadNeedsPrep(dir)) {
-		int usb = isUsbBrowsePath(dir);
+		int ready, usb = isUsbBrowsePath(dir);
 		int was_quiet = isStartupDriverStatusQuiet();
-		if (!dashWorkerAwaitAll("Finishing up"))
+		if (!dashWorkerAwaitAll("Finishing up")) {
+			char canceled[MAX_PATH];
+			dashStrCopy(canceled, dir, sizeof(canceled));
+			openDir("", canceled);
 			return;
+		}
 		if (usb)
 			setStartupDriverStatusQuiet(1);
 		dashLoadingBegin(usb ? "Starting USB devices" : "Starting device");
-		filerPrepareDirRead(dir);
+		ready = filerPrepareDirRead(dir);
 		if (usb)
 			setStartupDriverStatusQuiet(was_quiet);
 		dashLoadingEnd();
+		if (!ready) {
+			char failed[MAX_PATH];
+			dashStrCopy(failed, dir, sizeof(failed));
+			openDir("", failed);
+			dashToast(DASH_TOAST_WARN, "Device could not be opened");
+			return;
+		}
 	}
 	/* the classic browser remembers where it was: "Last folder" in FILES */
 	if (strlen(dir) < MAX_NAME)
@@ -466,6 +493,15 @@ static void openDir(const char *dir, const char *select)
 	} else if (j->quiet_input) {
 		browser_usb_jobs++;
 	}
+}
+
+/* Scope the alternate view around every return from directory preparation,
+ * including generic USB discovery, canceled waits and allocation failures. */
+static void openDir(const char *dir, const char *select)
+{
+	DashLoadingView previous = dashLoadingSetView(browserStartupDraw);
+	openDirInternal(dir, select);
+	browserStartupEnd(previous);
 }
 
 static void refresh(void)
@@ -550,7 +586,7 @@ static void activate(void)
 		if (d->state == DASH_DEV_PROBE || d->state == DASH_DEV_ABSENT) {
 			int mask, unit;
 
-			if (dashDevicesStart(d, NULL, NULL) < 0)
+			if (browserStartDevice(d) < 0)
 				return;
 			if (!dashDevicePathReady(path)) {
 				openDir("", path); /* the list shows the new state */
@@ -1498,9 +1534,9 @@ static void browserDrawBody(void)
 	dashDrawPanelBox(DASH_PANE_L, path_panel_y, DASH_PANE_W, 24, 6);
 	/* Text uses y + 16 * scale as its visual centre for every theme font. */
 	dashTextScroll(FB_X + 6, path_center_y - 16.0f * DASH_FS_SMALL,
-	               fb_tab_active ? FB_W - 227 : FB_W - 162,
-	               fb.dir[0] ? display_path : "Choose a device", DASH_FS_SMALL, DASH_C_TEXT2);
-	if (fb.dir[0]) {
+	               fb.startup_status[0] ? FB_W - 12 : fb_tab_active ? FB_W - 227 : FB_W - 162,
+	               fb.startup_status[0] ? fb.startup_status : fb.dir[0] ? display_path : "Choose a device", DASH_FS_SMALL, DASH_C_TEXT2);
+	if (fb.dir[0] && !fb.startup_status[0]) {
 		char space[24];
 
 		space[0] = '\0';
@@ -1593,19 +1629,9 @@ static void browserDrawBody(void)
 		dashDrawSpinner(FB_X + FB_W * 0.5f - 60, FB_Y + 58, 8, DASH_C_ACCENT);
 		dashGfxBlend(DASH_BLEND_NORMAL);
 		dashText(FB_X + FB_W * 0.5f - 44, FB_Y + 49, "Reading folder...", DASH_FS_SMALL, DASH_C_TEXT2);
-	} else if (rows_total == 0)
+	} else if (rows_total == 0 && !fb.startup_status[0])
 		dashTextCenter(FB_X + FB_W * 0.5f, FB_Y + 50, "This folder is empty", DASH_FS_SMALL, DASH_C_TEXT3);
 	dashDrawScrollbar(FB_X + FB_W + 10, FB_Y, FB_ROWS * FB_ROW_H, fb.top, FB_ROWS, rows_total);
-	/* Temporary hardware diagnostic for the completed USB listing/input-loss
-	 * report. Rendering uses the cached UI snapshot, never polls the IOP. */
-	if (fb.pad_snapshot_valid && isUsbBrowsePath(fb.dir) &&
-	    !LaunchArgsPending() && nclipFiles == 0) {
-		char status[96];
-		snprintf(status, sizeof(status), "PAD 0:%d/%d  1:%d/%d  IOP:%u  IO:%d",
-		         fb.pad_state[0], fb.pad_request[0], fb.pad_state[1], fb.pad_request[1],
-		         fb.pad_generation, dashWorkerIoBusy());
-		dashText(FB_X, status_y, status, DASH_FS_CAPTION, DASH_C_TEXT2);
-	}
 }
 
 static void browserDrawHints(void)
@@ -1631,6 +1657,18 @@ static void browserScene(void)
 	browserDrawBody();
 	browserDrawHints();
 	dashDrawNotifications();
+}
+
+/* Only device activation/directory preparation use this view. File operations
+ * keep their progress dialogs. loadingDraw() already advanced visual time. */
+static void browserStartupDraw(const char *title)
+{
+	dashStrCopy(fb.startup_status, title, sizeof(fb.startup_status));
+	if (fb_tab_active)
+		dashRenderScene();
+	else
+		browserScene();
+	dashGfxPresent();
 }
 
 static int browserOpenState(const char *start_dir, const char *select)
@@ -1670,20 +1708,6 @@ static void browserCloseState(void)
 	fb.mark = NULL;
 	fb.loading = 0;
 	/* Never reset global pending-USB reads or the PAD flush on tab close. */
-}
-
-static void browserSnapshotPad(void)
-{
-	/* Cached EE DMA reads only; no IOP pad RPC during worker/device jobs. */
-	if (!dashWorkerIoBusy() && !dashIopParked()) {
-		int port;
-		for (port = 0; port < 2; port++) {
-			fb.pad_state[port] = padGetState(port, 0);
-			fb.pad_request[port] = padGetReqState(port, 0);
-		}
-		fb.pad_generation = getIopResetGeneration();
-		fb.pad_snapshot_valid = 1;
-	}
 }
 
 static void browserProcessInput(const DashInput *in, int *running)
@@ -1773,7 +1797,6 @@ static void browserTabUpdate(float dt)
 {
 	if (!fb_tab_active)
 		return;
-	browserSnapshotPad();
 	fb.sel_anim = dashApproach(fb.sel_anim, (float)fb.sel, 22.0f * dashAnimSpeed(), dt);
 }
 
@@ -1856,7 +1879,6 @@ void dashFileBrowser(const char *start_dir)
 			memset(&in, 0, sizeof(in));
 		else
 			dashInputPoll(&in);
-		browserSnapshotPad();
 		browserProcessInput(&in, &running);
 		fb.sel_anim = dashApproach(fb.sel_anim, (float)fb.sel, 22.0f * dashAnimSpeed(), dashVisualUpdate());
 		dashRenderScene();

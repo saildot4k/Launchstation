@@ -1034,6 +1034,28 @@ static void colorEditor(const char *title, int id)
 	}
 }
 
+/* Nominal output signal, not the smaller framebuffer used for overscan.
+ * Auto follows the same console-region policy as graphics initialization. */
+static const char *videoModeDetail(int mode)
+{
+	if (mode == TV_mode_AUTO)
+		mode = uLE_InitializeRegion();
+	switch (mode) {
+		case TV_mode_NTSC:
+			return "720x480i 60Hz";
+		case TV_mode_PAL:
+		case TV_mode_576I:
+			return "720x576i 50Hz";
+		case TV_mode_VGA:
+			return "640x480p 60Hz";
+		case TV_mode_480P:
+			return "720x480p 60Hz";
+		case TV_mode_576P:
+			return is576pSupported() ? "720x576p 50Hz" : "720x576p 50Hz (unsupported)";
+	}
+	return NULL;
+}
+
 static int chooseVideoMode(const char *const *names, int n, int current)
 {
 	DashMenuItem choices[TV_mode_COUNT];
@@ -1043,7 +1065,7 @@ static int chooseVideoMode(const char *const *names, int n, int current)
 		choices[i].icon = i == current ? DI_CHECK : -1;
 		choices[i].label = names[i];
 		choices[i].disabled = i == TV_mode_576P && !is576pSupported();
-		choices[i].detail = choices[i].disabled ? "Unsupported by this console" : (i == TV_mode_576I ? "PAL, 50 Hz" : NULL);
+		choices[i].detail = videoModeDetail(i);
 	}
 	return dashModalMenu("Video mode", NULL, choices, i, current);
 }

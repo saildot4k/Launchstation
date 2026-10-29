@@ -14,6 +14,15 @@
 #define ICON_TEX_H 544
 #define SELECT_HALF_W 0.68f
 
+/* Two independently rotated header shapes fit in the atlas's unused right
+ * margin. Keep the existing atlas allocation and all public icon slots. */
+#define APP_PART_SIZE 32
+#define APP_PART_SLOT (APP_PART_SIZE + 4)
+#define APP_PART_X (ICON_COLS * ICON_SLOT)
+#if APP_PART_X + APP_PART_SLOT > ICON_TEX_W || 2 * APP_PART_SLOT > ICON_TEX_H
+#error Header icon parts do not fit in the icon atlas margin
+#endif
+
 static GSTEXTURE icon_tex;
 static u32 icon_clut[256] __attribute__((aligned(64)));
 static int icons_ready;
@@ -143,6 +152,18 @@ static float S(float a, float b) /* a minus b */
 
 #define T 0.075f /* standard stroke half-width */
 
+static float appHexagonSdf(V2 p)
+{
+	V2 q = {fabsf(p.x), fabsf(p.y)};
+	float hex = fmaxf2(q.x * 0.866025f + q.y * 0.5f, q.y) - 0.74f;
+	return fabsf(hex) - T;
+}
+
+static float appTriangleSdf(V2 p)
+{
+	return sdTriP(p, -0.26f, 0.2f, 0.0f, -0.32f, 0.26f, 0.2f);
+}
+
 static float iconSdf(int id, V2 p)
 {
 	float d = 1e9f;
@@ -236,13 +257,7 @@ static float iconSdf(int id, V2 p)
 			d = U(d, sdSeg(p, 0.0f, 0.0f, 0.34f, 0.14f, 0.07f));
 			break;
 		case DI_APP:
-			/* hexagonal crystal */
-			{
-				V2 q = {fabsf(p.x), fabsf(p.y)};
-				float hex = fmaxf2(q.x * 0.866025f + q.y * 0.5f, q.y) - 0.74f;
-				d = fabsf(hex) - T;
-				d = U(d, sdTriP(p, -0.26f, 0.2f, 0.0f, -0.32f, 0.26f, 0.2f));
-			}
+			d = U(appHexagonSdf(p), appTriangleSdf(p));
 			break;
 		case DI_PLAY:
 			d = sdTriP(p, -0.42f, -0.62f, -0.42f, 0.62f, 0.66f, 0.0f) - 0.04f;
@@ -483,6 +498,25 @@ static inline int clutSwizzle(int i)
 	return (i & 0xE7) | ((i & 0x08) << 1) | ((i & 0x10) >> 1);
 }
 
+/* Part 0 is the hexagon; part 1 is the inner triangle. Like the main atlas,
+ * these are rasterized once with transparent two-texel gutters for filtering. */
+static void initHeaderIconParts(u8 *mem)
+{
+	int part, x, y;
+
+	for (part = 0; part < 2; part++) {
+		for (y = 0; y < APP_PART_SIZE; y++) {
+			for (x = 0; x < APP_PART_SIZE; x++) {
+				V2 p = {(x + 0.5f) / (APP_PART_SIZE * 0.5f) - 1.0f,
+				        (y + 0.5f) / (APP_PART_SIZE * 0.5f) - 1.0f};
+				float d = part == 0 ? appHexagonSdf(p) : appTriangleSdf(p);
+				float a = dashClampf(0.5f - d * (APP_PART_SIZE * 0.5f), 0.0f, 1.0f);
+				mem[(part * APP_PART_SLOT + y + 2) * ICON_TEX_W + APP_PART_X + x + 2] = (u8)(a * 255.0f + 0.5f);
+			}
+		}
+	}
+}
+
 void dashIconsInit(void)
 {
 	u8 *mem;
@@ -515,6 +549,8 @@ void dashIconsInit(void)
 			}
 		}
 	}
+
+	initHeaderIconParts(mem);
 
 	for (i = 0; i < 256; i++) {
 		int a = (i * 128 + 127) / 255;
@@ -593,6 +629,38 @@ void dashIcon(int id, float x, float y, float size, DashColor c)
 	dashSpriteBatchAdd(x - pad, y - pad, u0, v0, x + size + pad, y + size + pad, u0 + ICON_SLOT, v0 + ICON_SLOT);
 	dashSpriteBatchEnd();
 }
+/* Rotate a filtered atlas tile in virtual coordinates, before PAL scaling. */
+static void drawHeaderIconPart(int part, float cx, float cy, float size, float cs, float sn, DashColor c)
+{
+	float half = size * 0.5f + size * 2.0f / APP_PART_SIZE;
+	float rx = half * cs, ry = half * sn;
+	float dx = -ry, dy = rx;
+	float u = APP_PART_X, v = part * APP_PART_SLOT;
+
+	dashTexDrawQuadUV(&icon_tex,
+	                  cx - rx - dx, cy - ry - dy, u, v,
+	                  cx + rx - dx, cy + ry - dy, u + APP_PART_SLOT, v,
+	                  cx - rx + dx, cy - ry + dy, u, v + APP_PART_SLOT,
+	                  cx + rx + dx, cy + ry + dy, u + APP_PART_SLOT, v + APP_PART_SLOT, c);
+}
+
+void dashHeaderIcon(float cx, float cy, float size, DashColor c)
+{
+	float angle, cs, sn;
+
+	if (!icons_ready || size <= 0.0f || c.a == 0)
+		return;
+	/* One revolution every 30 seconds, independent of frame rate and animation
+	 * settings. Reduce the integer clock first to avoid long-session drift. */
+	angle = (float)(Timer() % 30000) * (6.28318530718f / 30000.0f);
+	cs = cosf(angle);
+	sn = sinf(angle);
+	c = dashIconTint(c);
+	/* Screen Y grows downward: negative sine turns counterclockwise. */
+	drawHeaderIconPart(0, cx, cy, size, cs, -sn, c);
+	drawHeaderIconPart(1, cx, cy, size, cs, sn, c);
+}
+
 /* Theme icon tint: TEXT keeps the caller's colour, ACCENT leans it towards
  * the accent colour (keeping its brightness), MONO removes the colour. */
 DashColor dashIconTint(DashColor c)

@@ -55,6 +55,7 @@ typedef struct { char name[MAX_NAME];sceMcTblGetDir stats; } FILEINFO;
 typedef struct { char path[DASH_PATH_MAX];int flags; } DashApp;
 static int mctype_PSx,time_valid,size_valid,mx4sio_loaded,card_result,changed_card;
 static int pending_result,dir_reads,prepared[2],retry_delays;
+static int isPathDeviceStackLoaded(const char *p);
 static void ensureMemoryCardPortAccessible(int p) { assert(p!=1 || !mx4sio_loaded);prepared[p]++; }
 static void DelayThread(int us);
 #define TRUE 1
@@ -106,7 +107,10 @@ static void dashArtFlushAll(void) {}
 static int dashLibSaveCache(void) { cache_saves++;return 0; }
 static void dashStrCopy(char *out,const char *in,int n) { snprintf(out,n,"%s",in); }
 static void dashWorkerStatus(const char *s,int done,int total) { (void)s;(void)done;(void)total; }
-static int isPathDeviceStackLoaded(const char *p) { return !strcmp(p,"mx4sio:/") && mx4sio_loaded; }
+static int isPathDeviceStackLoaded(const char *p) {
+    if(!strcmp(p,"mc1:/"))return !mx4sio_loaded;
+    return !strcmp(p,"mx4sio:/") && mx4sio_loaded;
+}
 static int genCmpFileExt(const char *p,const char *ext) { const char *dot=strrchr(p,'.');return dot && !strcmp(dot+1,ext); }
 static int wle_ascii_tolower(int c) { return tolower((unsigned char)c); }
 static int getDir(const char *p,FILEINFO *out) { return readMC(p,out,MAX_ENTRY); }
@@ -139,6 +143,18 @@ int main(void) {
     run(40);
     assert(filerRootMcPresent(0, NULL, NULL) == 1);
     assert(filerRootMcPresent(1, NULL, NULL) == 1); /* last known state kept */
+    /* MX4SIO ownership keeps even a cached-empty mc1 selectable, without
+     * background libmc traffic or changing the remembered card state. */
+    mx4sio_loaded=1;root_mc_present[1]=0;
+    int type=99,free_kb=99;
+    assert(filerRootMcPresent(1,&type,&free_kb)==-2 && type==0 && free_kb==-1);
+    root_mc_poll_active=0;root_mc_poll_port=1;root_mc_next_poll_time=0;
+    pending_port=-1;
+    pollRootMemoryCardDevices();
+    assert(!root_mc_poll_active && pending_port==-1 && root_mc_poll_port==0);
+    pollRootMemoryCardDevices();assert(root_mc_poll_active && pending_port==0);
+    filerRootMcPollIdle();assert(root_mc_present[1]==0);
+    mx4sio_loaded=0;
     /* Startup scans precede the first root-card poll. Read the real MC
      * directory after the normal changed-card handshake and publish presence
      * so the completed library is visible without a trip through Files. */

@@ -60,8 +60,10 @@ as scrolling through lists.
 The cursor never waits for the memory card or a slow device: file reads
 and writes (artwork, saves, library scans, folder listings) run on a
 background thread, and a small indicator above the button hints shows
-what is being worked on. Starting a device's drivers happens in the
-foreground behind a short loading overlay.
+what is being worked on. Starting a device's drivers still happens on the
+foreground thread. In the File Browser, its title temporarily replaces
+"Choose a device" or the current path in the path bar, without a popup or
+internal memory-card/probe details. Other operations keep their progress dialogs.
 
 ## Sections
 
@@ -190,6 +192,11 @@ time to resync. Press the shown Confirm button to keep the mode or the Back
 button to revert. Both actions work directly; D-pad input does not select an
 action. Letting the countdown expire also restores the previous mode and offsets.
 Save Settings separately to retain an accepted mode after restarting.
+The chooser's right column shows the nominal signal resolution, scan type and
+refresh rate for each mode. Auto shows the console-region output (720x480i
+60Hz or 720x576i 50Hz), independently of the currently forced mode. The 60Hz
+labels use the nominal rate for NTSC/480p. Unsupported 576p retains its
+resolution details and an unsupported label.
 NTSC, VGA and 480p render at 640×448; PAL, 576p and 576i render at 640×512.
 The dashboard scales its shared 640×448 canvas to the framebuffer, preserving
 relative panel, text, clipping and row spacing. Check Home, Files, Tools,
@@ -455,7 +462,14 @@ or using a tool that needs it. Startup scans only devices whose drivers are
 already running. There are no per-device driver auto-start switches; old
 `Dash_DevAuto` and `Dash_ShowUnavailableDevices` entries are ignored and omitted
 when saving `DASHBOARD.CNF`. Eligible device families remain listed; opening
-an unprobed device starts the existing lazy driver stack.
+an unprobed device starts the existing lazy driver stack. With MX4SIO active,
+opening mc1 (Memory Card Slot 2) first resets the IOP on the foreground thread,
+then reads the card. Slot 2 stays selectable while MX4SIO owns it; background
+polling and library scans do not interrupt MX4SIO to access that slot.
+Switching between either MMCE slot (`mmce0:/` or `mmce1:/`) and MX4SIO also
+resets the IOP before loading the target driver or reading its root. A refused
+reset stops the switch. MMCE0 and MMCE1 share one driver and can be browsed
+without resetting between them.
 
 Neutrino launches initialize MMCE before preparing the loader, then request
 the ISO's game-ID VMC on responding MMCE adapters just before handoff. This

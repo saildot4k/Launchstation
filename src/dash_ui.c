@@ -432,7 +432,7 @@ void dashDrawHeader(int section, float section_anim)
 	}
 
 	dashAccentGlow(icon_x + HEADER_ICON_SIZE * 0.5f, row_cy, 22, 18, 1.2f);
-	dashIcon(DI_APP, icon_x, row_cy - HEADER_ICON_SIZE * 0.5f, HEADER_ICON_SIZE, DASH_C_ACCENT);
+	dashHeaderIcon(icon_x + HEADER_ICON_SIZE * 0.5f, row_cy, HEADER_ICON_SIZE, DASH_C_ACCENT);
 	dashDrawClock();
 }
 
@@ -1084,6 +1084,14 @@ static int loading_done, loading_total;
 static u64 loading_last_draw;
 static float loading_open;
 static int loading_cancel;
+static DashLoadingView loading_view;
+
+DashLoadingView dashLoadingSetView(DashLoadingView view)
+{
+	DashLoadingView previous = loading_view;
+	loading_view = view;
+	return previous;
+}
 
 int dashLoadingActive(void)
 {
@@ -1097,6 +1105,11 @@ static void loadingDraw(void)
 	float bar_y = y + (loading_remaining[0] ? 126.0f : 102.0f);
 	float dt = dashVisualUpdate();
 
+	if (loading_view != NULL) {
+		loading_view(loading_title);
+		loading_last_draw = Timer();
+		return;
+	}
 	loading_open = dashApproach(loading_open, 1.0f, 12.0f, dt);
 	dashRenderScene();
 	modalBackdrop(loading_open);
