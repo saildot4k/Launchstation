@@ -25,10 +25,11 @@ void dashSoundPlay(int id);
 void dashSoundApplyVolume(void);
 void dashSoundGetStatus(char *out, int out_size); /* cached counters/status; no IO */
 void dashBgmStart(void);
-void dashBgmStop(void);
-void dashBgmSetVolume(void); /* apply dashCfg.bgm_vol to the music bus */
-/* Main loop: (re)starts sound once it is wanted but not running, e.g. after
- * a background job rebooted the IOP. Tries once per IOP session. */
+void dashBgmStop(void); /* settings Off: retains the 5% playback workaround */
+int dashBgmRequestedVolume(void); /* user-visible gain; zero when music is Off */
+void dashBgmSetVolume(void); /* apply requested gain or the 5% runtime override */
+/* Main loop: restores audio and the music workaround after an IOP reboot,
+ * even with both visible sound switches Off. Tries once per IOP session. */
 void dashSoundMaintain(void);
 
 #endif

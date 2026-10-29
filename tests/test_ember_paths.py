@@ -26,6 +26,12 @@ code = r"""
 #include <strings.h>
 #define MAX_PATH 1024
 #define EMBER_NAME_MAX 180
+static struct { char ember_dir[MAX_PATH]; } config, *setting=&config;
+static char checked_elf[MAX_PATH];
+static int readable=1,checks;
+static int readableElf(const char *path) {
+    checks++;snprintf(checked_elf,sizeof(checked_elf),"%s",path);return readable;
+}
 
 static int wle_ascii_tolower(int c) { return tolower((unsigned char)c); }
 static int genCmpFileExt(const char *filename, const char *extension)
@@ -44,6 +50,9 @@ for sig in (
     "static int segmentCaseEqual(",
     "static int emberExt(",
     "static int parseEmberGamePath(",
+    "static char pathSep(",
+    "static int appendFile(",
+    "static int configuredEmberElf(",
 ):
     code += function(src, sig)
 
@@ -58,6 +67,27 @@ static void expect_ok(const char *path, const char *want_root, const char *want_
 
 int main(void)
 {
+    /* The selected executable can have any ELF name. Older folder-valued
+     * EMBER_DIR configurations still resolve to their local ember.elf. */
+    char configured[MAX_PATH];
+    strcpy(config.ember_dir,"usb1:/Launchers/My Ember.ELF");
+    assert(configuredEmberElf(configured,sizeof(configured)));
+    assert(!strcmp(configured,"usb1:/Launchers/My Ember.ELF"));
+    assert(!strcmp(checked_elf,configured));
+    int before=checks;
+    assert(!configuredEmberElf(configured,8) && checks==before);
+    assert(!configuredEmberElf(configured,0) && checks==before);
+    assert(!configuredEmberElf(NULL,sizeof(configured)) && checks==before);
+    readable=0;assert(!configuredEmberElf(configured,sizeof(configured)));readable=1;
+    strcpy(config.ember_dir,"usb0:/My Ember/");
+    assert(configuredEmberElf(configured,sizeof(configured)));
+    assert(!strcmp(configured,"usb0:/My Ember/ember.elf"));
+    strcpy(config.ember_dir,"mass3:\\My Ember");
+    assert(configuredEmberElf(configured,sizeof(configured)));
+    assert(!strcmp(configured,"mass3:\\My Ember\\ember.elf"));
+    config.ember_dir[0]='\0';assert(!configuredEmberElf(configured,sizeof(configured)));
+    setting=NULL;assert(!configuredEmberElf(configured,sizeof(configured)));setting=&config;
+
     /* Exact layout and punctuation from the hardware tester report. */
     expect_ok(
         "usb0:/EMBER/games/eFootball 2026 (ZWE)/eFootball 2026 (ZWE).cue",

@@ -47,7 +47,7 @@ for path in ('src/dash_browser.c', 'src/dash_tools.c', 'src/dash_settings.c',
 settings = (root / 'src/dash_settings.c').read_text()
 system = settings[settings.index('static const SetItem system_items[]'):]
 system = system[:system.index('\n};')]
-assert 'S_CHECK_UPDATES' in system and 'S_ABOUT_PROJECT' in system
+assert 'S_ABOUT_PROJECT' in system
 browser = (root / 'src/dash_browser.c').read_text()
 assert 'Mount as vmc0:' in browser and 'Mount as vmc1:' in browser
 assert 'opPaste(PASTE_PSU);' in browser

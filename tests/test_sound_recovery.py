@@ -56,7 +56,6 @@ static void audsrv_adpcm_set_volume_and_pan(int ch, int volume, int pan) {
     assert(!forbidden_rpc && ch >= 0 && ch < 23 && volume == 50 && pan == 0);
 }
 static void dashToast(int kind, const char *message) { assert(kind == DASH_TOAST_WARN && message[0]); warnings++; }
-static void dashBgmStop(void) { assert(!forbidden_rpc); }
 static void dashBgmStart(void) { bgm_starts++; bgm_tried = 1; }
 void dashSoundShutdown(void);
 '''
@@ -101,8 +100,9 @@ int main(void) {
     dashSoundShutdown(); assert(!sound_ready && !quits && !stops);
     forbidden_rpc = 0; dashSoundMaintain(); assert(soundAlive() && bgm_starts == 2);
     dashSoundShutdown(); assert(quits == 1 && stops == 1 && !sound_ready);
-    /* No automatic work when both buses are off. */
-    reset(); dashCfg.sound = dashCfg.bgm = 0; dashSoundMaintain(); assert(!module_calls);
+    /* The runtime music workaround survives an Off/Off saved configuration. */
+    reset(); dashCfg.sound = dashCfg.bgm = 0; dashSoundMaintain();
+    assert(soundAlive() && module_calls==2 && bgm_starts==1);
     puts("PASS: production sound initialization failures, BGM independence, IO deferral and reset generations");
 }
 '''

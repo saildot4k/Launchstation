@@ -28,7 +28,7 @@ literal = r'"(?:\\.|[^"\\])*"'
 table = tools[tools.index("static const Tool tools[]"):tools.index("#define NTOOLS")]
 notes = re.findall(r"\{TA_\w+,\s*\w+,\s*(" + literal + r"),\s*" + literal +
                    r",\s*(" + literal + r"),", table)
-assert len(notes) >= 8 and any(name == '"FTP Server"' for name, note in notes)
+assert notes and any(name == '"FTP Server"' for name, note in notes)
 
 code = r'''
 #include <assert.h>

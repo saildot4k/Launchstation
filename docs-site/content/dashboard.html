@@ -4,7 +4,7 @@
 <table><thead><tr><th>Tab</th><th>Behavior in current builds</th></tr></thead><tbody>
 <tr><td><b>Home</b></td><td>Continue carousel, pinned/recent/favorite applications, <b>Applications</b> library shortcut, <b>Last folder</b> shortcut when available, and optional configured launch-key shortcuts.</td></tr>
 <tr><td><b>Files</b></td><td>Opens the native File Browser directly inside the dashboard frame. Browse drives and folders, operate on files and return to the same folder/selection after switching tabs.</td></tr>
-<tr><td><b>Tools</b></td><td>File Browser, Text Editor, <b>MISC commands</b>, USB unit diagnostics, HDD Manager, exploit installer, network tools.</td></tr>
+<tr><td><b>Tools</b></td><td>File Browser, Text Editor, USB unit diagnostics, HDD Manager, exploit installer, individual built-in and network tools.</td></tr>
 <tr><td><b>Settings</b></td><td>Appearance, Home/app library, sound, input, launching, devices/MMCE, network, and system settings.</td></tr>
 </tbody></table>
 <h2 id="home-apps">Home and Applications</h2>
@@ -13,8 +13,8 @@
 <h2 id="files">Files and device discovery</h2>
 <p>Files is a persistent browser tab. Tools &gt; Essentials &gt; File Browser switches to this same tab and resumes its folder and selection. The list displays eleven rows above the status line and footer hints. The root lets you select devices and start lazy drivers; <b>Not checked</b> is not the same as absent. The old separate Devices landing view and Files landing page are not additional visible tabs.</p>
 <p>Asynchronous USB reads can complete after a tab change. Input remains guarded until outstanding reads finish, rather than treating a tab switch as permission to poll PAD immediately.</p>
-<h2 id="misc-commands">MISC command popup</h2>
-<p><b>Tools &gt; Storage &gt; MISC commands</b> opens a popup menu. The popup closes before running a command. <b>Configure</b> switches to the Settings tab, and <b>File Browser</b> switches to the Files tab.</p>
+<h2 id="misc-commands">Built-in command targets</h2>
+<p>Tools exposes individual built-in utilities. The popup file browser for <b>Settings &gt; Launching &gt; Automatic start &amp; boot &gt; Automatic start target</b> and <b>Launch keys &gt; Choose target</b> retains <code>MISC/</code> for selecting built-in commands. <b>Configure</b> switches to Settings, and <b>File Browser</b> switches to Files.</p>
 <h2 id="tools-cautions">Tools cautions</h2>
 <p>Long caution messages in Tools scroll upward slowly inside the warning box so the entire message can be read. The text pauses at the end for two seconds, then restarts from the beginning. Selecting another tool restarts its caution text. Messages that fit remain still.</p>
 <h2 id="navigation">Navigation</h2>

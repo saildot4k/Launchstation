@@ -1220,7 +1220,7 @@ void DashRun(const MainExecuteContext *ctx, int from_boot)
 			dashModalMessage(DI_APP, "Welcome to Launchstation",
 			                 "HOME contains Continue, your full application library and Last folder. "
 			                 "Use the confirm button to open, Triangle for options and Square for favorites. "
-			                 "L1/R1 switch sections; FILES goes directly to File Browser and MISC commands are in TOOLS.",
+			                 "L1/R1 switch sections; FILES opens File Browser and TOOLS provides built-in utilities.",
 			                 NULL);
 			dashCfg.intro_done = 1;
 			dashStoreSaveSettings();

@@ -85,15 +85,19 @@ operations, browse/view/sort modes, copy/paste, VMC backup operations and
 PathPad features remain in the same browser. The directory reader keeps its
 USB/PAD serialization across all tabs (including reads started before a tab switch) and invalidates in-flight results when switching tabs.
 
-**Tools > Storage > MISC commands** opens a popup menu of built-in commands.
-**Configure** switches to the Settings tab, and **File Browser** switches to
-the Files tab. The popup closes before the selected command runs.
+**Tools** provides individual built-in utilities. When choosing an
+**Automatic start target** or a **Launch key** under Settings > Launching,
+the popup file browser retains **MISC/** for selecting built-in commands.
+**Configure** switches to Settings, and **File Browser** switches to Files.
+
+**Tools > System > Check for updates** sits directly below **About
+Launchstation** in builds with native HTTPS support.
 
 | Tab | Contents |
 | --- | --- |
 | HOME | Continue carousel, full Applications library shortcut, Last folder, optional launch-key shortcuts. |
 | FILES | Native File Browser as an actual tab, with shared header and L1/R1 navigation. |
-| TOOLS | MISC commands, storage/device utilities, application and disc launch helpers, information and power commands. |
+| TOOLS | Individual built-in utilities, storage/device tools, disc boot, information and power commands. |
 | SETTINGS | Appearance, Home & applications, Sound, Input, Launching, Storage & devices, Network and System; unchanged save/discard behavior. |
 
 Start screen offers Home, Applications, Files, Tools and Settings.
@@ -219,8 +223,12 @@ interface can continue responding.
 | System | Language, memory card backup-file rules, configuration folder, alternate launch/tool settings save location and welcome message. |
 
 Unavailable dependent options remain visible with help explaining what to
-enable first. Path rows open a Choose/Clear dialog. Launch-key rows open
-Choose target/Edit title/Clear target; Square edits a title directly.
+enable first. Path rows open a Choose/Clear dialog. POPStarter, Ember and
+Neutrino path menus also offer Disabled, which retains the saved path and blocks
+that loader. Choosing or clearing a location enables it again; clearing uses the
+normal loader discovery rules. Each row shows its configured path, Not set or
+Disabled. Launch-key rows open Choose target/Edit title/Clear target; Square
+edits a title directly.
 Square resets individual appearance options to their preset defaults.
 
 Previewed changes share the existing Save/Discard session, including themes
@@ -379,13 +387,18 @@ DASHBOARD.CNF, all on at 80% by default). The two switches are independent;
 turning off interface effects keeps enabled music playing. Muting or disabling
 music preserves the interface volume. Effects use only voices 0–22, including
 when a busy voice needs a fallback; voice 23 stays reserved for music.
+
+The physical-console SFX dropout at Music Off/0% remains unresolved. As a
+temporary workaround, those choices display **Off / 0%** while a valid
+`BGM.ADP` continues playing at **5%** internally. The override is never saved
+to `DASHBOARD.CNF`. Raising Music volume enables normal playback; enabling
+Background music restores the saved nonzero volume, or 10% if it was zero.
+Music volume remains adjustable while the displayed music state is Off.
+Application handoff and audio shutdown still mute/stop playback completely.
+
 Cursor clicks follow the controller's scrolling repeat and acceleration without
 an additional audio rate limit. Each effect's volume is applied before playback,
 including when a voice was muted by an earlier interface-sound toggle or launch.
-Tools > Audio diagnostics shows the number of requested, started and failed
-effects and the last failure since Launchstation started. It reads cached state;
-use it after reproducing missing audio to distinguish a rejected playback request
-from an accepted request that was not audible at the speakers.
 When the audio driver cannot
 start, everything stays silent — the dashboard works normally without
 sound (a toast says why).

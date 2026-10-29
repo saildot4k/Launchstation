@@ -246,16 +246,22 @@ finish:
 
 static int configuredEmberElf(char *out, size_t out_size)
 {
-	if (setting == NULL || setting->ember_dir[0] == '\0')
+	if (out == NULL || out_size == 0 || setting == NULL || setting->ember_dir[0] == '\0')
 		return 0;
-	if (!appendFile(out, out_size, setting->ember_dir, "ember.elf"))
+	/* The ELF picker stores a file path in the historical EMBER_DIR setting.
+	 * Older configurations still name a folder containing ember.elf. */
+	if (genCmpFileExt(setting->ember_dir, "ELF")) {
+		int n = snprintf(out, out_size, "%s", setting->ember_dir);
+		if (n <= 0 || (size_t)n >= out_size)
+			return 0;
+	} else if (!appendFile(out, out_size, setting->ember_dir, "ember.elf"))
 		return 0;
 	return readableElf(out);
 }
 
 /*
  * Prefer an ember.elf already inside the selected game's own umbrella.
- * If it is absent, a configured Ember directory can donate its ember.elf to
+ * If it is absent, the configured Ember ELF can be copied into
  * that umbrella. Only the executable is staged: bios.bin is user-supplied and
  * remains explicitly owned by the target umbrella.
  */
@@ -278,7 +284,7 @@ static int ensureLocalEmber(const char *umbrella, char *ember_elf, size_t ember_
 
 	if (!configuredEmberElf(configured, sizeof(configured))) {
 		setEmberMessage(message, message_size,
-		                "ember.elf is missing; set an Ember directory in Settings", ember_elf);
+		                "ember.elf is missing; set the Ember path in Settings", ember_elf);
 		return 0;
 	}
 	if (samePath(configured, ember_elf)) {

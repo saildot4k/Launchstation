@@ -299,6 +299,7 @@ typedef struct
 	char lang_file[MAX_PATH];
 	char font_file[MAX_PATH];
 	char popstarter_file[MAX_PATH];
+	/* Historical EMBER_DIR key: selected ELF path, or an older folder value. */
 	char ember_dir[MAX_PATH];
 	char neutrino_file[MAX_PATH];
 	/* Opt-out gates for automatic game-image handlers. Old CNFs default to enabled. */

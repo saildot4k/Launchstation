@@ -6,10 +6,14 @@ This guide reflects the four visible tabs implemented in `src/dash_main.c` and t
 | --- | --- | --- |
 | **Home** | Continue, pins, recents, favorites, nested Applications library and Last folder | `src/dash_home.c`, `src/dash_apps.c` |
 | **Files** | Direct persistent File Browser, remembered folder and selection across tabs; device roots | `src/dash_browser.c` |
-| **Tools** | MISC commands, USB unit diagnostics, Text Editor, HDD Manager, exploit installer, PS2Link/FTP | `src/dash_tools.c` |
+| **Tools** | Individual built-in utilities, USB unit diagnostics, Text Editor, HDD Manager, exploit installer, PS2Link/FTP | `src/dash_tools.c` |
 | **Settings** | Appearance, app library folders, sound, input, launching, devices and backup/Drive options | `src/dash_settings.c` |
 
 **Navigation:** L1/R1 switches tabs. SELECT changes Grid/List/Carousel in Home's Applications library. The separate Apps and Devices internal screen constants are compatibility details, not extra visible top-level tabs.
+
+**Built-in command targets:** the automatic-start and launch-key popup file
+browsers retain `MISC/`. Tools exposes individual commands without a duplicate
+MISC command menu.
 
 ## Upstream wLaunchELF_R3Z integration (October 15, 2026)
 
@@ -28,7 +32,7 @@ For storage, do not equate `Not checked` with physically absent. Lazy drivers st
 ## External game cores
 
 - **PS2 ISO** → Neutrino (external ELF, configured or discovered with TOML sidecars), with the R3Z per-launch compatibility modes 0/2/3/5/7, GSM/field-flipping, debug colors and PS2 logo. Options default to launch-only unless the user explicitly saves a per-Game-ID Neutrino profile in the dashboard; separate checksum-verified A/B settings files preserve the last valid copy and never modify the ISO, global CNF, or active VMC. ISO `SYSTEM.CNF` game IDs also drive RetroGem display and best-effort active-MMCE card switching, without initializing or replacing live storage drivers.
-- **Loader availability** → Three independent Disable Ember/POPStarter/Neutrino controls in Launching settings and the classic Advanced Settings screen, Off by default.
+- **Loader availability** → Each Ember/POPStarter/Neutrino path menu in Launching settings includes Disabled, alongside Choose a location and Clear location. Disabling retains the saved path; choosing or clearing a location enables the loader. The classic Advanced Settings screen keeps its independent disable switches. All three loaders are enabled by default.
 - **PS1 VCD** → POPStarter (external launcher, own VCD and HDD argument conventions).
 - **PS1 CUE/BIN/EXE** → Ember (external ELF), only under a save-safe `<umbrella>/games/<Game>/` folder. The umbrella can be anywhere and can be named arbitrarily.
 - For Ember on USB, the launcher rebuilds the storage IOP without resident PADMAN and confirms game identity after USB mount-number reassignment before final keep-IOP launch.

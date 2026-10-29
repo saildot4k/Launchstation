@@ -80,16 +80,12 @@ enum SetId {
 	S_ESR_PATH,
 	S_OSDSYS_PATH,
 	S_POPS_PATH,
-	S_EMBER_DIR,
+	S_EMBER_PATH,
 	S_NEUTRINO_PATH,
-	S_DISABLE_EMBER,
-	S_DISABLE_POPSTARTER,
-	S_DISABLE_NEUTRINO,
 	/* devices */
 	S_HIDE_HDD,
 	S_HIDE_MC,
 	S_REBOOT_ELF,
-	S_CHECK_UPDATES,
 	S_ABOUT_PROJECT,
 	/* network */
 	S_NET_IP,
@@ -255,7 +251,7 @@ static const SetItem launch_items[] = {
     {ST_PAGE, P_LKEY, "Launch keys", "Applications or commands assigned to controller buttons."},
     {ST_CHOICE, S_PATHPAD_LOCK, "Lock shortcuts & bookmarks", "Prevents editing launch keys and File Browser bookmarks."},
     {ST_PAGE, P_LOADERS, "Disc & image loaders", "ESR, OSDSYS, POPStarter, Ember and Neutrino paths."},
-    {ST_CHOICE, S_REBOOT_ELF, "Reset IOP before launch", "Recommended: gives launched ELFs a clean IOP."},
+    {ST_CHOICE, S_REBOOT_ELF, "Reset IOP before launch", "Recommended: IOP processor is rebooted, giving launched ELF a clean environment."},
     {ST_PAGE, P_GAMEID, "Game ID output", "Game IDs for RetroGem and compatible OSD/HDMI adapters."},
 };
 
@@ -281,12 +277,9 @@ static const SetItem startup_items[] = {
 static const SetItem loader_items[] = {
     {ST_PATH, S_ESR_PATH, "ESR loader", "ESR ELF used to start ESR-patched discs."},
     {ST_PATH, S_OSDSYS_PATH, "OSDSYS program", "Started by the OSDSYS command. Empty: the console's own."},
-    {ST_PATH, S_POPS_PATH, "POPStarter", "POPStarter ELF used to start PS1 VCD images."},
-    {ST_PATH, S_EMBER_DIR, "Ember directory", "Folder containing ember.elf, bios.bin and games/. CUE/BIN/EXE routes to Ember automatically; VCD still uses POPStarter."},
-    {ST_PATH, S_NEUTRINO_PATH, "Neutrino", "Neutrino ELF used to start PS2 ISO images. Empty: game device, then mc0:/mc1:/neutrino/."},
-    {ST_CHOICE, S_DISABLE_EMBER, "Disable Ember support", "Off (default): CUE/BIN/EXE game routes use Ember. On: refuse Ember image launches without loading devices."},
-    {ST_CHOICE, S_DISABLE_POPSTARTER, "Disable POPStarter support", "Off (default): VCD launches use POPStarter. On: refuse automatic VCD launches."},
-    {ST_CHOICE, S_DISABLE_NEUTRINO, "Disable Neutrino support", "Off (default): ISO launches use Neutrino. On: refuse automatic PS2 ISO launches."},
+    {ST_PATH, S_POPS_PATH, "POPStarter path", "POPStarter ELF used to start PS1 VCD images."},
+    {ST_PATH, S_EMBER_PATH, "Ember path", "Ember ELF used when the selected game folder needs ember.elf. The game device still needs its own bios.bin and games/ layout."},
+    {ST_PATH, S_NEUTRINO_PATH, "Neutrino path", "Neutrino ELF used to start PS2 ISO images. Empty: game device, then mc0:/mc1:/neutrino/."},
 };
 
 static const SetItem device_items[] = {
@@ -330,9 +323,6 @@ static const SetItem system_items[] = {
     {ST_PATH, S_CNF_PATH, "Configuration folder", "Load and save LAUNCHELF.CNF in this folder instead of the default places."},
     {ST_ACTION, S_SAVE_AS, "Save launch & tool settings to...", "Writes LAUNCHELF.CNF immediately to another location; dashboard and network settings are saved separately."},
     {ST_ACTION, S_INTRO, "Show welcome message again", "Show the introduction the next time the dashboard checks for it."},
-#if defined(ETH) && defined(WLE_NATIVE_HTTPS)
-    {ST_ACTION, S_CHECK_UPDATES, "Check for updates", "Compare with the rolling latest release; a newer build can be downloaded, SHA-256 verified and installed in place."},
-#endif
     {ST_ACTION, S_ABOUT_PROJECT, "About Launchstation", "Version, commit, project origin, upstream credits and contributors."},
 };
 
@@ -545,10 +535,10 @@ static int choiceInfo(int id, int *cur, const char *const **names, const char **
 			*names = pct_names, *cur = dashCfg.sound_vol / 10;
 			return 11;
 		case S_BGM:
-			*cur = dashCfg.bgm;
+			*cur = dashBgmRequestedVolume() > 0;
 			return 2;
 		case S_BGMVOL:
-			*names = pct_names, *cur = dashCfg.bgm_vol / 10;
+			*names = pct_names, *cur = dashBgmRequestedVolume() / 10;
 			return 11;
 		case S_START: {
 			static const char *const start_names[] = {"Home", "Applications", "Files", "Tools", "Settings"};
@@ -632,15 +622,6 @@ static int choiceInfo(int id, int *cur, const char *const **names, const char **
 			*names = langs, *cur = normalizeBuiltinLanguage(setting->language);
 			return BUILTIN_LANGUAGE_COUNT;
 		}
-		case S_DISABLE_EMBER:
-			*cur = setting->disable_ember ? 1 : 0;
-			return 2;
-		case S_DISABLE_POPSTARTER:
-			*cur = setting->disable_popstarter ? 1 : 0;
-			return 2;
-		case S_DISABLE_NEUTRINO:
-			*cur = setting->disable_neutrino ? 1 : 0;
-			return 2;
 		case S_GAMEID:
 			*cur = setting->app_gameid ? 1 : 0;
 			return 2;
@@ -1133,14 +1114,19 @@ static void setChoice(int id, int v)
 			break;
 		case S_BGM:
 			dashCfg.bgm = v;
-			if (v)
+			if (v) {
+				/* Enabling the displayed Off state must also leave zero volume. */
+				if (dashCfg.bgm_vol == 0)
+					dashCfg.bgm_vol = 10;
 				dashBgmStart();
-			else
+			} else
 				dashBgmStop();
 			break;
 		case S_BGMVOL:
 			dashCfg.bgm_vol = v * 10;
-			dashBgmSetVolume();
+			if (v > 0)
+				dashCfg.bgm = 1;
+			dashBgmStart();
 			break;
 		case S_START:
 			dashCfg.start_section = (v == 1) ? DASH_SEC_APPS :
@@ -1216,15 +1202,6 @@ static void setChoice(int id, int v)
 				case S_LANGUAGE:
 					Set_Language(v);
 					Load_External_Language();
-					break;
-				case S_DISABLE_EMBER:
-					setting->disable_ember = v;
-					break;
-				case S_DISABLE_POPSTARTER:
-					setting->disable_popstarter = v;
-					break;
-				case S_DISABLE_NEUTRINO:
-					setting->disable_neutrino = v;
 					break;
 				case S_GAMEID:
 					setting->app_gameid = v;
@@ -1321,6 +1298,7 @@ typedef struct
 	int mode;        /* DASH_PICK_* */
 	const char *ext; /* file filter, NULL = any */
 	int mc_alias;    /* store mc0:/mc1: as mc: like the classic screens */
+	int *disabled;   /* optional loader opt-out, independent of the saved path */
 } PathSpec;
 
 static int pathInfo(int id, PathSpec *p)
@@ -1351,12 +1329,15 @@ static int pathInfo(int id, PathSpec *p)
 			return 1;
 		case S_POPS_PATH:
 			p->field = setting->popstarter_file, p->size = sizeof(setting->popstarter_file), p->ext = "ELF", p->mc_alias = 1;
+			p->disabled = &setting->disable_popstarter;
 			return 1;
-		case S_EMBER_DIR:
-			p->field = setting->ember_dir, p->size = sizeof(setting->ember_dir), p->mode = DASH_PICK_FOLDER;
+		case S_EMBER_PATH:
+			p->field = setting->ember_dir, p->size = sizeof(setting->ember_dir), p->ext = "ELF";
+			p->disabled = &setting->disable_ember;
 			return 1;
 		case S_NEUTRINO_PATH:
 			p->field = setting->neutrino_file, p->size = sizeof(setting->neutrino_file), p->ext = "ELF", p->mc_alias = 1;
+			p->disabled = &setting->disable_neutrino;
 			return 1;
 	}
 	return 0;
@@ -1393,6 +1374,11 @@ static void mcAlias(char *path, int size)
 /* Applies a changed path setting (fonts and languages are loaded now). */
 static void pathApplied(int id)
 {
+	PathSpec ps;
+
+	/* Choosing or clearing a location restores normal loader behavior. */
+	if (pathInfo(id, &ps) && ps.disabled)
+		*ps.disabled = 0;
 	classic_dirty = 1;
 	if (id == S_LANG_FILE || id == S_FONT_FILE) {
 		/* these read files on the UI thread */
@@ -1456,7 +1442,7 @@ static void clearPath(const SetItem *it)
 {
 	PathSpec ps;
 
-	if (!pathInfo(it->id, &ps) || ps.field[0] == '\0')
+	if (!pathInfo(it->id, &ps) || (!ps.field[0] && !(ps.disabled && *ps.disabled)))
 		return;
 	ps.field[0] = '\0';
 	pathApplied(it->id);
@@ -2403,11 +2389,6 @@ static void runAction(int id)
 		case S_LAUNCHKEYS:
 			openPage(P_LKEY);
 			break;
-#if defined(ETH) && defined(WLE_NATIVE_HTTPS)
-		case S_CHECK_UPDATES:
-			dashToolsCheckUpdates();
-			break;
-#endif
 		case S_ABOUT_PROJECT:
 			dashShowAbout();
 			break;
@@ -2495,7 +2476,6 @@ static int itemDisabled(const SetItem *it)
 		return 0;
 	switch (it->id) {
 		case S_SVOL: return !dashCfg.sound;
-		case S_BGMVOL: return !dashCfg.bgm;
 		case S_USBKBD_FILE:
 		case S_KBDMAP_FILE: return !setting->usbkbd_used;
 		case S_FONT_FILE: return dashTheme.font != DASH_FONT_SYSTEM;
@@ -2514,7 +2494,6 @@ static const char *disabledHelp(const SetItem *it)
 {
 	switch (it->id) {
 		case S_SVOL: return "Enable Interface sounds to adjust their volume.";
-		case S_BGMVOL: return "Enable Background music to adjust its volume.";
 		case S_USBKBD_FILE:
 		case S_KBDMAP_FILE: return "Enable USB keyboard to configure its driver and key map.";
 		case S_FONT_FILE: return "Choose the System font above to use an external font file.";
@@ -2547,18 +2526,24 @@ static void settingsMenu(void)
 static void editPathMenu(const SetItem *it)
 {
 	PathSpec ps;
-	int r;
+	int r, count;
 	DashMenuItem menu[] = {
 	    {DI_FOLDER, "Choose a location...", NULL, 0},
-	    {DI_CLOSE, "Clear location", "Use the default behavior", 0}};
+	    {DI_CLOSE, "Clear location", "Use the default behavior", 0},
+	    {DI_CLOSE, "Disabled", "Keep the saved path; disable this loader", 0}};
 	if (!pathInfo(it->id, &ps))
 		return;
-	menu[1].disabled = !ps.field[0];
-	r = dashModalMenu(it->label, ps.field[0] ? ps.field : "Default", menu, NITEMS(menu), 0);
+	count = ps.disabled ? NITEMS(menu) : NITEMS(menu) - 1;
+	menu[1].disabled = !ps.field[0] && !(ps.disabled && *ps.disabled);
+	r = dashModalMenu(it->label, ps.disabled && *ps.disabled ? "Disabled" : ps.field[0] ? ps.field : "Default", menu, count, 0);
 	if (r == 0)
 		editPath(it);
 	else if (r == 1)
 		clearPath(it);
+	else if (r == 2 && ps.disabled && !*ps.disabled) {
+		*ps.disabled = 1;
+		classic_dirty = 1;
+	}
 }
 
 static void editLaunchMenu(const SetItem *it)
@@ -2681,18 +2666,6 @@ static void settingsUpdate(float dt)
 	item_anim = dashApproach(item_anim, (float)item, 16.0f * sp, dt);
 }
 
-static const char *actionStatus(int id)
-{
-	switch (id) {
-#if defined(ETH) && defined(WLE_NATIVE_HTTPS)
-		case S_CHECK_UPDATES:
-			return "Check now";
-#endif
-		default:
-			return NULL;
-	}
-}
-
 static void settingsDraw(void)
 {
 	int i;
@@ -2761,8 +2734,7 @@ static void settingsDraw(void)
 			continue;
 		}
 		{
-			const char *ast = it->type == ST_ACTION ? actionStatus(it->id) : NULL;
-			float label_w = it->type == ST_ACTION ? (ast ? iw * 0.58f : iw - 70) : iw * 0.56f - 50;
+			float label_w = it->type == ST_ACTION ? iw - 70 : iw * 0.56f - 50;
 			dashTextFit(ix + 38, y + 4.0f, label_w, it->label, DASH_FS_SMALL, col);
 		}
 		if (it->type == ST_COLOR) {
@@ -2808,8 +2780,11 @@ static void settingsDraw(void)
 			else if (it->type == ST_PATH) {
 				pathInfo(it->id, &ps);
 				set = ps.field[0] != '\0';
-				/* Show which loader installation is configured, not just its name. */
-				if (set && (it->id == S_POPS_PATH || it->id == S_NEUTRINO_PATH || it->id == S_EMBER_DIR))
+				/* Loader rows show their state or the full configured location. */
+				if (ps.disabled && *ps.disabled) {
+					v = "Disabled";
+					set = 0;
+				} else if (set && ps.disabled)
 					v = ps.field;
 				else
 					v = pathLeaf(ps.field, leaf, sizeof(leaf));
@@ -2836,10 +2811,6 @@ static void settingsDraw(void)
 					dashTextFit(vx, y + 4.0f, maxw, v, DASH_FS_SMALL, set && !disabled ? DASH_C_ACCENT : DASH_C_TEXT3);
 			}
 		} else {
-			const char *ast = actionStatus(it->id);
-			if (ast != NULL && ast[0] != '\0')
-				dashTextRight(ix + iw - 32, y + 4.0f, ast, DASH_FS_SMALL,
-				              disabled ? DASH_C_TEXT3 : (on ? DASH_C_ACCENT : DASH_C_TEXT2));
 			dashIcon(DI_PLAY, ix + iw - 22, y + 8, 12, DASH_C_TEXT3);
 		}
 		dashGfxPopAlpha();

@@ -31,8 +31,8 @@ The bundled audsrv IRX disassembly matches the
 [upstream ADPCM driver](https://github.com/ps2dev/ps2sdk/blob/master/iop/sound/audsrv/src/adpcm.c)
 for playback and volume: playback checks ENDX and keys on the requested voice,
 and volume writes that voice's left/right parameters. It provides no per-voice
-stop API. Music Off retains a muted looping voice 23. No driver replacement or
-inaudible-music workaround is included in this correction.
+stop API. At this stage Music Off retained a muted looping voice 23. No driver
+replacement or music-gain workaround was included in that correction.
 
 ## Evidence and remaining validation
 
@@ -57,3 +57,19 @@ accelerated scrolling and section switches in all three music states. If
 isolated presses still disappear at Off/0%, the music-dependent hardware
 symptom remains unresolved and requires playback/result diagnostics on that
 console; passing the host cadence test is not proof that symptom is fixed.
+
+## October 28 user-requested workaround
+
+The physical-console symptom persisted. At the user's request, runtime music
+now stays at 5% whenever the requested music switch is Off or its volume is
+zero. This also starts the sidecar from an Off/zero saved configuration.
+The UI presents Off/0%; stored user values remain separate from the effective
+playback gain. Increasing Music volume re-enables normal playback, and the
+Background music On action leaves zero volume at the smallest UI step (10%).
+Music gain is set before the first key-on to avoid a startup burst.
+Suspend and shutdown continue to mute/stop audio for application handoff.
+The workaround requires a readable BGM.ADP on an already active boot stack;
+missing/invalid music keeps the previous silent fallback and once-per-session
+read policy. Existing voice reservations and SFX volumes are unchanged.
+This implements the requested workaround; console testing is still needed
+to establish whether it prevents the reported dropout/cutoff symptom.

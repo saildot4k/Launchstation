@@ -19,11 +19,9 @@ enum ToolAction {
 	TA_HEADER = 0,
 	TA_MISC,
 	TA_BROWSER,
-	TA_BROWSER_AT,
-	TA_MISC_MENU,
 	TA_EDITOR,
 	TA_USB_DIAG,
-	TA_SOUND_DIAG
+	TA_CHECK_UPDATES
 };
 
 typedef struct
@@ -35,38 +33,35 @@ typedef struct
 	const char *note; /* safety note shown in the detail panel */
 	int confirm;      /* 1: ask before running, 2: dangerous or leaves Launchstation (red confirm) */
 	size_t misc_offset;
-	const char *path;
 } Tool;
 
 #define MISC(field) offsetof(SETTING, field)
 
 static const Tool tools[] = {
-    {TA_HEADER, -1, "ESSENTIALS", NULL, NULL, 0, 0, NULL},
-    {TA_BROWSER, DI_FOLDER, "File Browser", "Browse every device, copy, move, rename, delete, create folders, build and extract PSU saves, mount VMC images and launch anything.", "Press Triangle inside the browser for file operations; Square selects.", 0, 0, NULL},
-    {TA_EDITOR, DI_TEXT, "Text Editor", "Edit CNF, CFG, TXT, INI and argument files. Also used to launch an ELF with custom arguments.", NULL, 0, 0, NULL},
-    {TA_MISC, DI_DISC, "Start disc", "Boot the disc in the drive: PS2 and PS1 games, DVD Video (with the console's player) and ESR discs.", NULL, 0, MISC(Misc_PS2Disc), NULL},
-    {TA_BROWSER_AT, DI_DISC, "PS1 VCDs (POPStarter)", "Open the File Browser; select a .VCD image to start it through POPStarter.", "POPStarter and Ember coexist; the file format chooses the PS1 core automatically.", 0, 0, ""},
-    {TA_BROWSER_AT, DI_DISC, "PS1 images (Ember)", "Open the File Browser; select a .CUE, .BIN or PS1 .EXE inside <Ember directory>/games/<Game>/ to start Ember.", "The umbrella can be named anything. Its 512 KB bios.bin stays local; if ember.elf is missing, Settings can supply it from another Ember directory.", 0, 0, ""},
-    {TA_BROWSER_AT, DI_DISC, "PS2 ISOs (Neutrino)", "Open the File Browser; select a .ISO image to start it through Neutrino.", "Set Neutrino under Settings > Launching > Disc & image loaders. The game device is also searched automatically.", 0, 0, ""},
-    {TA_HEADER, -1, "STORAGE", NULL, NULL, 0, 0, NULL},
-    {TA_MISC_MENU, DI_TOOLS, "MISC commands", "Choose a built-in command from the popup menu.", NULL, 0, 0, NULL},
-    {TA_USB_DIAG, DI_USB, "USB unit diagnostics", "Inspect the cached USB drive mask without IO, or manually probe logical USB unit 0 or 1 one at a time.", "Each manual probe is a synchronous IOP request and could freeze a failing console. Logical units may not match physical USB ports.", 0, 0, NULL},
-    {TA_MISC, DI_HDD, "HDD Manager", "Create, remove, rename and expand APA partitions, view HDL game information and format the internal HDD.", "Partition changes and formatting are permanent.", 0, MISC(Misc_HddManager), NULL},
-    {TA_MISC, DI_MC, "Memory card exploit installer", "Install a memory card system-update exploit for this console, another model or region, or PSX/DESR.", "Writes system folders to the memory card. Follow the on-screen checks carefully.", 0, MISC(Misc_Exploit_Installer), NULL},
-    {TA_HEADER, -1, "SYSTEM", NULL, NULL, 0, 0, NULL},
-    {TA_SOUND_DIAG, DI_PLAY, "Audio diagnostics", "View interface playback counters and the last rejected sound request.", "After reproducing missing sounds, open this page and report the requested, started and failed counts. Values cover this Launchstation session; accepted playback does not measure output at the speakers.", 0, 0, NULL},
-    {TA_MISC, DI_APP, "PS2 system browser", "Leave Launchstation and open the console's own Browser.", NULL, 2, MISC(Misc_PS2Browser), NULL},
-    {TA_MISC, DI_APP, "OSDSYS", "Start the console's OSD (or the OSDSYS path configured in Launchstation).", NULL, 2, MISC(Misc_OSDSYS), NULL},
+    {TA_HEADER, -1, "ESSENTIALS", NULL, NULL, 0, 0},
+    {TA_BROWSER, DI_FOLDER, "File Browser", "Browse every device, copy, move, rename, delete, create folders, build and extract PSU saves, mount VMC images and launch anything.", "Press Triangle inside the browser for file operations; Square selects.", 0, 0},
+    {TA_EDITOR, DI_TEXT, "Text Editor", "Edit CNF, CFG, TXT, INI and argument files. Also used to launch an ELF with custom arguments.", NULL, 0, 0},
+    {TA_MISC, DI_DISC, "Start disc", "Boot the disc in the drive: PS2 and PS1 games, DVD Video (with the console's player) and ESR discs.", NULL, 0, MISC(Misc_PS2Disc)},
+    {TA_HEADER, -1, "STORAGE", NULL, NULL, 0, 0},
+    {TA_USB_DIAG, DI_USB, "USB unit diagnostics", "Inspect the cached USB drive mask without IO, or manually probe logical USB unit 0 or 1 one at a time.", "Each manual probe is a synchronous IOP request and could freeze a failing console. Logical units may not match physical USB ports.", 0, 0},
+    {TA_MISC, DI_HDD, "HDD Manager", "Create, remove, rename and expand APA partitions, view HDL game information and format the internal HDD.", "Partition changes and formatting are permanent.", 0, MISC(Misc_HddManager)},
+    {TA_MISC, DI_MC, "Memory card exploit installer", "Install a memory card system-update exploit for this console, another model or region, or PSX/DESR.", "Writes system folders to the memory card. Follow the on-screen checks carefully.", 0, MISC(Misc_Exploit_Installer)},
+    {TA_HEADER, -1, "SYSTEM", NULL, NULL, 0, 0},
+    {TA_MISC, DI_APP, "PS2 system browser", "Leave Launchstation and open the console's own Browser.", NULL, 2, MISC(Misc_PS2Browser)},
+    {TA_MISC, DI_APP, "OSDSYS", "Start the console's OSD (or the OSDSYS path configured in Launchstation).", NULL, 2, MISC(Misc_OSDSYS)},
 #ifdef ETH
-    {TA_MISC, DI_NETWORK, "FTP Server", "Start FTP on demand, accept remote commands, and receive staged/resumable ISO transfers from MrRexD-compatible PC tools.", "Switching to Host, UDPFS or Internet clock sync reboots the IOP and stops this server.", 0, MISC(Misc_PS2Net), NULL},
+    {TA_MISC, DI_NETWORK, "FTP Server", "Start FTP on demand, accept remote commands, and receive staged/resumable ISO transfers from MrRexD-compatible PC tools.", "Switching to Host, UDPFS or Internet clock sync reboots the IOP and stops this server.", 0, MISC(Misc_PS2Net)},
 #endif
-    {TA_MISC, DI_INFO, "System information", "Console model, ROM version, boot path, loaded configuration and debug details.", NULL, 0, MISC(Misc_Debug_Info), NULL},
-    {TA_MISC, DI_CHIP, "Build information", "Features and drivers included in this build of Launchstation.", NULL, 0, MISC(Misc_Show_Build_Info), NULL},
-    {TA_MISC, DI_TEXT, "Font viewer", "Show every glyph of the active font.", NULL, 0, MISC(Misc_ShowFont), NULL},
-    {TA_MISC, DI_INFO, "About Launchstation", "Credits and version.", NULL, 0, MISC(Misc_About_uLE), NULL},
-    {TA_HEADER, -1, "POWER", NULL, NULL, 0, 0, NULL},
-    {TA_MISC, DI_REFRESH, "Reboot IOP", "Restart the I/O processor and all device drivers. Devices are detected again when used.", NULL, 2, MISC(Misc_Reboot_IOP), NULL},
-    {TA_MISC, DI_POWER, "Power off", "Turn the console off.", NULL, 2, MISC(Misc_PS2PowerOff), NULL},
+    {TA_MISC, DI_INFO, "System information", "Console model, ROM version, boot path, loaded configuration and debug details.", NULL, 0, MISC(Misc_Debug_Info)},
+    {TA_MISC, DI_CHIP, "Build information", "Features and drivers included in this build of Launchstation.", NULL, 0, MISC(Misc_Show_Build_Info)},
+    {TA_MISC, DI_TEXT, "Font viewer", "Show every glyph of the active font.", NULL, 0, MISC(Misc_ShowFont)},
+    {TA_MISC, DI_INFO, "About Launchstation", "Credits and version.", NULL, 0, MISC(Misc_About_uLE)},
+#if defined(ETH) && defined(WLE_NATIVE_HTTPS)
+    {TA_CHECK_UPDATES, DI_REFRESH, "Check for updates", "Compare with the rolling latest release; a newer build can be downloaded, SHA-256 verified and installed in place.", NULL, 0, 0},
+#endif
+    {TA_HEADER, -1, "POWER", NULL, NULL, 0, 0},
+    {TA_MISC, DI_REFRESH, "Reboot IOP", "Restart the I/O processor and all device drivers. Devices are detected again when used.", NULL, 2, MISC(Misc_Reboot_IOP)},
+    {TA_MISC, DI_POWER, "Power off", "Turn the console off.", NULL, 2, MISC(Misc_PS2PowerOff)},
 };
 
 #define NTOOLS ((int)(sizeof(tools) / sizeof(tools[0])))
@@ -464,61 +459,6 @@ static void dashToolsUsbUnitDiagnostics(void)
 	                 "Logical USB units are not guaranteed to match physical ports.");
 }
 
-/* Close the command popup before dispatching so native tab switches are
- * immediately visible. Labels follow the configured/localized MISC paths. */
-static void showMiscCommands(void)
-{
-	const struct {
-		const char *path;
-		int icon;
-	} commands[] = {
-	    {setting->Misc_PS2Disc, DI_DISC},
-	    {setting->Misc_FileBrowser, DI_FOLDER},
-	    {setting->Misc_PS2Browser, DI_APP},
-	    {setting->Misc_PS2Net, DI_NETWORK},
-	    {setting->Misc_PS2PowerOff, DI_POWER},
-	    {setting->Misc_HddManager, DI_HDD},
-	    {setting->Misc_TextEditor, DI_TEXT},
-	    {setting->Misc_Configure, DI_SETTINGS},
-	    {setting->Misc_ShowFont, DI_TEXT},
-	    {setting->Misc_Debug_Info, DI_INFO},
-	    {setting->Misc_About_uLE, DI_INFO},
-	    {setting->Misc_Show_Build_Info, DI_CHIP},
-	    {setting->Misc_OSDSYS, DI_APP},
-	    {setting->Misc_Exploit_Installer, DI_MC},
-	    {setting->Misc_Reboot_IOP, DI_REFRESH}};
-	DashMenuItem items[sizeof(commands) / sizeof(commands[0])];
-	const char *paths[sizeof(commands) / sizeof(commands[0])];
-	size_t prefix = strlen(setting->Misc);
-	unsigned int i;
-	int count = 0, selected;
-
-	for (i = 0; i < sizeof(commands) / sizeof(commands[0]); i++) {
-		const char *path = commands[i].path;
-
-		if (strncmp(path, setting->Misc, prefix) || path[prefix] == '\0')
-			continue;
-		items[count].icon = commands[i].icon;
-		items[count].label = getMiscEntryDisplayName(setting->Misc, path + prefix);
-		items[count].detail = NULL;
-		items[count].disabled = 0;
-		paths[count++] = path;
-	}
-	if (count == 0)
-		return;
-	selected = dashModalMenu("MISC commands", NULL, items, count, 0);
-	if (selected >= 0 && selected < count)
-		dashRunMisc(paths[selected]);
-}
-
-static void showSoundDiagnostics(void)
-{
-	char status[512];
-
-	dashSoundGetStatus(status, sizeof(status));
-	dashModalMessage(DI_PLAY, "Audio diagnostics", status, NULL);
-}
-
 static void runTool(const Tool *t)
 {
 	if (t->confirm) {
@@ -538,20 +478,14 @@ static void runTool(const Tool *t)
 		case TA_BROWSER:
 			dashNavigateFilesTab(NULL);
 			break;
-		case TA_BROWSER_AT:
-			dashNavigateFilesTab(t->path);
-			break;
-		case TA_MISC_MENU:
-			showMiscCommands();
-			break;
 		case TA_EDITOR:
 			dashOpenTextEditor(NULL);
 			break;
 		case TA_USB_DIAG:
 			dashToolsUsbUnitDiagnostics();
 			break;
-		case TA_SOUND_DIAG:
-			showSoundDiagnostics();
+		case TA_CHECK_UPDATES:
+			dashToolsCheckUpdates();
 			break;
 	}
 }

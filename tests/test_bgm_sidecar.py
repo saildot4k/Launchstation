@@ -38,6 +38,7 @@ typedef struct { void *buffer; } audsrv_adpcm_t;
 #define MAX_PATH 256
 #define BGM_MAX_BYTES (1024*1024)
 #define DASH_BGM_CHANNEL 23
+#define BGM_WORKAROUND_VOLUME 5
 #define SND_SFX_CH_MAX 23
 #define SND_CURSOR_CH_COUNT 6
 #define FIO_O_RDONLY 1
@@ -51,6 +52,7 @@ static int sound_retry;
 static char LaunchElfBootDir[MAX_PATH]="usb0:/BOOT/",LaunchElfDir[MAX_PATH]="mc0:/SYS-CONF/";
 static int exists=1,loaded=1,busy,parked,opens,uploads,plays,volumes,quit_calls,hard_stops,allocs;
 static int size=64,bytes=64,pos,close_error,upload_error;
+static int music_volume,volume_error,bad_channel_reply;
 static u8 file[64];
 static char opened[MAX_PATH];
 static unsigned int getIopResetGeneration(void) { return reset_generation; }
@@ -87,10 +89,15 @@ static int audsrv_load_adpcm(audsrv_adpcm_t *s,void *p,int n) {
     if(upload_error)return -1; s->buffer=p; return 0;
 }
 static int audsrv_ch_play_adpcm(int ch,audsrv_adpcm_t *s) {
-    assert(ch==23 && s->buffer==bgm_data && bgm_data); plays++; return ch;
+    assert(ch==23 && s->buffer==bgm_data && bgm_data);
+    assert(music_volume==(dashCfg.bgm && dashCfg.bgm_vol>0 ? dashCfg.bgm_vol : 5));
+    plays++; return bad_channel_reply?24:ch;
 }
-static void audsrv_adpcm_set_volume_and_pan(int ch,int v,int p) {
-    assert(ch>=0 && ch<=23 && v>=0 && v<=100 && p==0); volumes++;
+static int audsrv_adpcm_set_volume_and_pan(int ch,int v,int p) {
+    assert(ch>=0 && ch<=23 && v>=0 && v<=100 && p==0);
+    if(volume_error)return -1;
+    if(ch==23)music_volume=v;
+    volumes++;return 0;
 }
 static int audsrv_adpcm_init(void) { hard_stops++; return 0; }
 static int audsrv_stop_audio(void) { hard_stops++; return 0; }
@@ -104,7 +111,8 @@ static int dashSoundInit(void) {
     sound_reboot_generation=reset_generation; return 1;
 }
 """
-for signature in ("static int prepareBgmLoop(", "static int loadBgmSidecar(", "void dashBgmSetVolume(",
+for signature in ("int dashBgmRequestedVolume(", "static int bgmPlaybackVolume(",
+                  "static int prepareBgmLoop(", "static int loadBgmSidecar(", "void dashBgmSetVolume(",
                   "void dashBgmStop(", "void dashBgmStart(",
                   "void dashSoundShutdown(", "void dashSoundMaintain(",
                   "void dashSoundSuspend(", "void dashSoundApplyVolume("):
@@ -115,11 +123,30 @@ static void reset(void) {
     sound_ready=1; sound_reboot_generation=reset_generation;
     exists=loaded=1; busy=parked=close_error=upload_error=0;
     size=bytes=64; dashCfg.sound=dashCfg.bgm=1;
+    dashCfg.bgm_vol=80;music_volume=-1;volume_error=bad_channel_reply=0;
     memset(file,0,sizeof(file)); memcpy(file,"APCM",4);
     file[4]=file[5]=file[6]=1; file[8]=0xac; file[9]=3;
     opens=uploads=plays=volumes=hard_stops=0;
 }
 int main(void) {
+    /* Start the existing sidecar even from an Off/zero-volume saved state,
+     * including when interface effects are also Off. The first key-on
+     * already has the intended low volume, and frame maintenance never
+     * repeats uploads/playback or changes the saved music choices. */
+    for(int effects=0;effects<2;effects++)for(int music=0;music<2;music++)
+    for(int volume=0;volume<=40;volume+=40) {
+        reset();dashCfg.sound=effects;dashCfg.bgm=music;dashCfg.bgm_vol=volume;
+        dashBgmStart();
+        assert(bgm_channel==23 && music_volume==(music && volume ? volume : 5));
+        assert(opens==1 && uploads==1 && plays==1);
+        for(int i=0;i<20;i++)dashSoundMaintain();
+        assert(opens==1 && uploads==1 && plays==1);
+        assert(dashCfg.sound==effects && dashCfg.bgm==music && dashCfg.bgm_vol==volume);
+        dashSoundSuspend();assert(music_volume==0);
+        dashSoundMaintain();assert(music_volume==0); /* launch silence is real */
+        dashBgmStart();assert(music_volume==(music && volume ? volume : 5));
+        dashSoundShutdown();assert(music_volume==0 && !allocs);
+    }
     reset(); dashBgmStart();
     assert(bgm_loaded && bgm_channel==23 && allocs==1 && opens==1 && uploads==1 && plays==1);
     assert(file[17]==0 && file[33]==0 && file[49]==0); /* never mutate the sidecar */
@@ -130,6 +157,10 @@ int main(void) {
     dashSoundSuspend(); dashSoundMaintain(); dashSoundApplyVolume(); dashBgmStart();
     assert(quit_calls==quits && !hard_stops && opens==1 && uploads==1 && plays==1);
     assert(soundAlive() && allocs==1 && bgm_channel==23);
+    busy=1;dashCfg.bgm=0;dashBgmStart();assert(music_volume==5 && plays==1);
+    dashCfg.bgm=1;dashCfg.bgm_vol=30;dashBgmStart();assert(music_volume==30 && plays==1);
+    dashCfg.bgm_vol=0;dashBgmStart();assert(music_volume==5 && plays==1);
+    busy=0;dashCfg.bgm_vol=80;
     dashCfg.bgm=0; dashBgmStop(); dashCfg.bgm=1; dashBgmStart();
     assert(opens==1 && plays==1 && volumes>1);
     /* Missing file is silent, attempted once, and explicit off/on retries. */
@@ -159,6 +190,8 @@ int main(void) {
         dashSoundMaintain(); assert(opens==1);
     }
     reset(); upload_error=1; dashBgmStart(); assert(uploads==1 && !plays && !allocs);
+    reset(); volume_error=1; dashBgmStart(); assert(!plays && bgm_channel<0);
+    reset(); bad_channel_reply=1; dashBgmStart(); assert(plays==1 && bgm_channel<0);
     /* Service reset frees the old EE buffer and reloads on the new IOP. */
     reset(); dashBgmStart(); reset_generation++; dashSoundMaintain();
     assert(allocs==1 && opens==2 && uploads==2 && plays==2 && soundAlive());

@@ -34,7 +34,7 @@ assert "setting->ember_dir" in ember
 assert "configuredEmberElf" in ember
 assert "ensureLocalEmber" in ember
 assert "copyElf(configured, ember_elf)" in ember
-assert "set an Ember directory in Settings" in ember
+assert "set the Ember path in Settings" in ember
 
 # The target umbrella owns the BIOS and game/save tree.
 assert "ember.elf" in ember
@@ -62,9 +62,7 @@ assert "dashStoreFlushWait" in dash_main
 assert "child_argv0_override" in elf
 assert "WLE_PFS_WRITETHROUGH" in elf
 
-# Browser surfaces both cores independently.
-assert 'PS1 VCDs (POPStarter)' in tools
-assert 'PS1 images (Ember)' in tools
+# Browser routes remain independent of the removed Tools image shortcuts.
 assert 'genCmpFileExt(path, "CUE")' in fileops
 assert "IsEmberGamePath(path)" in fileops
 assert 'genCmpFileExt(path, "CUE")' in browser
@@ -75,13 +73,15 @@ for ext in ('"CUE"', '"BIN"'):
 assert "ember.o" in makefile
 assert "- src/ember.c" in yaml
 
-# Classic config persists the Ember directory and Settings exposes a folder picker.
+# Preserve the historical CNF key while selecting an ELF in Settings.
 config = (root / "src/config.c").read_text(encoding="utf-8")
 settings = (root / "src/dash_settings.c").read_text(encoding="utf-8")
 assert "char ember_dir[MAX_PATH]" in header
 assert "EMBER_DIR = %s" in config
 assert 'strcmp(name, "EMBER_DIR")' in config
-assert "S_EMBER_DIR" in settings
-assert "DASH_PICK_FOLDER" in settings
+assert "S_EMBER_PATH" in settings
+ember_picker = settings[settings.index("\t\tcase S_EMBER_PATH:", settings.index("static int pathInfo(")):]
+ember_picker = ember_picker[:ember_picker.index("\t\tcase S_NEUTRINO_PATH:")]
+assert 'p->ext = "ELF"' in ember_picker and 'DASH_PICK_FOLDER' not in ember_picker
 
 print("Ember + POPStarter parallel PS1 launch contract: OK")

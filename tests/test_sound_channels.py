@@ -33,7 +33,7 @@ code += header[header.index("enum DashSound {"):header.index("};") + 2] + "\n"
 stats_start = source.index("typedef struct SoundPlaybackStats {")
 stats_end = source.index("static SoundPlaybackStats playback;", stats_start) + len("static SoundPlaybackStats playback;")
 code += source[stats_start:stats_end] + "\n"
-code += "\n".join(re.findall(r"^#define (?:DASH_BGM_CHANNEL|SND_\w+) .+$", source, re.M)) + "\n"
+code += "\n".join(re.findall(r"^#define (?:DASH_BGM_CHANNEL|BGM_WORKAROUND_VOLUME|SND_\w+) .+$", source, re.M)) + "\n"
 code += r'''
 static audsrv_adpcm_t samples[DASH_SND_COUNT];
 static struct { int sound,sound_vol,bgm,bgm_vol; } dashCfg={1,60,1,80};
@@ -67,7 +67,8 @@ static int audsrv_adpcm_set_volume_and_pan(int ch,int volume,int pan) {
 }
 static int dashSoundInit(void) { init_calls++;return sound_ready; }
 '''
-for signature in ("static int soundAlive(", "void dashSoundApplyVolume(",
+for signature in ("int dashBgmRequestedVolume(", "static int bgmPlaybackVolume(",
+                  "static int soundAlive(", "void dashSoundApplyVolume(",
                   "void dashBgmSetVolume(", "void dashBgmStop("):
     code += function(signature)
 if "static int soundPlayChannel(" in source:
@@ -81,6 +82,15 @@ start = settings.index("\t\tcase S_SOUND:", settings.index("static void setChoic
 end = settings.index("\t\tcase S_SVOL:", start)
 code += "enum { S_SOUND };\nstatic void setSound(int v) { switch(S_SOUND) {\n"
 code += settings[start:end] + "}}\n"
+code += "static void dashBgmStart(void) { dashBgmSetVolume(); }\n"
+start = settings.index("\t\tcase S_BGM:", settings.index("static int choiceInfo("))
+end = settings.index("\t\tcase S_START:", start)
+code += "enum { S_BGM, S_BGMVOL };\nstatic const char *const pct_names[11];\n"
+code += "static int musicChoice(int id,int *cur,const char *const **names) { switch(id) {\n"
+code += settings[start:end] + "} return 0; }\n"
+start = settings.index("\t\tcase S_BGM:", settings.index("static void setChoice("))
+end = settings.index("\t\tcase S_START:", start)
+code += "static void setMusic(int id,int v) { switch(id) {\n" + settings[start:end] + "}}\n"
 code += r'''
 static void reset(void) {
     dashCfg.sound=1;dashCfg.sound_vol=60;dashCfg.bgm=1;dashCfg.bgm_vol=80;
@@ -93,13 +103,13 @@ static void reset(void) {
     for(int i=0;i<DASH_SND_COUNT;i++)samples[i].buffer=&samples[i];
     now+=1000;
 }
-static void check_music_muted(int off) {
+static void check_music_workaround(int off) {
     reset();
     if(off) {dashCfg.bgm=0;dashBgmStop();}
     else {dashCfg.bgm_vol=0;dashBgmSetVolume();}
-    assert(volumes[23]==0);
+    assert(volumes[23]==5 && dashBgmRequestedVolume()==0);
     int music_writes=volume_writes[23];
-    /* Saturated SFX pool: never steal the muted music voice. */
+    /* Saturated SFX pool: never steal the workaround's music voice. */
     for(int i=0;i<23;i++)available[i]=0;
     dashSoundPlay(DASH_SND_CONFIRM);
     assert(!automatic && !plays[23] && last_channel==-1);
@@ -107,7 +117,7 @@ static void check_music_muted(int off) {
     available[18]=1;volumes[18]=0;
     dashSoundPlay(DASH_SND_CONFIRM);
     assert(last_channel==18 && volumes[18]==60 && !available[18]);
-    assert(!plays[23] && volumes[23]==0 && volume_writes[23]==music_writes);
+    assert(!plays[23] && volumes[23]==5 && volume_writes[23]==music_writes);
     /* Repeated effects share SFX headroom, then resume when a voice ends. */
     for(int id=0;id<DASH_SND_COUNT;id++) {
         for(int i=0;i<23;i++)available[i]=0;
@@ -144,7 +154,23 @@ static void check_cursor_cadence(void) {
 }
 int main(void) {
     check_cursor_cadence();
-    check_music_muted(0);check_music_muted(1);
+    check_music_workaround(0);check_music_workaround(1);
+    /* Both routes display Off/0 without writing the runtime 5% into settings.
+     * Raising volume enables normal music; the toggle also escapes zero. */
+    reset();setMusic(S_BGM,0);
+    assert(dashCfg.bgm==0 && dashCfg.bgm_vol==80 && volumes[23]==5);
+    int choice=-1;const char *const *names=NULL;
+    assert(musicChoice(S_BGM,&choice,&names)==2 && choice==0);
+    assert(musicChoice(S_BGMVOL,&choice,&names)==11 && choice==0);
+    assert(dashCfg.bgm==0 && dashCfg.bgm_vol==80);
+    setMusic(S_BGMVOL,4);
+    assert(dashCfg.bgm==1 && dashCfg.bgm_vol==40 && volumes[23]==40);
+    assert(musicChoice(S_BGM,&choice,&names)==2 && choice==1);
+    setMusic(S_BGMVOL,0);
+    assert(dashCfg.bgm==1 && dashCfg.bgm_vol==0 && volumes[23]==5);
+    assert(musicChoice(S_BGM,&choice,&names)==2 && choice==0);
+    setMusic(S_BGM,1);
+    assert(dashCfg.bgm==1 && dashCfg.bgm_vol==10 && volumes[23]==10);
     /* Preferred cursor/transition pools and fixed effects remain deterministic. */
     reset();
     for(int id=0;id<DASH_SND_COUNT;id++) {

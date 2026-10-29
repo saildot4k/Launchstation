@@ -108,9 +108,9 @@ Drivers load on demand for maximum compatibility and initial boot speed.
 - [Bind any ELF to memory card](#Bind-ELF-to-Memory-Card-as-exploit-update), just provide PS2KEYS.dat (kelftool no longer needed on pc)
 - RetroGem Game ID for [PIXEL FX RetroGem](https://www.pixelfx.co/hdmi-retro-gem)
 - Launch PS1 VCDs through POPStarter with an optional custom POPStarter path and device-specific fallbacks.
-- Launch PS1 CUE/BIN/EXE images through Ember from any save-safe `<Ember directory>/games/<Game>/` umbrella. The umbrella name/location is configurable, and a configured Ember directory can supply `ember.elf` to a target device that lacks it. POPStarter remains the independent VCD path; format selects the core automatically.
-- Launch PS2 ISO images through Neutrino with custom or discovered loader paths, and R3Z per-launch compatibility (modes 0/2/3/5/7), GSM video, debug-colors and PS2-logo options. A valid ISO `SYSTEM.CNF` Game ID is used for RetroGem, and for best-effort MMCE card switching with on-demand initialization that preserves the mounted source and excludes MX4SIO. Independent Ember/POPStarter/Neutrino disable switches default to Off.
-- HTTPS update checks in Settings > System
+- Launch PS1 CUE/BIN/EXE images through Ember from any save-safe `<Ember directory>/games/<Game>/` umbrella. The umbrella name/location is configurable, and the configured Ember ELF path can supply `ember.elf` to a target device that lacks it. POPStarter remains the independent VCD path; format selects the core automatically.
+- Launch PS2 ISO images through Neutrino with custom or discovered loader paths, and R3Z per-launch compatibility (modes 0/2/3/5/7), GSM video, debug-colors and PS2-logo options. A valid ISO `SYSTEM.CNF` Game ID is used for RetroGem, and for best-effort MMCE card switching with on-demand initialization that preserves the mounted source and excludes MX4SIO. Each Ember/POPStarter/Neutrino path menu includes a Disabled choice; all three loaders are enabled by default.
+- HTTPS update checks in Tools, directly below About Launchstation
 - Writes to history file for disc launches for mmce vmc change
 - Applies deckard disc patches
 - X/0 applied per region if no config file is found so O is only default for Japan

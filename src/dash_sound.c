@@ -67,12 +67,27 @@ static int soundAlive(void)
  *     23: DASH_BGM_CHANNEL (looping background music, isolated from SFX)
  */
 #define DASH_BGM_CHANNEL 23
+#define BGM_WORKAROUND_VOLUME 5
 #define SND_SFX_CH_MAX 23
 #define SND_CURSOR_CH_BASE 8
 #define SND_CURSOR_CH_COUNT 6
 #define SND_TRANS_CH_BASE 14
 #define SND_TRANS_CH_COUNT 4
 #define SND_FALLBACK_CH_BASE 18
+
+int dashBgmRequestedVolume(void)
+{
+	return dashCfg.bgm ? dashCfg.bgm_vol : 0;
+}
+
+/* Physical consoles still lose/cut SFX when music is muted. Keep a nonzero
+ * music voice as the requested workaround; never write this gain to settings.
+ * Suspend/shutdown deliberately bypass it when handing control to another app. */
+static int bgmPlaybackVolume(void)
+{
+	int requested = dashBgmRequestedVolume();
+	return requested > 0 ? requested : BGM_WORKAROUND_VOLUME;
+}
 
 static void *blob_data(int id)
 {
@@ -116,10 +131,7 @@ int dashSoundInit(void)
 		return 0;
 	}
 	sound_tried_generation = getIopResetGeneration();
-	/* BGM and interface SFX are separate buses; initialize audsrv when
-	 * either one is enabled. */
-	if (!dashCfg.sound && !dashCfg.bgm)
-		return 0;
+	/* The music workaround also needs audsrv when both visible buses are Off. */
 	/* audsrv imports sceSd* from the libsd module: it must be resident first */
 	if (SifExecModuleBuffer(libsd_irx, size_libsd_irx, 0, NULL, &r) < 0 || r < 0) {
 		dashToast(DASH_TOAST_WARN, "Sound unavailable: libsd would not start");
@@ -172,14 +184,12 @@ int dashSoundInit(void)
 
 void dashSoundMaintain(void)
 {
-	if (!dashCfg.sound && !dashCfg.bgm)
-		return;
 	if (dashWorkerIoBusy() || dashIopParked())
 		return;
 	if (soundAlive()) {
 		/* A sidecar read deferred by IO/driver startup is tried when idle.
 		 * Missing/invalid files are attempted once, not on every frame. */
-		if (dashCfg.bgm && bgm_channel < 0 && !bgm_tried)
+		if (bgm_channel < 0 && !bgm_tried)
 			dashBgmStart();
 		return;
 	}
@@ -203,7 +213,9 @@ void dashSoundShutdown(void)
 		 * library's hard reset for ADPCM state: it stops every voice and frees
 		 * the uploaded sample list before audsrv_quit() releases RPC.
 		 */
-		dashBgmStop();
+		/* Settings Off keeps 5% playback; a real shutdown must mute instead. */
+		if (bgm_channel >= 0 && !dashIopParked())
+			audsrv_adpcm_set_volume_and_pan(bgm_channel, 0, 0);
 		audsrv_adpcm_init();
 		audsrv_stop_audio();
 		audsrv_quit();
@@ -270,7 +282,7 @@ void dashSoundGetStatus(char *out, int out_size)
 	         "Requested: %u; started: %u; failed: %u\nLast failure: %s",
 	         soundAlive() ? "ready" : "unavailable",
 	         dashCfg.sound ? "On" : "Off", dashCfg.sound_vol,
-	         dashCfg.bgm ? "On" : "Off", dashCfg.bgm_vol,
+	         dashBgmRequestedVolume() > 0 ? "On" : "Off", dashBgmRequestedVolume(),
 	         playback.requests, playback.started, playback.failed, failure);
 }
 
@@ -434,32 +446,34 @@ void dashBgmSetVolume(void)
 {
 	if (!soundAlive() || bgm_channel < 0 || dashIopParked())
 		return;
-	audsrv_adpcm_set_volume_and_pan(bgm_channel, dashCfg.bgm ? dashCfg.bgm_vol : 0, 0);
+	audsrv_adpcm_set_volume_and_pan(bgm_channel, bgmPlaybackVolume(), 0);
 }
 
 void dashBgmStop(void)
 {
 	bgm_tried = 0; /* an explicit off/on can discover a newly added sidecar */
-	/* audsrv has no per-channel stop API. Keep the looping voice alive but
-	 * muted so re-enabling BGM is instant and does not allocate another voice. */
-	if (soundAlive() && bgm_channel >= 0 && !dashIopParked())
-		audsrv_adpcm_set_volume_and_pan(bgm_channel, 0, 0);
+	/* This is the user-facing Off action; the workaround keeps the existing
+	 * voice at 5%. Maintain starts it later if the sidecar is not loaded yet. */
+	dashBgmSetVolume();
 }
 
 void dashBgmStart(void)
 {
 	int ch;
 
-	if (!dashCfg.bgm || dashIopParked() || dashWorkerIoBusy())
-		return;
-	if (!soundAlive() && !dashSoundInit())
+	if (dashIopParked())
 		return;
 
-	/* Already running: section/menu changes only preserve/restore volume. */
-	if (bgm_channel >= 0) {
+	/* A running voice can change gain during storage work without reading
+	 * the sidecar or loading drivers. Never lose a live Off/volume change. */
+	if (soundAlive() && bgm_channel >= 0) {
 		dashBgmSetVolume();
 		return;
 	}
+	if (dashWorkerIoBusy())
+		return;
+	if (!soundAlive() && !dashSoundInit())
+		return;
 
 	if (!bgm_loaded) {
 		const char *dir = LaunchElfBootDir[0] ? LaunchElfBootDir : LaunchElfDir;
@@ -472,8 +486,13 @@ void dashBgmStart(void)
 			return;
 	}
 
+	/* Apply the override before key-on, avoiding a full-volume startup burst. */
+	if (audsrv_adpcm_set_volume_and_pan(DASH_BGM_CHANNEL, bgmPlaybackVolume(), 0) != 0) {
+		dashToast(DASH_TOAST_WARN, "Music unavailable: could not set playback volume");
+		return;
+	}
 	ch = audsrv_ch_play_adpcm(DASH_BGM_CHANNEL, &bgm_sample);
-	if (ch < 0) {
+	if (ch != DASH_BGM_CHANNEL) {
 		dashToast(DASH_TOAST_WARN, "Music unavailable: reserved SPU2 voice busy");
 		return;
 	}

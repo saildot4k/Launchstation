@@ -8,6 +8,9 @@ A standard install folder has `LAUNCHSTATION.ELF`, `title.cfg`, `WLE-UPDATE-CA.P
 
 ## Native updater
 
+Choose **Tools > System > Check for updates**, directly below **About
+Launchstation**, in a build with native HTTPS support.
+
 Update checks, commit ancestry comparisons and package downloads use `saildot4k/Launchstation` on GitHub. Builds compiled with the previous NathanNeurotic endpoint need one manual installation of the corrected matching ZIP/PSU package before they can use this update source. Preserve existing settings and custom sidecars when installing it.
 
 If an older build reports `TLS handshake: X509 ... (-9984)`, install the corrected ELF **and the updated `WLE-UPDATE-CA.PEM` beside it** from the matching package. The old bundled CA file lacks Sectigo Root E46, used by GitHub's API and website when checked on October 26, 2026. Replacing only the ELF leaves that outdated file in use. Back up a custom CA bundle before replacing or extending it. Certificate date errors also require the PS2's date and time to be correct; verification remains required.

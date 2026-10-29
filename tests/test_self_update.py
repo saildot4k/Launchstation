@@ -45,7 +45,7 @@ assert "releaseAssetDigest" in tools
 assert '"digest"' in tools
 assert "selfUpdateInstall(ca_path, asset_digest" in tools
 assert '"Install update"' in tools
-assert "SHA-256 verified and installed in place" in settings
+assert "SHA-256 verified and installed in place" in tools
 
 assert "src/self_update.c" in yaml
 assert "sha256sum Launchstation.ELF > Launchstation.ELF.sha256" not in workflow
