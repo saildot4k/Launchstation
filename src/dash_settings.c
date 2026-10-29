@@ -320,7 +320,7 @@ static const SetItem system_items[] = {
     {ST_PAGE, P_PSU, "Memory card backup files", "PSU naming and overwrite rules used by File Browser operations."},
     {ST_ACTION, S_CLOCK_MANUAL, "Set PS2 clock manually...", "Enter the local date and time as YYYY-MM-DD HH:MM:SS; the hardware RTC is written and verified."},
     {ST_CHOICE, S_TEMP_UNITS, "PS2 Temperature Units (50K and later)", "Celsius or Fahrenheit beside the clock. Hidden automatically when the console has no supported temperature sensor."},
-    {ST_PATH, S_CNF_PATH, "Configuration folder", "Load and save LAUNCHELF.CNF in this folder instead of the default places."},
+    {ST_PATH, S_CNF_PATH, "Configuration override folder", "Load and save LAUNCHELF.CNF in this folder instead of the default places."},
     {ST_ACTION, S_SAVE_AS, "Save launch & tool settings to...", "Writes LAUNCHELF.CNF immediately to another location; dashboard and network settings are saved separately."},
     {ST_ACTION, S_INTRO, "Show welcome message again", "Show the introduction the next time the dashboard checks for it."},
     {ST_ACTION, S_ABOUT_PROJECT, "About Launchstation", "Version, commit, project origin, upstream credits and contributors."},
@@ -437,7 +437,7 @@ static const SetPage pages[P_COUNT] = {
 /* Seven rows leave room for the two-line help text above the hint bar
  * (dashDrawHints draws from y = 394); eight pushed it onto the buttons. */
 #define ITEM_ROWS 7
-static int page, item;
+static int page = P_ROOT, item;
 static int item_top;
 static float item_anim;
 static struct { int page, item, top; } page_stack[PAGE_DEPTH];
@@ -902,7 +902,7 @@ static void colorEditor(const char *title, int id)
 	classic = isClassicColor(id);
 	orig = *c;
 	nrows = (alpha ? 4 : 3) + 1; /* channels + swatch row */
-	h = 94.0f + nrows * 29.0f + 40.0f;
+	h = 94.0f + nrows * 29.0f + 64.0f;
 	y = (DASH_VH - h) * 0.5f + 10.0f;
 	for (i = 0; i < NSWATCH; i++)
 		if (swatches[i].r == c->r && swatches[i].g == c->g && swatches[i].b == c->b)
@@ -1025,14 +1025,9 @@ static void colorEditor(const char *title, int id)
 					}
 				}
 			}
-			{
-				float hx = x + 20, hy = y + h - 34;
-				hx = dashTextS(hx, hy + 4, "Left/Right adjust   L1/R1 +/-16", DASH_FS_CAPTION, DASH_C_TEXT3) + 14;
-				dashIcon(dashOkIcon(), hx, hy + 3, 14, DASH_C_TEXT2);
-				hx = dashTextS(hx + 18, hy + 4, "Done", DASH_FS_CAPTION, DASH_C_TEXT2) + 10;
-				dashIcon(dashBackIcon(), hx, hy + 3, 14, DASH_C_TEXT2);
-				dashTextS(hx + 18, hy + 4, "Cancel", DASH_FS_CAPTION, DASH_C_TEXT2);
-			}
+			/* Keep adjustment help above the standard coloured action hints. */
+			dashTextFit(x + 20, y + h - 54, w - 40, "Left/Right adjust   L1/R1 +/-16", DASH_FS_CAPTION, DASH_C_TEXT3);
+			dashModalHintRow(x + 20, y + h - 34, dashOkIcon(), "Done", dashBackIcon(), "Cancel");
 		}
 		dashGfxPopAlpha();
 		dashGfxPresent();
@@ -2460,13 +2455,9 @@ static const SetItem *curItem(void)
 
 static void settingsEnter(void)
 {
-	/* A new Settings visit starts at its overview; modal dialogs keep the
-	 * current page and the same session. */
-	if (!session) {
-		page = P_ROOT;
-		page_depth = item = item_top = 0;
-		item_anim = 0.0f;
-	}
+	/* Navigation survives tab changes independently of Save/Discard sessions.
+	 * The first visit starts at the overview via the static defaults above. */
+	item_anim = (float)item;
 	sessionBegin();
 }
 

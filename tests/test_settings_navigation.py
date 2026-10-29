@@ -48,11 +48,18 @@ static struct { int usbkbd_used,screen_x,screen_y,Init_Delay,timeout,TV_mode; ch
 static struct { int StartX,StartY; } gs_state={32,32}, *gsGlobal=&gs_state;
 static __typeof__(config) *setting = &config;
 static int session, begins, home, saves, reverts, changes, resets, edits, toast;
+static int dash_dirty, classic_dirty, net_dirty, session_saves, cfg_failed[2];
+static int leave_prompts, commits, discards;
+enum { SESSION_SAVE_CNF=1, SESSION_SAVE_NET=2, SESSION_SAVE_DASH=4,
+       CFG_SAVE_CNF=0, CFG_SAVE_NET=1 };
+static int dashStoreSettingsFailed(void) { return 0; }
 static int modal_result = -1, dirty = 1, failed,can576=1,video_menus;
 static int is576pSupported(void) { return can576; }
 typedef struct { int icon; const char *label, *detail; int disabled; } DashMenuItem;
 static void sessionBegin(void) { if (!session) { session = 1; begins++; } }
 static int anyDirty(void) { return dirty; }
+static void settingsCommit(void) { commits++; dirty=0; }
+static void settingsRevert(void) { discards++; dirty=0; }
 static int failedSaves(void) { return failed; }
 static int dashModalMenu(const char *t,const char *d,DashMenuItem *m,int n,int s) {
     (void)d; (void)s;
@@ -65,7 +72,9 @@ static int dashModalMenu(const char *t,const char *d,DashMenuItem *m,int n,int s
         else assert(!m[TV_mode_576P].detail);
         return modal_result;
     }
-    assert(n == 3); changes++;
+    assert(n == 3);
+    if (!strcmp(t,"Save your changes?")) { leave_prompts++; return modal_result; }
+    changes++;
     assert(m[0].disabled == !(dirty || failed) && m[1].disabled == !dirty);
     return modal_result;
 }
@@ -96,6 +105,7 @@ for signature in (
     "static int chooseVideoMode(",
     "static int themeSettingResettable(",
     "static const SetItem *curItem(",
+    "static int settingsLeave(",
     "static void settingsEnter(",
     "static int itemDisabled(",
     "static const char *disabledHelp(",
@@ -148,7 +158,7 @@ int main(void) {
     for(int k=SETTING_LK_AUTO;k<SETTING_LK_START;k++) assert(occurrences[S_LK_0+k]==1);
     assert(!occurrences[S_LK_0+SETTING_LK_START]); /* START is reserved for contextual actions. */
     for(int s=0;s<S_T_RESETCAT;s++) assert(occurrences[s]<=1);
-    settingsEnter(); assert(page==P_ROOT && begins==1);
+    settingsEnter(); assert(page==P_ROOT && !item && !item_top && !page_depth && begins==1);
     /* Wrap snaps regardless of page length, including a still-moving bar.
      * An ordinary adjacent move must leave the animation to settingsUpdate. */
     for(int p=0;p<P_COUNT;p++) {
@@ -172,6 +182,28 @@ int main(void) {
     item_top=item-ITEM_ROWS+1;
     int selected=item, top=item_top;
     settingsEnter(); assert(page==P_THEME_COLORS && item==selected && begins==1);
+    /* Tab visits end the editing session, but must keep the full navigation
+     * state. Cover clean exit, Save, Discard, and cancel/Keep editing. */
+    __typeof__(page_stack) parents;
+    memcpy(parents,page_stack,sizeof(parents));
+    int depth=page_depth;
+    for(int outcome=0;outcome<4;outcome++) {
+        dirty=outcome!=0; dash_dirty=dirty;
+        modal_result=outcome==1 ? 0 : outcome==2 ? 1 : 2;
+        int previous_begins=begins, prompts=leave_prompts;
+        item_anim=(float)selected-0.5f;
+        int allowed=settingsLeave();
+        assert(allowed==(outcome!=3));
+        assert(session==(outcome==3));
+        assert(leave_prompts==prompts+(outcome!=0));
+        if(allowed) settingsEnter();
+        assert(begins==previous_begins+allowed);
+        assert(page==P_THEME_COLORS && item==selected && item_top==top);
+        assert(page_depth==depth && !memcmp(parents,page_stack,sizeof(parents)));
+        if(allowed) assert(item_anim==(float)selected);
+    }
+    assert(commits==1 && discards==1);
+    dirty=1; dash_dirty=0;
     press(DASH_IN_BACK); assert(page==P_THEME && item==1);
     press(DASH_IN_BACK); assert(page==P_APPEARANCE && item==1);
     press(DASH_IN_BACK); assert(page==P_ROOT && item==0);
@@ -222,8 +254,11 @@ int main(void) {
     press(DASH_IN_LEFT);assert(setting->TV_mode==TV_mode_576P);
     modal_result=TV_mode_576P;press(DASH_IN_OK);assert(video_menus==2 && setting->TV_mode==TV_mode_576P);
     page=P_ROOT; page_depth=0; item=0; press(DASH_IN_BACK); assert(home==0);
-    session=0; page=P_THEME_COLORS; settingsEnter(); assert(page==P_ROOT && begins==2);
-    puts("PASS: all pages reachable, baseline controls unique, navigation/scroll, session menu and dependencies");
+    /* The overview itself also remembers a lower, scrolled selection. */
+    press(DASH_IN_R2); selected=item; item_top=item-ITEM_ROWS+1; top=item_top;
+    dirty=0; assert(settingsLeave()==1); settingsEnter();
+    assert(page==P_ROOT && item==selected && item_top==top && !page_depth);
+    puts("PASS: all pages reachable, baseline controls unique, tab memory/Back stack, session menu and dependencies");
 }
 """
 compiler = shutil.which("gcc") or shutil.which("clang")

@@ -177,11 +177,13 @@ safely rather than unplugging a drive during an active transfer.
 
 ## Settings navigation
 
-Settings opens at the overview. Confirm or Right opens a group; Back returns
-to the previous page with its selection and scroll position intact. Back at
-the overview returns Home through the normal save decision. Left also goes
-back on rows that do not use Left/Right to change a value. L2/R2 jump to the
-first/last row. The breadcrumb shows where the page lives.
+Settings first opens at the overview. Returning from another tab restores the
+current page, selection, scroll position and Back history, including after Save
+or Discard. Confirm or Right opens a group; Back returns to the previous page
+with its selection and scroll position intact. Use L1/R1 to switch tabs through
+the normal save decision. Left also goes back on rows that do not use Left/Right
+to change a value. L2/R2 jump to the first/last row. The breadcrumb shows where
+the page lives.
 
 Screen calibration previews video modes for 10 seconds so the display has
 time to resync. Press the shown Confirm button to keep the mode or the Back
