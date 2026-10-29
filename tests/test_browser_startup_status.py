@@ -74,7 +74,7 @@ static void ignore(float first,...) { (void)first; }
 static void modalBackdrop(float k) { (void)k;overlays++; }
 static int dashBackIcon(void) { return 0; }
 static void dashGfxPopAlpha(void) { }
-static void dashGfxPresent(void) { presents++; }
+static void dashGfxPresent(void) { assert(ticks==presents+1);presents++; }
 static void dashInputFlush(void) { flushes++; }
 static void fmtBytes(char *out,int n,u64 b) { (void)b;snprintf(out,n,"1 MB"); }
 static void dashTextScroll(float x,float y,float w,const char *text,float scale,DashColor c) {

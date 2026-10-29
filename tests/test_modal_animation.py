@@ -344,13 +344,29 @@ with tempfile.TemporaryDirectory(prefix="wle-modal-animation-") as tmp:
 # Every scene-owning frame loop must tick, including full-screen tools and
 # both worker-wait paths (the loading path ticks inside loadingDraw).
 if len(sys.argv) == 1:
+    # loadingDraw owns the tick for alternate loading views, including the
+    # browser's inline startup presenter. The callback must not tick again.
+    loading = function(ui, "static void loadingDraw(")
+    assert loading.count("dashVisualUpdate()") == 1
+    assert (loading.index("dashVisualUpdate()") < loading.index("loading_view(loading_title)")
+            < loading.index("return;") < loading.index("dashRenderScene()"))
     for name in ("dash_ui", "dash_widgets", "dash_settings", "dash_browser",
                  "dash_hdd", "dash_info", "dash_editor", "dash_worker"):
         # Count actual call sites, not prose in C comments. Embedded Files
         # draws through the shared dashboard frame and documents that path.
         text = re.sub(r"/\*.*?\*/|//[^\n]*", "", read(f"src/{name}.c"), flags=re.S)
-        assert text.count("dashVisualUpdate()") == text.count("dashRenderScene()"), name
         assert "1.0f / 60.0f" not in text and "1.0f / 30.0f" not in text, name
+        if name == "dash_browser":
+            presenter = function(text, "static void browserStartupDraw(const char *title)\n{")
+            assert presenter.count("dashRenderScene()") == 1
+            assert presenter.count("dashGfxPresent()") == 1
+            assert "dashVisualUpdate()" not in presenter
+            assert "dashLoadingSetView(browserStartupDraw)" in text
+            # Its tick was checked in loadingDraw above. Continue checking
+            # the browser's own frame loops, without counting this callback.
+            text = text.replace(presenter, "", 1)
+        ticks, renders = text.count("dashVisualUpdate()"), text.count("dashRenderScene()")
+        assert ticks == renders, f"{name}: {ticks} visual ticks for {renders} scene renders"
     run = function(shell, "void DashRun(")
     assert run.count("dashVisualUpdate()") == 1
     assert "anim_time +=" not in run and "dashBgUpdate(" not in run and "dashUiUpdate(" not in run
