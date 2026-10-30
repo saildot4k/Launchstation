@@ -31,6 +31,7 @@ static int draws, frames, reports;
 static int active=1, worker, loading_active=1;
 static int loading_done, loading_total;
 static char loading_status[128], loading_remaining[64];
+static char loading_transfer[4][96];
 static void dashStrCopy(char *out,const char *s,int size) { snprintf(out,size,"%s",s); }
 static void (*drawMsgOverride)(const char *);
 static void drawMsg(const char *s) { if (drawMsgOverride) drawMsgOverride(s); else draws++; }
@@ -56,8 +57,9 @@ int main(void) {
     assert(!draws && !frames && !reports);
     setStartupDriverStatusQuiet(0);
     strcpy(loading_remaining,"Remaining size: 0.00 MB");
+    strcpy(loading_transfer[0],"Current speed: 100 KB/s");
     loadingProgress("Checking memory card...",1,2);
-    assert(!loading_remaining[0]);
+    assert(!loading_remaining[0] && !loading_transfer[0][0]);
     assert(!strcmp(loading_status,"Checking memory card...") && loading_done==1 && loading_total==2);
     loadingProgress(NULL,0,0); assert(loading_status[0]);
     showLoadingModulesMsg("usb"); showRebootingIopMsg();
