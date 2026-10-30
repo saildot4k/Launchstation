@@ -20,6 +20,7 @@ Current ownership map, reviewed October 25, 2026. This describes the existing tr
 
 ## Boundaries to preserve
 
+- Use [saildot4k/wLaunchELF_R3Z 4.80](https://github.com/saildot4k/wLaunchELF_R3Z/tree/4.80) as the compatibility baseline for copying, moving, pasting, PSU creation/restoration and VMC browsing/transfers. Exact reuse of its working code is authorized where appropriate. Preserve native device contracts and the UDPFS final-byte fix; compare changes with that baseline before adding filesystem assumptions. See the [device-transfer audit](plans/2026-10-26-device-transfer-audit.md) for Launchstation-specific integration fixes and test limits.
 - UI thread owns drawing, input and application state. IO jobs execute serially; completion callbacks apply results on the UI thread. Read `dash_worker.c` before adding background work.
 - IO worker and UI must respect libmc/fileXio/PAD barriers. A path resolver can load a driver and reboot the IOP; it is not necessarily a pure string helper.
 - IOP reset generation invalidates mounts, clipboard assumptions, device caches and audio state. Worker shutdown/parking and launch handoff order are observable behavior.
@@ -77,10 +78,10 @@ and the HOST ioctl.
 | [filer.c](../src/filer.c) | Filesystem path translation, directory readers, partitions, USB/root device enumeration and shared browser/clipboard/transfer state. |
 | [filer_device.c](../src/filer_device.c) | Ensure source/destination device stacks and reject incompatible transfer combinations. |
 | [filer_mount.c](../src/filer_mount.c) | HDD/DVR partition mounts, VMC relationships and clipboard-aware unmounting. |
-| [filer_fileops.c](../src/filer_fileops.c) | Device-aware `gen*` open/read/write/seek/stat/directory/delete wrappers, shared sibling rename implementation and filename limits. |
+| [filer_fileops.c](../src/filer_fileops.c) | Device-aware `gen*` open/read/write/seek/stat/directory/delete wrappers, BDM FatFs stat-result normalization, shared sibling rename implementation and filename limits. |
 | [filer_browser.c](../src/filer_browser.c) | Classic browser loop/menu plus clipboard/paste entry points, VMC actions, free-space queries and launch-folder helper. |
 | [filer_actions.c](../src/filer_actions.c) | Delete/rename/mkdir, native case-only rename validation/dispatch, exploit-folder protection, title.cfg creation and timestamp editing/organization. |
-| [filer_copy.c](../src/filer_copy.c) | Recursive transfer engine, replacement staging/verification, metadata restoration, diagnostics and save-title reads. |
+| [filer_copy.c](../src/filer_copy.c) | Recursive transfer engine, batch file counting (including PSU payloads), replacement staging/verification, metadata restoration, diagnostics and save-title reads. |
 | [gui_sort.c](../src/gui_sort.c) | FILEINFO comparison and browser sort ordering. |
 | [gui_hdd0_format.c](../src/gui_hdd0_format.c) | HDD/DVR partition path and selection formatting helpers; not disk formatting implementation. |
 | [gui_texteditor.c](../src/gui_texteditor.c) | Determine whether a selected file can enter the text editor. |

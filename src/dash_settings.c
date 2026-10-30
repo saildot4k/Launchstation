@@ -300,7 +300,7 @@ static const SetItem net_items[] = {
 };
 
 static const SetItem language_items[] = {
-    {ST_CHOICE, S_LANGUAGE, "Language", "Language of the messages from file operations and tools."},
+    {ST_CHOICE, S_LANGUAGE, "Language", "Move through the languages to preview file-operation and tool messages."},
     {ST_PATH, S_LANG_FILE, "Language file", "External .LNG translation for the messages of the file operations and tools."},
 };
 
@@ -2573,6 +2573,41 @@ static void editLaunchMenu(const SetItem *it)
 		editLaunchKey(it, r);
 }
 
+/* Built-in previews only touch memory. Reload an external language override
+ * after the choice is accepted or cancelled, rather than doing storage IO on
+ * every highlighted row. */
+static char language_preview[128];
+
+static void languagePreview(int index)
+{
+	Set_Language(index);
+	snprintf(language_preview, sizeof(language_preview), "%s / %s / %s", LNG(Copy), LNG(Paste), LNG(Cancel));
+}
+
+static int chooseLanguage(const char *const *names, int n, int current)
+{
+	DashMenuItem items[BUILTIN_LANGUAGE_COUNT];
+	int saved = setting->language, i, result;
+
+	if (!dashWorkerAwaitAll("Preparing language preview"))
+		return -1;
+	for (i = 0; i < n; i++) {
+		items[i].icon = i == current ? DI_CHECK : -1;
+		items[i].label = names[i];
+		items[i].detail = NULL;
+		items[i].disabled = 0;
+	}
+	language_preview[0] = '\0';
+	dashModalSetPreview(languagePreview);
+	result = dashModalMenu("Language", language_preview, items, n, current);
+	if (result < 0) {
+		Set_Language(saved);
+		Load_External_Language();
+		refreshDirty(1);
+	}
+	return result;
+}
+
 static void settingsInput(const DashInput *in)
 {
 	const SetItem *it;
@@ -2658,7 +2693,9 @@ static void settingsInput(const DashInput *in)
 					cur = (cur + step) % n;
 				} while (it->id == S_TVMODE && cur == TV_mode_576P && !is576pSupported());
 			} else if (n > 2) {
-				int r = it->id == S_TVMODE ? chooseVideoMode(names, n, cur) : dashModalChoice(it->label, names, n, cur);
+				int r = it->id == S_TVMODE ? chooseVideoMode(names, n, cur) :
+				        it->id == S_LANGUAGE ? chooseLanguage(names, n, cur) :
+				                              dashModalChoice(it->label, names, n, cur);
 				if (r < 0)
 					return;
 				cur = r;

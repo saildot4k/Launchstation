@@ -34,6 +34,8 @@ typedef struct
 	int current_speed;
 	int average_speed;
 	int remaining_seconds;
+	u64 file_index; /* One-based payload file across folders/PSU entries. */
+	u64 file_count;
 } DashTransferStats;
 
 /* Main-thread file-operation progress. Returns zero in classic mode. */

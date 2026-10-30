@@ -2158,6 +2158,8 @@ static void subfunc_Paste(char *mess, char *path)
 		ret = -1;
 		goto finished;
 	}
+	ret = filerCopyProgressBegin(clipPath, clipFiles, nclipFiles);
+	if (ret < 0) goto finished;
 	if (trace_vmc_paste)
 		printf("[PASTE] start src='%s' dst='%s' items=%d mode=%d cut=%d\n",
 		       clipPath, path, nclipFiles, PasteMode, browser_cut);

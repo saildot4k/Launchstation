@@ -4,7 +4,7 @@ Drivers/RPCs are replaced by bounded file adapters and injected failures. The
 copy orchestration, recursion, replacement transaction and diagnostics are real.
 PSU archives use the real reader/writer helpers and matching MC table layout.
 This does not emulate a UDPFS server, libmc or physical memory cards.
-An optional copy source path runs the same matrix against a negative control.
+Optional copy/fileops source paths run the same matrix against negative controls.
 """
 from pathlib import Path
 import re
@@ -18,7 +18,7 @@ browser=(root/'src/filer_browser.c').read_text()
 mmce=(root/'iop/mmceman/src/mmce_fs.c').read_text()
 device=(root/'src/filer_device.c').read_text()
 hdd=(root/'src/gui_hdd0_format.c').read_text()
-fileops=(root/'src/filer_fileops.c').read_text()
+fileops=(Path(sys.argv[2]) if len(sys.argv)>2 else root/'src/filer_fileops.c').read_text()
 
 def function(source, signature):
     a=source.index(signature);b=source.index('{',a)+1;depth=1
@@ -102,11 +102,12 @@ static unsigned clipIopResetGeneration,generation;
 static u64 written_size,PasteTime,clock_ms;
 static int source_ready=1,load_ok=1,reset_preflight,read_cap=4096,write_cap=37,cancel_copy;
 static int fail_open,fail_rewind,fail_read,fail_write,fail_close,fail_listing,fail_stat,fail_out_open,early_eof,fail_measure,corrupt_verify,fail_publish;
-static int fail_tail_read,fail_tail_write,dash_active=1;
+static int fail_tail_read,fail_tail_write,dash_active=1,fatfs_stat_error;
 static int hdd_attr_calls,mc_attr_calls,mc_normal_files,mc_normal_folders,mc_last_flags,mc_last_port;
 static unsigned hdd_last_attr;
 static char hdd_last_path[MAX_PATH];
 static sceMcTblGetDir mc_last_info;
+static u64 last_file_index,last_file_count;
 static int fd_kind[1024],handles,read_calls,write_calls,psu_stat_is_dir,psu_stat_checks,psu_metadata,folder_deletes,overwrite_confirms;
 static unsigned fd_generation[1024];
 static int devicePrepareTransfer(const char *a,const char *b);
@@ -160,10 +161,12 @@ static int DashIsActive(void){return dash_active;}
 static int DashFileProgress(const char *a,const char *b,u64 r,u64 t){(void)a;(void)b;assert(r<=t);return 1;}
 static int DashFileTransferProgress(const char *a,const char *b,u64 r,u64 t,const DashTransferStats *stats){
  assert(stats && stats->written_total==written_size && r<=t);
+ if(dash_active){assert(stats->file_index>0 && stats->file_index<=stats->file_count);last_file_index=stats->file_index;last_file_count=stats->file_count;}
  assert(stats->current_speed>=-1 && stats->average_speed>=-1 && stats->remaining_seconds>=-1);
  if(!r)assert(stats->remaining_seconds==0);
  (void)a;(void)b;return 1;
 }
+static void DashStorageProbeStatus(const char *s){(void)s;}
 static void nonDialog(char *s){(void)s;}
 static int filenameKeyboard(char *s,int n,const char *directory){(void)s;(void)n;(void)directory;return 0;}
 static int isPcCardCfPath(const char *s){return s&&!strncmp(s,"cf",2);}
@@ -171,7 +174,24 @@ static int isPcCardCfOnline(void){return 1;}
 static void ensureMemoryCardPortAccessible(int p){assert(p==0||p==1);if(p==1&&mx4sio_driver_running){assert(!handles);mx4sio_driver_running=0;generation++;}}
 static char *makeHostPath(char *d,char *s){if(d!=s)strcpy(d,s);return d;}
 static void genLimObjName(char *p,int reserve){(void)p;(void)reserve;}
-static int genGetStat(const char *p,iox_stat_t *out){struct stat s;if(!strncmp(p,"mmce",4)){iomanX_iop_file_t file={p[4]-'0'};return mmce_fs_getstat(&file,p+6,out);}if(psu_stat_is_dir && strstr(p,"/APP_LAUNCHSTATION/")){psu_stat_checks++;out->mode=S_IFDIR;return 0;}if(!strncmp(p,"host:",5))return -EIO;if(fail_stat&&!strncmp(p,"mc0:",4))return -EACCES;if(stat(p,&s))return -errno;out->mode=s.st_mode;return 0;}
+/* Simulate bdmfs_fatfs's wire contract, not POSIX stat results. MMCE
+ * continues through the actual IOP GETSTAT decoder above. The production
+ * genGetStat wrapper below must translate only the BDM results. */
+static int fileXioGetStat(const char *p,iox_stat_t *out){
+ struct stat s;
+ if(!strncmp(p,"mmce",4)){iomanX_iop_file_t file={p[4]-'0'};return mmce_fs_getstat(&file,p+6,out);}
+ if(psu_stat_is_dir && strstr(p,"/APP_LAUNCHSTATION/")){psu_stat_checks++;out->mode=S_IFDIR;return 0;}
+ if(!strncmp(p,"host:",5))return -EIO;
+ if(fail_stat&&!strncmp(p,"mc0:",4))return -EACCES;
+ int bdm=!strncmp(p,"usb",3)||!strncmp(p,"mass",4)||!strncmp(p,"ata",3)||!strncmp(p,"mx4sio",6);
+ if(bdm && fatfs_stat_error)return -fatfs_stat_error;
+ if(stat(p,&s)){
+  if(!bdm)return -errno;
+  /* FatFs FR_NO_FILE, FR_NO_PATH, FR_DENIED, FR_DISK_ERR. */
+  return errno==ENOENT?-4:errno==ENOTDIR?-5:errno==EACCES?-7:-1;
+ }
+ out->mode=s.st_mode;return 0;
+}
 static int genOpen(const char *p,int flags){
  if(fail_open&&flags==O_RDONLY&&!strncmp(p,"udpfs:",6))return -ENOENT;
  if(fail_out_open&&(flags&O_WRONLY))return -EACCES;
@@ -258,11 +278,12 @@ static void fixtureDir(const char *logical,char *physical){
  else if(!strncmp(logical,"dvr_hdd",7)){assert(!getHddDVRPParty(logical,NULL,party,physical));physical[7]='0'+mountDVRPParty(party);}
  else strcpy(physical,logical);
 }
+static int genFixPath(const char *path,char *out){fixtureDir(path,out);return 0;}
 static int newdir(const char *parent,const char *name){char p[MAX_PATH],dir[MAX_PATH];fixtureDir(parent,dir);snprintf(p,sizeof(p),"%s%s",dir,name);return mkdir(p,0700)?-errno:0;}
 static int getDir(const char *p,FILEINFO *out){
  char physical[MAX_PATH];fixtureDir(p,physical);p=physical;
  if(fail_listing)return -EIO;DIR *d=opendir(p);if(!d)return -errno;struct dirent *e;int n=0;
- while((e=readdir(d))){if(!strcmp(e->d_name,".")||!strcmp(e->d_name,".."))continue;assert(n<MAX_ENTRY);memset(&out[n],0,sizeof(out[n]));snprintf(out[n].name,sizeof(out[n].name),"%s",e->d_name);char full[MAX_PATH];snprintf(full,sizeof(full),"%s%s",p,e->d_name);struct stat st;assert(!stat(full,&st));out[n].stats.AttrFile=S_ISDIR(st.st_mode)?sceMcFileAttrSubdir:0;out[n].stats.FileSizeByte=st.st_size;n++;}closedir(d);return n;
+ while((e=readdir(d))){if(!strcmp(e->d_name,".")||!strcmp(e->d_name,".."))continue;assert(n<MAX_ENTRY);memset(&out[n],0,sizeof(out[n]));snprintf(out[n].name,sizeof(out[n].name),"%s",e->d_name);memcpy(out[n].stats.EntryName,e->d_name,strlen(e->d_name)<32?strlen(e->d_name):32);char full[MAX_PATH];snprintf(full,sizeof(full),"%s%s",p,e->d_name);struct stat st;assert(!stat(full,&st));out[n].stats.AttrFile=S_ISDIR(st.st_mode)?sceMcFileAttrSubdir:0;out[n].stats.FileSizeByte=st.st_size;n++;}closedir(d);return n;
 }
 static int applyMcInfoToVmcPath(const char *p,const sceMcTblGetDir *s){(void)p;(void)s;return 0;}
 '''
@@ -273,8 +294,12 @@ for name in ('MC_SFI', 'MC_ATTR_norm_folder', 'MC_ATTR_norm_file',
     definition = next(line for line in copy.splitlines() if line.startswith('#define ' + name + ' '))
     code = re.sub(r'^#define ' + name + r' .*$', definition, code, flags=re.MULTILINE)
 code+=function(mmce,'int mmce_fs_getstat(').replace('int mmce_fs_getstat(', 'static int mmce_fs_getstat(',1)
-for sig in ('static int ensurePathPcCardCfOnline(', 'static void normalizePcCardCfPath(',
-            'int genCanRenamePath(', 'static int renameCardResult(', 'int genRenameNoReplace('):
+for sig in ('static void ensurePathMemoryCardAccessible(',
+            'static int ensurePathPcCardCfOnline(', 'static void normalizePcCardCfPath('):
+    code+=function(fileops,sig)
+if 'static int fatfsStatResult(' in fileops:
+    code+=function(fileops,'static int fatfsStatResult(')
+for sig in ('int genGetStat(', 'int genCanRenamePath(', 'static int renameCardResult(', 'int genRenameNoReplace('):
     code+=function(fileops,sig)
 code+=device[device.index('enum {'):].replace('int prepareTransferDeviceStacks(', 'static int devicePrepareTransfer(')
 for sig in ('static int getHddDeviceFromPath(', 'int getHddParty(', 'int getHddDVRPParty('):
@@ -333,7 +358,7 @@ static int matchesPsu(const char *path,int size) {
  }
  close(fd);return !n && done==size;
 }
-static void reset(void){assert(!handles&&!mmce_locked);hdd_attr_calls=mc_attr_calls=mc_normal_files=mc_normal_folders=0;mx4sio_driver_running=0;USB_mass_loaded=1;mmce_fault_phase=mmce_bad_marker=mmce_stat_calls=0;mmce_status=-1;psu_stat_is_dir=psu_stat_checks=psu_metadata=folder_deletes=overwrite_confirms=0;read_cap=4096;write_cap=37;source_ready=load_ok=dash_active=1;reset_preflight=0;fail_open=fail_rewind=fail_read=fail_write=fail_close=fail_listing=cancel_copy=fail_stat=fail_out_open=early_eof=fail_measure=corrupt_verify=fail_publish=fail_tail_read=fail_tail_write=0;read_calls=write_calls=0;browser_cut=0;browser_cd=0;generation=1;clipIopResetGeneration=1;PasteMode=PM_NORMAL;strcpy(clipPath,"udpfs:/");nclipFiles=1;memset(clipFiles,0,sizeof(clipFiles));strcpy(clipFiles[0].name,"BOOT.ELF");clipFiles[0].stats.FileSizeByte=sizeof(input);}
+static void reset(void){assert(!handles&&!mmce_locked);last_file_index=last_file_count=0;fatfs_stat_error=0;hdd_attr_calls=mc_attr_calls=mc_normal_files=mc_normal_folders=0;mx4sio_driver_running=0;USB_mass_loaded=1;mmce_fault_phase=mmce_bad_marker=mmce_stat_calls=0;mmce_status=-1;psu_stat_is_dir=psu_stat_checks=psu_metadata=folder_deletes=overwrite_confirms=0;read_cap=4096;write_cap=37;source_ready=load_ok=dash_active=1;reset_preflight=0;fail_open=fail_rewind=fail_read=fail_write=fail_close=fail_listing=cancel_copy=fail_stat=fail_out_open=early_eof=fail_measure=corrupt_verify=fail_publish=fail_tail_read=fail_tail_write=0;read_calls=write_calls=0;browser_cut=0;browser_cd=0;generation=1;clipIopResetGeneration=1;PasteMode=PM_NORMAL;strcpy(clipPath,"udpfs:/");nclipFiles=1;memset(clipFiles,0,sizeof(clipFiles));strcpy(clipFiles[0].name,"BOOT.ELF");clipFiles[0].stats.FileSizeByte=sizeof(input);}
 int main(void){
  assert(sizeof(copy_diag)<=128); /* fixed runtime budget, no log allocation */
  assert(MC_ATTR_norm_folder==0x8427&&MC_ATTR_norm_file==0x8497);
@@ -343,6 +368,37 @@ int main(void){
  for(int i=0;i<(int)sizeof(input);i++)input[i]=(unsigned char)(i*19+7);
  put("udpfs:/BOOT.ELF",input,sizeof(input));
  const char *destinations[]={"mc0:/","mc1:/","usb0:/"};char message[MAX_PATH],target[MAX_PATH];
+ /* Reported MC0 -> USB0 folder failure: BDM returns -FR_NO_FILE (-4) for
+  * new children and replacement siblings. Cover shorter/empty replacements
+  * and Cut/Paste while retaining the empty child directory. */
+ for(int cut=0;cut<2;cut++)for(int attempt=0;attempt<3;attempt++){
+  int length=attempt==0?65537:attempt==1?17:0;
+  mkdir("mc0:/MC_USB",0700);mkdir("mc0:/MC_USB/EMPTY",0700);
+  put("mc0:/MC_USB/APPLICATION.ELF",input,length);
+  reset();browser_cut=cut;strcpy(clipPath,"mc0:/");strcpy(clipFiles[0].name,"MC_USB");
+  clipFiles[0].stats.AttrFile=sceMcFileAttrSubdir;
+  message[0]=0;subfunc_Paste(message,"usb0:/");
+  if(message[0])fprintf(stderr,"MC-to-USB folder failure: %s\n",message);
+  assert(!message[0]&&!handles&&generation==1&&last_file_index==1&&last_file_count==1);
+  assert(matches("usb0:/MC_USB/APPLICATION.ELF",input,length));
+  struct stat entry;assert(!stat("usb0:/MC_USB/EMPTY",&entry)&&S_ISDIR(entry.st_mode));
+  assert((access("mc0:/MC_USB",F_OK)<0)==cut);
+ }
+ /* FR_INT_ERR is numerically -ENOENT; it is NOT a missing file. No disk,
+  * permission, timeout or unknown status may authorize a destination write
+  * or remove a Cut/Paste source. Exercise all non-missing FatFs failures. */
+ const int fatfs_failures[]={1,2,3,6,7,8,9,10,11,12,13,14,15,16,17,18,19,127};
+ for(int cut=0;cut<2;cut++)for(unsigned i=0;i<sizeof(fatfs_failures)/sizeof(*fatfs_failures);i++){
+  put("mc0:/FATFS_GUARD.ELF",input,257);
+  const unsigned char old[]="old destination must survive";put("usb0:/FATFS_GUARD.ELF",old,sizeof(old));
+  reset();browser_cut=cut;fatfs_stat_error=fatfs_failures[i];
+  strcpy(clipPath,"mc0:/");strcpy(clipFiles[0].name,"FATFS_GUARD.ELF");
+  message[0]=0;subfunc_Paste(message,"usb0:/");
+  assert(strstr(message,"Checking destination")&&!handles&&!write_calls);
+  assert(matches("mc0:/FATFS_GUARD.ELF",input,257));
+  assert(matches("usb0:/FATFS_GUARD.ELF",old,sizeof(old)));
+ }
+
  /* Reproduce MC0 -> MMCE0: actual driver packets return status 1 when the
   * first APOLLO.ELF destination is absent, not a fileXio errno. */
  mkdir("mc0:/APOLLO",0700);putPattern("mc0:/APOLLO/APOLLO.ELF",15523560);
@@ -357,6 +413,16 @@ int main(void){
   assert(copy_diag.total==15523560&&copy_diag.done==15523560);
   snprintf(target,sizeof(target),"%sAPOLLO/APOLLO.ELF",dest);assert(matchesPsu(target,15523560));
  }
+ /* Recursive/selected-root ordinal: three files, including an empty one,
+  * plus a separate selected file. Directory entries never increment X/N. */
+ mkdir("mc0:/COUNT_TREE",0700);mkdir("mc0:/COUNT_TREE/CHILD",0700);
+ put("mc0:/COUNT_TREE/A.BIN",input,257);put("mc0:/COUNT_TREE/CHILD/B.BIN",input,17);
+ put("mc0:/COUNT_TREE/CHILD/EMPTY",input,0);put("mc0:/COUNT_LAST.BIN",input,1);
+ reset();strcpy(clipPath,"mc0:/");strcpy(clipFiles[0].name,"COUNT_TREE");
+ clipFiles[0].stats.AttrFile=sceMcFileAttrSubdir;
+ strcpy(clipFiles[1].name,"COUNT_LAST.BIN");nclipFiles=2;
+ message[0]=0;subfunc_Paste(message,"usb0:/");
+ assert(!message[0]&&!handles&&last_file_index==4&&last_file_count==4);
  /* Both MMCE units work in either direction with MC/USB and each other,
   * including shorter verified replacements with no stale trailing bytes. */
  const char *routes[][2]={{"mc0:/","mmce0:/"},{"mc1:/","mmce1:/"},{"usb0:/","mmce0:/"},
@@ -441,7 +507,7 @@ int main(void){
  message[0]=0;subfunc_Paste(message,"mc0:/");assert(!message[0]);assert(matches("mc0:/NESTED/CHILD.BIN",input,257));
  /* A failed source listing must not report a successful empty folder copy. */
  reset();strcpy(clipFiles[0].name,"NESTED");clipFiles[0].stats.AttrFile=sceMcFileAttrSubdir;fail_listing=1;
- message[0]=0;subfunc_Paste(message,"mc1:/");assert(strstr(message,"Listing source (-5)"));
+ message[0]=0;subfunc_Paste(message,"mc1:/");assert(strstr(message,"Counting source files (-5)"));
  /* An empty folder can be pasted repeatedly even without a game-save title. */
  reset();mkdir("udpfs:/EMPTY",0700);strcpy(clipFiles[0].name,"EMPTY");clipFiles[0].stats.AttrFile=sceMcFileAttrSubdir;
  for(int attempt=0;attempt<3;attempt++){message[0]=0;subfunc_Paste(message,"mc0:/");assert(!message[0]&&!handles);}
@@ -469,13 +535,38 @@ int main(void){
   message[0]=0;subfunc_Paste(message,dest);
   if(message[0])fprintf(stderr,"PSU failure: %s\n",message);
   assert(!message[0] && !handles && !copy_diag.error && generation==1);
-  assert(!psu_stat_checks && psu_metadata==4);
+  assert(!psu_stat_checks && psu_metadata==4 && last_file_index==3 && last_file_count==3);
   assert(folder_deletes==attempt && overwrite_confirms==attempt);
   snprintf(target,sizeof(target),"%sAPP_LAUNCHSTATION/LAUNCHSTATION.ELF",dest);assert(matchesPsu(target,1443120));
   snprintf(target,sizeof(target),"%sAPP_LAUNCHSTATION/icon.sys",dest);assert(matches(target,input,257));
   snprintf(target,sizeof(target),"%sAPP_LAUNCHSTATION/EMPTY",dest);assert(matches(target,input,0));
  }
  /* Keep ordinary-copy directory protections; the exception is PSU restore. */
+ /* PSU creation uses the same per-payload count as PSU restoration. */
+ mkdir("usb0:/PSU-CREATE",0700);reset();PasteMode=PM_PSU_BACKUP;
+ strcpy(clipPath,"mc0:/");strcpy(clipFiles[0].name,"APP_LAUNCHSTATION");
+ memcpy(clipFiles[0].stats.EntryName,"APP_LAUNCHSTATION",16);
+ clipFiles[0].stats.AttrFile=sceMcFileAttrSubdir;write_cap=read_cap=65536;
+ message[0]=0;subfunc_Paste(message,"usb0:/PSU-CREATE/");
+ if(message[0])fprintf(stderr,"PSU creation failure: %s\n",message);
+ assert(!message[0]&&!handles&&last_file_index==3&&last_file_count==3);
+ u64 psu_files=0;assert(!copyCountPsuFiles("usb0:/PSU-CREATE/APP_LAUNCHSTATION.psu",&psu_files));
+ assert(psu_files==3&&!handles);
+ /* Timestamp/no-overwrite skips keep the next save's batch ordinal. */
+ config.PSU_DateNames=config.PSU_NoOverwrite=1;
+ reset();PasteMode=PM_PSU_BACKUP;strcpy(clipPath,"mc0:/");
+ strcpy(clipFiles[0].name,"APP_LAUNCHSTATION");memcpy(clipFiles[0].stats.EntryName,"APP_LAUNCHSTATION",16);
+ clipFiles[0].stats.AttrFile=sceMcFileAttrSubdir;write_cap=read_cap=65536;
+ message[0]=0;subfunc_Paste(message,"usb0:/PSU-CREATE/");assert(!message[0]&&!handles);
+ mkdir("mc0:/SECOND_SAVE",0700);put("mc0:/SECOND_SAVE/ONE.BIN",input,1);
+ reset();PasteMode=PM_PSU_BACKUP;strcpy(clipPath,"mc0:/");
+ strcpy(clipFiles[0].name,"APP_LAUNCHSTATION");memcpy(clipFiles[0].stats.EntryName,"APP_LAUNCHSTATION",16);
+ clipFiles[0].stats.AttrFile=sceMcFileAttrSubdir;strcpy(clipFiles[1].name,"SECOND_SAVE");
+ memcpy(clipFiles[1].stats.EntryName,"SECOND_SAVE",11);clipFiles[1].stats.AttrFile=sceMcFileAttrSubdir;
+ nclipFiles=2;write_cap=read_cap=65536;
+ message[0]=0;subfunc_Paste(message,"usb0:/PSU-CREATE/");
+ assert(!message[0]&&!handles&&last_file_index==4&&last_file_count==4);
+ config.PSU_DateNames=config.PSU_NoOverwrite=0;
  reset();psu_stat_is_dir=1;message[0]=0;subfunc_Paste(message,"mc0:/APP_LAUNCHSTATION/");
  assert(strstr(message,"Checking destination (-21)") && psu_stat_checks && !handles);
  assert(matchesPsu("mc0:/APP_LAUNCHSTATION/LAUNCHSTATION.ELF",1443120));
@@ -492,7 +583,7 @@ int main(void){
  makePsu("udpfs:/TRUNC.PSU");assert(!truncate("udpfs:/TRUNC.PSU",4*512+1000));
  mkdir("mc0:/PSU-TRUNC",0700);reset();PasteMode=PM_PSU_RESTORE;strcpy(clipFiles[0].name,"TRUNC.PSU");
  message[0]=0;subfunc_Paste(message,"mc0:/PSU-TRUNC/");
- assert(strstr(message,"Reading source (-5)") && strstr(message,"LAUNCHSTATION.ELF") && !handles);
+ assert(strstr(message,"Counting source files (-5)") && strstr(message,"TRUNC.PSU") && !handles);
  /* Full device-family matrix: real copy, move and stack policy; file I/O,
   * mounts, flash RPC and VMCMAN rename contract use host adapters. Logical
   * HDD/DVR paths use the actual partition parser, then fixture mount slots. */
@@ -640,6 +731,8 @@ int main(void){
   message[0]=0;subfunc_Paste(message,dest);assert(!message[0]&&!handles);
   snprintf(target,sizeof(target),"%s%s",dest,long_leaf);assert(matches(target,input,size));
  }
+ puts("PASS: nested/selected-root file ordinals, zero-byte files, PSU creation/restoration payload counts");
+ puts("PASS: MC-to-USB folders, BDM raw FatFs results across device matrix, protected old files/move sources on real stat errors");
  puts("PASS: nested MC/VMC/flash replacements preserve all 32 filename bytes");
  puts("PASS: 15,523,560-byte MC-to-MMCE folder copy, both MMCE slots, driver packets, errors, byte boundaries, PSU safeguards");
 }

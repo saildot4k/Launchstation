@@ -236,10 +236,7 @@ int DashChooseElfIopMode(int configured)
 	DashInput input;
 	u32 confirm = swapKeys ? PAD_CROSS : PAD_CIRCLE;
 	u64 started, elapsed;
-	int owns_loading = 0, mode = !!configured;
-	const char *status = configured
-	    ? "Release: reboot IOP. Hold 1s: keep IOP."
-	    : "Release: keep IOP. Hold 1s: reboot IOP.";
+	int mode = !!configured;
 
 	/* Keyboard/automatic launches have no physical held Confirm. Read before
 	 * storage preparation so an ordinary tap need only wait for its release. */
@@ -262,15 +259,11 @@ int DashChooseElfIopMode(int configured)
 				}
 			}
 		}
-		if (!dashLoadingActive()) {
-			dashLoadingBegin("Starting application");
-			owns_loading = 1;
-		}
-		elapsed = Timer() - started;
-		dashLoadingFrame(status, elapsed < 1000 ? (int)elapsed : 1000, 1000);
+		/* Keep the current dashboard visible while sampling the hold. */
+		dashVisualUpdate();
+		dashRenderScene();
+		dashGfxPresent();
 	}
-	if (owns_loading)
-		dashLoadingEnd();
 	return mode;
 }
 

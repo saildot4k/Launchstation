@@ -169,3 +169,56 @@ following acceptance on available hardware:
 4. Copy a known-good application/save folder to both MC slots and the same
    `__common` layout used in R3Z. Read back attributes and verify HDD-OSD
    listing/launch, icons, protection flags and timestamps.
+
+## October 29: MC-to-USB destination lookup regression
+
+The console reported `Checking destination (-4)` while copying an MC0 folder
+to USB0, with IOP generation unchanged. The new destination replacement checks
+introduced a dependency on stat results that the R3Z 4.80 direct-write path did
+not have. R3Z removed the old file and opened the destination with create/truncate;
+Launchstation checks existence before choosing a new file or verified replacement.
+
+The bundled BDM FatFs driver returns negative FatFs `FRESULT` values from
+`fs_getstat()`, rather than negative POSIX errno. `FR_NO_FILE` is 4 and
+`FR_NO_PATH` is 5, so the old `copyPathMissing()` check rejected an absent USB
+file. Conversely, `FR_INT_ERR` is 2 and could be misclassified as POSIX ENOENT.
+The unchanged IOP generation is consistent with a stat-result mismatch rather
+than a storage reset interrupting the transfer.
+
+References checked for this correction:
+
+- [R3Z 4.80 copy implementation](https://github.com/saildot4k/wLaunchELF_R3Z/blob/4.80/src/filer_copy.c),
+  blob `d7dff8c73962249bc9f3bbccb05183984fd8469c`.
+- [PS2SDK BDM stat and typed-driver implementation](https://github.com/ps2dev/ps2sdk/blob/5d64b0eb2ad5248eb863c503dcf07fddd8e6c8b7/iop/fs/bdmfs_fatfs/src/fs_driver.c),
+  blob `290cf6375999fdf61e664fd403abe6829c97130f`. USB, ATA and MX4SIO typed
+  names and the shared mass namespace use this filesystem driver.
+
+`filer_fileops.c::genGetStat()` now translates BDM stat results at the shared
+filesystem boundary in EXFAT builds. This covers both FAT32 and exFAT media,
+USB/ATA/MX4SIO and shared mass aliases. It does not reinterpret stat errors
+from MC, MMCE, VMC, PFS/HDD, CF, HOST, UDPFS, optical or flash devices, or legacy
+USBMASS builds. The driver's native ENXIO for an unresolved volume shares its
+number with FR_INVALID_NAME; both remain ENXIO failures. Unknown result values
+remain failures. Only genuine missing-file/path statuses become ENOENT.
+
+The previous pipeline fixture supplied POSIX stat results for BDM paths and
+therefore missed this driver contract. It now executes the production stat
+wrapper over raw BDM results, while retaining real MMCE GETSTAT decoding.
+The MC0-to-USB0 folder case checks new files, shorter and empty replacements,
+empty child folders and Cut/Paste. All non-missing FatFs errors are injected
+before destination writes; existing targets and move sources must survive.
+The broader file/folder device matrix now also uses the raw BDM stat contract.
+`test_file_stat_errors.py` separately checks device aliases, numeric error
+collisions, metadata preservation, device access gates and legacy builds.
+
+An isolated run with the previous `filer_fileops.c` reproduces the reported
+`Checking destination (-4)` on an MC0-to-USB0 folder copy with IOP 1>1. The
+corrected wrapper passes that case and the full pipeline. Physical-device
+retesting is still required; these host adapters do not emulate storage media.
+
+For this correction, `filer_fileops.c` and `filer_copy.c` compile with the PS2
+EE toolchain in standard, DS34 and legacy non-EXFAT configurations, without
+warnings. The full CI host list has 113 passing tests; the sole local failure
+is the existing release-notes check using `hashlib.file_digest`, unavailable
+in local Python 3.10 (CI uses a newer Python). Documentation builds 31 pages.
+The source compilation is not a complete linked release build or a console run.

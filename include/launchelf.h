@@ -603,6 +603,7 @@ int genWrite(int fd, void *buf, int size);
 int genClose(int fd);
 int genDopen(char *path);
 int genDclose(int fd);
+/* Native stat; BDM FatFs results are normalized to negative errno values. */
 int genGetStat(const char *path, iox_stat_t *stat);
 int genCanRenamePath(const char *path);
 /* Physical sibling paths; no device loading, overwrite or name truncation. */

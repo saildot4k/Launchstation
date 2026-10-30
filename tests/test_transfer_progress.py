@@ -1,33 +1,33 @@
-"""Run the production native transfer progress setter, including large files."""
+"""Run the production transfer layout, byte labels and rates with large files."""
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 root = Path(__file__).resolve().parents[1]
 source = (root/'src/dash_ui.c').read_text()
-a=source.index('static void loadingTransferSpeed(')
+a=source.index('static void loadingTransferBytes(')
 b=source.index('void dashLoadingFrame(',a)
 header=(root/'include/dash.h').read_text()
 start=header.index('typedef struct\n{\n\tu64 written_total;')
 stats_type=header[start:header.index('} DashTransferStats;',start)+len('} DashTransferStats;')]
 start=source.index('static void loadingDraw(')
 render_source=source[start:source.index('void dashLoadingBegin(',start)]
+globals_source=source[source.index('static int loading_active;'):source.index('DashLoadingView dashLoadingSetView(')]
 code=r'''
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 typedef uint64_t u64;
-static int active=1, worker, loading_active=1, draws, loading_done,loading_total;
-static float loading_fraction;
-static char loading_title[64],loading_status[128],loading_remaining[64],loading_transfer[4][96];
-static u64 tick,loading_last_draw;
+typedef int DashColor;
+typedef void (*DashLoadingView)(const char *);
+'''+globals_source+r'''
+static int active=1,worker,draws;
+static u64 tick;
 static int DashIsActive(void){return active;}
 static int dashWorkerOnThread(void){return worker;}
 static u64 Timer(void){return tick;}
 static void dashStrCopy(char *a,const char *b,int cap){snprintf(a,cap,"%s",b);}
-typedef int DashColor;
-typedef void (*DashLoadingView)(const char *);
 #define DASH_VW 640
 #define DASH_VH 448
 #define DASH_FS_LABEL 0.9f
@@ -38,12 +38,9 @@ typedef void (*DashLoadingView)(const char *);
 #define DASH_C_ACCENT 4
 #define DASH_BLEND_ADD 1
 #define DASH_BLEND_NORMAL 0
-static float loading_open;
-static int loading_cancel;
-static DashLoadingView loading_view;
 static float panel_x,panel_y,panel_w,panel_h,bar_y,hint_y;
 static int text_count,bars;
-static struct { float x,y,w;char text[128]; } texts[16];
+static struct {float x,y,w;int right;char text[128];} texts[16];
 static float dashVisualUpdate(void){return 0.016f;}
 static float dashApproach(float v,float target,float rate,float dt){(void)v;(void)rate;(void)dt;return target;}
 static float dashClampf(float v,float lo,float hi){return v<lo?lo:v>hi?hi:v;}
@@ -52,20 +49,22 @@ static void modalBackdrop(float a){(void)a;}
 static void dashGfxPushAlpha(float a){(void)a;}
 static void modalPanel(float x,float y,float w,float h,float alpha){
  (void)alpha;panel_x=x;panel_y=y;panel_w=w;panel_h=h;
- assert(y>=0 && y+h<=DASH_VH);
+ assert(y>=0&&y+h<=DASH_VH);
 }
 static void dashGfxBlend(int mode){(void)mode;}
 static void dashDrawSpinner(float x,float y,float r,DashColor c){(void)x;(void)y;(void)r;(void)c;}
 static void dashTextFit(float x,float y,float w,const char *text,float scale,DashColor color){
- (void)scale;(void)color;assert(text_count<16 && x>=panel_x && x+w<=panel_x+panel_w);
- assert(y>panel_y && y+16<panel_y+panel_h);
- texts[text_count].x=x;texts[text_count].y=y;texts[text_count].w=w;
+ (void)scale;(void)color;assert(text_count<16&&x>=panel_x&&x+w<=panel_x+panel_w);
+ assert(y>panel_y&&y+16<panel_y+panel_h);
+ texts[text_count].x=x;texts[text_count].y=y;texts[text_count].w=w;texts[text_count].right=0;
  snprintf(texts[text_count++].text,128,"%s",text);
+}
+static void dashTextRight(float x,float y,const char *text,float scale,DashColor color){
+ float width=strlen(text)*6.0f;dashTextFit(x-width,y,width,text,scale,color);texts[text_count-1].right=1;
 }
 static DashColor dashColorA(DashColor c,float a){(void)a;return c;}
 static void loadingBarShape(float x,float y,float w,DashColor c){
- (void)x;(void)w;(void)c;if(!bars)bar_y=y;bars++;
- assert(y+8<panel_y+panel_h);
+ (void)x;(void)w;(void)c;if(!bars)bar_y=y;bars++;assert(y+8<panel_y+panel_h);
 }
 static int dashBackIcon(void){return 0;}
 static void modalHintRow(float x,float y,int a,const char *s,int b,const char *t){
@@ -76,66 +75,82 @@ static void dashGfxPresent(void){draws++;}
 static void dashLoadingBegin(const char *s){loading_active=1;snprintf(loading_title,sizeof(loading_title),"%s",s);}
 '''+stats_type+'\n'+render_source+source[a:b]+r'''
 int main(void){
+ loading_active=1;
  assert(DashFileProgress("Pasting file","BOOT.ELF",8ULL<<30,8ULL<<30));
- assert(!strcmp(loading_status,"BOOT.ELF")&&!strcmp(loading_remaining,"Remaining size: 8192.00 MB"));
- assert(loading_done==0&&loading_total==10000&&!draws);
+ assert(!strcmp(loading_status,"BOOT.ELF")&&!strcmp(loading_copied,"0.00 MB"));
+ assert(!strcmp(loading_transfer[2],"8192.00 MB")&&loading_done==0&&loading_total==10000&&!draws);
  tick=20;DashFileProgress("Pasting file","BOOT.ELF",4ULL<<30,8ULL<<30);
- assert(loading_done==5000&&draws==1);
+ assert(loading_done==5000&&draws==1&&!strcmp(loading_copied,"4096.00 MB"));
  tick=21;DashFileProgress("Pasting file","BOOT.ELF",4ULL<<30,8ULL<<30);assert(draws==1);
  DashFileProgress("Pasting file","BOOT.ELF",0,8ULL<<30);assert(loading_done==10000&&draws==2);
+ assert(!strcmp(loading_copied,"8192.00 MB"));
  loading_fraction=1;DashFileProgress("Pasting file","SECOND.ELF",1024,1024);
- assert(loading_fraction==0&&loading_done==0&&!strcmp(loading_remaining,"Remaining size: 0.00 MB"));
+ assert(loading_fraction==0&&loading_done==0&&!strcmp(loading_copied,"0 bytes"));
+ assert(!strcmp(loading_transfer[2],"1024 bytes"));
  DashFileProgress("Pasting file","empty",0,0);assert(loading_done==10000);
+ assert(!strcmp(loading_copied,"0 bytes")&&!strcmp(loading_transfer[2],"0 bytes"));
  DashFileProgress("Pasting file","bad count",200,100);assert(loading_done==0);
- char long_name[256];memset(long_name,'x',sizeof(long_name)-1);long_name[255]=0;
- DashFileProgress("Pasting file",long_name,100,200);loading_fraction=0.5f;
- DashFileProgress("Pasting file",long_name,50,200);assert(loading_fraction==0.5f);
- DashTransferStats stats={8ULL<<30,2048,1024,3661};
+ assert(!strcmp(loading_copied,"0 bytes"));
+ char bytes[64];loadingTransferBytes(bytes,sizeof(bytes),1,1);assert(!strcmp(bytes,"1 byte"));
+ loadingTransferBytes(bytes,sizeof(bytes),2048,2048);assert(!strcmp(bytes,"2048 bytes"));
+ loadingTransferBytes(bytes,sizeof(bytes),(1ULL<<20)-1,(1ULL<<20)-1);assert(!strcmp(bytes,"1048575 bytes"));
+ loadingTransferBytes(bytes,sizeof(bytes),1ULL<<20,1ULL<<20);assert(!strcmp(bytes,"1024.00 KB"));
+ loadingTransferBytes(bytes,sizeof(bytes),512,1ULL<<20);assert(!strcmp(bytes,"0.50 KB"));
+ loadingTransferBytes(bytes,sizeof(bytes),3ULL<<20,3ULL<<20);assert(!strcmp(bytes,"3072.00 KB"));
+ loadingTransferBytes(bytes,sizeof(bytes),0,(1ULL<<30)-1);assert(!strcmp(bytes,"0.00 KB"));
+ loadingTransferBytes(bytes,sizeof(bytes),1ULL<<30,1ULL<<30);assert(!strcmp(bytes,"1024.00 MB"));
+ loadingTransferBytes(bytes,sizeof(bytes),8ULL<<30,8ULL<<30);assert(!strcmp(bytes,"8192.00 MB"));
+ loadingTransferBytes(bytes,sizeof(bytes),0,(1ULL<<40)-1);assert(!strcmp(bytes,"0.00 MB"));
+ loadingTransferBytes(bytes,sizeof(bytes),1ULL<<40,1ULL<<40);assert(!strcmp(bytes,"1024.00 GB"));
+ loadingTransferBytes(bytes,sizeof(bytes),UINT64_MAX,UINT64_MAX);assert(strstr(bytes,"GB"));
+ DashTransferStats stats={8ULL<<30,2048,1024,3661,1,10};
  tick+=20;DashFileTransferProgress("Pasting file","BIG.ELF",4ULL<<30,8ULL<<30,&stats);
- assert(!strcmp(loading_transfer[0],"Current speed: 2 KB/s"));
+ assert(!strcmp(loading_title,"Pasting file 1 of 10"));
+ assert(!strcmp(loading_transfer[0],"Average speed: 1024 B/s"));
  assert(!strcmp(loading_transfer[1],"Remaining time: 1 h 1 m 1 sec"));
- assert(!strcmp(loading_transfer[2],"Written total: 8192.00 MB"));
- assert(!strcmp(loading_transfer[3],"Average speed: 1024 B/s"));
- assert(panel_w==420 && panel_h==238 && panel_x==110 && panel_y==105);
- assert(text_count==7 && !strcmp(texts[3].text,loading_transfer[0]));
- for(int i=2;i<6;i++)assert(texts[i+1].y-texts[i].y==24);
- assert(texts[6].y+16<bar_y && bar_y+8<panel_y+panel_h);
+ assert(!strcmp(loading_copied,"4096.00 MB")&&!strcmp(loading_transfer[2],"8192.00 MB"));
+ assert(panel_w==420&&panel_h==220&&panel_x==110&&panel_y==114&&text_count==6);
+ assert(!strcmp(texts[0].text,loading_title)&&!strcmp(texts[1].text,"BIG.ELF"));
+ assert(texts[1].y+16<bar_y&&bar_y+8<texts[2].y);
+ assert(texts[2].y==texts[3].y&&texts[2].x==panel_x+30&&!texts[2].right&&texts[3].right);
+ assert(texts[2].x+texts[2].w<texts[3].x);
+ assert(texts[3].x+texts[3].w==panel_x+panel_w-30);
+ assert(texts[3].y+16<texts[4].y&&texts[4].y+16<texts[5].y&&texts[5].y+16<panel_y+panel_h);
  loading_cancel=1;loadingDraw();
- assert(panel_h==266 && hint_y>bar_y+8 && hint_y+16<panel_y+panel_h);
- loading_cancel=0;
-
+ assert(panel_h==248&&hint_y>texts[5].y+16&&hint_y+16<panel_y+panel_h);loading_cancel=0;
+ loading_fraction=0.5f;DashFileTransferProgress("Pasting file","BIG.ELF",2ULL<<30,8ULL<<30,&stats);
+ assert(loading_fraction==0.5f&&!strcmp(loading_copied,"6144.00 MB"));
+ stats.file_index=2;DashFileTransferProgress("Pasting file","BIG.ELF",8ULL<<30,8ULL<<30,&stats);
+ assert(!strcmp(loading_title,"Pasting file 2 of 10")&&loading_fraction==0);
+ char long_name[256];memset(long_name,'x',255);long_name[255]=0;
+ DashFileTransferProgress("Pasting file",long_name,100,200,&stats);loading_fraction=0.5f;
+ DashFileTransferProgress("Pasting file",long_name,50,200,&stats);assert(loading_fraction==0.5f);
  stats.current_speed=stats.average_speed=stats.remaining_seconds=-1;
  DashFileTransferProgress("Pasting file","BIG.ELF",100,100,&stats);
- assert(!strcmp(loading_transfer[0],"Current speed: Unknown"));
+ assert(!strcmp(loading_transfer[0],"Average speed: Unknown"));
  assert(!strcmp(loading_transfer[1],"Remaining time: Unknown"));
- assert(!strcmp(loading_transfer[3],"Average speed: Unknown"));
- stats.current_speed=0;stats.average_speed=2147483647;stats.remaining_seconds=61;
+ stats.average_speed=2147483647;stats.remaining_seconds=61;
  DashFileTransferProgress("Pasting file","BIG.ELF",10,100,&stats);
- assert(!strcmp(loading_transfer[0],"Current speed: 0 B/s"));
+ assert(!strcmp(loading_transfer[0],"Average speed: 2097151 KB/s"));
  assert(!strcmp(loading_transfer[1],"Remaining time: 1 m 1 sec"));
- assert(!strcmp(loading_transfer[3],"Average speed: 2097151 KB/s"));
  stats.remaining_seconds=59;DashFileTransferProgress("Pasting file","BIG.ELF",10,100,&stats);
  assert(!strcmp(loading_transfer[1],"Remaining time: 59 sec"));
  stats.remaining_seconds=0;DashFileTransferProgress("Pasting file","BIG.ELF",0,100,&stats);
- assert(!strcmp(loading_transfer[1],"Remaining time: 0 sec"));
- assert(loading_done==10000);
- DashFileProgress("Verifying file","BIG.ELF",10,100);
- assert(!loading_transfer[0][0]); /* a different operation cannot inherit copy rates */
- loadingDraw();assert(text_count==3 && panel_h==158);
+ assert(!strcmp(loading_transfer[1],"Remaining time: 0 sec")&&loading_done==10000);
+ DashFileProgress("Verifying file","BIG.ELF",10,100);loadingDraw();
+ assert(!loading_transfer[0][0]&&text_count==4&&panel_h==164);
+ assert(!strcmp(loading_copied,"90 bytes")&&!strcmp(loading_transfer[2],"100 bytes"));
  DashFileTransferProgress("Pasting file","BIG.ELF",10,100,&stats);
- loading_active=0;tick+=20;
- DashFileTransferProgress("Pasting file","SECOND.ELF",100,100,&stats);
- assert(loading_active && loading_done==0 && loading_fraction==0);
+ loading_active=0;tick+=20;DashFileTransferProgress("Pasting file","SECOND.ELF",100,100,&stats);
+ assert(loading_active&&loading_done==0&&loading_fraction==0);
  int old=draws;worker=1;assert(!DashFileProgress("Pasting file","unsafe",0,0));
  DashFileDeleteProgress("unsafe");assert(draws==old);worker=0;
  active=0;assert(!DashFileProgress("Pasting file","classic",0,0));active=1;
  tick+=20;DashFileDeleteProgress("nested.bin");
  assert(!strcmp(loading_title,"Deleting file")&&!strcmp(loading_status,"nested.bin"));
- assert(!loading_transfer[0][0]);
- assert(!loading_remaining[0]&&!loading_total&&!loading_done&&loading_fraction==0);
- loading_total=10;loading_done=3;DashFileDeleteProgress("another.bin");
- assert(loading_total==10&&loading_done==3);
- puts("PASS: MB units, 64-bit sizes, bounded progress, throttling, per-file reset and thread ownership");
+ assert(!loading_transfer[0][0]&&!loading_copied[0]&&!loading_total&&!loading_done&&loading_fraction==0);
+ loading_total=10;loading_done=3;DashFileDeleteProgress("another.bin");assert(loading_total==10&&loading_done==3);
+ puts("PASS: numbered file title, filename, bounded rounded bar and advancing byte labels, average/ETA order, sizes through 64-bit and modal ownership");
 }
 '''
 # Renderer uses the scene tick once and bounds its fill to the track.

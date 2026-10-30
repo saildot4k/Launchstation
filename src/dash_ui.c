@@ -1078,8 +1078,8 @@ void dashModalMessage(int icon, const char *title, const char *body, const char 
 static int loading_active;
 static char loading_title[64];
 static char loading_status[128];
-static char loading_remaining[64];
-static char loading_transfer[4][96];
+static char loading_copied[64];
+static char loading_transfer[3][96]; /* Average speed, ETA, total bytes. */
 static float loading_fraction;
 static int loading_done, loading_total;
 static u64 loading_last_draw;
@@ -1133,11 +1133,12 @@ static void loadingBarShape(float x, float y, float w, DashColor color)
 
 static void loadingDraw(void)
 {
-	int transfer = loading_transfer[0][0] != '\0';
-	float w = 420.0f, h = transfer ? 238.0f + (loading_cancel ? 28.0f : 0.0f) :
-	                     loading_remaining[0] ? 158.0f : loading_cancel ? 150.0f : 128.0f;
+	int file_progress = loading_copied[0] != '\0';
+	int transfer = file_progress && loading_transfer[0][0] != '\0';
+	float w = 420.0f, h = file_progress ? (transfer ? 220.0f : 164.0f) + (loading_cancel ? 28.0f : 0.0f) :
+	                     loading_cancel ? 150.0f : 128.0f;
 	float x = (DASH_VW - w) * 0.5f, y = (DASH_VH - h) * 0.5f;
-	float bar_y = y + (transfer ? 206.0f : loading_remaining[0] ? 126.0f : 102.0f);
+	float bar_y = y + 102.0f;
 	float dt = dashVisualUpdate();
 
 	if (loading_view != NULL) {
@@ -1155,13 +1156,14 @@ static void loadingDraw(void)
 	dashGfxBlend(DASH_BLEND_NORMAL);
 	dashTextFit(x + 84, y + 26, w - 110, loading_title, DASH_FS_LABEL, DASH_C_TEXT);
 	dashTextFit(x + 84, y + 58, w - 110, loading_status, DASH_FS_SMALL, DASH_C_TEXT2);
-	if (loading_remaining[0])
-		dashTextFit(x + 84, y + 84, w - 110, loading_remaining, DASH_FS_SMALL, DASH_C_TEXT2);
+	if (file_progress) {
+		dashTextFit(x + 30, y + 124, (w - 76) * 0.5f,
+		            loading_copied, DASH_FS_SMALL, DASH_C_TEXT2);
+		dashTextRight(x + w - 30, y + 124, loading_transfer[2], DASH_FS_SMALL, DASH_C_TEXT2);
+	}
 	if (transfer) {
-		int i;
-		for (i = 0; i < 4; i++)
-			dashTextFit(x + 84, y + 108 + i * 24, w - 110,
-			            loading_transfer[i], DASH_FS_SMALL, DASH_C_TEXT2);
+		dashTextFit(x + 30, y + 154, w - 60, loading_transfer[0], DASH_FS_SMALL, DASH_C_TEXT2);
+		dashTextFit(x + 30, y + 180, w - 60, loading_transfer[1], DASH_FS_SMALL, DASH_C_TEXT2);
 	}
 	if (loading_total > 0) {
 		float p = dashClampf(loading_done / (float)loading_total, 0.0f, 1.0f);
@@ -1184,7 +1186,7 @@ void dashLoadingBegin(const char *title)
 	loading_cancel = 0;
 	dashStrCopy(loading_title, title, sizeof(loading_title));
 	loading_status[0] = '\0';
-	loading_remaining[0] = '\0';
+	loading_copied[0] = '\0';
 	loading_transfer[0][0] = '\0';
 	loading_fraction = 0.0f;
 	loading_done = loading_total = 0;
@@ -1199,7 +1201,7 @@ void dashLoadingSetCancel(int cancelable)
 static void loadingProgress(const char *status, int done, int total)
 {
 	int quiet = isStartupDriverStatusQuiet();
-	loading_remaining[0] = '\0';
+	loading_copied[0] = '\0';
 	loading_transfer[0][0] = '\0';
 
 	/* Device retry loops can update the overlay directly, bypassing drawMsg.
@@ -1231,6 +1233,19 @@ void dashLoadingStatus(const char *status, int done, int total)
 		loadingDraw();
 }
 
+static void loadingTransferBytes(char *out, int size, u64 bytes, u64 total)
+{
+	/* Both endpoints keep the same unit, chosen once from this file's size. */
+	if (total < 1024ULL * 1024)
+		snprintf(out, size, "%llu %s", (unsigned long long)bytes, bytes == 1 ? "byte" : "bytes");
+	else if (total < 1024ULL * 1024 * 1024)
+		snprintf(out, size, "%.2f KB", (double)bytes / 1024.0);
+	else if (total < 1024ULL * 1024 * 1024 * 1024)
+		snprintf(out, size, "%.2f MB", (double)bytes / (1024.0 * 1024.0));
+	else
+		snprintf(out, size, "%.2f GB", (double)bytes / (1024.0 * 1024.0 * 1024.0));
+}
+
 static void loadingTransferSpeed(char *out, int size, const char *label, int speed)
 {
 	if (speed < 0)
@@ -1249,7 +1264,7 @@ static void loadingTransferDetails(const DashTransferStats *stats)
 		return;
 	}
 	loadingTransferSpeed(loading_transfer[0], sizeof(loading_transfer[0]),
-	                     "Current speed", stats->current_speed);
+	                     "Average speed", stats->average_speed);
 	seconds = stats->remaining_seconds;
 	if (seconds < 0)
 		snprintf(loading_transfer[1], sizeof(loading_transfer[1]), "Remaining time: Unknown");
@@ -1261,27 +1276,29 @@ static void loadingTransferDetails(const DashTransferStats *stats)
 	else
 		snprintf(loading_transfer[1], sizeof(loading_transfer[1]),
 		         "Remaining time: %d h %d m %d sec", seconds / 3600, (seconds % 3600) / 60, seconds % 60);
-	snprintf(loading_transfer[2], sizeof(loading_transfer[2]), "Written total: %.2f MB",
-	         (double)stats->written_total / (1024.0 * 1024.0));
-	loadingTransferSpeed(loading_transfer[3], sizeof(loading_transfer[3]),
-	                     "Average speed", stats->average_speed);
 }
 
 int DashFileTransferProgress(const char *action, const char *name, u64 remaining, u64 total,
                              const DashTransferStats *stats)
 {
+	char title[sizeof(loading_title)];
 	int done, begin = !loading_active;
 	if (!DashIsActive() || dashWorkerOnThread()) return 0;
-	if (begin) dashLoadingBegin(action);
+	if (stats != NULL && stats->file_index && stats->file_count)
+		snprintf(title, sizeof(title), "%s %llu of %llu", action,
+		         (unsigned long long)stats->file_index, (unsigned long long)stats->file_count);
+	else
+		dashStrCopy(title, action, sizeof(title));
+	if (begin) dashLoadingBegin(title);
 	loadingTransferDetails(stats);
 	if (strncmp(loading_status, name ? name : "", sizeof(loading_status) - 1) ||
-	    strncmp(loading_title, action, sizeof(loading_title) - 1))
+	    strncmp(loading_title, title, sizeof(loading_title) - 1))
 		loading_fraction = 0.0f;
-	dashStrCopy(loading_title, action, sizeof(loading_title));
+	dashStrCopy(loading_title, title, sizeof(loading_title));
 	dashStrCopy(loading_status, name ? name : "", sizeof(loading_status));
 	if (remaining > total) remaining = total;
-	snprintf(loading_remaining, sizeof(loading_remaining), "Remaining size: %.2f MB",
-	         (double)remaining / (1024.0 * 1024.0));
+	loadingTransferBytes(loading_copied, sizeof(loading_copied), total - remaining, total);
+	loadingTransferBytes(loading_transfer[2], sizeof(loading_transfer[2]), total, total);
 	done = total ? (int)((1.0 - (double)remaining / (double)total) * 10000.0) : 10000;
 	loading_done = done;
 	loading_total = 10000;
@@ -1298,11 +1315,11 @@ int DashFileProgress(const char *action, const char *name, u64 remaining, u64 to
 void DashFileDeleteProgress(const char *name)
 {
 	if (!DashIsActive() || dashWorkerOnThread() || !loading_active) return;
-	if (loading_remaining[0]) {
+	if (loading_copied[0]) {
 		loading_done = loading_total = 0;
 		loading_fraction = 0.0f;
 	}
-	loading_remaining[0] = '\0';
+	loading_copied[0] = '\0';
 	loading_transfer[0][0] = '\0';
 	dashStrCopy(loading_title, "Deleting file", sizeof(loading_title));
 	dashStrCopy(loading_status, name, sizeof(loading_status));

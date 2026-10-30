@@ -85,11 +85,120 @@ void filerCopyDiagFormat(char *out, int size, int result)
 	}
 }
 
+/* Count before copying so nested folders and PSU payloads share one stable
+ * file ordinal. Directory lists are freed before descending; only compact
+ * child names survive recursion, avoiding another MAX_ENTRY list per level. */
+static u64 copy_file_index, copy_file_count;
+
+static int copyCountPsuFiles(const char *path, u64 *count)
+{
+	FILEINFO folder, file;
+	char resolved[MAX_PATH];
+	int fd = -1, entries, i, padding, ret = -EIO;
+	s64 end, position;
+
+	if (genFixPath(path, resolved) < 0)
+		return -EIO;
+	if (psu_restore_open_root_image(resolved, &folder, &fd, &entries) < 0)
+		return -EIO;
+	end = genLseek(fd, 0, SEEK_END);
+	if (end < (s64)sizeof(psu_header) || entries < 0 ||
+	    entries > (end - sizeof(psu_header)) / sizeof(psu_header) ||
+	    genLseek(fd, sizeof(psu_header), SEEK_SET) != sizeof(psu_header))
+		goto finished;
+	for (i = 0; i < entries; i++) {
+		ret = psu_restore_read_file_entry(fd, &file, &padding);
+		if (ret < 0) goto finished;
+		if (ret > 0) continue; /* . and .. are archive headers, not files. */
+		snprintf(copy_diag.name, sizeof(copy_diag.name), "%.39s", file.name);
+		position = genLseek(fd, 0, SEEK_CUR);
+		if (position < 0 || position > end || (u64)file.stats.FileSizeByte + padding > (u64)(end - position) ||
+		    genLseek(fd, (s64)file.stats.FileSizeByte + padding, SEEK_CUR) !=
+		    position + file.stats.FileSizeByte + padding) {
+			ret = -EIO;
+			goto finished;
+		}
+		(*count)++;
+	}
+	ret = 0;
+finished:
+	if (genClose(fd) < 0 && ret >= 0) ret = -EIO;
+	return ret;
+}
+
+static int copyCountFiles(const char *path, const FILEINFO *file, int depth, u64 *count)
+{
+	FILEINFO *entries;
+	char dir[MAX_PATH], *children = NULL, *name;
+	int i, n, bytes = 0, ret = 0;
+
+	if (depth + 1 >= MAX_RECURSE) return -ELOOP;
+	if (!(file->stats.AttrFile & sceMcFileAttrSubdir)) {
+		if (PasteMode == PM_PSU_RESTORE && depth == 0 && genCmpFileExt(file->name, "psu")) {
+			if (snprintf(dir, sizeof(dir), "%s%s", path, file->name) >= sizeof(dir))
+				return -ENAMETOOLONG;
+			return copyCountPsuFiles(dir, count);
+		}
+		(*count)++;
+		return 0;
+	}
+	if (snprintf(dir, sizeof(dir), "%s%s/", path, file->name) >= sizeof(dir))
+		return -ENAMETOOLONG;
+	DashStorageProbeStatus("Counting files");
+	entries = malloc(MAX_ENTRY * sizeof(*entries));
+	if (entries == NULL) return -ENOMEM;
+	n = getDir(dir, entries);
+	if (n < 0) { ret = n; goto listed; }
+	for (i = 0; i < n; i++) {
+		if (!strcmp(entries[i].name, ".") || !strcmp(entries[i].name, "..")) continue;
+		if (entries[i].stats.AttrFile & sceMcFileAttrSubdir)
+			bytes += strlen(entries[i].name) + 1;
+		else
+			(*count)++;
+	}
+	if (bytes) {
+		children = malloc(bytes);
+		if (children == NULL) { ret = -ENOMEM; goto listed; }
+		name = children;
+		for (i = 0; i < n; i++) {
+			if (!(entries[i].stats.AttrFile & sceMcFileAttrSubdir) ||
+			    !strcmp(entries[i].name, ".") || !strcmp(entries[i].name, "..")) continue;
+			strcpy(name, entries[i].name);
+			name += strlen(name) + 1;
+		}
+	}
+listed:
+	free(entries);
+	for (name = children; ret >= 0 && name != NULL && name < children + bytes; name += strlen(name) + 1) {
+		FILEINFO child;
+		memset(&child, 0, sizeof(child));
+		strcpy(child.name, name);
+		child.stats.AttrFile = sceMcFileAttrSubdir;
+		ret = copyCountFiles(dir, &child, depth + 1, count);
+	}
+	free(children);
+	return ret;
+}
+
+int filerCopyProgressBegin(const char *path, const FILEINFO *files, int count)
+{
+	int i, ret;
+	copy_file_index = copy_file_count = 0;
+	if (!DashIsActive()) return 0;
+	filerCopyDiagStage("Counting source files");
+	for (i = 0; i < count; i++) {
+		snprintf(copy_diag.name, sizeof(copy_diag.name), "%.39s", files[i].name);
+		ret = copyCountFiles(path, &files[i], 0, &copy_file_count);
+		if (ret < 0) return copyDiagFail(ret);
+	}
+	return 0;
+}
+
 /* File replacements keep the old entry until a complete sibling copy has
  * been closed and read back. Never delete an existing file to make room. */
 static int copyPathMissing(int result)
 {
-	/* genGetStat uses fileXio errno values, not raw libmc result codes. */
+	/* genGetStat normalizes backend stat results; only ENOENT means absent. */
 	return result == -ENOENT;
 }
 
@@ -731,6 +840,13 @@ restart_copy:  //restart point for PM_PSU_RESTORE to reprocess modified argument
 				if (0 <= (out_fd = genOpen(tmp, FIO_O_RDONLY))) {  //Name conflict ?
 					genClose(out_fd);
 					out_fd = -1;
+					/* An intentionally skipped archive still consumes its queued
+					 * payload ordinals before the next selected save is pasted. */
+					if (DashIsActive()) {
+						u64 skipped = 0;
+						if (copyCountFiles(inPath, &file, recurses, &skipped) >= 0)
+							copy_file_index += skipped;
+					}
 					return 0;
 				}
 			}
@@ -951,6 +1067,8 @@ restart_copy:  //restart point for PM_PSU_RESTORE to reprocess modified argument
 		goto restart_copy;
 	}
 non_PSU_RESTORE_init:
+	copy_file_index++;
+	if (copy_file_index > copy_file_count) copy_file_count = copy_file_index;
 	//It is now time to open the input file, indicated by 'in_fd'
 	//But in PSU Restore mode we must use the already open PSU file instead
 	if (PM_flag[recurses] == PM_PSU_RESTORE) {
@@ -1211,6 +1329,8 @@ non_PSU_RESTORE_init:
 		transfer_stats.average_speed = average_speed;
 		transfer_stats.remaining_seconds = remain_time;
 		transfer_stats.written_total = written_size;
+		transfer_stats.file_index = copy_file_index;
+		transfer_stats.file_count = copy_file_count;
 		if (!DashFileTransferProgress("Pasting file", file.name, size, original_size, &transfer_stats)) {
 			if (PasteProgress_f)
 				nonDialog(NULL);
@@ -1289,6 +1409,8 @@ copy_file_data_done:
 	transfer_stats.average_speed = calcTransferSpeed(written_size, Timer() - PasteTime);
 	transfer_stats.remaining_seconds = 0;
 	transfer_stats.written_total = written_size;
+	transfer_stats.file_index = copy_file_index;
+	transfer_stats.file_count = copy_file_count;
 	DashFileTransferProgress("Pasting file", file.name, 0, original_size, &transfer_stats);
 	//Here the file has been copied. without error, as indicated by 'ret' above
 	//but we also need to copy attributes and timestamps (as yet only for MC)

@@ -59,12 +59,10 @@ static void dashInputPollEx(DashInput *in,int keyboard) {
     }
     paddata=tick<release_at?(swapKeys?PAD_CROSS:PAD_CIRCLE):0;
 }
-static int dashLoadingActive(void) { return loading; }
 static void dashLoadingBegin(const char *title) { (void)title;loading=1;begins++; }
-static void dashLoadingFrame(const char *text,int done,int total) {
-    assert(text && done>=0 && done<=1000 && total==1000);
-    frames++;tick+=10;
-}
+static float dashVisualUpdate(void) { return 0.01f; }
+static void dashRenderScene(void) { frames++; }
+static void dashGfxPresent(void) { tick+=10; }
 static void dashLoadingEnd(void) { loading=0;ends++; }
 '''
 program += function(dash, 'int DashChooseElfIopMode(')
@@ -159,11 +157,11 @@ int main(void) {
         reset(saved,mapping,0);
         assert(DashChooseElfIopMode(saved)==saved && tick==5000 && !polls && !frames);
         reset(saved,mapping,100);
-        assert(DashChooseElfIopMode(saved)==saved && tick==5100 && ends==1);
+        assert(DashChooseElfIopMode(saved)==saved && tick==5100 && !begins && !ends && !loading);
         reset(saved,mapping,999);
         assert(DashChooseElfIopMode(saved)==saved && tick==6000);
         reset(saved,mapping,1001);
-        assert(DashChooseElfIopMode(saved)==!saved && tick==6000);
+        assert(DashChooseElfIopMode(saved)==!saved && tick==6000 && !begins && !ends && !loading);
         assert(config.reboot_iop_elf_load==saved && exec_ctx.elf_iop_mode==MAIN_ELF_IOP_DEFAULT);
         reset(saved,mapping,10000);loading=1;
         assert(DashChooseElfIopMode(saved)==!saved && loading && !begins && !ends);

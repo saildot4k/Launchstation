@@ -53,7 +53,7 @@ static int leave_prompts, commits, discards;
 enum { SESSION_SAVE_CNF=1, SESSION_SAVE_NET=2, SESSION_SAVE_DASH=4,
        CFG_SAVE_CNF=0, CFG_SAVE_NET=1 };
 static int dashStoreSettingsFailed(void) { return 0; }
-static int modal_result = -1, dirty = 1, failed,can576=1,video_menus;
+static int modal_result = -1, dirty = 1, failed,can576=1,video_menus,language_menus,chosen_language;
 static int is576pSupported(void) { return can576; }
 static int auto_mode=TV_mode_NTSC;
 static int uLE_InitializeRegion(void) { return auto_mode; }
@@ -91,6 +91,9 @@ static void dashSwitchSection(int s) { assert(s == DASH_SEC_HOME); home++; }
 static void dashToast(int kind,const char *msg) { (void)kind; assert(msg); toast++; }
 static void colorEditor(const char *name,int id) { (void)name; (void)id; edits++; }
 static void choosePreset(void) { edits++; }
+static int chooseLanguage(const char *const *names,int n,int current) {
+    assert(n==3 && current==chosen_language && names[0]);language_menus++;return modal_result;
+}
 static void editPathMenu(const SetItem *it) { (void)it; edits++; }
 static void editIp(const SetItem *it) { (void)it; edits++; }
 static void editLaunchMenu(const SetItem *it) { (void)it; edits++; }
@@ -98,14 +101,16 @@ static void editLaunchKey(const SetItem *it,int what) { (void)it; (void)what; ed
 static void setNumber(int id,int v) { (void)id; (void)v; edits++; }
 static int choiceInfo(int id,int *v,const char *const **names,const char **single) {
     static const char *const options[]={"Off","On"};
+    static const char *const languages[]={"English","French","German"};
     *single=NULL;
+    if(id==S_LANGUAGE) { *v=chosen_language;*names=languages;return 3; }
     if(id==S_TVMODE) { *v=setting->TV_mode;*names=tv_names;return TV_mode_COUNT; }
     *v=0; *names=options; return 2;
 }
 static int dashModalChoice(const char *l,const char *const *o,int n,int c) {
     (void)l; (void)o; (void)n; return c;
 }
-static void setChoice(int id,int v) { if(id==S_TVMODE)setting->TV_mode=v;edits++; }
+static void setChoice(int id,int v) { if(id==S_TVMODE)setting->TV_mode=v;else if(id==S_LANGUAGE)chosen_language=v;edits++; }
 static int resetThemeSetting(int id) { (void)id; resets++; return 1; }
 """
 for signature in (
@@ -249,6 +254,14 @@ int main(void) {
     dashCfg.artwork=1; dashTheme.wallpaper=1; press(DASH_IN_RIGHT); assert(edits==5);
     select_id(P_THEME_CLOCK,S_T_SECONDS); press(DASH_IN_OK); assert(edits==5);
     dashTheme.clock=1; press(DASH_IN_OK); assert(edits==6);
+    /* The language chooser previews live; cancellation must not commit. */
+    select_id(P_LANGUAGE,S_LANGUAGE);modal_result=2;
+    int before_edits=edits;press(DASH_IN_OK);
+    assert(language_menus==1 && chosen_language==2 && edits==before_edits+1);
+    modal_result=-1;press(DASH_IN_OK);
+    assert(language_menus==2 && chosen_language==2 && edits==before_edits+1);
+    press(DASH_IN_LEFT);assert(chosen_language==1 && language_menus==2);
+    press(DASH_IN_RIGHT);assert(chosen_language==2 && language_menus==2);
     /* Six unique choices, with PAL covering 576i. Unsupported 576p is
      * disabled in the popup and skipped by Left/Right in both directions. */
     assert(TV_mode_COUNT==6 && sizeof(tv_names)/sizeof(tv_names[0])==TV_mode_COUNT);

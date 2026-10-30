@@ -37,6 +37,7 @@ jobs:
           python3 tests/test_pccf_fs.py
           python3 tests/test_paste_replace.py
           python3 tests/test_copy_short_io.py
+          python3 tests/test_file_stat_errors.py
           python3 tests/test_copy_pipeline.py
           python3 tests/test_udpfs_directory_errors.py
           python3 tests/test_copy_test_pack.py
@@ -48,6 +49,7 @@ jobs:
           python3 tests/test_poweroff_init.py
           python3 tests/test_settings_save_prompt.py
           python3 tests/test_settings_navigation.py
+          python3 tests/test_language_preview.py
           python3 tests/test_navigation_wraparound.py
           python3 tests/test_device_handoff.py
           python3 tests/test_browser_devices.py
