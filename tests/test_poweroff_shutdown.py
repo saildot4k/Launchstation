@@ -46,10 +46,13 @@ assert run_misc.index("dashSoundShutdown();") < run_misc.index("ExecuteMainActio
 assert "afterMiscCommand();" in run_misc
 
 # Failed validation must preserve the audsrv client and uploaded samples.
+# The app dispatcher uses a per-launch context for the one-shot IOP choice;
+# audio ordering must not depend on that local variable's name.
+launch_dispatch = launch_app.index("ExecuteMainAction(path,")
 assert "dashSoundShutdown();" not in launch_app
-assert launch_app.index("dashSoundSuspend();") < launch_app.index("ExecuteMainAction(path, &exec_ctx);")
-assert launch_app.index("dashSoundMaintain();") > launch_app.index("ExecuteMainAction(path, &exec_ctx);")
-assert launch_app.index("dashBgmStart();") > launch_app.index("ExecuteMainAction(path, &exec_ctx);")
+assert launch_app.index("dashSoundSuspend();") < launch_dispatch
+assert launch_app.index("dashSoundMaintain();") > launch_dispatch
+assert launch_app.index("dashBgmStart();") > launch_dispatch
 after_misc = body(dash, "static void afterMiscCommand(")
 assert "dashSoundShutdown();" not in after_misc
 assert "dashSoundMaintain();" in after_misc
