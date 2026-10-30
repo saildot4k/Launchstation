@@ -18,6 +18,10 @@ int selfUpdateExtractPsu(const char *package, const char *stage, int size);
 int selfUpdateExtractPsuSidecar(const char *package, const char *name,
                                 const char *stage, int size);
 
+/* Refresh metadata from the same verified package, retaining the boot filename. */
+int selfUpdateExtractPsuTitle(const char *package, const char *stage, int size,
+                              const char *boot_leaf);
+
 int selfUpdateInstall(const char *ca_path, const char *expected_sha256, char *result, int result_size);
 
 #endif

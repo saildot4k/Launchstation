@@ -556,7 +556,8 @@ int copy(char *outPath, const char *inPath, FILEINFO file, int recurses)
 	int ret = -1, pfsout = -1, pfsin = -1, in_fd = -1, out_fd = -1, buffSize, bytesRead, bytesWritten;
 	int buffCount = 1, buffIndex = 0;
 	int dummy;
-	int speed = 0;
+	int speed = 0, average_speed = -1;
+	DashTransferStats transfer_stats;
 	int remain_time = -1, TimeDiff = 0;
 	int eta_sample_speed = -1, smooth_speed = -1, EtaTimeDiff = 0;
 	u64 old_size = 0, SizeDiff = 0;
@@ -1195,18 +1196,22 @@ non_PSU_RESTORE_init:
 		sprintf(tmp, "\n%s: ", LNG(Average_Speed));
 		strcat(progress, tmp);
 		TimeDiff = Timer() - PasteTime;
-		speed = calcTransferSpeed(written_size, TimeDiff);
-		if (speed == -1)
+		average_speed = calcTransferSpeed(written_size, TimeDiff);
+		if (average_speed == -1)
 			strcpy(tmp, LNG(Unknown));
 		else {
-			if (speed <= 1024)
-				sprintf(tmp, "%d %s/sec", speed, LNG(bytes));  // bytes/sec
+			if (average_speed <= 1024)
+				sprintf(tmp, "%d %s/sec", average_speed, LNG(bytes));  // bytes/sec
 			else
-				sprintf(tmp, "%d %s/sec", speed / 1024, LNG(Kbytes));  //Kbytes/sec
+				sprintf(tmp, "%d %s/sec", average_speed / 1024, LNG(Kbytes));  //Kbytes/sec
 		}
 		strcat(progress, tmp);
 
-		if (!DashFileProgress("Pasting file", file.name, size, original_size)) {
+		transfer_stats.current_speed = speed;
+		transfer_stats.average_speed = average_speed;
+		transfer_stats.remaining_seconds = remain_time;
+		transfer_stats.written_total = written_size;
+		if (!DashFileTransferProgress("Pasting file", file.name, size, original_size, &transfer_stats)) {
 			if (PasteProgress_f)
 				nonDialog(NULL);
 			nonDialog(progress);
@@ -1280,7 +1285,11 @@ non_PSU_RESTORE_init:
 	}
 #endif
 copy_file_data_done:
-	DashFileProgress("Pasting file", file.name, 0, original_size);
+	transfer_stats.current_speed = speed;
+	transfer_stats.average_speed = calcTransferSpeed(written_size, Timer() - PasteTime);
+	transfer_stats.remaining_seconds = 0;
+	transfer_stats.written_total = written_size;
+	DashFileTransferProgress("Pasting file", file.name, 0, original_size, &transfer_stats);
 	//Here the file has been copied. without error, as indicated by 'ret' above
 	//but we also need to copy attributes and timestamps (as yet only for MC)
 	//For PSU backup output padding may be needed, but not output file closure

@@ -70,6 +70,8 @@ jobs:
           python3 tests/test_neutrino_mmce_launch.py
           python3 tests/test_r3z_four_browser_modes.py
           python3 tests/test_ember_launch.py
+          python3 tests/test_ember_gameid.py
+          python3 tests/test_ember_retrogem_handoff.py
           python3 tests/test_ember_paths.py
           python3 tests/test_ember_iop_handoff.py
           python3 tests/test_ember_two_usb_handoff.py
@@ -90,6 +92,7 @@ jobs:
           python3 tests/test_rounded_borders.py
           python3 tests/test_worker_queue.py
           python3 tests/test_device_input.py
+          python3 tests/test_launch_iop_override.py
           python3 tests/test_usb_storage_lifecycle.py
           python3 tests/test_usb_iop_pad_handoff.py
           python3 tests/test_zack_storage_drivers.py
@@ -133,6 +136,7 @@ jobs:
           python3 tests/test_rolling_release_workflow.py
           python3 tests/test_release_notes.py
           python3 tests/test_update_sidecar_transaction.py
+          python3 tests/test_update_sas_timestamps.py
           python3 tests/test_update_ancestry.py
           python3 tests/test_build_identity.py
           python3 tests/test_png_viewer.py

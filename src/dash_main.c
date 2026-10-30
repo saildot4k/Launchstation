@@ -14,6 +14,8 @@
 
 extern void (*mainActionLaunchHook)(const char *path);
 
+extern u32 paddata;
+
 static MainExecuteContext exec_ctx;
 static int dash_active;
 static int dash_inited;
@@ -227,6 +229,49 @@ static int settleBackgroundWork(const char *title)
 {
 	dashThemeSavePending(1 << 30); /* never lose theme edits */
 	return dashStoreFlushWait(title);
+}
+
+int DashChooseElfIopMode(int configured)
+{
+	DashInput input;
+	u32 confirm = swapKeys ? PAD_CROSS : PAD_CIRCLE;
+	u64 started, elapsed;
+	int owns_loading = 0, mode = !!configured;
+	const char *status = configured
+	    ? "Release: reboot IOP. Hold 1s: keep IOP."
+	    : "Release: keep IOP. Hold 1s: reboot IOP.";
+
+	/* Keyboard/automatic launches have no physical held Confirm. Read before
+	 * storage preparation so an ordinary tap need only wait for its release. */
+	if (!dash_active || dashWorkerOnThread() || !(paddata & confirm))
+		return mode;
+	started = Timer();
+	for (;;) {
+		dashWorkerParkPoint();
+		/* A fresh physical sample is required, even if a worker/IOP operation
+		 * delayed us past the threshold. Never infer a hold from stale PAD data. */
+		if (!dashWorkerIoBusy() && !dashIopParked()) {
+			dashInputPollEx(&input, 0);
+			if (!dashIopParked()) {
+				if (!(paddata & confirm))
+					break;
+				elapsed = Timer() - started;
+				if (elapsed >= 1000) {
+					mode = !mode;
+					break;
+				}
+			}
+		}
+		if (!dashLoadingActive()) {
+			dashLoadingBegin("Starting application");
+			owns_loading = 1;
+		}
+		elapsed = Timer() - started;
+		dashLoadingFrame(status, elapsed < 1000 ? (int)elapsed : 1000, 1000);
+	}
+	if (owns_loading)
+		dashLoadingEnd();
+	return mode;
 }
 
 int DashPrepareKeepIopHandoff(const char *title)
@@ -483,6 +528,7 @@ void dashLaunchApp(DashApp *app, int with_args_prompt)
 	char path[MAX_PATH];
 	char title[DASH_TITLE_MAX + 16];
 	DashApp copy;
+	MainExecuteContext launch_ctx = exec_ctx;
 
 	if (app == NULL)
 		return;
@@ -509,8 +555,16 @@ void dashLaunchApp(DashApp *app, int with_args_prompt)
 			LaunchArgsClear();
 			return;
 		}
-	} else if (with_args_prompt == DASH_LAUNCH_PENDING_ARGS) {
-		/* arguments already loaded (Text Editor "Launch with these arguments") */
+	}
+	/* Disc-image loaders own their IOP policy. Ordinary ELF/KELF/XLF paths,
+	 * including ELFs with a nonstandard filename, use this one-launch choice. */
+	if (!IsPopstarterVcdPath(path) && !IsNeutrinoIsoPath(path) &&
+	    !genCmpFileExt(path, "CUE") && !IsEmberGamePath(path)) {
+		int mode = DashChooseElfIopMode(setting->reboot_iop_elf_load);
+		launch_ctx.elf_iop_mode = mode ? MAIN_ELF_IOP_REBOOT : MAIN_ELF_IOP_KEEP;
+	}
+	if (with_args_prompt == 1 || with_args_prompt == DASH_LAUNCH_PENDING_ARGS) {
+		/* arguments already loaded by the editor or its "Use" action */
 	} else if (!settleBackgroundWork("Finishing up")) {
 		return; /* the user backed out while saves/driver work finished */
 	} else if ((copy.flags & DASH_APP_HAS_ARGS) && !argSidecarExists(path)) {
@@ -539,15 +593,14 @@ void dashLaunchApp(DashApp *app, int with_args_prompt)
 	dashLoadingStatus(copy.path, 0, 0);
 	exec_ctx.main_msg[0] = '\0';
 	mainActionLaunchHook = NULL; /* already recorded */
-	/*
-	 * Ordinary ELF launches used to leave audsrv's looping BGM voice alive.
-	 * Mute until the legacy launcher validates the target; final cleanup
-	 * stops audsrv. A failed validation can restore the existing audio below.
-	 */
-	dashSoundSuspend();
+	/* Mute ordinary launches until target validation; final cleanup stops
+	 * audsrv, and a failed launch restores it below. Neutrino opens interactive
+	 * options first: keep audio there until its keep-IOP cleanup after Run game. */
+	if (!IsNeutrinoIsoPath(path))
+		dashSoundSuspend();
 	dashGfxRestoreLegacyState();
 	dashClassicUiInstall(0); /* launch-time prompts stay classic */
-	ExecuteMainAction(path, &exec_ctx);
+	ExecuteMainAction(path, &launch_ctx);
 	/* Only reached when the launch failed. */
 	mainActionLaunchHook = dashLaunchHook;
 	LaunchArgsClear();
@@ -677,7 +730,6 @@ static void pollRemotePcCommand(void)
 //--------------------------------------------------------------
 // Boot behaviour (mirrors the classic menu's Init_Delay / LK_auto logic)
 //--------------------------------------------------------------
-extern u32 paddata;
 
 /* launch-key buttons, in the classic menu's order */
 static const struct

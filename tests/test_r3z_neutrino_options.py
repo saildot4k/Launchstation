@@ -52,6 +52,7 @@ static void dashToast(int kind, const char *text) { (void)kind; (void)text; }
 typedef struct { int icon; const char *label; const char *detail; int disabled; } DashMenuItem;
 int dashModalMenu(const char *, const char *, const DashMenuItem *, int, int);
 int dashModalChoice(const char *, const char *const *, int, int);
+void dashSoundMaintain(void);
 """
 pure_c += gui[native_start:native_end]
 pure_c += "int testDashboard(NEUTRINO_LAUNCH_OPTIONS *o) { return showDashboardNeutrinoOptions(o); }\n"
@@ -61,15 +62,18 @@ harness = r"""
 #include <string.h>
 #include "gui_neutrino.h"
 static const int *script;
-static int step, choice;
+static int step, choice, audio_ready, audio_recoveries;
+void dashSoundMaintain(void) { audio_ready=1; audio_recoveries++; }
 int testDashboard(NEUTRINO_LAUNCH_OPTIONS *);
 typedef struct { int icon; const char *label; const char *detail; int disabled; } DashMenuItem;
 int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *items, int count, int selected) {
+    assert(audio_ready); /* ISO preparation can replace the IOP before entry. */
     assert(title && subtitle && selected >= 0 && selected < count && count == 11);
     for (int i = 0; i < count; i++) assert(items[i].label && !items[i].disabled);
     return script[step++];
 }
 int dashModalChoice(const char *title, const char *const *labels, int count, int selected) {
+    assert(audio_ready);
     assert(title && labels && count > selected);
     return choice;
 }
@@ -107,13 +111,13 @@ int main(void) {
     assert(buildNeutrinoOptionArgs(&o, 0) == -1);
     const int run[] = {0, 4, 5, 6, 7, 8, 9};
     memset(&o, 0, sizeof(o)); script = run; step = 0; choice = 3;
-    assert(testDashboard(&o) == 1 && step == 7);
+    assert(testDashboard(&o) == 1 && step == 7 && audio_recoveries == 1);
     assert(o.game_compatibility == ((1u << 0) | (1u << 7)));
     assert(o.video_mode == 3 && o.video_compatibility == 3 && o.debug_colors && o.logo);
-    const int cancel[] = {-1}; script = cancel; step = 0;
-    assert(testDashboard(&o) == 0);
-    const int submenu_cancel[] = {5, 10}; script = submenu_cancel; step = 0; choice = -1;
-    assert(testDashboard(&o) == 0 && o.video_mode == 3);
+    const int cancel[] = {-1}; script = cancel; step = 0; audio_ready = 0;
+    assert(testDashboard(&o) == 0 && audio_ready && audio_recoveries == 2);
+    const int submenu_cancel[] = {5, 10}; script = submenu_cancel; step = 0; choice = -1; audio_ready = 0;
+    assert(testDashboard(&o) == 0 && o.video_mode == 3 && audio_ready && audio_recoveries == 3);
     return 0;
 }
 """

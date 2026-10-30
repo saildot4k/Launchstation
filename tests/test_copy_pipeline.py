@@ -158,6 +158,12 @@ static int ynDialog(const char *s){if(strstr(s,"Name_conflict_for_this_folder"))
 static int readpad(void){return cancel_copy;}
 static int DashIsActive(void){return dash_active;}
 static int DashFileProgress(const char *a,const char *b,u64 r,u64 t){(void)a;(void)b;assert(r<=t);return 1;}
+static int DashFileTransferProgress(const char *a,const char *b,u64 r,u64 t,const DashTransferStats *stats){
+ assert(stats && stats->written_total==written_size && r<=t);
+ assert(stats->current_speed>=-1 && stats->average_speed>=-1 && stats->remaining_seconds>=-1);
+ if(!r)assert(stats->remaining_seconds==0);
+ (void)a;(void)b;return 1;
+}
 static void nonDialog(char *s){(void)s;}
 static int filenameKeyboard(char *s,int n,const char *directory){(void)s;(void)n;(void)directory;return 0;}
 static int isPcCardCfPath(const char *s){return s&&!strncmp(s,"cf",2);}
@@ -277,6 +283,10 @@ for sig in ('static int getHddDeviceFromPath(', 'int getHddParty(', 'int getHddD
 psu=(root/'include/psu_types.h').read_text();code+=psu[psu.index('typedef struct'):psu.rindex('#endif')]
 psu_impl=(root/'src/psu_functions.c').read_text()
 code+= "\n".join(line for line in psu_impl.splitlines() if not line.startswith('#include')) + "\n"
+dash_header=(root/'include/dash.h').read_text()
+start=dash_header.index('typedef struct\n{\n\tu64 written_total;')
+stats_type=dash_header[start:dash_header.index('} DashTransferStats;',start)+len('} DashTransferStats;')]
+code=code.replace('#include "mmce_cmds.h"',stats_type+'\n#include "mmce_cmds.h"',1)
 a=copy.index('/* One paste context');b=copy.index('static int isMemoryCardLikePath(',a);code+=copy[a:b]
 for sig in ('static int isMemoryCardLikePath(', 'static int isHddCommonParty(',
             'static int copyReadChunk(', 'static int copyWriteChunk(',

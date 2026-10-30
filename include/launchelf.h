@@ -528,10 +528,12 @@ enum TV_mode {
 	TV_mode_VGA,
 	TV_mode_480P,
 	TV_mode_576P, /* Keep existing saved mode IDs stable. */
-	TV_mode_576I,
 
 	TV_mode_COUNT
 };
+/* Reserved saved value from the former duplicate 576i choice; load as PAL.
+ * Future video modes must not reuse this configuration value. */
+#define TV_MODE_LEGACY_576I 6
 
 extern char PathPad[30][MAX_PATH];
 extern SETTING *setting;

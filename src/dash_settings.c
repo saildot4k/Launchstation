@@ -306,7 +306,7 @@ static const SetItem language_items[] = {
 
 static const SetItem gameid_items[] = {
     {ST_CHOICE, S_GAMEID, "Game ID launch signal for apps", "Show the brief RetroGem-compatible Game ID signal/bar when launching ELFs. Turn this off if your display adapter does not use it."},
-    {ST_CHOICE, S_GAMEID_DISC, "Game ID launch signal for discs", "Show the same brief Game ID signal when starting discs."},
+    {ST_CHOICE, S_GAMEID_DISC, "Game ID launch signal for discs", "Show the same brief Game ID signal when starting discs or disc images."},
 };
 
 static const SetItem psu_items[] = {
@@ -481,7 +481,7 @@ static char *snap_dash_text, *snap_cnf_text;
 static u64 dirty_checked_ms;
 
 static const char *const onoff[] = {"Off", "On"};
-static const char *const tv_names[] = {"Auto", "NTSC", "PAL", "VGA", "480p", "576p", "576i"};
+static const char *const tv_names[] = {"Auto", "NTSC", "PAL", "VGA", "480p", "576p"};
 static const char *const view_names[] = {"Grid", "List", "Carousel"};
 static const char *const recent_names[] = {"0", "4", "8", "12", "16"};
 static const char *const hide_names[] = {"Show all", "Hide HDD1", "Hide HDD0+1", "Hide ATA1", "Hide ATA0+1", "Hide HDD1+ATA1", "Hide all"};
@@ -1044,7 +1044,6 @@ static const char *videoModeDetail(int mode)
 		case TV_mode_NTSC:
 			return "720x480i 60Hz";
 		case TV_mode_PAL:
-		case TV_mode_576I:
 			return "720x576i 50Hz";
 		case TV_mode_VGA:
 			return "640x480p 60Hz";

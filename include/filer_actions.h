@@ -6,6 +6,10 @@
 u64 getFileSize(const char *path, const FILEINFO *file);
 int filerCanSetCustomTimestamp(const char *path, const FILEINFO *file);
 int filerCanOrganizeFolderTimestamps(const char *path);
+/* Capture: 1 = this folder has its SAS date, 0 = ordinary/unsupported, <0 = error.
+ * Restore only a captured SAS date, after the final directory mutation. */
+int filerCaptureSasTimestamp(const char *folder, sceMcStDateTime *timestamp);
+int filerRestoreSasTimestamp(const char *folder, const sceMcStDateTime *timestamp);
 int time_manip_custom(const char *path, const FILEINFO *file, char *_msg0);
 int time_manip_organize(const char *path, const FILEINFO *file, char *_msg0);
 void make_title_cfg(const char *path, const FILEINFO *file, char *_msg0);

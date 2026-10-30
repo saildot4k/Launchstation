@@ -23,6 +23,13 @@ assert "SELF_UPDATE_ASSET" in update
 assert "selfUpdateExtractPsu(package, stage, package_size)" in update
 assert 'selfUpdateExtractPsuSidecar(package, "WLE-UPDATE-CA.PEM"' in update
 assert 'selfUpdateExtractPsuSidecar(package, "BGM.ADP"' in update
+assert 'selfUpdateExtractPsuTitle(package, title_stage, package_size, leaf)' in update
+assert 'rename_leaf(parent, "title.cfg", "title.cfg.BAK")' in update
+assert 'rename_leaf(parent, "title.cfg.UPDATE", "title.cfg")' in update
+assert 'rename_leaf(parent, "title.cfg.BAK", "title.cfg")' in update
+assert update.index("selfUpdateExtractPsuTitle(package") < update.index("rename_leaf(parent, leaf, backup_leaf)")
+assert 'filerCaptureSasTimestamp(parent, &sas_timestamp)' in update
+assert 'filerRestoreSasTimestamp(parent, &sas_timestamp)' in update
 assert "need_ca = !wleExists(update_ca)" in update
 assert "need_bgm = !wleExists(bgm)" in update
 assert "wleExists(update_ca_stage)" in update and "wleExists(bgm_stage)" in update

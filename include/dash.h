@@ -25,13 +25,30 @@ int DashOpenSettings(void);
 /* Publish the next blocking storage operation before entering its RPC.
  * Worker callers only update status; UI callers draw an existing overlay. */
 void DashStorageProbeStatus(const char *status);
+/* Transfer values come from the copy engine's R3Z 4.80 calculations.
+ * Speeds are bytes/second; negative speed/time means no estimate yet.
+ * Remaining time covers this file; written total/average cover the paste batch. */
+typedef struct
+{
+	u64 written_total;
+	int current_speed;
+	int average_speed;
+	int remaining_seconds;
+} DashTransferStats;
+
 /* Main-thread file-operation progress. Returns zero in classic mode. */
 int DashFileProgress(const char *action, const char *name, u64 remaining, u64 total);
+/* NULL stats shows byte-counted progress without transfer speed/ETA. */
+int DashFileTransferProgress(const char *action, const char *name, u64 remaining, u64 total,
+                             const DashTransferStats *stats);
 void DashFileDeleteProgress(const char *name);
 
 /* Finish dashboard-owned IO/audio before a child ELF that deliberately
  * inherits the live IOP. Returns 0 if the user cancels the bounded wait. */
 int DashPrepareKeepIopHandoff(const char *title);
+/* Release Confirm for the saved mode, or hold one second to reverse it.
+ * Does not edit configuration; callers retain the returned mode per launch. */
+int DashChooseElfIopMode(int configured);
 
 /* Path of the MISC pseudo-command that opens the dashboard. */
 const char *DashMiscCommandName(void);

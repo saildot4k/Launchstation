@@ -1,5 +1,6 @@
 """Execute production optional BGM loading/lifetime with mocked IO/audsrv."""
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -38,7 +39,6 @@ typedef struct { void *buffer; } audsrv_adpcm_t;
 #define MAX_PATH 256
 #define BGM_MAX_BYTES (1024*1024)
 #define DASH_BGM_CHANNEL 23
-#define BGM_WORKAROUND_VOLUME 5
 #define SND_SFX_CH_MAX 23
 #define SND_CURSOR_CH_COUNT 6
 #define FIO_O_RDONLY 1
@@ -90,7 +90,7 @@ static int audsrv_load_adpcm(audsrv_adpcm_t *s,void *p,int n) {
 }
 static int audsrv_ch_play_adpcm(int ch,audsrv_adpcm_t *s) {
     assert(ch==23 && s->buffer==bgm_data && bgm_data);
-    assert(music_volume==(dashCfg.bgm && dashCfg.bgm_vol>0 ? dashCfg.bgm_vol : 5));
+    assert(music_volume==(dashCfg.bgm && dashCfg.bgm_vol>0 ? dashCfg.bgm_vol : 10));
     plays++; return bad_channel_reply?24:ch;
 }
 static int audsrv_adpcm_set_volume_and_pan(int ch,int v,int p) {
@@ -111,6 +111,8 @@ static int dashSoundInit(void) {
     sound_reboot_generation=reset_generation; return 1;
 }
 """
+code = re.search(r"^#define BGM_WORKAROUND_VOLUME \d+", source, re.M)[0] + "\n" + code
+assert "#define BGM_WORKAROUND_VOLUME 10\n" in code
 for signature in ("int dashBgmRequestedVolume(", "static int bgmPlaybackVolume(",
                   "static int prepareBgmLoop(", "static int loadBgmSidecar(", "void dashBgmSetVolume(",
                   "void dashBgmStop(", "void dashBgmStart(",
@@ -137,16 +139,24 @@ int main(void) {
     for(int volume=0;volume<=40;volume+=40) {
         reset();dashCfg.sound=effects;dashCfg.bgm=music;dashCfg.bgm_vol=volume;
         dashBgmStart();
-        assert(bgm_channel==23 && music_volume==(music && volume ? volume : 5));
+        assert(bgm_channel==23 && music_volume==(music && volume ? volume : 10));
         assert(opens==1 && uploads==1 && plays==1);
         for(int i=0;i<20;i++)dashSoundMaintain();
         assert(opens==1 && uploads==1 && plays==1);
         assert(dashCfg.sound==effects && dashCfg.bgm==music && dashCfg.bgm_vol==volume);
         dashSoundSuspend();assert(music_volume==0);
         dashSoundMaintain();assert(music_volume==0); /* launch silence is real */
-        dashBgmStart();assert(music_volume==(music && volume ? volume : 5));
+        dashBgmStart();assert(music_volume==(music && volume ? volume : 10));
         dashSoundShutdown();assert(music_volume==0 && !allocs);
     }
+    reset();dashCfg.bgm_vol=10;dashBgmStart();
+    int manual_gain=music_volume;assert(manual_gain==10);
+    dashCfg.bgm=0;dashBgmStop();dashSoundMaintain();
+    assert(music_volume==manual_gain && bgm_channel==23 && uploads==1 && plays==1);
+    assert(!dashCfg.bgm && dashCfg.bgm_vol==10);
+    dashCfg.bgm=1;dashCfg.bgm_vol=0;dashBgmStart();dashSoundMaintain();
+    assert(music_volume==manual_gain && bgm_channel==23 && uploads==1 && plays==1);
+    assert(dashCfg.bgm && !dashCfg.bgm_vol);
     reset(); dashBgmStart();
     assert(bgm_loaded && bgm_channel==23 && allocs==1 && opens==1 && uploads==1 && plays==1);
     assert(file[17]==0 && file[33]==0 && file[49]==0); /* never mutate the sidecar */
@@ -157,9 +167,9 @@ int main(void) {
     dashSoundSuspend(); dashSoundMaintain(); dashSoundApplyVolume(); dashBgmStart();
     assert(quit_calls==quits && !hard_stops && opens==1 && uploads==1 && plays==1);
     assert(soundAlive() && allocs==1 && bgm_channel==23);
-    busy=1;dashCfg.bgm=0;dashBgmStart();assert(music_volume==5 && plays==1);
+    busy=1;dashCfg.bgm=0;dashBgmStart();assert(music_volume==10 && plays==1);
     dashCfg.bgm=1;dashCfg.bgm_vol=30;dashBgmStart();assert(music_volume==30 && plays==1);
-    dashCfg.bgm_vol=0;dashBgmStart();assert(music_volume==5 && plays==1);
+    dashCfg.bgm_vol=0;dashBgmStart();assert(music_volume==10 && plays==1);
     busy=0;dashCfg.bgm_vol=80;
     dashCfg.bgm=0; dashBgmStop(); dashCfg.bgm=1; dashBgmStart();
     assert(opens==1 && plays==1 && volumes>1);

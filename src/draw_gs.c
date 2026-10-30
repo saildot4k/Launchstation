@@ -24,12 +24,15 @@ static int requestedTVMode(void)
 {
 	int mode = setting->TV_mode;
 
+	/* Retire the duplicate 576i choice without changing existing PAL output.
+	 * Canonicalize before validation because the old value is no longer a choice. */
+	if (mode == TV_MODE_LEGACY_576I)
+		setting->TV_mode = mode = TV_mode_PAL;
+
 	/* Validate before any GS reset, including startup/configuration reloads.
 	 * An incompatible saved choice must boot in the console's Auto mode. */
 	if (mode < TV_mode_AUTO || mode >= TV_mode_COUNT || (mode == TV_mode_576P && !is576pSupported()))
 		setting->TV_mode = mode = TV_mode_AUTO;
-	if (mode == TV_mode_576I)
-		return TV_mode_PAL;
 	return mode == TV_mode_AUTO ? uLE_InitializeRegion() : mode;
 }
 

@@ -73,3 +73,29 @@ missing/invalid music keeps the previous silent fallback and once-per-session
 read policy. Existing voice reservations and SFX volumes are unchanged.
 This implements the requested workaround; console testing is still needed
 to establish whether it prevents the reported dropout/cutoff symptom.
+
+## October 29 console feedback and Neutrino options
+
+The user reports that the 5% workaround still produces missing or truncated
+interface sounds, while manually enabling music at 10% works. The runtime
+fallback in `src/dash_sound.c` now uses 10%, matching that reported working
+setting through the same sidecar, voice 23 and gain-before-key-on path. Off
+and zero volume still display Off/0% and retain their saved values. This is
+an adjustment to the workaround, not an established diagnosis of the SPU2 or
+analog-output symptom. It still requires a readable optional `BGM.ADP`.
+
+The Neutrino options popup had a separate confirmed lifecycle defect:
+`dashLaunchApp()` muted all audio before `ExecuteMainAction()` opened the
+interactive options. It now leaves audio active for ISO launches until
+Neutrino reaches `CleanUpForKeepIopExec()` after Run game and loader
+preparation. Ordinary ELF launches retain their existing mute and recovery.
+The Neutrino popup also calls the guarded `dashSoundMaintain()` on entry,
+because ISO/profile preparation can have replaced the IOP while the main
+dashboard loop is paused. This recovers a stale service without restarting
+a healthy music voice. Cancellation leaves the dashboard audio available.
+
+The host regressions execute the production frontend, handoff gate, popup,
+sidecar and gain functions. They check cancellation, nested options, committed
+handoff, a cancelled background-work wait, IOP recovery and the equivalence
+of Off/0% to On/10% without saving the effective gain. They do not simulate
+physical SPU2 output; the revised workaround still needs console retesting.

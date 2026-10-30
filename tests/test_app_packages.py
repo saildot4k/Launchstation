@@ -1,5 +1,6 @@
 """Exercise packaged payloads and the actual updater parser with hostile archives."""
 import importlib.util
+import os
 from pathlib import Path
 import shutil
 import struct
@@ -24,6 +25,7 @@ with tempfile.TemporaryDirectory(prefix="app-packages-") as tmp:
     assert len(list((tmp / "out").iterdir())) == 4
     (tmp / "launchelf.h").write_text('''
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -31,24 +33,38 @@ with tempfile.TemporaryDirectory(prefix="app-packages-") as tmp:
 #define O_BINARY 0
 #endif
 #define MAX_PATH 1024
+#define MAX_NAME 256
 #define FIO_O_RDONLY O_RDONLY
 #define FIO_O_WRONLY O_WRONLY
 #define FIO_O_CREAT O_CREAT
 #define FIO_O_TRUNC O_TRUNC
 #define genOpen(p,f) open(p,(f)|O_BINARY,0600)
-#define genClose close
+static inline int mock_close(int fd) {
+    int output = (fcntl(fd, F_GETFL) & O_ACCMODE) == O_WRONLY;
+    int result = close(fd);
+    if(output && getenv("UPDATE_FAIL_CLOSE"))return -1;
+    return result;
+}
+#define genClose mock_close
 #define genLseek lseek
 #define genRemove unlink
 /* Deliberately short transfers exercise both retry loops. */
 #define genRead(fd,p,n) read(fd,p,(n)>17?17:(n))
-#define genWrite(fd,p,n) write(fd,p,(n)>13?13:(n))
+static inline int mock_write(int fd,const void *p,int n) {
+    static int calls;
+    if(getenv("UPDATE_FAIL_WRITE") && calls++ > 0)return -1;
+    return write(fd,p,n>13?13:n);
+}
+#define genWrite mock_write
 ''')
     (tmp / "main.c").write_text('''
 #include "launchelf.h"
 #include "self_update.h"
 int main(int argc,char **argv) {
     int fd=open(argv[1],O_RDONLY), size=lseek(fd,0,SEEK_END); close(fd);
-    if(argc==4)
+    if(argc==5)
+        printf("%d",selfUpdateExtractPsuTitle(argv[1],argv[2],size,argv[3]));
+    else if(argc==4)
         printf("%d",selfUpdateExtractPsuSidecar(argv[1],argv[2],argv[3],size));
     else
         printf("%d",selfUpdateExtractPsu(argv[1],argv[2],size));
@@ -85,6 +101,35 @@ int main(int argc,char **argv) {
             else:
                 assert result == -1 and not stage.exists()
         check(archive, True)
+        def check_title(data, leaf, expected):
+            path, stage = tmp / "title_candidate.psu", tmp / "title.stage"
+            path.write_bytes(data)
+            stage.unlink(missing_ok=True)
+            got = int(subprocess.check_output([str(binary), str(path), str(stage), leaf, "title"]))
+            if isinstance(expected, bytes):
+                assert got == len(expected) and stage.read_bytes() == expected
+                stage.unlink()
+            else:
+                assert got == expected and not stage.exists()
+        cfg = packaged_members["title.cfg"]
+        # A partially written or unfinalized metadata file cannot be published.
+        for fault in ("UPDATE_FAIL_WRITE", "UPDATE_FAIL_CLOSE"):
+            path, stage = tmp / "title_fault.psu", tmp / "title_fault.stage"
+            path.write_bytes(archive)
+            got = int(subprocess.check_output([str(binary), str(path), str(stage), name, "title"],
+                                             env=dict(os.environ, **{fault: "1"})))
+            assert got == -1 and not stage.exists()
+        check_title(archive, name, cfg)
+        check_title(archive, "BOOT.ELF", cfg.replace(("boot=" + name).encode(), b"boot=BOOT.ELF"))
+        for invalid in ("", "../BOOT.ELF", "mc0:BOOT.ELF", "bad\\name", "bad\nname", "X" * 256):
+            check_title(archive, invalid, -1)
+        legacy_cfg = ("Title=New release\r\nboot=" + name + "\r\nVersion=new\r\n").encode()
+        legacy_psu = p.make_psu(folder, {name: bytes(elf), "title.cfg": legacy_cfg}, bytes(8))
+        check_title(legacy_psu, "custom.elf", legacy_cfg.replace(name.encode(), b"custom.elf"))
+        for invalid in (b"Title=missing boot\n", b"boot=wrong.elf\n", cfg + b"boot=x\n",
+                        cfg + b"\0", b"x" * 4097):
+            check_title(p.make_psu(folder, {name: bytes(elf), "title.cfg": invalid}, bytes(8)), name, -1)
+        check_title(p.make_psu(folder, {"title.cfg": cfg, name: bytes(elf)}, bytes(8))[:1536+512+len(cfg)-1], name, -1)
         # The native sidecar helper reads the already-verified PSU without
         # changing existing user files. Both assets stream under short IO.
         def check_sidecar(data, asset, expected):

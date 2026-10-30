@@ -1244,7 +1244,6 @@ static void actionsMenu(void)
 	int ids[44], n = 0, r;
 	char marked[24], sort_detail[48];
 	enum {
-		F_OPEN,
 		F_COPY,
 		F_CUT,
 		F_PASTE,
@@ -1293,17 +1292,6 @@ static void actionsMenu(void)
 		snprintf(sort_detail, sizeof(sort_detail), "%s, %s", sort_names[fb_sort], direction_names[fb_sort_desc ? 1 : 0]);
 #define ADD(ic, lab, det, dis, id) \
 	(items[n].icon = (ic), items[n].label = (lab), items[n].detail = (det), items[n].disabled = (dis), ids[n++] = (id))
-	if (f != NULL) {
-		int open_disabled = 0;
-		if (!isDir(f) && isPcCardCfPath(fb.dir)) {
-			if (genCmpFileExt(f->name, "ELF") || genCmpFileExt(f->name, "XLF") ||
-			    genCmpFileExt(f->name, "KELF") || genCmpFileExt(f->name, "VCD") ||
-			    genCmpFileExt(f->name, "ISO") || genCmpFileExt(f->name, "CUE"))
-				open_disabled = 1;
-		}
-		ADD(isDir(f) ? DI_FOLDER : DI_PLAY, isDir(f) ? "Open" : "Open / start",
-		    open_disabled ? "Direct launch unsupported" : NULL, open_disabled, F_OPEN);
-	}
 	if (in_folder) {
 		ADD(DI_FILE, "Copy", fb.nmarked ? marked : NULL, !has_target || !en[COPY], F_COPY);
 		ADD(DI_CLOSE, "Cut", fb.nmarked ? marked : NULL, !has_target || !en[CUT], F_CUT);
@@ -1352,9 +1340,6 @@ static void actionsMenu(void)
 	if (r < 0 || items[r].disabled)
 		return;
 	switch (ids[r]) {
-		case F_OPEN:
-			activate();
-			break;
 		case F_COPY:
 			opCopy(0);
 			break;

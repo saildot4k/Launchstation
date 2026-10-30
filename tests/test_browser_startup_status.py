@@ -69,7 +69,7 @@ static void ignore(float first,...) { (void)first; }
 #define dashGfxBlend(...) ignore(__VA_ARGS__)
 #define dashDrawSpinner(...) ignore(__VA_ARGS__)
 #define dashTextFit(...) ignore(__VA_ARGS__)
-#define dashPanel(...) ignore(__VA_ARGS__)
+#define loadingBarShape(...) ignore(__VA_ARGS__)
 #define modalHintRow(...) ignore(__VA_ARGS__)
 static void modalBackdrop(float k) { (void)k;overlays++; }
 static int dashBackIcon(void) { return 0; }

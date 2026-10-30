@@ -131,6 +131,16 @@ code += function(ui, "void dashDrawSelection(")
 if "static void scrollbarShape(" in ui:
     code += function(ui, "static void scrollbarShape(")
 code += function(ui, "void dashDrawScrollbar(")
+if "static void loadingBarShape(" in ui:
+    code += function(ui, "static void loadingBarShape(")
+# Execute the actual track/fill draw calls, with timing handled separately by
+# the transfer and modal tests. This also runs against the old panel renderer.
+loading = function(ui, "static void loadingDraw(")
+start = loading.index("loading_fraction = dashApproach(")
+start = loading.index("\n", start) + 1
+end = loading.index("\n\t}", start)
+code += "static void drawLoadingBar(float x,float bar_y,float w,float loading_fraction) {\n"
+code += loading[start:end] + "\n}\n"
 code += r'''
 static void samePixel(float x,float y,const float expected[3]) {
     float actual[3];sample(x,y,actual);
@@ -200,9 +210,52 @@ int main(void) {
     }
     count=0;dashDrawScrollbar(20,10,240,0,5,5);assert(!count);
     count=0;dashDrawScrollbar(20,10,240,0,5,0);assert(!count);
+    /* Progress caps must mirror at both ends, including fractional modal
+     * origins. Very short fills must stay inside the track's rounded shape
+     * and never display more progress than their actual width. */
+    const float fractions[]={0,0.00001f,0.001f,1.0f/360,0.005f,0.012f,
+                             0.019f,0.125f,0.3333f,0.5f,0.999f,1};
+    const float fades[]={0.4f,1};
+    for(int corner=0;corner<3;corner++)
+    for(unsigned origin=0;origin<sizeof(origins)/sizeof(*origins);origin++)
+    for(unsigned fade=0;fade<sizeof(fades)/sizeof(*fades);fade++) {
+        float x=origins[origin],y=10+(origins[origin]-20);
+        float left=ceilf(x+30),top=ceilf(y),background[3]={11,17,23};
+        float track[8][360][3];
+        dashTheme.corner=corner;g_alpha=fades[fade];count=0;
+        drawLoadingBar(x,y,420,0);
+        for(int row=0;row<8;row++)for(int col=0;col<360;col++)
+            sample(left+col,top+row,track[row][col]);
+        if(corner!=DASH_CORNER_SQUARE) {
+            samePixel(left,top,background);
+            samePixel(left+359,top,background);
+            samePixel(left,top+7,background);
+            samePixel(left+359,top+7,background);
+        }
+        for(unsigned f=0;f<sizeof(fractions)/sizeof(*fractions);f++) {
+            int filled=(int)ceilf(360*fractions[f]);
+            count=0;drawLoadingBar(x,y,420,fractions[f]);
+            for(int row=-1;row<=8;row++)for(int col=-1;col<=360;col++) {
+                const float *base=(row<0||row>=8||col<0||col>=360)
+                                  ? background:track[row][col];
+                int outside=1;
+                for(int channel=0;channel<3;channel++)
+                    if(fabsf(base[channel]-background[channel])>0.01f)outside=0;
+                if(outside||col>=filled)samePixel(left+col,top+row,base);
+                if((fractions[f]==0||fractions[f]==1)&&row>=0&&row<8&&col>=0&&col<360) {
+                    float mirrored[3];
+                    sample(left+359-col,top+row,mirrored);
+                    samePixel(left+col,top+row,mirrored);
+                    sample(left+col,top+7-row,mirrored);
+                    samePixel(left+col,top+row,mirrored);
+                }
+            }
+        }
+    }
     free(tex_corner.Mem);free(tex_ring.Mem);
     puts("PASS: equal border tint/opacity on all four corners and straight edges, square/soft/round, solid/outline, translucent strength and rounded cutouts");
     puts("PASS: scrollbar track and thumb match left-to-right on the pixel grid at every scroll position and corner style");
+    puts("PASS: progress track/fill caps mirror horizontally and vertically; tiny fills remain inside the track across corner styles and modal fades");
 }
 '''
 cc = shutil.which("gcc") or shutil.which("clang")

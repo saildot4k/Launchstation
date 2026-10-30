@@ -120,12 +120,50 @@ remove_stage:
 }
 
 
-/* Extract one missing runtime sidecar from a package already verified with
+/* Update only the packaged boot entry when the installed ELF was renamed.
+ * All other release metadata and line endings come from the verified PSU. */
+static int write_title(int fd, const unsigned char *data, int size, const char *boot_leaf)
+{
+    int begin = -1, end = -1, i, count, written;
+    const unsigned char *parts[3];
+    int lengths[3];
+
+    if (boot_leaf == NULL || !boot_leaf[0] || strlen(boot_leaf) >= MAX_NAME ||
+        strpbrk(boot_leaf, "/\\:\r\n") != NULL || memchr(data, 0, size) != NULL)
+        return -1;
+    for (i = 0; i < size; i++) {
+        if ((i == 0 || data[i - 1] == '\n') && size - i >= 5 &&
+            !memcmp(data + i, "boot=", 5)) {
+            if (begin >= 0)
+                return -1;
+            begin = i + 5;
+            end = begin;
+            while (end < size && data[end] != '\r' && data[end] != '\n')
+                end++;
+        }
+    }
+    if (begin < 0 || end - begin != (int)strlen(SELF_UPDATE_ELF) ||
+        memcmp(data + begin, SELF_UPDATE_ELF, end - begin))
+        return -1;
+    parts[0] = data; lengths[0] = begin;
+    parts[1] = (const unsigned char *)boot_leaf; lengths[1] = strlen(boot_leaf);
+    parts[2] = data + end; lengths[2] = size - end;
+    for (i = 0; i < 3; i++) {
+        for (written = 0; written < lengths[i]; written += count) {
+            count = genWrite(fd, (void *)(parts[i] + written), lengths[i] - written);
+            if (count <= 0 || count > lengths[i] - written)
+                return -1;
+        }
+    }
+    return lengths[0] + lengths[1] + lengths[2];
+}
+
+/* Extract one app file from a package already verified with
  * its GitHub SHA-256 and selfUpdateExtractPsu(). Do not call on an unchecked
- * archive or overwrite an existing staging filename. A legacy two-file PSU
- * returns 0 without creating a file. */
-int selfUpdateExtractPsuSidecar(const char *package, const char *name,
-                                const char *stage, int size)
+ * archive or overwrite an existing staging filename. Legacy packages still
+ * contain title.cfg, but return 0 for absent runtime sidecars. */
+static int extract_psu_file(const char *package, const char *name,
+                            const char *stage, int size, const char *boot_leaf)
 {
     unsigned char directories[1536], entry[512], buffer[4096];
     int input = -1, output = -1, position = 1536, i, entries;
@@ -134,8 +172,9 @@ int selfUpdateExtractPsuSidecar(const char *package, const char *name,
     char remove_path[MAX_PATH];
     int is_ca = name != NULL && !strcmp(name, "WLE-UPDATE-CA.PEM");
     int is_bgm = name != NULL && !strcmp(name, "BGM.ADP");
+    int is_title = name != NULL && !strcmp(name, "title.cfg");
 
-    if ((!is_ca && !is_bgm) || package == NULL || stage == NULL ||
+    if ((!is_ca && !is_bgm && !is_title) || package == NULL || stage == NULL ||
         size < 1536 || size > 16 * 1024 * 1024)
         return -1;
 
@@ -149,11 +188,11 @@ int selfUpdateExtractPsuSidecar(const char *package, const char *name,
         !record_is(directories + 512, 0x8027, ".") ||
         !record_is(directories + 1024, 0x8027, ".."))
         goto done;
-    if (entries == 4) {
+    if (entries == 4 && !is_title) {
         result = 0; /* compatible, older package without sidecars */
         goto done;
     }
-    if (entries != 6)
+    if (entries != 4 && entries != 6)
         goto done;
 
     for (i = 0; i < entries - 2; i++) {
@@ -171,7 +210,8 @@ int selfUpdateExtractPsuSidecar(const char *package, const char *name,
             goto done;
         if (record_is(entry, 0x8017, name)) {
             unsigned int remaining = length;
-            if ((is_ca && (length < sizeof("-----BEGIN CERTIFICATE-----") - 1 ||
+            if ((is_title && length > sizeof(buffer)) ||
+                (is_ca && (length < sizeof("-----BEGIN CERTIFICATE-----") - 1 ||
                            length > 32768)) ||
                 (is_bgm && (length < 32 || length > 1024 * 1024 ||
                             (length & 15))))
@@ -180,6 +220,14 @@ int selfUpdateExtractPsuSidecar(const char *package, const char *name,
             if (output < 0)
                 goto done;
             created = 1;
+            if (is_title) {
+                if (!read_exact(input, buffer, length))
+                    goto done;
+                result = write_title(output, buffer, length, boot_leaf);
+                if (result < 0)
+                    goto done;
+                remaining = 0;
+            }
             while (remaining > 0) {
                 int count = remaining > sizeof(buffer) ? sizeof(buffer) : remaining;
                 int written = 0;
@@ -199,10 +247,12 @@ int selfUpdateExtractPsuSidecar(const char *package, const char *name,
             }
             if (genClose(output) < 0) {
                 output = -1;
+                result = -1;
                 goto done;
             }
             output = -1;
-            result = (int)length;
+            if (!is_title)
+                result = (int)length;
             goto done;
         }
         position += padded;
@@ -217,4 +267,18 @@ done:
         genRemove(remove_path);
     }
     return result;
+}
+
+int selfUpdateExtractPsuSidecar(const char *package, const char *name,
+                                const char *stage, int size)
+{
+    if (name == NULL || (strcmp(name, "WLE-UPDATE-CA.PEM") && strcmp(name, "BGM.ADP")))
+        return -1;
+    return extract_psu_file(package, name, stage, size, NULL);
+}
+
+int selfUpdateExtractPsuTitle(const char *package, const char *stage, int size,
+                              const char *boot_leaf)
+{
+    return extract_psu_file(package, "title.cfg", stage, size, boot_leaf);
 }

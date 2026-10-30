@@ -69,7 +69,7 @@ static int dashModalMenu(const char *t,const char *d,DashMenuItem *m,int n,int s
         assert(!strcmp(t,"Video mode"));video_menus++;
         const char *expected[]={NULL,"720x480i 60Hz","720x576i 50Hz",
                                 "640x480p 60Hz","720x480p 60Hz",
-                                "720x576p 50Hz","720x576i 50Hz"};
+                                "720x576p 50Hz"};
         expected[TV_mode_AUTO]=auto_mode==TV_mode_PAL ? "720x576i 50Hz" : "720x480i 60Hz";
         if(!can576)expected[TV_mode_576P]="720x576p 50Hz (unsupported)";
         for(int i=0;i<n;i++) {
@@ -249,18 +249,22 @@ int main(void) {
     dashCfg.artwork=1; dashTheme.wallpaper=1; press(DASH_IN_RIGHT); assert(edits==5);
     select_id(P_THEME_CLOCK,S_T_SECONDS); press(DASH_IN_OK); assert(edits==5);
     dashTheme.clock=1; press(DASH_IN_OK); assert(edits==6);
-    /* Separate 576i remains available; unsupported 576p is disabled in the
-     * popup and skipped by Left/Right, including wraparound. */
-    assert(sizeof(tv_names)/sizeof(tv_names[0])==TV_mode_COUNT);
+    /* Six unique choices, with PAL covering 576i. Unsupported 576p is
+     * disabled in the popup and skipped by Left/Right in both directions. */
+    assert(TV_mode_COUNT==6 && sizeof(tv_names)/sizeof(tv_names[0])==TV_mode_COUNT);
+    const char *labels[]={"Auto","NTSC","PAL","VGA","480p","576p"};
+    for(int i=0;i<TV_mode_COUNT;i++)assert(!strcmp(tv_names[i],labels[i]));
     select_id(P_SCREEN,S_TVMODE);can576=0;setting->TV_mode=TV_mode_AUTO;
-    press(DASH_IN_LEFT);assert(setting->TV_mode==TV_mode_576I);
     press(DASH_IN_LEFT);assert(setting->TV_mode==TV_mode_480P);
-    press(DASH_IN_RIGHT);assert(setting->TV_mode==TV_mode_576I);
     press(DASH_IN_RIGHT);assert(setting->TV_mode==TV_mode_AUTO);
-    modal_result=TV_mode_576I;press(DASH_IN_OK);assert(video_menus==1 && setting->TV_mode==TV_mode_576I);
+    press(DASH_IN_RIGHT);assert(setting->TV_mode==TV_mode_NTSC);
+    press(DASH_IN_RIGHT);assert(setting->TV_mode==TV_mode_PAL);
+    modal_result=TV_mode_PAL;press(DASH_IN_OK);assert(video_menus==1 && setting->TV_mode==TV_mode_PAL);
     can576=1;setting->TV_mode=TV_mode_AUTO;
-    press(DASH_IN_LEFT);assert(setting->TV_mode==TV_mode_576I);
     press(DASH_IN_LEFT);assert(setting->TV_mode==TV_mode_576P);
+    press(DASH_IN_LEFT);assert(setting->TV_mode==TV_mode_480P);
+    press(DASH_IN_RIGHT);assert(setting->TV_mode==TV_mode_576P);
+    press(DASH_IN_RIGHT);assert(setting->TV_mode==TV_mode_AUTO);
     modal_result=TV_mode_576P;press(DASH_IN_OK);assert(video_menus==2 && setting->TV_mode==TV_mode_576P);
     /* Details cover all choices. Auto follows the console even while a
      * different mode is selected; opening/canceling a chooser changes nothing. */

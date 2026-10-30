@@ -2,6 +2,7 @@
 #include "gui_neutrino.h"
 #include "dash.h"
 #include "dash_internal.h"
+#include "dash_sound.h"
 #include "neutrino_gameid.h"
 #include "init.h"
 #include <limits.h>
@@ -288,6 +289,9 @@ static int showDashboardNeutrinoOptions(NEUTRINO_LAUNCH_OPTIONS *options)
 	const int item_count = cancel_index + 1;
 	int selection = 0, i, choice;
 
+	/* ISO/profile preparation may have restarted the storage IOP. The main
+	 * dashboard loop is paused while these options are open. */
+	dashSoundMaintain();
 	for (;;) {
 		memset(items, 0, sizeof(items));
 		for (i = 0; i < NEUTRINO_COMPAT_COUNT; i++) {

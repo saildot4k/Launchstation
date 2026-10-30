@@ -20,6 +20,13 @@ def function(source, signature):
     return source[start:pos] + "\n"
 
 
+# Import saved IDs from the real header so the harness cannot hide a mismatch.
+classic = (root / "include/launchelf.h").read_text()
+video_start = classic.index("enum TV_mode {")
+video_modes = classic[video_start:classic.index("};", video_start) + 2] + "\n"
+video_modes += next(line for line in classic.splitlines()
+                    if line.startswith("#define TV_MODE_LEGACY_576I ")) + "\n"
+
 harness = r'''
 #include <assert.h>
 #include <math.h>
@@ -41,7 +48,7 @@ harness = r'''
 #define GS_SETTING_ON 1
 #define GS_SETTING_OFF 0
 #define ETM_INLINE 1
-enum {TV_mode_AUTO, TV_mode_NTSC, TV_mode_PAL, TV_mode_VGA, TV_mode_480P, TV_mode_576P, TV_mode_576I, TV_mode_COUNT};
+''' + video_modes + r'''
 static struct {
     int Mode, Interlace, Field, Width, Height, StartX, StartY, DoubleBuffering, FirstFrame;
     unsigned CurrentPointer;
@@ -139,7 +146,6 @@ harness += r'''
 static int expected_native576=1;
 static int resolveMode(int choice) {
     if(choice==TV_mode_576P && !expected_native576)return region;
-    if(choice==TV_mode_576I)return TV_mode_PAL;
     return choice==TV_mode_AUTO?region:choice;
 }
 static int gsMode(int mode) {
@@ -197,8 +203,8 @@ static void checkSwitches(void) {
             }
     }
     console_is_PSX=0;strcpy(ROMVER_data,"0220E");
-    puts("PASS: 392 live video transitions across PS2 2.00/2.20 and PSX 1.80J/2.10J, NTSC/PAL regions, DMA/GS completion, "
-         "double buffering, calibration, texture recovery, separate 576p/576i and Auto fallback scaling");
+    puts("PASS: 288 live video transitions across PS2 2.00/2.20 and PSX 1.80J/2.10J, NTSC/PAL regions, DMA/GS completion, "
+         "double buffering, calibration, texture recovery, PAL/576p and Auto fallback scaling");
 }
 static void checkVramBudget(void) {
     unsigned pixel=0;GSTEXTURE t={640,512,GS_PSM_CT32,GS_PSM_CT32,&pixel,NULL};
@@ -256,9 +262,12 @@ static void checkRomSupport(void) {
                 assert(g.Mode==gsMode(region) && g.Interlace==GS_INTERLACED && g.Field==GS_FIELD);
                 assert(g.Height==(region==TV_mode_PAL?512:448));
             }
-            setting->TV_mode=TV_mode_576I;
-            assert(requestedTVMode()==TV_mode_PAL && setting->TV_mode==TV_mode_576I);
-            const int invalid[]={-1,TV_mode_COUNT,9999};
+            /* Old saved value 6 remains PAL on every supported console,
+             * including NTSC machines and consoles without native 576p. */
+            setting->TV_mode=TV_MODE_LEGACY_576I;
+            assert(requestedTVMode()==TV_mode_PAL && setting->TV_mode==TV_mode_PAL);
+            assert(requestedTVMode()==TV_mode_PAL && setting->TV_mode==TV_mode_PAL);
+            const int invalid[]={-1,TV_mode_COUNT+1,9999};
             for(unsigned j=0;j<sizeof(invalid)/sizeof(invalid[0]);j++) {
                 setting->TV_mode=invalid[j];
                 assert(requestedTVMode()==region && setting->TV_mode==TV_mode_AUTO);
@@ -267,10 +276,12 @@ static void checkRomSupport(void) {
     }
     console_is_PSX=0;strcpy(ROMVER_data,"0220E");
     puts("PASS: 576p supports PS2 2.20+ and detected PSX 1.80J/2.10J; "
-         "unsupported/invalid saved modes become Auto before GS initialization; separate 576i stays PAL");
+         "unsupported/invalid saved modes become Auto before GS initialization; legacy 576i settings become PAL");
 }
 int main(void) {
-    assert(TV_mode_576P==5 && TV_mode_576I==6); /* saved IDs remain stable */
+    assert(TV_mode_AUTO==0 && TV_mode_NTSC==1 && TV_mode_PAL==2 && TV_mode_VGA==3);
+    assert(TV_mode_480P==4 && TV_mode_576P==5 && TV_mode_COUNT==6);
+    assert(TV_MODE_LEGACY_576I==6); /* existing saved IDs retain their meaning */
     checkRomSupport();checkSwitches();checkVramBudget();
     int scale, offset, step;
     g.Interlace = GS_INTERLACED; g.Field = GS_FIELD;
@@ -329,4 +340,6 @@ font = (root / "src/dash_font.c").read_text()
 assert "top = dashGfxTextY(y + sel.yshift);" in function(font, "static float drawRun(")
 assert "TV_mode_480P,\n\tTV_mode_576P," in (root / "include/launchelf.h").read_text()
 assert gs.count("case TV_mode_576P:") == 2  # initial setup and live changes
-assert '"VGA", "480p", "576p", "576i"' in (root / "src/dash_settings.c").read_text()
+settings = (root / "src/dash_settings.c").read_text()
+assert '"Auto", "NTSC", "PAL", "VGA", "480p", "576p"}' in settings
+assert '"576i"' not in settings and '"576i"' not in (root / "src/config_screen.c").read_text()

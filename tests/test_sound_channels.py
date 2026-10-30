@@ -107,7 +107,7 @@ static void check_music_workaround(int off) {
     reset();
     if(off) {dashCfg.bgm=0;dashBgmStop();}
     else {dashCfg.bgm_vol=0;dashBgmSetVolume();}
-    assert(volumes[23]==5 && dashBgmRequestedVolume()==0);
+    assert(volumes[23]==10 && dashBgmRequestedVolume()==0);
     int music_writes=volume_writes[23];
     /* Saturated SFX pool: never steal the workaround's music voice. */
     for(int i=0;i<23;i++)available[i]=0;
@@ -117,7 +117,7 @@ static void check_music_workaround(int off) {
     available[18]=1;volumes[18]=0;
     dashSoundPlay(DASH_SND_CONFIRM);
     assert(last_channel==18 && volumes[18]==60 && !available[18]);
-    assert(!plays[23] && volumes[23]==5 && volume_writes[23]==music_writes);
+    assert(!plays[23] && volumes[23]==10 && volume_writes[23]==music_writes);
     /* Repeated effects share SFX headroom, then resume when a voice ends. */
     for(int id=0;id<DASH_SND_COUNT;id++) {
         for(int i=0;i<23;i++)available[i]=0;
@@ -155,10 +155,10 @@ static void check_cursor_cadence(void) {
 int main(void) {
     check_cursor_cadence();
     check_music_workaround(0);check_music_workaround(1);
-    /* Both routes display Off/0 without writing the runtime 5% into settings.
+    /* Both routes display Off/0 without writing the runtime 10% into settings.
      * Raising volume enables normal music; the toggle also escapes zero. */
     reset();setMusic(S_BGM,0);
-    assert(dashCfg.bgm==0 && dashCfg.bgm_vol==80 && volumes[23]==5);
+    assert(dashCfg.bgm==0 && dashCfg.bgm_vol==80 && volumes[23]==10);
     int choice=-1;const char *const *names=NULL;
     assert(musicChoice(S_BGM,&choice,&names)==2 && choice==0);
     assert(musicChoice(S_BGMVOL,&choice,&names)==11 && choice==0);
@@ -167,7 +167,7 @@ int main(void) {
     assert(dashCfg.bgm==1 && dashCfg.bgm_vol==40 && volumes[23]==40);
     assert(musicChoice(S_BGM,&choice,&names)==2 && choice==1);
     setMusic(S_BGMVOL,0);
-    assert(dashCfg.bgm==1 && dashCfg.bgm_vol==0 && volumes[23]==5);
+    assert(dashCfg.bgm==1 && dashCfg.bgm_vol==0 && volumes[23]==10);
     assert(musicChoice(S_BGM,&choice,&names)==2 && choice==0);
     setMusic(S_BGM,1);
     assert(dashCfg.bgm==1 && dashCfg.bgm_vol==10 && volumes[23]==10);

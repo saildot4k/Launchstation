@@ -1647,12 +1647,82 @@ static void setSasTimestamp(sceMcStDateTime *timestamp, int category, int slot)
 	timestamp->Sec = time_of_day % 60;
 }
 
+static void sasFolderTimestamp(const char *name, sceMcStDateTime *timestamp)
+{
+	char effective[MAX_NAME + 8], payload[MAX_NAME + 8];
+	int category;
+
+	buildSasEffectiveFolderName(name, effective, sizeof(effective));
+	category = getSasTimestampCategory(effective);
+	buildSasTimestampPayload(effective, category, payload, sizeof(payload));
+	setSasTimestamp(timestamp, category, getSasTimestampSlot(payload));
+}
+
+/* Identify an app folder supported by the organizer, not a device/partition
+ * root or a save/exploit excluded from automatic timestamp organization. */
+static int sasFolderPath(const char *folder, char *parent, FILEINFO *file)
+{
+	char *slash;
+	size_t length;
+
+	if (folder == NULL || (length = strlen(folder)) >= MAX_PATH)
+		return 0;
+	memcpy(parent, folder, length + 1);
+	while (length > 0 && parent[length - 1] == '/')
+		parent[--length] = '\0';
+	slash = strrchr(parent, '/');
+	if (slash == NULL || !slash[1] || strlen(slash + 1) >= sizeof(file->name))
+		return 0;
+	memset(file, 0, sizeof(*file));
+	strcpy(file->name, slash + 1);
+	slash[1] = '\0';
+	file->stats.AttrFile = sceMcFileAttrSubdir;
+	return filerCanSetCustomTimestamp(parent, file) &&
+		   !filerNameContainsTuna(file->name) &&
+		   !filerIsAutomaticTimestampExcludedFolder(file->name);
+}
+
+int filerCaptureSasTimestamp(const char *folder, sceMcStDateTime *timestamp)
+{
+	char parent[MAX_PATH], resolved[MAX_PATH];
+	FILEINFO file;
+	iox_stat_t stat;
+	sceMcStDateTime modified;
+	int result;
+
+	if (timestamp == NULL)
+		return -EINVAL;
+	if (!sasFolderPath(folder, parent, &file))
+		return 0;
+	/* Stat the folder object without a trailing directory-list separator. */
+	strcat(parent, file.name);
+	if (genFixPath(parent, resolved) < 0)
+		return -ENODEV;
+	result = genGetStat(resolved, &stat);
+	if (result < 0)
+		return result;
+	if (!FIO_S_ISDIR(stat.mode))
+		return -ENOTDIR;
+	memcpy(&modified, stat.mtime, sizeof(modified));
+	sasFolderTimestamp(file.name, timestamp);
+	return customDateEditorTimestampEqual(&modified, timestamp);
+}
+
+int filerRestoreSasTimestamp(const char *folder, const sceMcStDateTime *timestamp)
+{
+	char parent[MAX_PATH], message[MAX_PATH];
+	FILEINFO file;
+
+	if (timestamp == NULL || !sasFolderPath(folder, parent, &file))
+		return -EINVAL;
+	if (isMemoryCardRootPath(parent))
+		return setMemoryCardFolderTimestamp(parent, &file, timestamp, message);
+	return setHddCommonFolderTimestamp(parent, &file, timestamp, message);
+}
+
 static int time_manip_automatic(const char *path, int mode, char *message)
 {
 	static int indexes[MAX_ENTRY];
-	sceMcStDateTime timestamp;
-	char effective[MAX_NAME + 8];
-	char payload[MAX_NAME + 8];
 	int folder_count;
 	int index_count;
 	int reserve_tuna_date;
@@ -1662,7 +1732,6 @@ static int time_manip_automatic(const char *path, int mode, char *message)
 	int failed;
 	int i;
 	int result;
-	int category;
 
 	if (!filerCanOrganizeFolderTimestamps(path))
 		return -1;
@@ -1688,10 +1757,7 @@ static int time_manip_automatic(const char *path, int mode, char *message)
 			setSequentialTimestamp(&timestamp_folders[indexes[i]].stats._Modify, i, reserve_tuna_date);
 	} else {
 		for (i = 0; i < index_count; i++) {
-			buildSasEffectiveFolderName(timestamp_folders[indexes[i]].name, effective, sizeof(effective));
-			category = getSasTimestampCategory(effective);
-			buildSasTimestampPayload(effective, category, payload, sizeof(payload));
-			setSasTimestamp(&timestamp_folders[indexes[i]].stats._Modify, category, getSasTimestampSlot(payload));
+			sasFolderTimestamp(timestamp_folders[indexes[i]].name, &timestamp_folders[indexes[i]].stats._Modify);
 		}
 	}
 

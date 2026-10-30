@@ -359,7 +359,7 @@ void dashToolsCheckUpdates(void)
 		}
 
 		snprintf(body, sizeof(body),
-		         "Current: %s\nLatest: %.16s\n\nGitHub confirms this release is newer. Download and install the packed ELF?",
+		         "Current: %s\nLatest: %.16s\n\nGitHub confirms this release is newer. Download and install the app and its metadata?",
 		         GIT_HASH, latest);
 		if (!dashModalConfirm("A newer Launchstation build is available",
 		                      body, "Install update", 0))

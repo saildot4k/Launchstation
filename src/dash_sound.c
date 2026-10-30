@@ -67,7 +67,7 @@ static int soundAlive(void)
  *     23: DASH_BGM_CHANNEL (looping background music, isolated from SFX)
  */
 #define DASH_BGM_CHANNEL 23
-#define BGM_WORKAROUND_VOLUME 5
+#define BGM_WORKAROUND_VOLUME 10
 #define SND_SFX_CH_MAX 23
 #define SND_CURSOR_CH_BASE 8
 #define SND_CURSOR_CH_COUNT 6
@@ -80,8 +80,8 @@ int dashBgmRequestedVolume(void)
 	return dashCfg.bgm ? dashCfg.bgm_vol : 0;
 }
 
-/* Physical consoles still lose/cut SFX when music is muted. Keep a nonzero
- * music voice as the requested workaround; never write this gain to settings.
+/* Physical consoles still lose/cut SFX when music is muted. Match the reported
+ * working Music On / 10% setting; never write this gain to settings.
  * Suspend/shutdown deliberately bypass it when handing control to another app. */
 static int bgmPlaybackVolume(void)
 {
@@ -213,7 +213,7 @@ void dashSoundShutdown(void)
 		 * library's hard reset for ADPCM state: it stops every voice and frees
 		 * the uploaded sample list before audsrv_quit() releases RPC.
 		 */
-		/* Settings Off keeps 5% playback; a real shutdown must mute instead. */
+		/* Settings Off keeps low-volume playback; a real shutdown must mute instead. */
 		if (bgm_channel >= 0 && !dashIopParked())
 			audsrv_adpcm_set_volume_and_pan(bgm_channel, 0, 0);
 		audsrv_adpcm_init();
@@ -453,7 +453,8 @@ void dashBgmStop(void)
 {
 	bgm_tried = 0; /* an explicit off/on can discover a newly added sidecar */
 	/* This is the user-facing Off action; the workaround keeps the existing
-	 * voice at 5%. Maintain starts it later if the sidecar is not loaded yet. */
+	 * voice at the workaround gain. Maintain starts it later if the sidecar
+	 * is not loaded yet. */
 	dashBgmSetVolume();
 }
 
