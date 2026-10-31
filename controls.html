@@ -1,0 +1,90 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Controls · Launchstation Docs</title>
+<meta name="description" content="Controls Button labels follow configured confirm/cancel mapping, so the face button can differ by region or preference. Confirmation popups use the displayed face buttons directly: Confirm performs the named action, and Back/Cancel dismisses it. For example, C">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="canonical" href="https://nathanneurotic.github.io/Launchstation/controls.html">
+<meta property="og:site_name" content="Launchstation Docs">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Controls · Launchstation Docs">
+<meta property="og:description" content="Controls Button labels follow configured confirm/cancel mapping, so the face button can differ by region or preference. Confirmation popups use the displayed face buttons directly: Confirm performs the named action, and Back/Cancel dismisses it. For example, C">
+<meta name="twitter:card" content="summary">
+<link rel="stylesheet" href="assets/style.css">
+</head><body data-base="">
+<header class="topbar">
+  <button class="menu-btn" aria-label="Menu">☰</button>
+  <a class="brand" href="index.html">
+    <img class="brand-logo" src="assets/launchstation-logo.avif" alt="Launchstation" width="116" height="58"></a>
+  <div class="topbar-actions">
+    <button id="orb-toggle" class="topbar-btn orb-toggle" type="button" aria-pressed="false" aria-label="Toggle cursor orbs" title="Toggle cursor orbs"><span class="orb-toggle-symbol" aria-hidden="true">✧</span><span class="orb-toggle-label">Orbs</span></button>
+    <a class="topbar-btn primary" href="releases.html"><span class="icon icon-releases"></span>Downloads</a>
+    <a class="topbar-btn" href="https://github.com/NathanNeurotic/Launchstation" target="_blank" rel="noopener"><span class="icon icon-github"></span>GitHub</a>
+  </div>
+  <div class="search">
+    <span class="ico"></span>
+    <input id="q" type="search" placeholder="Search devices, Neutrino, saves, settings…  ( / )" autocomplete="off">
+    <kbd>/</kbd>
+    <div id="results"></div>
+  </div>
+</header>
+<div class="layout">
+  <nav class="sidebar">
+    <div class="sidebar-brand-sub">PLAYSTATION 2 // Launchstation</div>
+    <h4>Start</h4>
+    <a href="index.html"><span class="icon icon-home"></span>Home</a>
+    <a href="getting-started.html"><span class="icon icon-start"></span>Getting Started</a>
+    <a href="install.html"><span class="icon icon-install"></span>Install &amp; Update</a>
+    <a href="releases.html"><span class="icon icon-releases"></span>Downloads &amp; Releases</a>
+    <h4>Interface</h4>
+    <a href="dashboard.html"><span class="icon icon-home"></span>Dashboard</a>
+    <a href="file-browser.html"><span class="icon icon-folder"></span>File Browser</a>
+    <a href="apps.html"><span class="icon icon-apps"></span>Applications</a>
+    <a href="text-editor.html"><span class="icon icon-book"></span>Text Editor</a>
+    <a href="launch-arguments.html"><span class="icon icon-start"></span>Launch Arguments</a>
+    <a href="controls.html" class="active"><span class="icon icon-controls"></span>Controls</a>
+    <h4>Storage &amp; Devices</h4>
+    <a href="devices.html"><span class="icon icon-usb"></span>Device Support</a>
+    <a href="hdd.html"><span class="icon icon-hdd"></span>Internal HDD</a>
+    <a href="hdd-manager.html"><span class="icon icon-hdd"></span>HDD Manager &amp; APA Headers</a>
+    <a href="network.html"><span class="icon icon-netboot"></span>Network &amp; PC</a>
+    <a href="mmce.html"><span class="icon icon-mmce"></span>MMCE</a>
+    <a href="saves.html"><span class="icon icon-vmc"></span>Saves, PSU &amp; Timestamps</a>
+    <h4>Game Images</h4>
+    <a href="neutrino.html"><span class="icon icon-neutrino"></span>PS2 ISO · Neutrino</a>
+    <a href="popstarter.html"><span class="icon icon-ps1"></span>PS1 VCD · POPStarter</a>
+    <a href="ember.html"><span class="icon icon-ps1"></span>PS1 Images · Ember</a>
+    <h4>Utilities &amp; Hardware</h4>
+    <a href="exploit-installer.html"><span class="icon icon-install"></span>MC Exploit Installer</a>
+    <a href="network-services.html"><span class="icon icon-netboot"></span>FTP, PS2Link &amp; Remote</a>
+    <a href="special-hardware.html"><span class="icon icon-controls"></span>PSX, Deckard &amp; RetroGem</a>
+    <h4>Customize</h4>
+    <a href="settings.html"><span class="icon icon-settings"></span>Settings Reference</a>
+    <a href="configuration.html"><span class="icon icon-settings"></span>Config Files &amp; Paths</a>
+    <a href="themes.html"><span class="icon icon-themes"></span>Display, Themes &amp; BGM</a>
+    <h4>Reference</h4>
+    <a href="wiki.html"><span class="icon icon-book"></span>Wiki &amp; Guide Index</a>
+    <a href="troubleshooting.html"><span class="icon icon-troubleshoot"></span>Troubleshooting</a>
+    <a href="faq.html"><span class="icon icon-book"></span>FAQ</a>
+    <a href="developers.html"><span class="icon icon-fork-gaps"></span>Developer Notes</a>
+    <a href="credits.html"><span class="icon icon-credits"></span>Credits &amp; Licenses</a>
+    <a href="privacy.html"><span class="icon icon-book"></span>Privacy Policy</a>
+  </nav>
+  <main class="content">
+<h1>Controls</h1><p class="lead">Button labels follow configured confirm/cancel mapping, so the face button can differ by region or preference.</p>
+<p>Confirmation popups use the displayed face buttons directly: Confirm performs the named action, and Back/Cancel dismisses it. For example, Confirm clears recent applications and Cancel keeps the list. D-pad input does not select an action, and there is no selection highlight.</p>
+<h2 id="dashboard">Dashboard</h2><table><thead><tr><th>Control</th><th>Action</th></tr></thead><tbody><tr><td>Confirm</td><td>Open focused item, device or page.</td></tr><tr><td>Back</td><td>Close or return.</td></tr><tr><td>L1 / R1</td><td>Previous / next top-level section.</td></tr><tr><td>SELECT in Home &gt; Applications</td><td>Cycle Grid, List and Carousel views.</td></tr><tr><td>START in naming dialogs</td><td>Accept the file or folder name (Done).</td></tr><tr><td>R3 on Home (without SELECT)</td><td>Toggle the background-only display; press R3 again to restore the interface. SELECT + R3 still follows the configured launch key.</td></tr><tr><td>Triangle / Options</td><td>Open Options; Settings opens Changes for Save/Discard.</td></tr></tbody></table>
+<h2 id="elf-iop-override">One-launch IOP override</h2><p>When starting an ELF application, tap Confirm and release to use the saved <b>Settings &gt; Launching &gt; Reset IOP before launch</b> choice. Hold the configured Confirm button continuously for <b>one second</b> to use its opposite for this launch: On becomes keep IOP, and Off becomes reboot IOP. The hold is detected without a popup. The saved setting is unchanged, including if preparation is cancelled or the launch fails.</p><p>The choice is captured before application preparation. It also works with launch arguments. Keyboard and automatic launches without a held controller Confirm use the saved setting. Neutrino, POPStarter and Ember game-image launches retain their dedicated device-handoff policies.</p>
+<h2 id="tabs">Visible navigation</h2><p>L1/R1 cycles Home, Files, Tools and Settings. Home contains Applications and Last folder; Files opens directly into a persistent native browser. Tools exposes individual built-in utilities. Automatic-start and launch-key target pickers retain <code>MISC/</code>. Returning to Files preserves the folder and selection.</p><h2 id="browser">File Browser</h2><table><thead><tr><th>Control</th><th>Action</th></tr></thead><tbody><tr><td>Confirm</td><td>Open folder/file or launch a supported executable/image.</td></tr><tr><td>Square</td><td>Mark/unmark entry.</td></tr><tr><td>Triangle</td><td>Options.</td></tr><tr><td>Back</td><td>Parent folder; at the Files tab device list, stay on Files.</td></tr></tbody></table>
+<h2 id="editor">Text Editor</h2><p>See <a href="text-editor.html#navigation">Text Editor navigation</a>. L1/R1 moves to line boundaries with the keyboard hidden; L2/R2 pages vertically. With the virtual keyboard open, the D-pad selects keys and tilting the right stick moves the text cursor left/right and up/down. The compact footer keeps all six hints inside the dashboard safe width.</p>
+
+  </main>
+  <aside class="toc"><div class="toc-h">On this page</div><nav id="toc-nav"></nav></aside>
+</div>
+<footer>
+  <p><b>Launchstation Documentation</b> — PlayStation 2 dashboard and file manager maintained by Ripto / NathanNeurotic. This documentation is generated from the same repository as the software.</p>
+  <p class="prov-inline">Launchstation descends from the LaunchELF/uLaunchELF/wLaunchELF family and incorporates work by the wider PS2 homebrew community. See <a href="credits.html">Credits &amp; Licenses</a>.</p>
+</footer>
+<script src="data/search-index.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/orbs.js"></script>
+</body></html>
