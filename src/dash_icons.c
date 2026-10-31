@@ -14,15 +14,16 @@
 #define ICON_TEX_H 544
 #define SELECT_HALF_W 0.68f
 
-/* Header shapes and clipboard icons use the narrow right margin. Keep the
+/* Header shapes and action icons use the narrow right margin. Keep the
  * existing atlas allocation and the 56 full-size public icon slots. */
 #define APP_PART_SIZE 32
 #define APP_PART_SLOT (APP_PART_SIZE + 4)
 #define APP_PART_X (ICON_COLS * ICON_SLOT)
 #define CLIP_ICON_Y (2 * APP_PART_SLOT)
-#if APP_PART_X + APP_PART_SLOT > ICON_TEX_W || CLIP_ICON_Y + 3 * APP_PART_SLOT > ICON_TEX_H
-#error Header and clipboard icons do not fit in the icon atlas margin
-#endif
+/* Include every margin icon in the compile-time capacity check. */
+typedef char IconAtlasMarginFits[
+	APP_PART_X + APP_PART_SLOT <= ICON_TEX_W &&
+	CLIP_ICON_Y + (DI_COUNT - DI_CUT) * APP_PART_SLOT <= ICON_TEX_H ? 1 : -1];
 
 static GSTEXTURE icon_tex;
 static u32 icon_clut[256] __attribute__((aligned(64)));
@@ -325,8 +326,24 @@ static float iconSdf(int id, V2 p)
 			d = U(d, sdBoxOutline(p, 0.20f, 0.20f, 0.52f, 0.52f, 0.14f, T));
 			break;
 		case DI_CHECK:
+		case DI_SELECT_ALL:
+		case DI_CLEAR_SELECTION:
 			d = sdSeg(p, -0.64f, 0.02f, -0.18f, 0.5f, 0.1f);
 			d = U(d, sdSeg(p, -0.18f, 0.5f, 0.68f, -0.46f, 0.1f));
+			if (id == DI_SELECT_ALL || id == DI_CLEAR_SELECTION)
+				d = U(d, sdSeg(p, -0.84f, -0.60f, -0.36f, -0.60f, 0.085f));
+			if (id == DI_SELECT_ALL)
+				d = U(d, sdSeg(p, -0.60f, -0.84f, -0.60f, -0.36f, 0.085f));
+			break;
+		case DI_INVERT_SELECTION:
+			{
+				float check = U(sdSeg(p, -0.46f, -0.02f, -0.12f, 0.34f, 0.12f),
+				                sdSeg(p, -0.12f, 0.34f, 0.50f, -0.34f, 0.12f));
+				/* Cut the check out of the filled square. Its right-hand tail
+				 * switches to an outline, with the center filled back in. */
+				float cutout = U(fmaxf2(check, p.x), fmaxf2(fabsf(check) - 0.055f, -p.x));
+				d = S(sdBox(p, 0.0f, 0.0f, 0.78f, 0.78f, 0.18f), cutout);
+			}
 			break;
 		case DI_CLOSE:
 			d = sdSeg(p, -0.56f, -0.56f, 0.56f, 0.56f, 0.1f);

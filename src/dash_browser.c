@@ -63,15 +63,16 @@ static int fbShowsDetails(int mode)
 	return mode == 1 || mode == 2;
 }
 enum {
-	FB_SORT_STORED = 0,
+	FB_SORT_TYPE = 0,
 	FB_SORT_NAME,
 	FB_SORT_TITLE,
 	FB_SORT_SIZE,
 	FB_SORT_DATE,
 	FB_SORT_KIND,
+	FB_SORT_STORED,
 	FB_SORT_COUNT
 };
-static int fb_sort = FB_SORT_NAME;
+static int fb_sort = FB_SORT_TYPE;
 static int fb_sort_desc;
 
 /* The Files tab reuses the native browser engine, but owns no private frame
@@ -204,8 +205,27 @@ static const char *fbFileKind(const FILEINFO *f)
 	return (dot != NULL && dot[1] != '\0') ? dot + 1 : "";
 }
 
-/* Keep folders first for navigation. Descending reverses only the ordering
- * inside the folder/file groups, never the groups themselves. */
+enum {
+	FB_TYPE_FOLDER,
+	FB_TYPE_ELF,
+	FB_TYPE_TEXT,
+	FB_TYPE_OTHER
+};
+
+/* Type sorting uses directory attributes and filename extensions only. */
+static int fbFileType(const FILEINFO *f)
+{
+	if (isDir(f))
+		return FB_TYPE_FOLDER;
+	if (genCmpFileExt(f->name, "ELF") || genCmpFileExt(f->name, "XLF") || genCmpFileExt(f->name, "KELF"))
+		return FB_TYPE_ELF;
+	if (IsTextEditorFileType(f->name))
+		return FB_TYPE_TEXT;
+	return FB_TYPE_OTHER;
+}
+
+/* Type keeps fixed groups; text/other files sort by extension, then name.
+ * Other sorts keep folders first and reverse only within folder/file groups. */
 static int fbCompare(const FILEINFO *a, const FILEINFO *b)
 {
 	int ad = isDir(a), bd = isDir(b), r = 0;
@@ -231,6 +251,16 @@ static int fbCompare(const FILEINFO *a, const FILEINFO *b)
 		case FB_SORT_KIND:
 			r = stricmp(fbFileKind(a), fbFileKind(b));
 			break;
+		case FB_SORT_TYPE:
+			ad = fbFileType(a), bd = fbFileType(b);
+			if (ad != bd)
+				return ad < bd ? -1 : 1;
+			if (ad == FB_TYPE_TEXT || ad == FB_TYPE_OTHER) {
+				r = stricmp(fbFileKind(a), fbFileKind(b));
+				if (r != 0)
+					return r;
+			}
+			return stricmp(a->name, b->name);
 		case FB_SORT_NAME:
 		default:
 			r = stricmp(a->name, b->name);
@@ -1272,7 +1302,7 @@ static void actionsMenu(void)
 		F_REFRESH
 	};
 	static const char *const show_names[] = {"File names", "Names and details", "Game titles and details", "Game titles"};
-	static const char *const sort_names[FB_SORT_COUNT] = {"As stored", "Name", "Game title", "Size", "Date-Time", "Kind"};
+	static const char *const sort_names[FB_SORT_COUNT] = {"Type", "Name", "Game title", "Size", "Date-Time", "Extension", "As stored"};
 	static const char *const direction_names[] = {"Ascending", "Descending"};
 
 	/* the same rules as the classic menu: read-only devices, partition
@@ -1321,12 +1351,12 @@ static void actionsMenu(void)
 		}
 		if (en[TIMEMANIP_CUSTOM])
 			ADD(DI_CLOCK, "Folder dates...", "order the saves", 0, F_DATES);
-		if (f != NULL && !isDir(f) && en[LAUNCH_ELF_ARGS] && !is_elf)
-			ADD(DI_EDIT, "Use as launch arguments", "then choose the application", 0, F_USE_ARGS);
-		ADD(DI_CHECK, "Select all", NULL, fb.n == 0, F_SELALL);
-		ADD(DI_CHECK, "Invert selection", NULL, fb.n == 0, F_INVERT);
+		ADD(DI_EDIT, "Use as launch arguments", "then choose the application",
+		    f == NULL || isDir(f) || !en[LAUNCH_ELF_ARGS], F_USE_ARGS);
+		ADD(DI_SELECT_ALL, "Select all", NULL, fb.n == 0, F_SELALL);
+		ADD(DI_INVERT_SELECTION, "Invert selection", NULL, fb.n == 0, F_INVERT);
 		if (fb.nmarked)
-			ADD(DI_BACK, "Clear selection", NULL, 0, F_CLEARSEL);
+			ADD(DI_CLEAR_SELECTION, "Clear selection", NULL, 0, F_CLEARSEL);
 		ADD(DI_VIEW_LIST, "Show", show_names[fb_show], 0, F_VIEW);
 		ADD(DI_VIEW_GRID, "Sort by", sort_detail, 0, F_SORT);
 	}
@@ -1422,10 +1452,10 @@ static void actionsMenu(void)
 			break;
 		case F_SORT: {
 			int next_sort = dashModalChoice("Sort by", sort_names, FB_SORT_COUNT, fb_sort);
-			int next_desc = fb_sort_desc;
+			int next_desc = next_sort == FB_SORT_TYPE ? 0 : fb_sort_desc;
 			if (next_sort < 0)
 				break;
-			if (next_sort != FB_SORT_STORED) {
+			if (next_sort != FB_SORT_STORED && next_sort != FB_SORT_TYPE) {
 				r = dashModalChoice("Sort direction", direction_names, 2, fb_sort_desc ? 1 : 0);
 				if (r < 0)
 					break;

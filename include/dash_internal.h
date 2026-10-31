@@ -478,6 +478,9 @@ enum DashIcon {
 	DI_CUT,     /* first small icon in the atlas margin, after the 56 grid icons */
 	DI_COPY,
 	DI_PASTE_RENAME, /* pencil with a small upper-right plus */
+	DI_SELECT_ALL,   /* checkmark with a small upper-left plus */
+	DI_INVERT_SELECTION, /* filled rounded square with a half-outlined check */
+	DI_CLEAR_SELECTION, /* checkmark with a small upper-left minus */
 	DI_COUNT
 };
 

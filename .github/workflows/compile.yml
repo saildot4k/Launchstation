@@ -60,6 +60,7 @@ jobs:
           python3 tests/test_startup_status.py
           python3 tests/test_transition_latency.py
           python3 tests/test_native_four_browser_modes.py
+          python3 tests/test_browser_sort.py
           python3 tests/test_feedback_35_82.py
           python3 tests/test_editor_keyboard.py
           python3 tests/test_storage_devices.py

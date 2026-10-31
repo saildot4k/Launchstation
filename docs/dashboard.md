@@ -34,8 +34,14 @@ Also in the File Browser menu, as in the classic browser:
 
 * *Show*: file names, names and details (size and date), or game titles
   and details (the title of each save or PSU file).
-* *Sort by*: name, game title, date, or as stored. Folders come first,
-  then ELF files.
+* *Sort by*: Type, Name, Game title, Size, Date-Time, Extension, As stored, in that
+  order. Type is the startup default, including when no config file is found;
+  changes last for the current session. Extension sorts by filename suffix.
+  Type keeps four groups: folders, ELF executables, recognized text/config
+  files, then other files (including game images). Text/config and other files
+  sort A-Z by extension, then A-Z by filename within each extension;
+  folders and executables sort A-Z by filename.
+  Other sorted modes offer ascending or descending order, with folders first.
 * *Bookmarks...*: the PathPad. Jump to a bookmarked folder, bookmark the
   current one or remove one (saved in LAUNCHELF.CNF; *Lock shortcuts & bookmarks*
   under Settings > Launching locks them).

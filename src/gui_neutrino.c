@@ -287,7 +287,7 @@ static int showDashboardNeutrinoOptions(NEUTRINO_LAUNCH_OPTIONS *options)
 	const int profile_enabled = active_profile_gameid[0] != '\0';
 	const int cancel_index = profile_enabled ? NEUTRINO_CANCEL + 2 : NEUTRINO_CANCEL;
 	const int item_count = cancel_index + 1;
-	int selection = 0, i, choice;
+	int selection, menu_selection = 0, i, choice;
 
 	/* ISO/profile preparation may have restarted the storage IOP. The main
 	 * dashboard loop is paused while these options are open. */
@@ -321,9 +321,20 @@ static int showDashboardNeutrinoOptions(NEUTRINO_LAUNCH_OPTIONS *options)
 		}
 		items[cancel_index].icon = DI_BACK;
 		items[cancel_index].label = "Cancel";
-		selection = dashModalMenu("Neutrino launch options",
-		                          profile_enabled ? active_profile_gameid : "For this launch only",
-		                          items, item_count, selection);
+		/* Put Run first; map its displayed row back to the shared option IDs. */
+		{
+			DashMenuItem run = items[NEUTRINO_RUN];
+			memmove(items + 1, items, NEUTRINO_RUN * sizeof(items[0]));
+			items[0] = run;
+		}
+		menu_selection = dashModalMenu("Neutrino launch options",
+		                               profile_enabled ? active_profile_gameid : "For this launch only",
+		                               items, item_count, menu_selection);
+		selection = menu_selection;
+		if (selection == 0)
+			selection = NEUTRINO_RUN;
+		else if (selection > 0 && selection <= NEUTRINO_RUN)
+			selection--;
 		if (selection < 0 || selection == cancel_index)
 			return FALSE;
 		if (selection == NEUTRINO_RUN)

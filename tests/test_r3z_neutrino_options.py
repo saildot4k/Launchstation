@@ -70,6 +70,9 @@ int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *i
     assert(audio_ready); /* ISO preparation can replace the IOP before entry. */
     assert(title && subtitle && selected >= 0 && selected < count && count == 11);
     for (int i = 0; i < count; i++) assert(items[i].label && !items[i].disabled);
+    assert(!strcmp(items[0].label, "Run game") && items[0].detail == NULL);
+    assert(!strcmp(items[1].label, "Fast disc reads"));
+    assert(selected == (step ? script[step - 1] : 0));
     return script[step++];
 }
 int dashModalChoice(const char *title, const char *const *labels, int count, int selected) {
@@ -109,14 +112,14 @@ int main(void) {
     assert(buildNeutrinoOptionArgs(&o, &a) == -1);
     assert(buildNeutrinoOptionArgs(0, &a) == -1);
     assert(buildNeutrinoOptionArgs(&o, 0) == -1);
-    const int run[] = {0, 4, 5, 6, 7, 8, 9};
+    const int run[] = {1, 5, 6, 7, 8, 9, 0};
     memset(&o, 0, sizeof(o)); script = run; step = 0; choice = 3;
     assert(testDashboard(&o) == 1 && step == 7 && audio_recoveries == 1);
     assert(o.game_compatibility == ((1u << 0) | (1u << 7)));
     assert(o.video_mode == 3 && o.video_compatibility == 3 && o.debug_colors && o.logo);
     const int cancel[] = {-1}; script = cancel; step = 0; audio_ready = 0;
     assert(testDashboard(&o) == 0 && audio_ready && audio_recoveries == 2);
-    const int submenu_cancel[] = {5, 10}; script = submenu_cancel; step = 0; choice = -1; audio_ready = 0;
+    const int submenu_cancel[] = {6, 10}; script = submenu_cancel; step = 0; choice = -1; audio_ready = 0;
     assert(testDashboard(&o) == 0 && o.video_mode == 3 && audio_ready && audio_recoveries == 3);
     return 0;
 }
