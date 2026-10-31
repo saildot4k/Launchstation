@@ -493,23 +493,14 @@ static void draw(void) {
     float top_gap=first_top-boxes[0].y;
     float bottom_gap=boxes[0].y+boxes[0].h-last_bottom;
     assert(fabsf(top_gap-6)<0.01f && fabsf(bottom_gap-top_gap)<0.01f);
-    /* The editor centers the complete main grid; filename prompts retain
-     * their column-7 anchor. Side buttons stay right-aligned. Symbols pages
-     * keep the normal grid origin instead of centering their contents. */
+    /* Every native keyboard centers column 7. Side buttons stay right-aligned,
+     * and Symbols pages keep the same grid origin. */
     int main_end=nboxes;
     for(int a=0;a<KA_COUNT;a++)main_end-=kbHasAction(&editor_keyboard,a);
-    float left=1000,right=0;
-    for(int i=1;i<main_end;i++) {
-        Box b=boxes[i];
-        float x=b.x+b.selected,end=b.x+b.w-b.selected;
-        if(x<left)left=x;
-        if(end>right)right=end;
-    }
     if(!kb_page) {
-        if(editor_keyboard.filename) {
-            Box seventh=boxes[7]; /* Panel first, then the contiguous top row. */
-            assert(seventh.y+seventh.selected==boxes[1].y+boxes[1].selected && fabsf(seventh.x+seventh.w*0.5f-DASH_VW*0.5f)<0.01f);
-        } else assert(fabsf((left+right)*0.5f-DASH_VW*0.5f)<0.01f);
+        Box seventh=boxes[7]; /* Panel first, then the contiguous top row. */
+        assert(seventh.y+seventh.selected==boxes[1].y+boxes[1].selected);
+        assert(fabsf(seventh.x+seventh.w*0.5f-DASH_VW*0.5f)<0.01f);
     }
     for(int i=main_end;i<nboxes;i++) {
         Box b=boxes[i];
@@ -551,9 +542,9 @@ static void checkFilenameLayouts(void) {
         Box question=*keyBox("?");Label naming_space=*label("Space"),naming_one=*label(caps?"!":"1");
         DashKeyboard naming=editor_keyboard;
         editor_keyboard.filename=editor_keyboard.single_line=0;kb_act=-1;kb_sel=KB_SPACE_KEY;draw();
-        /* Both keyboards keep the same key spacing and vertical positions. */
+        /* Both keyboards share the same column-7 anchor and key spacing. */
         assert(label("Space")->x-label(caps?"!":"1")->x==naming_space.x-naming_one.x);
-        assert(label("Space")->y==naming_space.y);
+        assert(label("Space")->x==naming_space.x && label("Space")->y==naming_space.y);
         editor_keyboard=naming;draw();
         assert(keyBox("?")->x==question.x && keyBox("?")->y==question.y);
         if(!caps)filename_space[layout]=*label("Space");
@@ -828,7 +819,7 @@ int main(void) {
     }
     assert(found==1);
     kbTypeKey(&d); assert(d.buf[d.len-1]==' ');
-    /* Center the full 1-to-equals row; keep the side buttons right-aligned. */
+    /* Center column 7; keep the side buttons right-aligned. */
     kb_act=-1;kb_sel=2*VKEY_LAYOUT_COLS;draw();
     Box tab=*actionBox(KA_TAB),ret=*actionBox(KA_RETURN),symbols=*keyBox("Symbols");
     Box number=*keyBox("1"),q=*keyBox("q"),apostrophe=*keyBox("'"),slash=*keyBox("\\");
@@ -837,7 +828,8 @@ int main(void) {
     Box equals=*keyBox("=");
     float side_gap=tab.x-equals.x-equals.w;
     assert(side_gap>=3);
-    assert(fabsf((number.x+equals.x+equals.w)*0.5f-DASH_VW*0.5f)<0.01f);
+    Box seven=*keyBox("7");
+    assert(fabsf(seven.x+seven.w*0.5f-DASH_VW*0.5f)<0.01f);
     assert(slash.y==apostrophe.y && fabsf(slash.x-apostrophe.x-33)<0.01f);
     kb_caps=1;draw();
     Box quote=*keyBox("\""),pipe=*keyBox("|");
@@ -910,7 +902,7 @@ int main(void) {
     checkNamingPaths();
     checkTypingRepeat();
     free(d.buf);free(d.lines);
-    puts("PASS: editor keyboard side-key/space geometry, viewport resize, reachable keys/actions, normal/caps input, complete symbol cycles including 0xFF, centered editor main grid, column-7 naming anchor and right-aligned side buttons, fixed pages, Tab/Return and controller Delete");
+    puts("PASS: editor keyboard side-key/space geometry, viewport resize, reachable keys/actions, normal/caps input, complete symbol cycles including 0xFF, shared column-7 center for both keyboards and right-aligned side buttons, fixed pages, Tab/Return and controller Delete");
 }
 '''
 with tempfile.TemporaryDirectory(prefix="editor-keyboard-") as folder:

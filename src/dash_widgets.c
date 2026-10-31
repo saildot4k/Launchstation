@@ -253,33 +253,11 @@ static float kbActionX(int action, float center_x)
 	return center_x + DASH_VW * 0.5f - 40.0f - kbActionWidth(action);
 }
 
-static float kbGridOrigin(const DashKeyboard *kb, float center_x, float kw, float gap)
+static float kbGridOrigin(float center_x, float kw, float gap)
 {
-	DashKeyboard normal = *kb;
-	int first_col = getVirtualKeyboardLayoutFirstColumn(kb->layout);
-	float left = (3 - first_col) * (kw + gap);
-	float right = left + 6 * (kw + gap) + kw;
-	int key;
-
-	/* Naming dialogs retain their column-7 anchor. The editor centers the
-	 * whole character grid, independently of the side buttons. Use the full
-	 * layout width so Caps and partial Symbols pages keep the same origin. */
-	if (kb->filename)
-		return center_x - 6.0f * (kw + gap) - kw * 0.5f;
-	if (!kb->single_line)
-		return center_x - (kbColumnCount(kb) * (kw + gap) - gap) * 0.5f;
-
-	/* Other single-line prompts center their visible character keys and Space. */
-	normal.page = 0;
-	for (key = 0; key < KB_CHAR_ROWS * VKEY_LAYOUT_COLS; key++) {
-		float x;
-		if (!kbIsKey(&normal, key))
-			continue;
-		x = (key % VKEY_LAYOUT_COLS - first_col) * (kw + gap);
-		if (x < left) left = x;
-		if (x + kw > right) right = x + kw;
-	}
-	return center_x - (left + right) * 0.5f;
+	/* All native keyboards center column 7 (one-based), independently of
+	 * visible keys, layout width, Caps, Symbols pages and side buttons. */
+	return center_x - 6.0f * (kw + gap) - kw * 0.5f;
 }
 
 float dashKeyboardHeight(void)
@@ -302,7 +280,7 @@ void dashKeyboardDraw(const DashKeyboard *kb, float center_x, float y0)
 	const int first_col = getVirtualKeyboardLayoutFirstColumn(layout);
 	const int ncols = kbColumnCount(kb);
 	const float kw = 30.0f, kh = KB_KEY_H, gap = KB_KEY_GAP;
-	float gx = kbGridOrigin(kb, center_x, kw, gap);
+	float gx = kbGridOrigin(center_x, kw, gap);
 	int row, col, a;
 
 	for (row = 0; row < VKEY_LAYOUT_ROWS; row++) {

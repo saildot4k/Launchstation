@@ -67,11 +67,11 @@ arrow symbols on the right, on rows 1 and 2; Symbols sits below them
 on row 5. Symbols pages use the same column count as the chosen letter
 layout, so the grid and action buttons stay in place. The keyboard sits
 lower to leave 11 editable text rows above it, with space before the footer
-hints; this layout scales with the selected video mode. The editor centers
-the full main character grid (the `1` through `=` width on QWERTY), independently
+hints; this layout scales with the selected video mode. Both the editor and
+naming keyboards place the center of column 7 at the screen center, independently
 of the right-aligned Tab, Return and Symbols buttons. Their spacing fits beside the grid without reserving an empty key column.
 Backslash/pipe follows the quote key. Naming dialogs keep the same
-key arrangement with those three actions hidden and retain their column-7 center anchor.
+key arrangement with those three actions hidden.
 The question-mark and pipe keys stay visible and type `?` and `|` with Caps
 either off or on. Slash and backslash stay hidden and are filtered from USB input.
 
