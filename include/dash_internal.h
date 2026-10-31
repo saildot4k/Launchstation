@@ -859,7 +859,7 @@ typedef struct
 	int space_selected, space_action; /* focus before entering the wide Space key */
 	int space_dx, space_dy; /* reverse this move to return to the previous focus */
 	int single_line; /* text prompts expose only the Symbols action */
-	int filename; /* names omit actions and slash/backslash key pairs */
+	int filename; /* names hide actions, separators and pipe; '?' ignores Caps */
 } DashKeyboard;
 
 void dashKeyboardInit(DashKeyboard *kb, int layout);

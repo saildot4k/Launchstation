@@ -139,7 +139,7 @@ void nonDialog(char *message)
 	}
 }
 
-/* Filename prompts omit slash/backslash key pairs in both Caps states. */
+/* Filename prompts hide separators/pipe and keep '?' fixed in both Caps states. */
 static int keyboardIsKey(int index, int caps, int filename)
 {
 	(void)caps; /* Filename key positions are independent of Caps. */
@@ -274,7 +274,8 @@ static int keyboardImpl(char *out, int max, int filename, const char *directory)
 				if (sel <= KEY_LAST && keyboardIsKey(sel, caps, filename)) {
 					if (i < max && i < (int)sizeof(tmp) - 1) {
 						strcpy(tmp, out);
-						out[cur] = getVirtualKeyboardLayoutChar(setting->virtual_keyboard_layout, sel, caps);
+						out[cur] = filename ? getVirtualKeyboardFilenameChar(setting->virtual_keyboard_layout, sel, caps) :
+						           getVirtualKeyboardLayoutChar(setting->virtual_keyboard_layout, sel, caps);
 						out[cur + 1] = 0;
 						strcat(out, &tmp[cur]);
 						cur++;
@@ -371,7 +372,8 @@ static int keyboardImpl(char *out, int max, int filename, const char *directory)
 					continue;
 				x = KEY_GRID_X + (i % WFONTS) * KEY_COL_W;
 				y = KEY_Y + LINE_THICKNESS + 1 + FONT_HEIGHT + 1 + LINE_THICKNESS + 8 + (i / WFONTS) * FONT_HEIGHT;
-				key_char = getVirtualKeyboardLayoutChar(setting->virtual_keyboard_layout, i, caps);
+				key_char = filename ? getVirtualKeyboardFilenameChar(setting->virtual_keyboard_layout, i, caps) :
+				           getVirtualKeyboardLayoutChar(setting->virtual_keyboard_layout, i, caps);
 				key_label = (key_char == ' ') ? LNG(SPACE) : NULL;
 				key_w = (key_label != NULL) ? strlen(key_label) * FONT_WIDTH : FONT_WIDTH;
 				if (i == sel)
@@ -379,7 +381,7 @@ static int keyboardImpl(char *out, int max, int filename, const char *directory)
 				if (key_label != NULL)
 					printXY(key_label, x, y, (i == sel) ? setting->color[COLOR_BACKGR] : setting->color[COLOR_TEXT], TRUE, 0);
 				else
-					drawChar(getVirtualKeyboardLayoutDisplayChar(setting->virtual_keyboard_layout, i, caps), x, y,
+					drawChar(filename ? key_char : getVirtualKeyboardLayoutDisplayChar(setting->virtual_keyboard_layout, i, caps), x, y,
 					         (i == sel) ? setting->color[COLOR_BACKGR] : setting->color[COLOR_TEXT]);
 			}
 			if (sel == KEY_OK)

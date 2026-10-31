@@ -61,7 +61,17 @@ paths scroll within their own line. START accepts the name;
 Triangle cancels. In both the naming and editor keyboards, reversing the move
 into Space restores the previous key, even after inserting several spaces.
 Holding Type or Delete repeats with the same initial delay and acceleration
-as scrolling through lists.
+as scrolling through lists. The editor's Tab and Return keys use keyboard
+arrow symbols on the right, on rows 1 and 2; Symbols sits in the same column
+on row 5. Symbols pages use the same column count as the chosen letter
+layout, so the grid and action buttons stay in place. The keyboard sits
+lower to leave 11 editable text rows above it, with space before the footer
+hints; this layout scales with the selected video mode. One empty key column
+separates these actions from the character keys. Backslash/pipe follows the quote key. Naming dialogs keep the same
+key arrangement with those three actions hidden. Each keyboard is centered
+on its visible keys, including any right-side action buttons. The question-mark key
+stays visible and types `?` with Caps either off or on; slash, backslash and
+pipe are hidden and filtered from USB input.
 
 The cursor never waits for the memory card or a slow device: file reads
 and writes (artwork, saves, library scans, folder listings) run on a

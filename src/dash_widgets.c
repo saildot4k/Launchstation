@@ -26,8 +26,7 @@ enum {
 #define KB_KEY_H 22.0f
 #define KB_KEY_GAP 3.0f
 #define KB_CHAR_ROWS 4
-#define KB_SYMBOL_COLS 11
-#define KB_SYMBOL_PAGE_SIZE (KB_CHAR_ROWS * KB_SYMBOL_COLS)
+#define KB_MIN_COLS 12
 #define KB_SPACE_KEY (KB_CHAR_ROWS * VKEY_LAYOUT_COLS + 4)
 
 static const char *const ka_names[KA_COUNT] = {"Tab", "Return", "Symbols"};
@@ -35,66 +34,51 @@ static const char *const ka_names[KA_COUNT] = {"Tab", "Return", "Symbols"};
  * first so every layout can enter the same symbols without changing Caps. */
 static const unsigned char kb_ascii_symbols[] = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
 
-static int kbSymbolPageCount(void)
+static int kbColumnCount(const DashKeyboard *kb)
 {
-	return ((int)sizeof(kb_ascii_symbols) - 1 + EditorSpecialCharCount + KB_SYMBOL_PAGE_SIZE - 1) / KB_SYMBOL_PAGE_SIZE;
+	int ncols = getVirtualKeyboardLayoutColumnCount(kb->layout);
+
+	/* Letters and Symbols share the same width and right-side action column. */
+	return ncols < KB_MIN_COLS ? KB_MIN_COLS : ncols;
+}
+
+static int kbSymbolPageSize(const DashKeyboard *kb)
+{
+	return KB_CHAR_ROWS * kbColumnCount(kb);
+}
+
+static int kbSymbolPageCount(const DashKeyboard *kb)
+{
+	int size = kbSymbolPageSize(kb);
+
+	return ((int)sizeof(kb_ascii_symbols) - 1 + EditorSpecialCharCount + size - 1) / size;
 }
 
 static unsigned char kbSymbolChar(const DashKeyboard *kb, int index)
 {
 	int row = index / VKEY_LAYOUT_COLS, col = index % VKEY_LAYOUT_COLS;
-	int offset;
+	int cols = kbColumnCount(kb), offset;
 
-	if (index < 0 || row >= KB_CHAR_ROWS || col >= KB_SYMBOL_COLS || kb->page <= 0)
+	if (index < 0 || row >= KB_CHAR_ROWS || col >= cols || kb->page <= 0)
 		return 0;
-	offset = (kb->page - 1) * KB_SYMBOL_PAGE_SIZE + row * KB_SYMBOL_COLS + col;
+	offset = (kb->page - 1) * kbSymbolPageSize(kb) + row * cols + col;
 	if (offset < (int)sizeof(kb_ascii_symbols) - 1)
 		return kb_ascii_symbols[offset];
 	offset -= (int)sizeof(kb_ascii_symbols) - 1;
 	return offset < EditorSpecialCharCount ? EditorSpecialChars[offset] : 0;
 }
 
-/* Leave Return beside the home row's last character. The backslash moves
- * above it, beside the closing bracket, without changing shared layouts. */
-static int kbLayoutIndex(int layout, int index)
-{
-	int col;
-
-	for (col = 0; col < VKEY_LAYOUT_COLS; col++) {
-		int source = 2 * VKEY_LAYOUT_COLS + col;
-		if (getVirtualKeyboardLayoutChar(layout, source, 0) != '\\')
-			continue;
-		if (index == source)
-			return -1;
-		if (index == VKEY_LAYOUT_COLS + 12)
-			return source;
-		break;
-	}
-	return index;
-}
-
-static int kbColumnCount(const DashKeyboard *kb)
-{
-	int ncols = getVirtualKeyboardLayoutColumnCount(kb->layout);
-
-	/* Keep the grid origin fixed when switching to narrower symbol pages. */
-	return ncols < 13 ? 13 : ncols;
-}
-
 static int kbIsKey(const DashKeyboard *kb, int index)
 {
-	int source;
-
 	if (index == KB_SPACE_KEY)
 		return 1;
 	if (index < 0 || index >= KB_CHAR_ROWS * VKEY_LAYOUT_COLS)
 		return 0;
 	if (kb->page)
 		return !kb->filename && kbSymbolChar(kb, index) != 0;
-	source = kbLayoutIndex(kb->layout, index);
-	if (!isVirtualKeyboardLayoutKey(kb->layout, source))
+	if (!isVirtualKeyboardLayoutKey(kb->layout, index))
 		return 0;
-	return !kb->filename || isVirtualKeyboardFilenameKey(kb->layout, source);
+	return !kb->filename || isVirtualKeyboardFilenameKey(kb->layout, index);
 }
 
 static int kbHasAction(const DashKeyboard *kb, int action)
@@ -105,27 +89,15 @@ static int kbHasAction(const DashKeyboard *kb, int action)
 
 static int kbActionRow(int action)
 {
-	static const int rows[KA_COUNT] = {1, 2, KB_CHAR_ROWS};
+	static const int rows[KA_COUNT] = {0, 1, KB_CHAR_ROWS};
 
 	return rows[action];
 }
 
-static int kbActionColumn(const DashKeyboard *kb, int action)
+static int kbActionColumn(const DashKeyboard *kb)
 {
-	int col, row = kbActionRow(action);
-	DashKeyboard normal = *kb;
-
-	if (action == KA_TAB)
-		return -1;
-	if (action == KA_SYMBOLS)
-		return 0;
-	/* Keep Return in the same place beside the configured home row on
-	 * every page. Eleven symbol columns leave its slot unobstructed. */
-	normal.page = 0;
-	for (col = VKEY_LAYOUT_COLS - 1; col >= 0; col--)
-		if (kbIsKey(&normal, row * VKEY_LAYOUT_COLS + col))
-			return col + 1;
-	return kbColumnCount(kb);
+	/* One empty key column separates all actions from the character grid. */
+	return getVirtualKeyboardLayoutFirstColumn(kb->layout) + kbColumnCount(kb) + 1;
 }
 
 static int kbSelectInRow(DashKeyboard *kb, int row, int col)
@@ -145,7 +117,7 @@ static int kbSelectInRow(DashKeyboard *kb, int row, int col)
 	for (a = 0; a < KA_COUNT; a++) {
 		if (!kbHasAction(kb, a) || kbActionRow(a) != row)
 			continue;
-		distance = abs(kbActionColumn(kb, a) - col);
+		distance = abs(kbActionColumn(kb) - col);
 		if (distance < best_distance) {
 			best_key = -1;
 			best_action = a;
@@ -166,7 +138,7 @@ static void kbMoveFocus(DashKeyboard *kb, int dx, int dy)
 
 	if (kb->action >= 0) {
 		row = kbActionRow(kb->action);
-		col = kbActionColumn(kb, kb->action);
+		col = kbActionColumn(kb);
 	} else {
 		if (!kbIsKey(kb, kb->selected))
 			kb->selected = KB_SPACE_KEY;
@@ -182,7 +154,7 @@ static void kbMoveFocus(DashKeyboard *kb, int dx, int dy)
 			if (col > VKEY_LAYOUT_COLS)
 				col = -1;
 			for (a = 0; a < KA_COUNT; a++) {
-				if (kbHasAction(kb, a) && kbActionRow(a) == row && kbActionColumn(kb, a) == col) {
+				if (kbHasAction(kb, a) && kbActionRow(a) == row && kbActionColumn(kb) == col) {
 					kb->action = a;
 					return;
 				}
@@ -243,8 +215,11 @@ int dashKeyboardPress(DashKeyboard *kb)
 			return 0;
 		if (kb->selected == KB_SPACE_KEY)
 			return ' ';
-		return kb->page ? kbSymbolChar(kb, kb->selected) :
-		       (unsigned char)getVirtualKeyboardLayoutChar(kb->layout, kbLayoutIndex(kb->layout, kb->selected), kb->caps);
+		if (kb->page)
+			return kbSymbolChar(kb, kb->selected);
+		return (unsigned char)(kb->filename ?
+		       getVirtualKeyboardFilenameChar(kb->layout, kb->selected, kb->caps) :
+		       getVirtualKeyboardLayoutChar(kb->layout, kb->selected, kb->caps));
 	}
 	if (!kbHasAction(kb, kb->action))
 		return 0;
@@ -252,7 +227,7 @@ int dashKeyboardPress(DashKeyboard *kb)
 		case KA_TAB: return '\t';
 		case KA_RETURN: return '\n';
 		case KA_SYMBOLS:
-			kb->page = (kb->page + 1) % (kbSymbolPageCount() + 1);
+			kb->page = (kb->page + 1) % (kbSymbolPageCount(kb) + 1);
 			kb->selected = KB_SPACE_KEY;
 			kb->space_selected = kb->space_action = -1;
 			break;
@@ -268,18 +243,14 @@ int dashKeyboardCanRepeat(const DashKeyboard *kb)
 
 static float kbActionWidth(int action)
 {
-	return action == KA_SYMBOLS ? 90.0f : action == KA_RETURN ? 70.0f : 60.0f;
+	return action == KA_SYMBOLS ? 90.0f : 60.0f;
 }
 
-static float kbActionX(const DashKeyboard *kb, int action, float kw, float gap)
+static float kbActionX(const DashKeyboard *kb, float kw, float gap)
 {
 	int first_col = getVirtualKeyboardLayoutFirstColumn(kb->layout);
 
-	if (action == KA_TAB)
-		return -kbActionWidth(action) - gap;
-	if (action == KA_SYMBOLS)
-		return (3 - first_col) * (kw + gap) - kbActionWidth(action) - gap;
-	return (kbActionColumn(kb, action) - first_col) * (kw + gap);
+	return (kbActionColumn(kb) - first_col) * (kw + gap);
 }
 
 static float kbGridOrigin(const DashKeyboard *kb, float center_x, float kw, float gap)
@@ -290,16 +261,12 @@ static float kbGridOrigin(const DashKeyboard *kb, float center_x, float kw, floa
 	float right = left + 6 * (kw + gap) + kw;
 	int key, a;
 
-	/* Measure the entire keyboard, including side keys. Use the same
-	 * footprint for every page so switching symbols never moves the keys. */
+	/* Center the visible keys and right-side actions for this kind of prompt.
+	 * Keep the normal-page footprint so Caps and Symbols never shift it. */
 	normal.page = 0;
 	for (key = 0; key < KB_CHAR_ROWS * VKEY_LAYOUT_COLS; key++) {
-		int source = kbLayoutIndex(kb->layout, key);
 		float x;
-		if (!isVirtualKeyboardLayoutKey(kb->layout, source))
-			continue;
-		/* Filename prompts omit both halves of the key in every Caps state. */
-		if (normal.filename && !isVirtualKeyboardFilenameKey(kb->layout, source))
+		if (!kbIsKey(&normal, key))
 			continue;
 		x = (key % VKEY_LAYOUT_COLS - first_col) * (kw + gap);
 		if (x < left) left = x;
@@ -309,7 +276,7 @@ static float kbGridOrigin(const DashKeyboard *kb, float center_x, float kw, floa
 		float x, end;
 		if (!kbHasAction(&normal, a))
 			continue;
-		x = kbActionX(&normal, a, kw, gap);
+		x = kbActionX(&normal, kw, gap);
 		end = x + kbActionWidth(a);
 		if (x < left) left = x;
 		if (end > right) right = end;
@@ -320,6 +287,25 @@ static float kbGridOrigin(const DashKeyboard *kb, float center_x, float kw, floa
 float dashKeyboardHeight(void)
 {
 	return VKEY_LAYOUT_ROWS * (KB_KEY_H + KB_KEY_GAP) - KB_KEY_GAP;
+}
+
+static void kbDrawActionSymbol(int action, float cx, float cy, DashColor color)
+{
+	const float stroke = 1.5f;
+
+	if (action == KA_TAB) {
+		/* Right arrow stopping at a vertical bar (Tab). */
+		dashLine(cx - 10, cy, cx + 6, cy, stroke, color);
+		dashLine(cx + 2, cy - 4, cx + 6, cy, stroke, color);
+		dashLine(cx + 2, cy + 4, cx + 6, cy, stroke, color);
+		dashLine(cx + 10, cy - 6, cx + 10, cy + 6, stroke, color);
+	} else {
+		/* Bent left arrow (Return). */
+		dashLine(cx + 9, cy - 6, cx + 9, cy + 2, stroke, color);
+		dashLine(cx + 9, cy + 2, cx - 9, cy + 2, stroke, color);
+		dashLine(cx - 4, cy - 3, cx - 9, cy + 2, stroke, color);
+		dashLine(cx - 4, cy + 7, cx - 9, cy + 2, stroke, color);
+	}
 }
 
 void dashKeyboardDraw(const DashKeyboard *kb, float center_x, float y0)
@@ -358,7 +344,8 @@ void dashKeyboardDraw(const DashKeyboard *kb, float center_x, float y0)
 				dashFontMonoByte(kbSymbolChar(kb, idx), kx + key_w * 0.5f - 4,
 				             ky + 4, dashItemColor(on));
 			} else {
-				label[0] = getVirtualKeyboardLayoutDisplayChar(layout, kbLayoutIndex(layout, idx), kb->caps);
+				label[0] = kb->filename ? getVirtualKeyboardFilenameChar(layout, idx, kb->caps) :
+				           getVirtualKeyboardLayoutDisplayChar(layout, idx, kb->caps);
 				label[1] = '\0';
 				dashTextCenter(kx + key_w * 0.5f, ky + 2, label, DASH_FS_SMALL, dashItemColor(on));
 			}
@@ -367,22 +354,19 @@ void dashKeyboardDraw(const DashKeyboard *kb, float center_x, float y0)
 	for (a = 0; a < KA_COUNT; a++) {
 		float aw = kbActionWidth(a);
 		float ay = y0 + kbActionRow(a) * (kh + gap);
-		float ax = gx + kbActionX(kb, a, kw, gap);
+		float ax = gx + kbActionX(kb, kw, gap);
 		int on = (kb->action == a);
-		char page_label[32];
-		const char *name = ka_names[a];
 
 		if (!kbHasAction(kb, a))
 			continue;
-		if (a == KA_SYMBOLS && kb->page) {
-			snprintf(page_label, sizeof(page_label), "Symbols %d/%d", kb->page, kbSymbolPageCount());
-			name = page_label;
-		}
 		if (on)
 			dashDrawSelection(ax - 1, ay - 1, aw + 2, kh + 2, 6, 1.0f);
 		else
 			dashPanel(ax, ay, aw, kh, 6, DC(255, 255, 255, 18));
-		dashTextCenter(ax + aw * 0.5f, ay + 2, name, DASH_FS_SMALL, dashItemColor(on));
+		if (a == KA_SYMBOLS)
+			dashTextCenter(ax + aw * 0.5f, ay + 2, ka_names[a], DASH_FS_SMALL, dashItemColor(on));
+		else
+			kbDrawActionSymbol(a, ax + aw * 0.5f, ay + kh * 0.5f, dashItemColor(on));
 	}
 }
 

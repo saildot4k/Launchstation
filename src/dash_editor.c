@@ -756,10 +756,10 @@ static int editorMenu(EdDoc *d)
 	ADD(DI_FOLDER, "Open...", NULL, ndocs >= ED_MAX_DOCS, M_OPEN);
 	if (ndocs > 1)
 		ADD(DI_VIEW_LIST, "Switch document...", NULL, 0, M_SWITCH);
-	ADD(DI_PIN, d->mark >= 0 ? "Stop selecting" : "Start selecting", "Square", 0, M_SELECT);
-	ADD(DI_VIEW_GRID, "Select all", NULL, d->len == 0, M_SELALL);
-	ADD(DI_FILE, "Copy", NULL, !has_sel, M_COPY);
-	ADD(DI_CLOSE, "Cut", NULL, !has_sel, M_CUT);
+	ADD(d->mark >= 0 ? DI_CLEAR_SELECTION : DI_CHECK, d->mark >= 0 ? "Stop selecting" : "Start selecting", "Square", 0, M_SELECT);
+	ADD(DI_SELECT_ALL, "Select all", NULL, d->len == 0, M_SELALL);
+	ADD(DI_COPY, "Copy", NULL, !has_sel, M_COPY);
+	ADD(DI_CUT, "Cut", NULL, !has_sel, M_CUT);
 	ADD(DI_PLUS, "Paste", NULL, clip == NULL, M_PASTE);
 	ADD(DI_SETTINGS, "Line endings", eol_names[d->eol], 0, M_EOL);
 	ADD(DI_BTN_UP, "Go to the start", NULL, 0, M_GOTO_TOP);
@@ -781,12 +781,20 @@ static int editorMenu(EdDoc *d)
 #define ED_ROW 17.0f
 #define ED_CW 8.0f
 #define ED_GUTTER 48.0f
-#define KB_H 147.0f
+#define ED_KB_PADDING 6.0f
+#define ED_KB_BOTTOM (DASH_VH - 59.0f)
+
+static float keyboardTop(void)
+{
+	return ED_KB_BOTTOM - dashKeyboardHeight() - 2 * ED_KB_PADDING;
+}
 
 static int visibleRows(void)
 {
-	float h = (kb_shown ? (DASH_VH - 64 - KB_H) : (DASH_VH - 70)) - ED_Y;
-	return (int)(h / ED_ROW);
+	/* Text panel extends 4px below the last row; leave another 4px gap. */
+	float bottom = kb_shown ? keyboardTop() - 8 : DASH_VH - 70;
+
+	return (int)((bottom - ED_Y) / ED_ROW);
 }
 
 static int visibleCols(void)
@@ -870,12 +878,12 @@ static void drawText(EdDoc *d, int rows, int cols)
 
 static void drawKeyboard(void)
 {
-	const float padding = 6.0f;
-	float y0 = DASH_VH - 58 - KB_H + padding;
+	float top = keyboardTop();
 
-	dashDrawPanelBox(ED_X - 6, y0 - padding, ED_W + 12,
-	                 dashKeyboardHeight() + 2 * padding, 12);
-	dashKeyboardDraw(&editor_keyboard, DASH_VW * 0.5f, y0);
+	dashDrawPanelBox(ED_X - 6, top, ED_W + 12,
+	                 dashKeyboardHeight() + 2 * ED_KB_PADDING, 12);
+
+	dashKeyboardDraw(&editor_keyboard, DASH_VW * 0.5f, top + ED_KB_PADDING);
 }
 
 /* The editor is the scene while it is open: dialogs draw over it. */

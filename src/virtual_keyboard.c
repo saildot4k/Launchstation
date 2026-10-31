@@ -64,15 +64,15 @@ static const char *vkey_layout_rows[VKEY_LAYOUT_COUNT][VKEY_SHIFT_COUNT][VKEY_LA
     {
         {
             "1234567890-=     ",
-            "',.pyfgcrl/=     ",
-            "aoeuidhtns-\\     ",
+            "'\\,.pyfgcrl/=    ",
+            "aoeuidhtns-      ",
             " ;qjkxbmwvz`     ",
             "    _            ",
         },
         {
             "!@#$%^&*()_+     ",
-            "\"<>PYFGCRL?+     ",
-            "AOEUIDHTNS_|     ",
+            "\"|<>PYFGCRL?+    ",
+            "AOEUIDHTNS_      ",
             " :QJKXBMWVZ~     ",
             "    _            ",
         },
@@ -112,16 +112,16 @@ static const char *vkey_layout_rows[VKEY_LAYOUT_COUNT][VKEY_SHIFT_COUNT][VKEY_LA
     {
         {
             "'1234567890-=    ",
-            "qwertyuiop'[     ",
+            "qwertyuiop'\\[    ",
             "asdfghjkl;~]     ",
-            " \\zxcvbnm,.;     ",
+            "  zxcvbnm,.;/    ",
             "    _            ",
         },
         {
             "\"!@#$%^&*()_+    ",
-            "QWERTYUIOP`{     ",
+            "QWERTYUIOP`|{    ",
             "ASDFGHJKL:^}     ",
-            " |ZXCVBNM<>:     ",
+            "  ZXCVBNM<>:?    ",
             "    _            ",
         },
     },
@@ -213,17 +213,26 @@ int isVirtualKeyboardLayoutKey(int layout, int index)
     return getVirtualKeyboardRawChar(layout, index, VKEY_SHIFT_NORMAL) != ' ';
 }
 
+char getVirtualKeyboardFilenameChar(int layout, int index, int caps)
+{
+    /* The slash/question-mark position always types '?' in a name. */
+    if (getVirtualKeyboardLayoutChar(layout, index, 0) == '?' ||
+        getVirtualKeyboardLayoutChar(layout, index, 1) == '?')
+        return '?';
+    return getVirtualKeyboardLayoutChar(layout, index, caps);
+}
+
 int isVirtualKeyboardFilenameChar(unsigned char c)
 {
-    return c != '/' && c != '\\' && c != '?' && c != '|';
+    return c != '/' && c != '\\' && c != '|';
 }
 
 int isVirtualKeyboardFilenameKey(int layout, int index)
 {
-    /* Omit the whole key position, including its shifted character. */
+    /* Hide path separators and pipe in both Caps states; '?' stays fixed. */
     return isVirtualKeyboardLayoutKey(layout, index) &&
-           isVirtualKeyboardFilenameChar((unsigned char)getVirtualKeyboardLayoutChar(layout, index, 0)) &&
-           isVirtualKeyboardFilenameChar((unsigned char)getVirtualKeyboardLayoutChar(layout, index, 1));
+           isVirtualKeyboardFilenameChar((unsigned char)getVirtualKeyboardFilenameChar(layout, index, 0)) &&
+           isVirtualKeyboardFilenameChar((unsigned char)getVirtualKeyboardFilenameChar(layout, index, 1));
 }
 
 static void getVirtualKeyboardLayoutColumnRange(int layout, int *first_col, int *last_col)
