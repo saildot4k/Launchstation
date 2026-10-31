@@ -135,39 +135,126 @@ static int releaseJsonString(const char *json, const char *key, char *out, int o
 	return 1;
 }
 
+/* Find an asset's closing brace while ignoring strings and nested objects. */
+static const char *releaseObjectEnd(const char *object)
+{
+    const char *p;
+    int depth = 0, quoted = 0, escaped = 0;
+
+    if (object == NULL || *object != '{')
+        return NULL;
+    for (p = object; *p; p++) {
+        if (quoted) {
+            if (escaped)
+                escaped = 0;
+            else if (*p == '\\')
+                escaped = 1;
+            else if (*p == '"')
+                quoted = 0;
+        } else if (*p == '"')
+            quoted = 1;
+        else if (*p == '{')
+            depth++;
+        else if (*p == '}' && --depth == 0)
+            return p + 1;
+    }
+    return NULL;
+}
+
+static int releaseObjectString(const char *object, const char *end, const char *key,
+                               char *out, int out_size)
+{
+    const char *p, *start, *next;
+    size_t key_len = strlen(key);
+    int depth = 0;
+
+    for (p = object; p < end; p++) {
+        if (*p == '{')
+            depth++;
+        else if (*p == '}')
+            depth--;
+        else if (*p == '"') {
+            start = p++;
+            while (p < end && *p != '"') {
+                if (*p == '\\' && p + 1 < end)
+                    p++;
+                p++;
+            }
+            if (p >= end)
+                return 0;
+            next = p + 1;
+            while (next < end && (*next == ' ' || *next == '\t' || *next == '\r' || *next == '\n')) next++;
+            if (depth == 1 && next < end && *next == ':' &&
+                (size_t)(p - start - 1) == key_len && !strncmp(start + 1, key, key_len))
+                return releaseJsonString(start, key, out, out_size);
+        }
+    }
+    return 0;
+}
+
+/* Bound both digest and date lookups to the matching package object. The
+ * release, uploader and other controller variant have their own timestamps. */
+static int releaseAssetString(const char *json, const char *asset_name,
+                              const char *key, char *out, int out_size)
+{
+    const char *p, *end;
+    char name[96];
+
+    if (json == NULL || asset_name == NULL || out == NULL || out_size <= 0)
+        return 0;
+    p = strstr(json, "\"assets\"");
+    if (p == NULL || (p = strchr(p + 8, ':')) == NULL)
+        return 0;
+    p++;
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+    if (*p++ != '[')
+        return 0;
+    while (*p) {
+        while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' || *p == ',') p++;
+        if (*p == ']' || (end = releaseObjectEnd(p)) == NULL)
+            return 0;
+        if (releaseObjectString(p, end, "name", name, sizeof(name)) && !strcmp(name, asset_name))
+            return releaseObjectString(p, end, key, out, out_size);
+        p = end;
+    }
+    return 0;
+}
+
 static int releaseAssetDigest(const char *json, const char *asset_name, char *out, int out_size)
 {
-	const char *p = json;
-	char name[96], digest[96];
+    return out_size >= 72 && releaseAssetString(json, asset_name, "digest", out, out_size) &&
+           !strncmp(out, "sha256:", 7) && strlen(out) == 71;
+}
 
-	if (json == NULL || asset_name == NULL || out == NULL || out_size < 72)
-		return 0;
+static void releaseUpdateTime(const char *json, char *out, int out_size)
+{
+    static const int days[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    char stamp[32];
+    int i, year, month, day, limit;
 
-	while ((p = strstr(p, "\"name\"")) != NULL) {
-		const char *next_name;
-		const char *digest_key;
-
-		if (!releaseJsonString(p, "name", name, sizeof(name))) {
-			p += 6;
-			continue;
-		}
-		if (strcmp(name, asset_name)) {
-			p += 6;
-			continue;
-		}
-
-		next_name = strstr(p + 6, "\"name\"");
-		digest_key = strstr(p, "\"digest\"");
-		if (digest_key == NULL || (next_name != NULL && digest_key > next_name) ||
-		    !releaseJsonString(digest_key, "digest", digest, sizeof(digest)) ||
-		    strncmp(digest, "sha256:", 7) != 0 || strlen(digest) != 71)
-			return 0;
-
-		snprintf(out, out_size, "%s", digest);
-		return 1;
-	}
-
-	return 0;
+    snprintf(out, out_size, "Unavailable");
+    /* The rolling release keeps its original published_at. Use this variant's
+     * package timestamp, with UTC explicit rather than guessing a timezone. */
+    if (!releaseAssetString(json, SELF_UPDATE_ASSET, "updated_at", stamp, sizeof(stamp)) ||
+        strlen(stamp) != 20 || stamp[4] != '-' || stamp[7] != '-' ||
+        stamp[10] != 'T' || stamp[13] != ':' || stamp[16] != ':' || stamp[19] != 'Z')
+        return;
+    for (i = 0; i < 19; i++)
+        if (i != 4 && i != 7 && i != 10 && i != 13 && i != 16 &&
+            (stamp[i] < '0' || stamp[i] > '9'))
+            return;
+    year = (stamp[0]-'0')*1000 + (stamp[1]-'0')*100 + (stamp[2]-'0')*10 + stamp[3]-'0';
+    month = (stamp[5]-'0')*10 + stamp[6]-'0';
+    day = (stamp[8]-'0')*10 + stamp[9]-'0';
+    if (month < 1 || month > 12 || day < 1 ||
+        (stamp[11]-'0')*10 + stamp[12]-'0' > 23 ||
+        (stamp[14]-'0')*10 + stamp[15]-'0' > 59 ||
+        (stamp[17]-'0')*10 + stamp[18]-'0' > 59)
+        return;
+    limit = days[month-1] + (month == 2 && year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+    if (day > limit)
+        return;
+    snprintf(out, out_size, "%.10s %.8s UTC", stamp, stamp + 11);
 }
 
 /* Prefer the CA shipped with the running ELF. Existing installs may
@@ -213,6 +300,47 @@ static int updateIsCommitId(const char *value)
     return 1;
 }
 
+typedef struct
+{
+    const char *path, *headers, *ca_path;
+    HttpsResponse *response;
+    char *error;
+    int error_size, result;
+} UpdateRequestJob;
+
+static void updateHttpsStatus(const char *status, void *unused)
+{
+    (void)unused;
+    dashWorkerStatus(status, 0, 0);
+}
+
+static void updateRequestRun(void *arg)
+{
+    UpdateRequestJob *job = arg;
+
+    httpsSetStatusCallback(updateHttpsStatus, NULL);
+    job->result = httpsRequest("GET", "api.github.com", job->path, job->headers, NULL, 0,
+                               job->ca_path, job->response, job->error, job->error_size);
+    httpsSetStatusCallback(NULL, NULL);
+}
+
+/* All request buffers stay owned by the caller until this non-cancellable
+ * wait completes. Only the UI draws; the serialized IO worker owns HTTPS. */
+static int updateRequest(const char *title, const char *path, const char *headers,
+                          const char *ca_path, HttpsResponse *response,
+                          char *error, int error_size)
+{
+    UpdateRequestJob job = {path, headers, ca_path, response, error, error_size, -1};
+    int id = dashWorkerSubmit(title, DASH_JOB_VISIBLE, updateRequestRun, NULL, &job);
+
+    if (id <= 0) {
+        snprintf(error, error_size, "The update-check worker is unavailable. Try again after restarting.");
+        return -1;
+    }
+    dashWorkerAwait(id, title, 0);
+    return job.result;
+}
+
 static int updateCommitRelation(const char *current, const char *latest,
                                 const char *ca_path, const char *headers,
                                 char *error, int error_size)
@@ -238,8 +366,8 @@ static int updateCommitRelation(const char *current, const char *latest,
     }
 
     memset(&response, 0, sizeof(response));
-    if (httpsRequest("GET", "api.github.com", path, headers, NULL, 0,
-                         ca_path, &response, error, error_size) < 0)
+    if (updateRequest("Comparing installed and latest builds", path, headers,
+                       ca_path, &response, error, error_size) < 0)
         return result;
     if (response.status != 200 ||
         !releaseJsonString(response.body, "status", status, sizeof(status))) {
@@ -264,7 +392,7 @@ static int updateCommitRelation(const char *current, const char *latest,
 void dashToolsCheckUpdates(void)
 {
 	HttpsResponse response;
-	char ca_path[MAX_PATH], error[192], latest[80], asset_digest[80], body[320];
+	char ca_path[MAX_PATH], error[192], latest[80], asset_digest[80], updated[32], body[320];
 	const char headers[] =
 	    "User-Agent: Launchstation-PS2\r\n"
 	    "Accept: application/vnd.github+json\r\n";
@@ -299,17 +427,13 @@ void dashToolsCheckUpdates(void)
 
 	memset(&response, 0, sizeof(response));
 	error[0] = latest[0] = asset_digest[0] = '\0';
-	dashLoadingBegin("Checking for Launchstation updates");
-	if (httpsRequest("GET", "api.github.com",
-	                     SELF_UPDATE_API_PATH "/releases/tags/latest",
-	                     headers, NULL, 0, ca_path, &response,
-	                     error, sizeof(error)) < 0) {
-		dashLoadingEnd();
+	if (updateRequest("Checking for Launchstation updates",
+	                  SELF_UPDATE_API_PATH "/releases/tags/latest",
+	                  headers, ca_path, &response, error, sizeof(error)) < 0) {
 		dashModalMessage(DI_WARNING, "Update check failed",
 		                 error[0] ? error : "GitHub could not be reached.", NULL);
 		return;
 	}
-	dashLoadingEnd();
 
 	if (response.status != 200 ||
 	    !releaseJsonString(response.body, "target_commitish", latest, sizeof(latest)) ||
@@ -320,6 +444,7 @@ void dashToolsCheckUpdates(void)
 		dashModalMessage(DI_WARNING, "Update check failed", body, NULL);
 		return;
 	}
+	releaseUpdateTime(response.body, updated, sizeof(updated));
 	httpsResponseFree(&response);
 
 	if (strcmp(GIT_HASH, "local") != 0 && strlen(GIT_HASH) <= strlen(latest) &&
@@ -327,21 +452,19 @@ void dashToolsCheckUpdates(void)
 		same = 1;
 
 	if (same) {
-		snprintf(body, sizeof(body), "This build (%s) matches the current latest release.", GIT_HASH);
+		snprintf(body, sizeof(body), "This build (%s) matches the latest release.\nUpdated: %s", GIT_HASH, updated);
 		dashModalMessage(DI_CHECK, "Launchstation is up to date", body, NULL);
 	} else {
 		char install_result[384];
 		int installed, relation;
 
 		error[0] = '\0';
-		dashLoadingBegin("Verifying release is newer");
 		relation = updateCommitRelation(GIT_HASH, latest, ca_path, headers,
 		                                error, sizeof(error));
-		dashLoadingEnd();
 		if (relation == UPDATE_RELATION_SAME || relation == UPDATE_RELATION_OLDER) {
 			snprintf(body, sizeof(body),
-			         "Installed: %s\nPublished: %.16s\n\nThe published release is not newer. No update is needed.",
-			         GIT_HASH, latest);
+			         "Installed: %s\nLatest: %.16s\nUpdated: %s\n\nNo newer release is available.",
+			         GIT_HASH, latest, updated);
 			dashModalMessage(DI_CHECK, "No newer release available", body, NULL);
 			return;
 		}
@@ -359,8 +482,8 @@ void dashToolsCheckUpdates(void)
 		}
 
 		snprintf(body, sizeof(body),
-		         "Current: %s\nLatest: %.16s\n\nGitHub confirms this release is newer. Download and install the app and its metadata?",
-		         GIT_HASH, latest);
+		         "Current: %s\nLatest: %.16s\nUpdated: %s\n\nInstall this newer build and its metadata?",
+		         GIT_HASH, latest, updated);
 		if (!dashModalConfirm("A newer Launchstation build is available",
 		                      body, "Install update", 0))
 			return;

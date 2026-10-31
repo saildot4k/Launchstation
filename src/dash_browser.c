@@ -1480,12 +1480,12 @@ static void clipboardSummary(char *out, int size)
 	if (nclipFiles <= 0)
 		out[0] = '\0';
 	else if (nclipFiles > 1)
-		snprintf(out, size, "Clipboard: Assortment in %s", clipPath);
+		snprintf(out, size, "Assortment in %s", clipPath);
 	else {
 		size_t len = strlen(clipPath);
 		const char *separator = len && clipPath[len - 1] != '/' && clipPath[len - 1] != ':' ? "/" : "";
 
-		snprintf(out, size, "Clipboard: %s%s%s", clipPath, separator, clipFiles[0].name);
+		snprintf(out, size, "%s%s%s", clipPath, separator, clipFiles[0].name);
 	}
 }
 
@@ -1573,14 +1573,19 @@ static void browserDrawBody(void)
 		else
 			dashText(FB_X, status_y, info, DASH_FS_CAPTION, DASH_C_ACCENT);
 	}
-	if (nclipFiles > 0) {
+	if (nclipFiles > 0 && (!fb_tab_active || !LaunchArgsPending())) {
 		char clipboard[MAX_PATH + MAX_NAME + 32];
+		float x = fb_tab_active ? FB_X : FB_X + 200;
+		float y = fb_tab_active ? status_y : 26;
+		float width = fb_tab_active ? FB_W : FB_W - 200;
+		const float icon_size = 16.0f, text_offset = icon_size + 8.0f;
+		float icon_xy[] = {x, y + 16.0f * DASH_FS_CAPTION - icon_size * 0.5f};
 
 		clipboardSummary(clipboard, sizeof(clipboard));
-		if (!fb_tab_active)
-			dashTextScroll(FB_X + 200, 26, FB_W - 200, clipboard, DASH_FS_CAPTION, DASH_C_ACCENT);
-		else if (!LaunchArgsPending())
-			dashTextScroll(FB_X, status_y, FB_W, clipboard, DASH_FS_CAPTION, DASH_C_ACCENT);
+		/* Explicit-color batching keeps this status icon identical to its text,
+		 * including themes that normally tint icons to accent or monochrome. */
+		dashIconMany(browser_cut ? DI_CUT : DI_COPY, icon_xy, 1, icon_size, DASH_C_ACCENT);
+		dashTextScroll(x + text_offset, y, width - text_offset, clipboard, DASH_FS_CAPTION, DASH_C_ACCENT);
 	}
 
 	dashDrawPanelBox(DASH_PANE_L, FB_Y - 6, DASH_PANE_W, FB_ROWS * FB_ROW_H + 12, 14);

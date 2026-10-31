@@ -79,6 +79,21 @@ typedef struct {
     mbedtls_entropy_context entropy;
 } HttpsTls;
 
+static HttpsStatusCallback https_status_callback;
+static void *https_status_arg;
+
+void httpsSetStatusCallback(HttpsStatusCallback callback, void *arg)
+{
+    https_status_callback = callback;
+    https_status_arg = arg;
+}
+
+static void httpsStatus(const char *status)
+{
+    if (https_status_callback != NULL)
+        https_status_callback(status, https_status_arg);
+}
+
 mbedtls_ms_time_t mbedtls_ms_time(void)
 {
     clock_t ticks = clock();
@@ -219,6 +234,7 @@ static int ps2_tcp_connect(int *sock, const char *host)
 
     if (sock == NULL || host == NULL)
         return -1;
+    httpsStatus("Resolving server address");
     entry = (HttpsHostEnt *)(void *)ps2ipc_gethostbyname(host);
     if (entry == NULL || entry->h_addr_list == NULL || entry->h_addr_list[0] == NULL)
         return -1;
@@ -238,6 +254,7 @@ static int ps2_tcp_connect(int *sock, const char *host)
     addr.sin_port = https_htons(443);
     memcpy(&addr.sin_addr, entry->h_addr_list[0], sizeof(addr.sin_addr));
 
+    httpsStatus("Connecting to server");
     r = ps2ipc_connect(*sock, (struct sockaddr *)&addr, sizeof(addr));
     if (r < 0) {
         if (socket_wait(*sock, 1, HTTPS_IO_TIMEOUT_MS) <= 0) {
@@ -382,6 +399,7 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
         set_error(error, error_size, "HTTPS CA bundle is required", 0);
         goto fail;
     }
+    httpsStatus("Loading trusted certificates");
     ca_data = read_file(ca_path, &ca_len);
     if (ca_data == NULL) {
         set_error(error, error_size, "Could not read HTTPS CA bundle", 0);
@@ -405,6 +423,7 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
         set_error(error, error_size, "TCP connection", 0);
         goto fail;
     }
+    httpsStatus("Preparing secure connection");
     r = mbedtls_ctr_drbg_seed(&tls->ctr, mbedtls_entropy_func, &tls->entropy,
                               personal, sizeof(personal) - 1);
     if (r != 0) {
@@ -433,6 +452,7 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
     }
     mbedtls_ssl_set_bio(&tls->ssl, &tls->sock, ps2_tls_send, ps2_tls_recv, NULL);
 
+    httpsStatus("Verifying secure connection");
     while ((r = mbedtls_ssl_handshake(&tls->ssl)) != 0) {
         if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {
             if (wait_tls_io(tls, r) == 0)
@@ -554,6 +574,7 @@ static int read_response(HttpsTls *tls, HttpsResponse *response,
         return -1;
     }
 
+    httpsStatus("Receiving server response");
     while (used < cap - 1) {
         int r = mbedtls_ssl_read(&tls->ssl, (unsigned char *)raw + used, (size_t)(cap - 1 - used));
         if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {
@@ -691,6 +712,7 @@ static int request_open(HttpsTls *tls, const char *method, const char *host,
         set_error(error, error_size, "Out of memory creating HTTPS request", 0);
         return -1;
     }
+    httpsStatus("Sending secure request");
     len = snprintf(request, cap,
                    "%s %s HTTP/1.1\r\n"
                    "Host: %s\r\n"

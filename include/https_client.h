@@ -13,6 +13,11 @@ typedef struct {
     char location[HTTPS_LOCATION_MAX];
 } HttpsResponse;
 
+/* Serialized transport observer, called on the request's thread. Set/clear
+ * only between requests; observers must not draw or re-enter HTTPS. */
+typedef void (*HttpsStatusCallback)(const char *status, void *arg);
+void httpsSetStatusCallback(HttpsStatusCallback callback, void *arg);
+
 void httpsResponseFree(HttpsResponse *response);
 int httpsRequest(const char *method, const char *host, const char *path,
                  const char *headers, const void *body, int body_len,

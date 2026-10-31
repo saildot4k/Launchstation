@@ -4,6 +4,7 @@ This covers stale, current, newer, divergent, malformed and unreachable releases
 It is a host-side regression test, not an HTTPS or console integration test.
 """
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -14,22 +15,37 @@ src = (root / "src/dash_tools.c").read_text()
 
 def function(signature):
     start = src.index(signature)
-    pos = src.index("{", start) + 1
-    depth = 1
-    while depth:
-        depth += (src[pos] == "{") - (src[pos] == "}")
-        pos += 1
-    return src[start:pos] + "\n"
+    # Ignore braces inside strings, character literals and comments.
+    tokens = re.finditer(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|/\*.*?\*/|//[^\n]*|[{}]',
+                         src[start:], re.S)
+    depth = 0
+    for token in tokens:
+        if token.group() == '{':
+            depth += 1
+        elif token.group() == '}':
+            depth -= 1
+            if depth == 0:
+                return src[start:start + token.end()] + '\n'
+    raise AssertionError('Unclosed function: ' + signature)
 
 
 sources = "".join(function(signature) for signature in (
     "static int releaseJsonString(",
+    "static const char *releaseObjectEnd(",
+    "static int releaseObjectString(",
+    "static int releaseAssetString(",
     "static int releaseAssetDigest(",
+    "static void releaseUpdateTime(",
     "static int updateIsCommitId(",
+    "static void updateHttpsStatus(",
+    "static void updateRequestRun(",
+    "static int updateRequest(",
     "static int updateCommitRelation(",
     "void dashToolsCheckUpdates(void)\n{",
 ))
 enums = src[src.index("enum { UPDATE_RELATION_UNKNOWN"):src.index("static int updateIsCommitId(")]
+
+request_type = re.search(r"typedef struct\s*\{[^}]+\} UpdateRequestJob;", src).group()
 
 program = r'''
 #include <assert.h>
@@ -55,6 +71,31 @@ static char last_body[320];
 static int requests, compares, confirmations, installs, response_status = 200;
 static int worker_ready, ca_ready, network_ready;
 static int waits, polls, ca_checks, network_checks;
+static int in_worker, submits, job_waits, rendered_frames, status_updates, reject_submit, request_failure;
+static char release_stamp[32]="2026-10-30T01:02:03Z", confirmation_body[320];
+static void (*pending_run)(void *);
+static void *pending_arg;
+typedef void (*HttpsStatusCallback)(const char *,void *);
+static HttpsStatusCallback status_callback;
+static void *status_arg;
+#define DASH_JOB_VISIBLE 1
+static void httpsSetStatusCallback(HttpsStatusCallback callback,void *arg) {
+    assert(in_worker);status_callback=callback;status_arg=arg;
+}
+static void dashWorkerStatus(const char *text,int done,int total) {
+    assert(in_worker && text && *text && !done && !total);status_updates++;
+}
+static int dashWorkerSubmit(const char *title,int flags,void (*run)(void *),void (*done)(void *),void *arg) {
+    assert(!in_worker && !pending_run && !done && title && flags==DASH_JOB_VISIBLE);
+    submits++;if(reject_submit==submits)return -1;
+    pending_run=run;pending_arg=arg;return submits;
+}
+static int dashWorkerAwait(int id,const char *title,int cancelable) {
+    assert(id==submits && title && !cancelable && !in_worker && pending_run);
+    rendered_frames++;job_waits++;in_worker=1;pending_run(pending_arg);in_worker=0;
+    pending_run=NULL;pending_arg=NULL;rendered_frames++;
+    assert(!status_callback);return 1;
+}
 static int dashWorkerAwaitAll(const char *title) {
     assert(title != NULL);waits++;return worker_ready;
 }
@@ -73,16 +114,17 @@ static const char *dashboardIpNetworkError(void) { return "Detailed network star
 static void dashLoadingBegin(const char *s) { (void)s; }
 static void dashLoadingEnd(void) {}
 static void dashModalMessage(int kind,const char *title,const char *body,const char *detail) {
-    (void)kind;(void)detail;
+    assert(!in_worker);(void)kind;(void)detail;
     last_title=title;
     snprintf(last_body,sizeof(last_body),"%s",body ? body : "");
 }
 static int dashModalConfirm(const char *title,const char *body,const char *action,int danger) {
-    (void)title;(void)body;(void)action;(void)danger;
+    assert(!in_worker);(void)title;(void)action;(void)danger;
+    snprintf(confirmation_body,sizeof(confirmation_body),"%s",body);
     confirmations++; return 1;
 }
 int selfUpdateInstall(const char *ca,const char *digest,char *result,int cap) {
-    (void)ca;(void)digest;
+    assert(!in_worker && !status_callback);(void)ca;(void)digest;
     installs++;
     snprintf(result,cap,"installed");
     return 0;
@@ -90,10 +132,14 @@ int selfUpdateInstall(const char *ca,const char *digest,char *result,int cap) {
 static int httpsRequest(const char *method,const char *host,const char *path,
                             const char *headers,const void *body,int body_len,
                             const char *ca,HttpsResponse *out,char *err,int err_size) {
-    char json[512];
+    char json[1024];
     (void)headers;(void)body;(void)body_len;(void)ca;(void)err;(void)err_size;
     assert(!strcmp(method,"GET") && !strcmp(host,"api.github.com"));
-    assert(network_checks==1 && network_ready);
+    assert(network_checks==1 && network_ready && in_worker && status_callback);
+    status_callback("Connecting to server",status_arg);
+    status_callback("Verifying secure connection",status_arg);
+    status_callback("Receiving server response",status_arg);
+    if(request_failure) { snprintf(err,err_size,"network timeout");return -1; }
     assert(!strncmp(path,"/repos/saildot4k/Launchstation/",
                     strlen("/repos/saildot4k/Launchstation/")));
     requests++;
@@ -105,8 +151,8 @@ static int httpsRequest(const char *method,const char *host,const char *path,
         out->status=response_status;
     } else {
         assert(!strcmp(path,"/repos/saildot4k/Launchstation/releases/tags/latest"));
-        snprintf(json,sizeof(json),"{\"target_commitish\":\"%s\",\"assets\":[{\"name\":\"%s\",\"digest\":\"sha256:%064d\"}]}",
-                 release_target,SELF_UPDATE_ASSET,0);
+        snprintf(json,sizeof(json),"{\"target_commitish\":\"%s\",\"published_at\":\"2020-01-01T00:00:00Z\",\"assets\":[{\"name\":\"unrelated.zip\",\"updated_at\":\"2030-01-01T00:00:00Z\"},{\"updated_at\":\"%s\",\"name\":\"%s\",\"digest\":\"sha256:%064d\"}],\"updated_at\":\"2035-01-01T00:00:00Z\"}",
+                 release_target,release_stamp,SELF_UPDATE_ASSET,0);
         out->status=200;
     }
     out->body=malloc(strlen(json)+1);
@@ -119,10 +165,13 @@ static void httpsResponseFree(HttpsResponse *r) {
     free(r->body);r->body=NULL;
 }
 '''
-program += enums + sources
+program += request_type + "\n" + enums + sources
 program += r'''
 static void reset(const char *status,const char *release,int code) {
     requests=compares=confirmations=installs=0;
+    assert(!in_worker && !pending_run && !status_callback);
+    submits=job_waits=rendered_frames=status_updates=reject_submit=request_failure=0;
+    strcpy(release_stamp,"2026-10-30T01:02:03Z");confirmation_body[0]='\0';
     waits=polls=ca_checks=network_checks=0;
     worker_ready=ca_ready=network_ready=1;
     last_title=NULL;
@@ -133,6 +182,13 @@ static void reset(const char *status,const char *release,int code) {
 }
 int main(void) {
     const char *old="51e1e0c7bc1efcb5b51c6cc9de056ee858694a03";
+    char parsed[80];
+    const char *nested_json = "{\"assets\": [{\"name\": \"other.psu\", \"updated_at\": \"2000-01-01T00:00:00Z\"}, {\"uploader\": {\"name\": \"wrong.psu\", \"updated_at\": \"2099-01-01T00:00:00Z\"}, \"label\": \"braces } { and escaped \\\" quote\", \"name\": \"wanted.psu\", \"updated_at\": \"2026-10-30T01:02:03Z\"}], \"updated_at\": \"2098-01-01T00:00:00Z\"}";
+    assert(releaseAssetString(nested_json,"wanted.psu","updated_at",parsed,sizeof(parsed)));
+    assert(!strcmp(parsed,"2026-10-30T01:02:03Z"));
+    assert(!releaseAssetString(nested_json,"wrong.psu","updated_at",parsed,sizeof(parsed)));
+    assert(!releaseAssetString(nested_json,"wanted.psu","digest",parsed,sizeof(parsed)));
+
     if (!updateIsCommitId(GIT_HASH)) {
         reset("ahead",old,200);
         dashToolsCheckUpdates();
@@ -146,6 +202,19 @@ int main(void) {
     dashToolsCheckUpdates();
     assert(compares==1 && requests==2 && confirmations==1 && installs==1);
     assert(waits==1 && polls==1 && ca_checks==1 && network_checks==1);
+    assert(submits==2 && job_waits==2 && rendered_frames==4 && status_updates==6);
+    assert(strstr(confirmation_body,"Updated: 2026-10-30 01:02:03 UTC"));
+    assert(!strstr(confirmation_body,"2020-") && !strstr(confirmation_body,"2030-") && !strstr(confirmation_body,"2035-"));
+    reset("ahead",old,200);reject_submit=1;dashToolsCheckUpdates();
+    assert(!requests && !job_waits && !installs && !strcmp(last_title,"Update check failed"));
+    reset("ahead",old,200);reject_submit=2;dashToolsCheckUpdates();
+    assert(requests==1 && job_waits==1 && !installs && !strcmp(last_title,"Could not verify update order"));
+    reset("ahead",old,200);request_failure=1;dashToolsCheckUpdates();
+    assert(job_waits==1 && !installs && !strcmp(last_body,"network timeout") && !status_callback);
+    reset("ahead",old,200);strcpy(release_stamp,"2026-02-30T01:02:03Z");dashToolsCheckUpdates();
+    assert(installs==1 && strstr(confirmation_body,"Updated: Unavailable"));
+    reset("ahead",old,200);release_stamp[0]='\0';dashToolsCheckUpdates();
+    assert(installs==1 && strstr(confirmation_body,"Updated: Unavailable"));
     reset("ahead",old,200);worker_ready=0;
     dashToolsCheckUpdates();
     assert(waits==1 && !polls && !ca_checks && !network_checks && !requests && !installs);
@@ -184,7 +253,7 @@ int main(void) {
     assert(!strcmp(last_title,"Launchstation is up to date"));
     assert(!updateIsCommitId("local") && !updateIsCommitId("../malformed"));
     assert(updateIsCommitId("e70d903"));
-    puts("PASS: updater only installs a proven descendant; stale/divergent/unknown builds are blocked");
+    puts("PASS: live worker status, callback cleanup, matching-package UTC dates and only verified descendants; stale/divergent/unknown builds are blocked");
 }
 '''
 compiler=shutil.which("gcc") or shutil.which("clang")

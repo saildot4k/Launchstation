@@ -131,6 +131,8 @@ static void reset(void) {
 }
 '''
 c += header
+c += http[http.index('static HttpsStatusCallback https_status_callback;'):
+          http.index('mbedtls_ms_time_t mbedtls_ms_time(')]
 # These are the real production functions, including shared JSON responses.
 for signature in ('static int header_value(', 'static int decode_chunked(',
                   'static int read_response(', 'void httpsResponseFree(',
@@ -147,12 +149,17 @@ static int download(int limit,int *size,unsigned char *hash,char *error) {
     return httpsDownloadFd("https://github.com/release",5,"WLE-UPDATE-CA.PEM",
                            limit,size,hash,error,256);
 }
+static int status_updates;
+static void observe_status(const char *text,void *arg) {
+    assert(arg==&status_updates && text && *text);status_updates++;
+}
 int main(void) {
     int size, i;
     unsigned char hash[32];
     char error[256];
     HttpsResponse response;
     reset();replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}";
+    httpsSetStatusCallback(observe_status,&status_updates);
     read_step=1;want_read=1;
     assert(!httpsRequest("GET","api.github.com","/latest",NULL,NULL,0,
                          "WLE-UPDATE-CA.PEM",&response,error,sizeof(error)));
@@ -160,7 +167,8 @@ int main(void) {
     assert(strstr(requests[0],"GET /latest HTTP/1.1"));
     assert(strstr(requests[0],"User-Agent: Launchstation/HTTPS"));
     httpsResponseFree(&response);assert(!response.body && !response.body_len);
-    assert(connections==1 && closed==1);
+    assert(connections==1 && closed==1 && status_updates==2);
+    httpsSetStatusCallback(NULL,NULL);httpsStatus("ignored");assert(status_updates==2);
 
     /* A record MAC error must release the session before a fresh check. */
     for(i=0;i<3;i++) {

@@ -122,7 +122,7 @@ and the HOST ioctl.
 | [dash_files.c](../src/dash_files.c) | Files section integration and pending device navigation; native browser implementation is in dash_browser.c. |
 | [dash_browser.c](../src/dash_browser.c) | Native file listing jobs, browser state, selection/actions and modal/Files-tab integration. |
 | [dash_settings.c](../src/dash_settings.c) | Settings pages/bindings, preview, Save/Discard sessions and classic/network configuration save jobs. |
-| [dash_tools.c](../src/dash_tools.c) | Tools menu, update-check presentation and tool actions. |
+| [dash_tools.c](../src/dash_tools.c) | Tools menu, worker-owned update checks, package timestamps and tool actions. |
 | [dash_info.c](../src/dash_info.c) | Dashboard text, About/build/system information and font viewer screens. |
 | [dash_hdd.c](../src/dash_hdd.c) | Native HDD manager UI and operation presentation. |
 | [dash_editor.c](../src/dash_editor.c) | Native text editor UI, document interaction and save flow. |
@@ -165,7 +165,7 @@ and the HOST ioctl.
 | [dash_clock_sync.c](../src/dash_clock_sync.c) | Internet/manual clock changes and time service integration. |
 | [remote_control.c](../src/remote_control.c) | Remote command polling and action dispatch integration. |
 | [pc_game_receiver.c](../src/pc_game_receiver.c) | Network game transfer receiver polling and receive workflow. |
-| [https_client.c](../src/https_client.c) | PS2 socket/entropy/time adapter, TLS verification/session, HTTP parsing/redirects and streaming download. |
+| [https_client.c](../src/https_client.c) | PS2 socket/entropy/time adapter, TLS verification/session, HTTP parsing/redirects, streaming download and optional request-thread status reports. |
 | [self_update.c](../src/self_update.c) | Verified staged update, package selection, ancestry/digest checks, install transaction and rollback paths. |
 | [update_psu.c](../src/update_psu.c) | Extract ELF and optional sidecars from updater PSU packages. |
 | [main_exploit_installer.c](../src/main_exploit_installer.c) | Exploit target selection, install plan/space estimation, MagicGate signing, asset writes and installer UI. |

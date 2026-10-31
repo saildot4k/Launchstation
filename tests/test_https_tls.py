@@ -155,6 +155,9 @@ static void mbedtls_ctr_drbg_free(int *ctr) { assert(*ctr); }
 static void mbedtls_entropy_free(int *entropy) { assert(*entropy); }
 #define mbedtls_ssl_close_notify(ssl) assert(!"cleanup must not write to a failed TLS session")
 '''
+program += (root / "include/https_client.h").read_text()
+program += source[source.index('static HttpsStatusCallback https_status_callback;'):
+                  source.index('mbedtls_ms_time_t mbedtls_ms_time(')]
 program += function("static void set_error(")
 program += function("static void tls_free(")
 program += function("static void tls_verify_error(")
@@ -172,11 +175,16 @@ static void expect_failure(uint32_t flags,const char *detail) {
     assert(required_mode==1 && hostname_set==1 && verifies && frees==1);
     assert(strstr(error,detail));
 }
+static int status_updates;
+static void observe_status(const char *text,void *arg) {
+    assert(arg==&status_updates && text && *text);status_updates++;
+}
 int main(void) {
     HttpsTls tls;char error[256];
-    reset(0,0);
+    reset(0,0);httpsSetStatusCallback(observe_status,&status_updates);
     assert(!tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error)));
-    assert(required_mode==1 && hostname_set==1 && verifies==1 && !frees);
+    assert(required_mode==1 && hostname_set==1 && verifies==1 && !frees && status_updates==3);
+    httpsSetStatusCallback(NULL,NULL);httpsStatus("ignored");assert(status_updates==3);
     expect_failure(MBEDTLS_X509_BADCERT_NOT_TRUSTED,"WLE-UPDATE-CA.PEM");
     expect_failure(MBEDTLS_X509_BADCERT_EXPIRED,"verify the PS2 date and time");
     expect_failure(MBEDTLS_X509_BADCERT_FUTURE,"verify the PS2 date and time");
