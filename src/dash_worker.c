@@ -314,8 +314,9 @@ int dashWorkerAwait(int id, const char *title, int cancelable)
 			ok = 0;
 			break;
 		}
-		/* quick jobs finish without any overlay flashing up */
-		if (!shown && Timer() - start >= 150) {
+		/* A NULL title keeps the scene visible for the whole wait.
+		 * Titled jobs only show an overlay once they take longer than 150ms. */
+		if (title != NULL && !shown && Timer() - start >= 150) {
 			dashLoadingBegin(title);
 			shown = 1;
 		}

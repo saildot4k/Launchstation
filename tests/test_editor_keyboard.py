@@ -100,14 +100,16 @@ typedef struct { float x,y; char text[40]; } Label;
 static Box boxes[128];
 static Label labels[128];
 static int nboxes,nlabels,drawn[256],naming_mode,filename_ff,path_draws;
-typedef struct { float x1,y1,x2,y2; } Stroke;
-static Stroke strokes[16];
-static int nstrokes;
-static void dashLine(float x1,float y1,float x2,float y2,float width,DashColor color) {
-    (void)color;assert(nstrokes<16 && width>0);
-    assert(x1>=34 && x1<=606 && x2>=34 && x2<=606);
-    assert(y1>=64 && y1<394 && y2>=64 && y2<394);
-    strokes[nstrokes++]=(Stroke){x1,y1,x2,y2};
+#define DI_KEY_TAB 100
+#define DI_KEY_RETURN 101
+typedef struct { int icon;float x,y,size; } KeySymbol;
+static KeySymbol symbols[2];
+static int nsymbols;
+static void dashIcon(int icon,float x,float y,float size,DashColor color) {
+    (void)color;
+    if(icon!=DI_KEY_TAB && icon!=DI_KEY_RETURN)return;
+    assert(nsymbols<2 && size==24 && x>=34 && x+size<=606 && y>=64 && y+size<394);
+    symbols[nsymbols++]=(KeySymbol){icon,x,y,size};
 }
 static float naming_title_y,naming_path_y,naming_path_w;
 static char shown_directory[MAX_PATH];
@@ -164,6 +166,7 @@ typedef struct { int button;const char *key,*label; } DashHint;
 static int steps[256],raw_steps[256],text_steps[256],nsteps,next_step,frames,ticks,alpha_depth,offset_depth;
 static int hint_buttons,hint_labels,hint_cursor;
 static float hint_left,hint_right,hint_y,hint_scale=1.0f;
+static float hint_button_x[6],hint_button_w[6],hint_label_end[6];
 static unsigned char usb_data[64];
 static int usb_length,usb_next;
 static void dashStrCopy(char *out,const char *in,int cap) { snprintf(out,cap,"%s",in); }
@@ -192,12 +195,16 @@ static void dashGfxPopOffset(void) { assert(offset_depth==1);offset_depth--; }
 static void dashModalPanel(float x,float y,float w,float h,float a) {
     (void)a;assert(w==572 && (h==276 || h==300));box(x,y,w,h,0);
 }
-static void dashIcon(int icon,float x,float y,float size,DashColor color) { (void)icon;(void)x;(void)y;(void)size;(void)color; }
 static float dashTextWidth(const char *s,float size) { (void)size;return strlen(s)*6*hint_scale; }
 static float dashTextS(float x,float y,const char *s,float size,DashColor color) {
     (void)color;float end=x+dashTextWidth(s,size);
     if(size==DASH_FS_LABEL)naming_title_y=y;
-    if(hint_buttons && y==hint_y+4.5f) { hint_right=end;hint_labels++; }
+    if(hint_buttons && size==DASH_FS_SMALL) {
+        assert(hint_labels<6 && hint_buttons==hint_labels+1);
+        assert(fabsf(x-hint_button_x[hint_labels]-hint_button_w[hint_labels]-4)<0.001f);
+        assert(fabsf(y+16*size-(hint_y+11))<0.001f);
+        hint_label_end[hint_labels]=end;hint_right=end;hint_labels++;
+    }
     return end;
 }
 static void dashTextScrollTimed(float x,float y,float w,const char *s,float size,DashColor color,float age) {
@@ -218,6 +225,8 @@ static int keyIcon(const char *key) { return key && !strcmp(key,"START")?DI_BTN_
 static float dashDrawButton(float x,float y,int icon,const char *key) {
     if(!hint_buttons) {hint_left=x;hint_y=y;}
     if(hint_buttons==4)assert(key && !strcmp(key,"START"));
+    assert(hint_buttons<6 && y==hint_y);
+    hint_button_x[hint_buttons]=x;hint_button_w[hint_buttons]=dashButtonWidth(icon,key);
     hint_buttons++;hint_cursor+=icon==DI_BTN_R3;
     return dashButtonWidth(icon,key);
 }
@@ -342,13 +351,16 @@ static void checkNamingHints(void) {
     for(int percent=90;percent<=115;percent+=5) {
         hint_scale=percent/100.0f;
         hint_buttons=hint_labels=hint_cursor=0;
-        kbDrawHints(DASH_VW*0.5f,326);
+        kbDrawHints(DASH_VW*0.5f,326,524);
         assert(hint_buttons==6 && hint_labels==6 && hint_cursor==1);
         assert(fabsf((hint_left+hint_right)*0.5f-DASH_VW*0.5f)<0.001f);
-        assert(hint_left>=34+24 && hint_right<=606-24);
+        assert(fabsf(hint_left-(34+24))<0.001f && fabsf(hint_right-(606-24))<0.001f);
+        float gap=hint_button_x[1]-hint_label_end[0];
+        assert(gap>12); /* More space between groups than the old compact row. */
+        for(int i=2;i<6;i++)assert(fabsf(hint_button_x[i]-hint_label_end[i-1]-gap)<0.001f);
     }
     hint_scale=1;
-    puts("PASS: naming helpers centered as a complete row at every font scale, including the right-stick cursor hint");
+    puts("PASS: naming hint labels vertically centered on icons, groups evenly spread across popup width at every font scale, including the right-stick cursor hint");
 }
 static void checkNamingDialogs(void) {
     DashKeyboard saved=editor_keyboard;
@@ -403,14 +415,14 @@ static void checkNamingDialogs(void) {
     unsigned char cancel[]={'x',0x1b,0x1b};
     memcpy(usb_data,cancel,sizeof(cancel));usb_length=sizeof(cancel);plan(0);
     assert(!nameDialog(buf,255) && !strcmp(buf,"original"));
-    /* Names keep question marks but filter separators/pipe; text prompts keep all four. */
+    /* Names keep question marks/pipes but filter separators; text prompts keep all four. */
     unsigned char path[]={'a','/','?','b','\\','|','c',0x0a};
     for(int bridge=0;bridge<2;bridge++) for(int filename=0;filename<2;filename++) {
         keyboardOverride=bridge?classicKeyboard:NULL;
         buf[0]=0;planReset();setting->usbkbd_used=1;
         memcpy(usb_data,path,sizeof(path));usb_length=sizeof(path);plan(0);
         assert(textDialog(buf,255,filename,bridge));
-        assert(!strcmp(buf,filename?"a?bc":"a/?b\\|c"));
+        assert(!strcmp(buf,filename?"a?b|c":"a/?b\\|c"));
     }
     keyboardOverride=NULL;
     /* Caps keeps the fixed question-mark key visible and preserves focus. */
@@ -432,7 +444,7 @@ static void checkNamingDialogs(void) {
         float physical=(last_quad[1]+g_oy)*g_sy;
         assert(fabsf(physical/2-roundf(physical/2))<0.00001f);
     }
-    puts("PASS: filename/general prompt routing, fixed question marks, separator/pipe filtering, Caps focus, pad/USB edits, cancellation, limits, literal 0xFF/alignment and independent editor state");
+    puts("PASS: filename/general prompt routing, fixed question marks, separator filtering with pipes allowed, Caps focus, pad/USB edits, cancellation, limits, literal 0xFF/alignment and independent editor state");
 }
 '''
 code += r'''
@@ -449,21 +461,21 @@ static Box *keyBox(const char *s) {
 }
 static Box *actionBox(int action) {
     if(action==KA_SYMBOLS)return keyBox("Symbols");
-    assert(nstrokes==8);
-    int first=action==KA_TAB?0:4;
-    for(int i=1;i<nboxes;i++) {
-        Box *b=&boxes[i];int inside=1;
-        for(int j=first;j<first+4;j++) {
-            Stroke t=strokes[j];
-            inside&=t.x1>b->x && t.x1<b->x+b->w && t.x2>b->x && t.x2<b->x+b->w &&
-                    t.y1>b->y && t.y1<b->y+b->h && t.y2>b->y && t.y2<b->y+b->h;
+    assert(nsymbols==2);
+    int icon=action==KA_TAB?DI_KEY_TAB:DI_KEY_RETURN;
+    for(int j=0;j<nsymbols;j++)if(symbols[j].icon==icon) {
+        KeySymbol s=symbols[j];
+        for(int i=1;i<nboxes;i++) {
+            Box *b=&boxes[i];
+            float cy=b->y+b->h*0.5f+(action==KA_RETURN?2:0);
+            if(fabsf(b->x+b->w*0.5f-s.x-s.size*0.5f)<0.01f &&
+               fabsf(cy-s.y-s.size*0.5f)<0.01f)return b;
         }
-        if(inside)return b;
     }
     assert(0);return NULL;
 }
 static void draw(void) {
-    nboxes=nlabels=nstrokes=0; drawKeyboard();
+    nboxes=nlabels=nsymbols=0; drawKeyboard();
     /* No key extends outside the panel or overlaps any other key. */
     float first_top=1000,last_bottom=0;
     for(int i=1;i<nboxes;i++) {
@@ -481,9 +493,9 @@ static void draw(void) {
     float top_gap=first_top-boxes[0].y;
     float bottom_gap=boxes[0].y+boxes[0].h-last_bottom;
     assert(fabsf(top_gap-6)<0.01f && fabsf(bottom_gap-top_gap)<0.01f);
-    /* Main keys are centered independently; the appended side buttons
-     * share a right edge and must not shift that center. Partial Symbols
-     * pages keep the normal grid origin instead of centering their contents. */
+    /* The editor centers the complete main grid; filename prompts retain
+     * their column-7 anchor. Side buttons stay right-aligned. Symbols pages
+     * keep the normal grid origin instead of centering their contents. */
     int main_end=nboxes;
     for(int a=0;a<KA_COUNT;a++)main_end-=kbHasAction(&editor_keyboard,a);
     float left=1000,right=0;
@@ -493,7 +505,12 @@ static void draw(void) {
         if(x<left)left=x;
         if(end>right)right=end;
     }
-    if(!kb_page)assert(fabsf((left+right)*0.5f-DASH_VW*0.5f)<0.01f);
+    if(!kb_page) {
+        if(editor_keyboard.filename) {
+            Box seventh=boxes[7]; /* Panel first, then the contiguous top row. */
+            assert(seventh.y+seventh.selected==boxes[1].y+boxes[1].selected && fabsf(seventh.x+seventh.w*0.5f-DASH_VW*0.5f)<0.01f);
+        } else assert(fabsf((left+right)*0.5f-DASH_VW*0.5f)<0.01f);
+    }
     for(int i=main_end;i<nboxes;i++) {
         Box b=boxes[i];
         float edge=b.x+b.w-b.selected;
@@ -530,11 +547,11 @@ static void checkFilenameLayouts(void) {
         dashKeyboardInit(&editor_keyboard,layout);
         editor_keyboard.single_line=editor_keyboard.filename=1;kb_caps=caps;
         checkReachability();kb_act=-1;kb_sel=KB_SPACE_KEY;draw();
-        assert(label("Space") && !label("Symbols") && !label("/") && !label("\\") && label("?") && !label("|") && !nstrokes);
+        assert(label("Space") && !label("Symbols") && !label("/") && !label("\\") && label("?") && label("|") && !nsymbols);
         Box question=*keyBox("?");Label naming_space=*label("Space"),naming_one=*label(caps?"!":"1");
         DashKeyboard naming=editor_keyboard;
         editor_keyboard.filename=editor_keyboard.single_line=0;kb_act=-1;kb_sel=KB_SPACE_KEY;draw();
-        /* Both keyboards keep the same key spacing, centered independently. */
+        /* Both keyboards keep the same key spacing and vertical positions. */
         assert(label("Space")->x-label(caps?"!":"1")->x==naming_space.x-naming_one.x);
         assert(label("Space")->y==naming_space.y);
         editor_keyboard=naming;draw();
@@ -548,24 +565,30 @@ static void checkFilenameLayouts(void) {
             assert(space.x==c.x && space.x+space.w==period.x+period.w);
         }
         for(int i=0;i<VKEY_LAYOUT_SIZE;i++) {
-            /* Separators/pipe stay hidden; the question-mark position ignores Caps. */
+            /* Separators stay hidden; '?' and '|' ignore Caps. */
             int source=i;
             int present=isVirtualKeyboardLayoutKey(layout,source);
             unsigned char c=getVirtualKeyboardFilenameChar(layout,source,caps);
             int allowed=present &&
-                !strchr("/\\|",getVirtualKeyboardFilenameChar(layout,source,0)) &&
-                !strchr("/\\|",getVirtualKeyboardFilenameChar(layout,source,1));
+                !strchr("/\\",getVirtualKeyboardFilenameChar(layout,source,0)) &&
+                !strchr("/\\",getVirtualKeyboardFilenameChar(layout,source,1));
             assert(kbIsKey(&editor_keyboard,i)==allowed);
             if(c=='?' && allowed) {
                 assert(getVirtualKeyboardFilenameChar(layout,source,0)=='?');
                 assert(getVirtualKeyboardFilenameChar(layout,source,1)=='?');
             }
+            if(getVirtualKeyboardLayoutChar(layout,source,0)=='|' ||
+               getVirtualKeyboardLayoutChar(layout,source,1)=='|') {
+                assert(allowed && c=='|');
+                assert(getVirtualKeyboardFilenameChar(layout,source,0)=='|');
+                assert(getVirtualKeyboardFilenameChar(layout,source,1)=='|');
+            }
             kb_sel=i;kb_act=-1;
             assert(dashKeyboardPress(&editor_keyboard)==(allowed?c:0));
             c=getVirtualKeyboardLayoutChar(layout,i,caps);
             allowed=isVirtualKeyboardLayoutKey(layout,i) &&
-                !strchr("/\\|",getVirtualKeyboardFilenameChar(layout,i,0)) &&
-                !strchr("/\\|",getVirtualKeyboardFilenameChar(layout,i,1));
+                !strchr("/\\",getVirtualKeyboardFilenameChar(layout,i,0)) &&
+                !strchr("/\\",getVirtualKeyboardFilenameChar(layout,i,1));
             assert(keyboardIsKey(i,caps,1)==allowed);
             assert(keyboardIsKey(i,caps,0)==isVirtualKeyboardLayoutKey(layout,i));
             const int dirs[][2]={{0,0},{-1,0},{1,0},{0,-1},{0,1}};
@@ -587,8 +610,9 @@ static void checkFilenameLayouts(void) {
         memset(classic_drawn,0,sizeof(classic_drawn));
         for(unsigned i=0;i<sizeof(path);i++) plan(0);
         assert((filename?filenameKeyboard(buf,255,"mc0:/"):keyboard(buf,255))>0 && next_step==nsteps);
-        assert(!strcmp(buf,filename?"a?bc":"a/?b\\|c"));
+        assert(!strcmp(buf,filename?"a?b|c":"a/?b\\|c"));
         assert(!!classic_drawn['/']==!filename && !!classic_drawn['\\']==!filename);
+        if(filename)assert(classic_drawn['|']);
     }
     /* Native and classic pad navigation skip slash, preserving delete/cancel/accept. */
     strcpy(buf,"name");planReset();next_step=0;
@@ -749,12 +773,12 @@ int main(void) {
             }
             /* All themes/layouts fit the keyboard panel above the footer. */
             kb_act=-1;kb_sel=KB_SPACE_KEY;draw();
-            assert(label("Space") && !label("Tab") && !label("Del") && !label("Return") && nstrokes==8);
+            assert(label("Space") && !label("Tab") && !label("Del") && !label("Return") && nsymbols==2);
             /* The first character stays fixed on every page, even when
              * the last Symbols page leaves some columns/rows empty. */
             assert(boxes[1].x==fixed_first.x && boxes[1].y==fixed_first.y);
             float grid_right=fixed_first.x+cols*33-3;
-            assert(fixed_return.x-grid_right>=3 && fixed_return.x-grid_right<36);
+            assert(fixed_return.x-grid_right>=3);
             assert(actionBox(KA_RETURN)->x==fixed_return.x && actionBox(KA_RETURN)->y==fixed_return.y);
             assert(docInsert(&d,"!",1));int before_delete=d.len;
             keyboardInput(&d,DASH_IN_BACK);assert(d.len==before_delete-1);
@@ -765,7 +789,7 @@ int main(void) {
             DashKeyboard full=editor_keyboard;
             editor_keyboard.single_line=1;
             checkReachability();draw();
-            assert(label("Space") && !label("Tab") && !label("Del") && !label("Return") && !nstrokes);
+            assert(label("Space") && !label("Tab") && !label("Del") && !label("Return") && !nsymbols);
             for(int a=KA_TAB;a<=KA_RETURN;a++) {
                 editor_keyboard.action=a;
                 assert(!dashKeyboardPress(&editor_keyboard));
@@ -804,7 +828,7 @@ int main(void) {
     }
     assert(found==1);
     kbTypeKey(&d); assert(d.buf[d.len-1]==' ');
-    /* Center the main keys; right-align Tab row 1, Return row 2 and Symbols row 5. */
+    /* Center the full 1-to-equals row; keep the side buttons right-aligned. */
     kb_act=-1;kb_sel=2*VKEY_LAYOUT_COLS;draw();
     Box tab=*actionBox(KA_TAB),ret=*actionBox(KA_RETURN),symbols=*keyBox("Symbols");
     Box number=*keyBox("1"),q=*keyBox("q"),apostrophe=*keyBox("'"),slash=*keyBox("\\");
@@ -812,7 +836,7 @@ int main(void) {
     assert(tab.x==ret.x && tab.x+tab.w==symbols.x+symbols.w);
     Box equals=*keyBox("=");
     float side_gap=tab.x-equals.x-equals.w;
-    assert(side_gap>=3 && side_gap<36);
+    assert(side_gap>=3);
     assert(fabsf((number.x+equals.x+equals.w)*0.5f-DASH_VW*0.5f)<0.01f);
     assert(slash.y==apostrophe.y && fabsf(slash.x-apostrophe.x-33)<0.01f);
     kb_caps=1;draw();
@@ -886,7 +910,7 @@ int main(void) {
     checkNamingPaths();
     checkTypingRepeat();
     free(d.buf);free(d.lines);
-    puts("PASS: editor keyboard side-key/space geometry, viewport resize, reachable keys/actions, normal/caps input, complete symbol cycles including 0xFF, centered main keys with right-aligned side buttons, fixed pages, Tab/Return and controller Delete");
+    puts("PASS: editor keyboard side-key/space geometry, viewport resize, reachable keys/actions, normal/caps input, complete symbol cycles including 0xFF, centered editor main grid, column-7 naming anchor and right-aligned side buttons, fixed pages, Tab/Return and controller Delete");
 }
 '''
 with tempfile.TemporaryDirectory(prefix="editor-keyboard-") as folder:

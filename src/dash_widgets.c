@@ -261,8 +261,15 @@ static float kbGridOrigin(const DashKeyboard *kb, float center_x, float kw, floa
 	float right = left + 6 * (kw + gap) + kw;
 	int key;
 
-	/* Center only the main character keys and Space. Side buttons do not shift
-	 * this grid. Keep the normal-page footprint through Caps/Symbols changes. */
+	/* Naming dialogs retain their column-7 anchor. The editor centers the
+	 * whole character grid, independently of the side buttons. Use the full
+	 * layout width so Caps and partial Symbols pages keep the same origin. */
+	if (kb->filename)
+		return center_x - 6.0f * (kw + gap) - kw * 0.5f;
+	if (!kb->single_line)
+		return center_x - (kbColumnCount(kb) * (kw + gap) - gap) * 0.5f;
+
+	/* Other single-line prompts center their visible character keys and Space. */
 	normal.page = 0;
 	for (key = 0; key < KB_CHAR_ROWS * VKEY_LAYOUT_COLS; key++) {
 		float x;
@@ -282,21 +289,11 @@ float dashKeyboardHeight(void)
 
 static void kbDrawActionSymbol(int action, float cx, float cy, DashColor color)
 {
-	const float stroke = 1.5f;
+	/* Filtered, pixel-aligned atlas glyphs keep the arrowhead arms matched. */
+	int icon = action == KA_TAB ? DI_KEY_TAB : DI_KEY_RETURN;
+	float y = cy - 12.0f + (action == KA_RETURN ? 2.0f : 0.0f);
 
-	if (action == KA_TAB) {
-		/* Right arrow stopping at a vertical bar (Tab). */
-		dashLine(cx - 10, cy, cx + 6, cy, stroke, color);
-		dashLine(cx + 2, cy - 4, cx + 6, cy, stroke, color);
-		dashLine(cx + 2, cy + 4, cx + 6, cy, stroke, color);
-		dashLine(cx + 10, cy - 6, cx + 10, cy + 6, stroke, color);
-	} else {
-		/* Bent left arrow (Return). */
-		dashLine(cx + 9, cy - 6, cx + 9, cy + 2, stroke, color);
-		dashLine(cx + 9, cy + 2, cx - 9, cy + 2, stroke, color);
-		dashLine(cx - 4, cy - 3, cx - 9, cy + 2, stroke, color);
-		dashLine(cx - 4, cy + 7, cx - 9, cy + 2, stroke, color);
-	}
+	dashIcon(icon, cx - 12.0f, y, 24.0f, color);
 }
 
 void dashKeyboardDraw(const DashKeyboard *kb, float center_x, float y0)
@@ -420,24 +417,32 @@ static int kbUsb(char *buf, int max_len, int *cur, int filename)
 	return 0;
 }
 
-static void kbDrawHints(float center_x, float y)
+static void kbDrawHints(float center_x, float y, float available_width)
 {
 	DashHint hints[] = {{dashOkIcon(), NULL, "Type"}, {dashBackIcon(), NULL, "Delete"},
 	                    {DI_BTN_SQUARE, NULL, "Caps"}, {DI_BTN_R3, NULL, "Cursor"},
 	                    {-1, "START", "Done"}, {DI_BTN_TRIANGLE, NULL, "Cancel"}};
 	const int count = sizeof(hints) / sizeof(hints[0]);
-	float width = 0.0f, x;
+	float width = 0.0f, gap, x;
+	/* Font layouts put the x-height center at text_y + 16 * scale.
+	 * Align that reference with the 22px button's center. */
+	const float text_y = y + 11.0f - 16.0f * DASH_FS_SMALL;
 	int i;
 
 	for (i = 0; i < count; i++)
 		width += dashButtonWidth(hints[i].button, hints[i].key) + 4.0f +
-		         dashTextWidth(hints[i].label, DASH_FS_SMALL) + (i ? 12.0f : 0.0f);
-	x = center_x - width * 0.5f;
+		         dashTextWidth(hints[i].label, DASH_FS_SMALL);
+
+	/* Distribute the spare width between complete icon/label groups. */
+	gap = (available_width - width) / (count - 1);
+	if (gap < 0.0f)
+		gap = 0.0f;
+	x = center_x - (width + gap * (count - 1)) * 0.5f;
 	for (i = 0; i < count; i++) {
 		if (i)
-			x += 12.0f;
+			x += gap;
 		x += dashDrawButton(x, y, hints[i].button, hints[i].key) + 4.0f;
-		x = dashTextS(x, y + 4.5f, hints[i].label, DASH_FS_SMALL, DASH_C_TEXT2);
+		x = dashTextS(x, text_y, hints[i].label, DASH_FS_SMALL, DASH_C_TEXT2);
 	}
 }
 
@@ -569,7 +574,7 @@ static int modalKeyboard(const char *title, char *buf, int max_len, int filename
 
 			dashKeyboardDraw(&keyboard, DASH_VW * 0.5f, gy);
 
-			kbDrawHints(x + w * 0.5f, y + h - 36);
+			kbDrawHints(x + w * 0.5f, y + h - 36, w - 48);
 			dashGfxPopOffset();
 			dashGfxPopAlpha();
 			dashGfxPresent();

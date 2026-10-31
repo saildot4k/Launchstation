@@ -354,10 +354,40 @@ static float iconSdf(int id, V2 p)
 			d = U(d, sdSeg(p, 0.0f, -0.82f, 0.0f, -0.08f, 0.08f));
 			break;
 		case DI_TEXT:
+		case DI_NEW_DOCUMENT:
 			d = sdBoxOutline(p, 0.0f, 0.0f, 0.56f, 0.78f, 0.08f, T);
 			d = U(d, sdSeg(p, -0.3f, -0.36f, 0.3f, -0.36f, 0.05f));
 			d = U(d, sdSeg(p, -0.3f, -0.06f, 0.3f, -0.06f, 0.05f));
 			d = U(d, sdSeg(p, -0.3f, 0.24f, 0.14f, 0.24f, 0.05f));
+			if (id == DI_NEW_DOCUMENT) {
+				/* Clear the corner behind the badge so its plus stays distinct. */
+				d = S(d, sdBox(p, 0.60f, -0.60f, 0.40f, 0.40f, 0.08f));
+				d = U(d, sdSeg(p, 0.36f, -0.60f, 0.84f, -0.60f, 0.085f));
+				d = U(d, sdSeg(p, 0.60f, -0.84f, 0.60f, -0.36f, 0.085f));
+			}
+			break;
+		case DI_KEY_TAB:
+			{
+				/* Mirror one arm about the shaft to keep both sides identical. */
+				V2 q = {p.x, fabsf(p.y)};
+				const float stroke = 0.75f / 12.0f;
+
+				d = sdSeg(p, -10.0f / 12.0f, 0.0f, 6.0f / 12.0f, 0.0f, stroke);
+				d = U(d, sdSeg(q, 2.0f / 12.0f, 4.0f / 12.0f, 6.0f / 12.0f, 0.0f, stroke));
+				d = U(d, sdSeg(p, 10.0f / 12.0f, -6.0f / 12.0f, 10.0f / 12.0f, 6.0f / 12.0f, stroke));
+			}
+			break;
+		case DI_KEY_RETURN:
+			{
+				/* Put the arrowhead on the atlas centerline for mirrored filtering.
+				 * The keyboard positions this axis two pixels below the key center. */
+				V2 q = {p.x, fabsf(p.y)};
+				const float stroke = 0.75f / 12.0f;
+
+				d = sdSeg(p, 9.0f / 12.0f, -8.0f / 12.0f, 9.0f / 12.0f, 0.0f, stroke);
+				d = U(d, sdSeg(p, 9.0f / 12.0f, 0.0f, -9.0f / 12.0f, 0.0f, stroke));
+				d = U(d, sdSeg(q, -4.0f / 12.0f, 5.0f / 12.0f, -9.0f / 12.0f, 0.0f, stroke));
+			}
 			break;
 		case DI_EDIT:
 		case DI_PASTE_RENAME:
@@ -718,10 +748,12 @@ GSTEXTURE *dashIconsTexture(void)
 void dashIcon(int id, float x, float y, float size, DashColor c)
 {
 	float u0, v0, pad, width, slot;
+	int keyboard_symbol;
 
 	if (!icons_ready || id < 0 || id >= DI_COUNT || size <= 0.0f || c.a == 0)
 		return;
-	if (id < DI_PAD_BADGE || id > DI_BTN_R3)
+	keyboard_symbol = id == DI_KEY_TAB || id == DI_KEY_RETURN;
+	if ((id < DI_PAD_BADGE || id > DI_BTN_R3) && !keyboard_symbol)
 		c = dashIconTint(c);
 	width = size + (id == DI_BTN_SELECT ? DASH_SELECT_EXTRA_W : 0.0f);
 	slot = id >= DI_CUT ? APP_PART_SLOT : ICON_SLOT;
@@ -759,7 +791,10 @@ void dashIcon(int id, float x, float y, float size, DashColor c)
 		return;
 	}
 	dashSpriteBatchBegin(&icon_tex, c);
-	dashSpriteBatchAdd(x - pad, y - pad, u0, v0, x + size + pad, y + size + pad, u0 + slot, v0 + slot);
+	if (keyboard_symbol)
+		dashSpriteBatchAddAligned(x - pad, y - pad, u0, v0, x + size + pad, y + size + pad, u0 + slot, v0 + slot);
+	else
+		dashSpriteBatchAdd(x - pad, y - pad, u0, v0, x + size + pad, y + size + pad, u0 + slot, v0 + slot);
 	dashSpriteBatchEnd();
 }
 /* Rotate a filtered atlas tile in virtual coordinates, before PAL scaling. */

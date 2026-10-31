@@ -400,7 +400,8 @@ static int edIo(EdIoJob *j, const char *title)
 		free(j);
 		return 0;
 	}
-	if (dashWorkerAwait(id, title, 1))
+	/* Opening stays in the editor scene instead of showing device-status popups. */
+	if (dashWorkerAwait(id, j->op == 0 ? NULL : title, 1))
 		return 1;
 	j->abandoned = 1;
 	return 0;
@@ -752,7 +753,7 @@ static int editorMenu(EdDoc *d)
 	(items[n].icon = (ic), items[n].label = (lab), items[n].detail = (det), items[n].disabled = (dis), ids[n++] = (id))
 	ADD(DI_CHECK, "Save", d->dirty ? "unsaved" : NULL, 0, M_SAVE);
 	ADD(DI_EDIT, "Save as...", NULL, 0, M_SAVEAS);
-	ADD(DI_PLUS, "New document", NULL, ndocs >= ED_MAX_DOCS, M_NEW);
+	ADD(DI_NEW_DOCUMENT, "New document", NULL, ndocs >= ED_MAX_DOCS, M_NEW);
 	ADD(DI_FOLDER, "Open...", NULL, ndocs >= ED_MAX_DOCS, M_OPEN);
 	if (ndocs > 1)
 		ADD(DI_VIEW_LIST, "Switch document...", NULL, 0, M_SWITCH);
@@ -962,7 +963,7 @@ static void closeAll(void)
 static int emptyMenu(void)
 {
 	DashMenuItem items[] = {
-	    {DI_PLUS, "New document", NULL, 0},
+	    {DI_NEW_DOCUMENT, "New document", NULL, 0},
 	    {DI_FOLDER, "Open...", NULL, 0},
 	    {DI_BACK, "Exit Text Editor", NULL, 0}};
 	char path[MAX_PATH];

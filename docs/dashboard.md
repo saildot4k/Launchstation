@@ -57,7 +57,8 @@ elsewhere R3 opens that folder.
 In the file/folder naming keyboard, use the D-pad to select keys and tilt the
 right stick left or right to move the text cursor. The popup shows its title,
 the destination folder path, the typing field, and then the keyboard. Long
-paths scroll within their own line. START accepts the name;
+paths scroll within their own line. Button hints span the popup width with
+even gaps between groups and labels vertically centered on their icons. START accepts the name;
 Triangle cancels. In both the naming and editor keyboards, reversing the move
 into Space restores the previous key, even after inserting several spaces.
 Holding Type or Delete repeats with the same initial delay and acceleration
@@ -66,13 +67,13 @@ arrow symbols on the right, on rows 1 and 2; Symbols sits below them
 on row 5. Symbols pages use the same column count as the chosen letter
 layout, so the grid and action buttons stay in place. The keyboard sits
 lower to leave 11 editable text rows above it, with space before the footer
-hints; this layout scales with the selected video mode. The main character
-grid is centered independently of the right-aligned Tab, Return and Symbols
-buttons. Their spacing fits beside the grid without reserving an empty key column.
+hints; this layout scales with the selected video mode. The editor centers
+the full main character grid (the `1` through `=` width on QWERTY), independently
+of the right-aligned Tab, Return and Symbols buttons. Their spacing fits beside the grid without reserving an empty key column.
 Backslash/pipe follows the quote key. Naming dialogs keep the same
-key arrangement with those three actions hidden and center their visible keys. The question-mark key
-stays visible and types `?` with Caps either off or on; slash, backslash and
-pipe are hidden and filtered from USB input.
+key arrangement with those three actions hidden and retain their column-7 center anchor.
+The question-mark and pipe keys stay visible and type `?` and `|` with Caps
+either off or on. Slash and backslash stay hidden and are filtered from USB input.
 
 The cursor never waits for the memory card or a slow device: file reads
 and writes (artwork, saves, library scans, folder listings) run on a

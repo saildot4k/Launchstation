@@ -215,21 +215,24 @@ int isVirtualKeyboardLayoutKey(int layout, int index)
 
 char getVirtualKeyboardFilenameChar(int layout, int index, int caps)
 {
-    /* The slash/question-mark position always types '?' in a name. */
+    /* Keep '?' and '|' visible in both Caps states without showing separators. */
     if (getVirtualKeyboardLayoutChar(layout, index, 0) == '?' ||
         getVirtualKeyboardLayoutChar(layout, index, 1) == '?')
         return '?';
+    if (getVirtualKeyboardLayoutChar(layout, index, 0) == '|' ||
+        getVirtualKeyboardLayoutChar(layout, index, 1) == '|')
+        return '|';
     return getVirtualKeyboardLayoutChar(layout, index, caps);
 }
 
 int isVirtualKeyboardFilenameChar(unsigned char c)
 {
-    return c != '/' && c != '\\' && c != '|';
+    return c != '/' && c != '\\';
 }
 
 int isVirtualKeyboardFilenameKey(int layout, int index)
 {
-    /* Hide path separators and pipe in both Caps states; '?' stays fixed. */
+    /* Hide path separators; '?' and '|' stay fixed in both Caps states. */
     return isVirtualKeyboardLayoutKey(layout, index) &&
            isVirtualKeyboardFilenameChar((unsigned char)getVirtualKeyboardFilenameChar(layout, index, 0)) &&
            isVirtualKeyboardFilenameChar((unsigned char)getVirtualKeyboardFilenameChar(layout, index, 1));

@@ -139,7 +139,7 @@ void nonDialog(char *message)
 	}
 }
 
-/* Filename prompts hide separators/pipe and keep '?' fixed in both Caps states. */
+/* Filename prompts hide separators and keep '?'/'|' fixed in both Caps states. */
 static int keyboardIsKey(int index, int caps, int filename)
 {
 	(void)caps; /* Filename key positions are independent of Caps. */

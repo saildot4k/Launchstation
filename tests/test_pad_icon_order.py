@@ -101,8 +101,10 @@ static float texel(int x,int y) {
  return x>=0 && y>=0 && x<ICON_SLOT && y<ICON_SLOT?tile[y][x]/255.0f:0;
 }
 static float sample(int id,int x,int y) {
- float u=quad.u1+(quad.u2-quad.u1)*(x-quad.x1)/(quad.x2-quad.x1)-(id%ICON_COLS)*ICON_SLOT-0.5f;
- float v=quad.v1+(quad.v2-quad.v1)*(y-quad.y1)/(quad.y2-quad.y1)-(id/ICON_COLS)*ICON_SLOT-0.5f;
+ float u0=id>=DI_CUT?APP_PART_X:(id%ICON_COLS)*ICON_SLOT;
+ float v0=id>=DI_CUT?CLIP_ICON_Y+(id-DI_CUT)*APP_PART_SLOT:(id/ICON_COLS)*ICON_SLOT;
+ float u=quad.u1+(quad.u2-quad.u1)*(x-quad.x1)/(quad.x2-quad.x1)-u0-0.5f;
+ float v=quad.v1+(quad.v2-quad.v1)*(y-quad.y1)/(quad.y2-quad.y1)-v0-0.5f;
  int tx=(int)floorf(u),ty=(int)floorf(v);float fx=u-tx,fy=v-ty;
  return texel(tx,ty)*(1-fx)*(1-fy)+texel(tx+1,ty)*fx*(1-fy)
        +texel(tx,ty+1)*(1-fx)*fy+texel(tx+1,ty+1)*fx*fy;
@@ -137,6 +139,36 @@ int main(void) {
    assert(ids[id]==DI_BTN_SELECT?middle>0.99f:middle<0.01f);
   }
  }
+ /* Tab's entire arrow and Return's point must remain mirrored above/below
+  * the shaft in rendered pixels, including PAL scaling and modal offsets. */
+ const int keyboard_ids[]={DI_KEY_TAB,DI_KEY_RETURN};
+ for(unsigned id=0;id<sizeof(keyboard_ids)/sizeof(keyboard_ids[0]);id++) {
+  memset(tile,0,sizeof(tile));
+  for(int y=0;y<APP_PART_SIZE;y++)for(int x=0;x<APP_PART_SIZE;x++) {
+   V2 p={(x+0.5f)/(APP_PART_SIZE*0.5f)-1,(y+0.5f)/(APP_PART_SIZE*0.5f)-1};
+   float a=dashClampf(0.5f-iconSdf(keyboard_ids[id],p)*(APP_PART_SIZE*0.5f),0,1);
+   tile[y+2][x+2]=(unsigned char)(a*255+0.5f);
+  }
+  for(int mode=0;mode<2;mode++)for(unsigned s=0;s<sizeof(sizes)/sizeof(sizes[0]);s++)
+  for(int phase=0;phase<8;phase++) {
+   g_sy=mode?512.0f/448:1;g_ox=phase*0.125f;g_oy=phase*0.078125f;
+   dashIcon(keyboard_ids[id],13.25f,270,sizes[s],DC(255,255,255,255));
+   int x0=(int)ceilf(quad.x1),y0=(int)ceilf(quad.y1);
+   int xlast=(int)ceilf(quad.x2)-1,ylast=(int)ceilf(quad.y2)-1,ink=0;
+   for(int y=y0;y<=ylast;y++)for(int x=x0;x<=xlast;x++) {
+    /* The Return elbow on the right is intentionally above the shaft. */
+    if(keyboard_ids[id]==DI_KEY_RETURN && x>(x0+xlast)*0.5f)continue;
+    float a=sample(keyboard_ids[id],x,y);
+    ink+=a>0.1f;
+    if(fabsf(a-sample(keyboard_ids[id],x,y0+ylast-y))>1.5f/255) {
+     fprintf(stderr,"asymmetric keyboard arrow %d, size %.0f, PAL %d, phase %d at %d,%d\n",keyboard_ids[id],sizes[s],mode,phase,x,y);
+     abort();
+    }
+   }
+   assert(ink>0);
+  }
+ }
+ puts("PASS: 160 rendered Tab/Return glyphs have mirrored arrowheads at five sizes, NTSC/PAL scaling and eight animation offsets");
  /* Small clipboard tiles must address the right margin, rather than a
   * ninth grid row outside the unchanged texture allocation. */
  g_sy=1;g_ox=g_oy=0;
@@ -145,7 +177,9 @@ int main(void) {
   assert(quad.u1==APP_PART_X && quad.u2==APP_PART_X+APP_PART_SLOT);
   assert(quad.v1==CLIP_ICON_Y+(id-DI_CUT)*APP_PART_SLOT);
   assert(quad.v2==quad.v1+APP_PART_SLOT);
-  assert(quad.x1==39 && quad.x2==57 && quad.y1==79 && quad.y2==97);
+  if(id==DI_KEY_TAB || id==DI_KEY_RETURN)
+   assert(quad.x1==38.5f && quad.x2==56.5f && quad.y1==78.5f && quad.y2==96.5f);
+  else assert(quad.x1==39 && quad.x2==57 && quad.y1==79 && quad.y2==97);
  }
  puts("PASS: clipboard icon UVs use the existing margin with transparent filtering gutters");
  puts("PASS: 480 controller glyph renders have mirrored corners/edges after scaling, with both backing choices; Select stays filled and Square/Circle hollow");

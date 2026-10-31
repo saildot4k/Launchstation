@@ -483,6 +483,9 @@ enum DashIcon {
 	DI_INVERT_SELECTION, /* filled rounded square with a checkmark cutout */
 	DI_CLEAR_SELECTION, /* checkmark with a small upper-left minus */
 	DI_LAUNCH_ARGS, /* rocket-launch: use a text file/buffer as launch arguments */
+	DI_NEW_DOCUMENT, /* lined document with a small upper-right plus */
+	DI_KEY_TAB,     /* keyboard right arrow ending at a vertical bar */
+	DI_KEY_RETURN,  /* keyboard bent left arrow; arrowhead centered at y=0 */
 	DI_COUNT
 };
 
@@ -860,7 +863,7 @@ typedef struct
 	int space_selected, space_action; /* focus before entering the wide Space key */
 	int space_dx, space_dy; /* reverse this move to return to the previous focus */
 	int single_line; /* text prompts expose only the Symbols action */
-	int filename; /* names hide actions, separators and pipe; '?' ignores Caps */
+	int filename; /* names hide actions/separators; '?' and '|' ignore Caps */
 } DashKeyboard;
 
 void dashKeyboardInit(DashKeyboard *kb, int layout);
@@ -933,7 +936,8 @@ int dashWorkerIoBusy(void);   /* the worker is doing IO right now: the UI thread
 int dashWorkerQueued(int flags_mask);
 int dashWorkerDone(int id);
 int dashWorkerLastId(void);
-int dashWorkerAwait(int id, const char *title, int cancelable); /* 0 = cancelled */
+/* NULL title waits with the scene visible and no loading popup; 0 = cancelled. */
+int dashWorkerAwait(int id, const char *title, int cancelable);
 int dashWorkerAwaitAll(const char *title);                       /* 0 = cancelled */
 int dashWorkerOnThread(void);
 void dashWorkerStatus(const char *text, int done, int total);   /* worker side */
