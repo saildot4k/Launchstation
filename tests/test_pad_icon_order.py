@@ -86,7 +86,8 @@ static void spriteBatchAddPhysical(float x1,float y1,float u1,float v1,float x2,
 """
 start = header.index("enum DashIcon {")
 code += header[start:header.index("};", start) + 2] + "\n"
-for define in ("ICON_SIZE", "ICON_SLOT", "ICON_COLS", "SELECT_HALF_W"):
+for define in ("ICON_SIZE", "ICON_SLOT", "ICON_COLS", "SELECT_HALF_W",
+               "APP_PART_SIZE", "APP_PART_SLOT", "APP_PART_X", "CLIP_ICON_Y"):
     code += re.search(r"^#define " + define + r" .+$", icons, re.M).group() + "\n"
 code += re.search(r"^#define DASH_SELECT_EXTRA_W .+$", header, re.M).group() + "\n"
 code += icons[icons.index("typedef struct"):icons.index("static inline int clutSwizzle(")]
@@ -136,6 +137,17 @@ int main(void) {
    assert(ids[id]==DI_BTN_SELECT?middle>0.99f:middle<0.01f);
   }
  }
+ /* Small clipboard tiles must address the right margin, rather than a
+  * ninth grid row outside the unchanged texture allocation. */
+ g_sy=1;g_ox=g_oy=0;
+ for(int id=DI_CUT;id<DI_COUNT;id++) {
+  dashIcon(id,40,80,16,DC(255,255,255,255));
+  assert(quad.u1==APP_PART_X && quad.u2==APP_PART_X+APP_PART_SLOT);
+  assert(quad.v1==CLIP_ICON_Y+(id-DI_CUT)*APP_PART_SLOT);
+  assert(quad.v2==quad.v1+APP_PART_SLOT);
+  assert(quad.x1==39 && quad.x2==57 && quad.y1==79 && quad.y2==97);
+ }
+ puts("PASS: clipboard icon UVs use the existing margin with transparent filtering gutters");
  puts("PASS: 480 controller glyph renders have mirrored corners/edges after scaling, with both backing choices; Select stays filled and Square/Circle hollow");
 }
 """

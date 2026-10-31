@@ -14,13 +14,14 @@
 #define ICON_TEX_H 544
 #define SELECT_HALF_W 0.68f
 
-/* Two independently rotated header shapes fit in the atlas's unused right
- * margin. Keep the existing atlas allocation and all public icon slots. */
+/* Header shapes and clipboard icons use the narrow right margin. Keep the
+ * existing atlas allocation and the 56 full-size public icon slots. */
 #define APP_PART_SIZE 32
 #define APP_PART_SLOT (APP_PART_SIZE + 4)
 #define APP_PART_X (ICON_COLS * ICON_SLOT)
-#if APP_PART_X + APP_PART_SLOT > ICON_TEX_W || 2 * APP_PART_SLOT > ICON_TEX_H
-#error Header icon parts do not fit in the icon atlas margin
+#define CLIP_ICON_Y (2 * APP_PART_SLOT)
+#if APP_PART_X + APP_PART_SLOT > ICON_TEX_W || CLIP_ICON_Y + 3 * APP_PART_SLOT > ICON_TEX_H
+#error Header and clipboard icons do not fit in the icon atlas margin
 #endif
 
 static GSTEXTURE icon_tex;
@@ -284,11 +285,16 @@ static float iconSdf(int id, V2 p)
 			d = U(d, sdSeg(p, -0.3f, 0.24f, 0.14f, 0.24f, 0.05f));
 			break;
 		case DI_EDIT:
+		case DI_PASTE_RENAME:
 			{
 				V2 q = rot(p, 0.785398f);
 				d = sdBox(q, 0.0f, -0.12f, 0.17f, 0.56f, 0.03f);
 				d = U(d, sdTriP(q, -0.17f, 0.5f, 0.17f, 0.5f, 0.0f, 0.84f));
 				d = S(d, sdSeg(q, -0.3f, -0.46f, 0.3f, -0.46f, 0.035f));
+			}
+			if (id == DI_PASTE_RENAME) {
+				d = U(d, sdSeg(p, 0.36f, -0.60f, 0.84f, -0.60f, 0.085f));
+				d = U(d, sdSeg(p, 0.60f, -0.84f, 0.60f, -0.36f, 0.085f));
 			}
 			break;
 		case DI_REFRESH:
@@ -304,6 +310,19 @@ static float iconSdf(int id, V2 p)
 		case DI_PLUS:
 			d = sdSeg(p, -0.66f, 0.0f, 0.66f, 0.0f, 0.1f);
 			d = U(d, sdSeg(p, 0.0f, -0.66f, 0.0f, 0.66f, 0.1f));
+			break;
+		case DI_CUT:
+			/* Open scissors: hollow handles on the left, blades to the right. */
+			d = sdRing(p, -0.54f, -0.40f, 0.25f, T);
+			d = U(d, sdRing(p, -0.54f, 0.40f, 0.25f, T));
+			d = U(d, sdSeg(p, -0.34f, -0.22f, 0.80f, 0.48f, T));
+			d = U(d, sdSeg(p, -0.34f, 0.22f, 0.80f, -0.48f, T));
+			break;
+		case DI_COPY:
+			/* The front rounded square occludes the rear square's inner edges. */
+			d = sdBoxOutline(p, -0.20f, -0.20f, 0.52f, 0.52f, 0.14f, T);
+			d = S(d, sdBox(p, 0.20f, 0.20f, 0.52f, 0.52f, 0.14f));
+			d = U(d, sdBoxOutline(p, 0.20f, 0.20f, 0.52f, 0.52f, 0.14f, T));
 			break;
 		case DI_CHECK:
 			d = sdSeg(p, -0.64f, 0.02f, -0.18f, 0.5f, 0.1f);
@@ -517,6 +536,26 @@ static void initHeaderIconParts(u8 *mem)
 	}
 }
 
+/* Clipboard/action tiles use the same 32px size and gutters as header parts. */
+static void initClipboardIcons(u8 *mem)
+{
+	int id, x, y;
+
+	for (id = DI_CUT; id < DI_COUNT; id++) {
+		int sy = CLIP_ICON_Y + (id - DI_CUT) * APP_PART_SLOT + 2;
+
+		for (y = 0; y < APP_PART_SIZE; y++) {
+			for (x = 0; x < APP_PART_SIZE; x++) {
+				V2 p = {(x + 0.5f) / (APP_PART_SIZE * 0.5f) - 1.0f,
+				        (y + 0.5f) / (APP_PART_SIZE * 0.5f) - 1.0f};
+				float a = dashClampf(0.5f - iconSdf(id, p) * (APP_PART_SIZE * 0.5f), 0.0f, 1.0f);
+
+				mem[(sy + y) * ICON_TEX_W + APP_PART_X + x + 2] = (u8)(a * 255.0f + 0.5f);
+			}
+		}
+	}
+}
+
 void dashIconsInit(void)
 {
 	u8 *mem;
@@ -529,7 +568,7 @@ void dashIconsInit(void)
 		return;
 	memset(mem, 0, ICON_TEX_W * ICON_TEX_H);
 
-	for (id = 0; id < DI_COUNT; id++) {
+	for (id = 0; id < DI_CUT; id++) {
 		int sx = (id % ICON_COLS) * ICON_SLOT + 2;
 		int sy = (id / ICON_COLS) * ICON_SLOT + 2;
 
@@ -551,6 +590,7 @@ void dashIconsInit(void)
 	}
 
 	initHeaderIconParts(mem);
+	initClipboardIcons(mem);
 
 	for (i = 0; i < 256; i++) {
 		int a = (i * 128 + 127) / 255;
@@ -585,16 +625,17 @@ GSTEXTURE *dashIconsTexture(void)
 
 void dashIcon(int id, float x, float y, float size, DashColor c)
 {
-	float u0, v0, pad, width;
+	float u0, v0, pad, width, slot;
 
 	if (!icons_ready || id < 0 || id >= DI_COUNT || size <= 0.0f || c.a == 0)
 		return;
 	if (id < DI_PAD_BADGE || id > DI_BTN_R3)
 		c = dashIconTint(c);
 	width = size + (id == DI_BTN_SELECT ? DASH_SELECT_EXTRA_W : 0.0f);
-	u0 = (float)((id % ICON_COLS) * ICON_SLOT);
-	v0 = (float)((id / ICON_COLS) * ICON_SLOT);
-	pad = size * 2.0f / ICON_SIZE;
+	slot = id >= DI_CUT ? APP_PART_SLOT : ICON_SLOT;
+	u0 = id >= DI_CUT ? APP_PART_X : (float)((id % ICON_COLS) * ICON_SLOT);
+	v0 = id >= DI_CUT ? CLIP_ICON_Y + (id - DI_CUT) * APP_PART_SLOT : (float)((id / ICON_COLS) * ICON_SLOT);
+	pad = size * 2.0f / (id >= DI_CUT ? APP_PART_SIZE : ICON_SIZE);
 	if ((id > DI_PAD_BADGE && id <= DI_BTN_R3) || id == DI_DPAD_UD) {
 		/* Preserve colored controller glyphs while letting each theme decide
 		 * whether they sit on a background. Baked PNGs forced a fixed navy
@@ -626,7 +667,7 @@ void dashIcon(int id, float x, float y, float size, DashColor c)
 		return;
 	}
 	dashSpriteBatchBegin(&icon_tex, c);
-	dashSpriteBatchAdd(x - pad, y - pad, u0, v0, x + size + pad, y + size + pad, u0 + ICON_SLOT, v0 + ICON_SLOT);
+	dashSpriteBatchAdd(x - pad, y - pad, u0, v0, x + size + pad, y + size + pad, u0 + slot, v0 + slot);
 	dashSpriteBatchEnd();
 }
 /* Rotate a filtered atlas tile in virtual coordinates, before PAL scaling. */
@@ -686,18 +727,19 @@ DashColor dashIconTint(DashColor c)
 /* Many copies of one icon in a single sprite batch (background motifs). */
 void dashIconMany(int id, const float *xy, int n, float size, DashColor c)
 {
-	float u0, v0, pad;
+	float u0, v0, pad, slot;
 	int i;
 
 	if (!icons_ready || id < 0 || id >= DI_COUNT || size <= 0.0f || c.a == 0 || n <= 0)
 		return;
-	u0 = (float)((id % ICON_COLS) * ICON_SLOT);
-	v0 = (float)((id / ICON_COLS) * ICON_SLOT);
-	pad = size * 2.0f / ICON_SIZE;
+	slot = id >= DI_CUT ? APP_PART_SLOT : ICON_SLOT;
+	u0 = id >= DI_CUT ? APP_PART_X : (float)((id % ICON_COLS) * ICON_SLOT);
+	v0 = id >= DI_CUT ? CLIP_ICON_Y + (id - DI_CUT) * APP_PART_SLOT : (float)((id / ICON_COLS) * ICON_SLOT);
+	pad = size * 2.0f / (id >= DI_CUT ? APP_PART_SIZE : ICON_SIZE);
 	dashSpriteBatchBegin(&icon_tex, c);
 	for (i = 0; i < n; i++)
 		dashSpriteBatchAdd(xy[i * 2] - pad, xy[i * 2 + 1] - pad, u0, v0,
-		                   xy[i * 2] + size + pad, xy[i * 2 + 1] + size + pad, u0 + ICON_SLOT, v0 + ICON_SLOT);
+		                   xy[i * 2] + size + pad, xy[i * 2 + 1] + size + pad, u0 + slot, v0 + slot);
 	dashSpriteBatchEnd();
 }
 //--------------------------------------------------------------

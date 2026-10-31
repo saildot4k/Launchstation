@@ -1293,11 +1293,11 @@ static void actionsMenu(void)
 #define ADD(ic, lab, det, dis, id) \
 	(items[n].icon = (ic), items[n].label = (lab), items[n].detail = (det), items[n].disabled = (dis), ids[n++] = (id))
 	if (in_folder) {
-		ADD(DI_FILE, "Copy", fb.nmarked ? marked : NULL, !has_target || !en[COPY], F_COPY);
-		ADD(DI_CLOSE, "Cut", fb.nmarked ? marked : NULL, !has_target || !en[CUT], F_CUT);
+		ADD(DI_COPY, "Copy", fb.nmarked ? marked : NULL, !has_target || !en[COPY], F_COPY);
+		ADD(DI_CUT, "Cut", fb.nmarked ? marked : NULL, !has_target || !en[CUT], F_CUT);
 		ADD(DI_PLUS, "Paste here", nclipFiles > 0 ? (browser_cut ? "move" : "copy") : NULL, !en[PASTE], F_PASTE);
 		if (en[PASTE])
-			ADD(DI_EDIT, "Paste with new names...", NULL, 0, F_PASTE_RENAME);
+			ADD(DI_PASTE_RENAME, "Paste with new names...", NULL, 0, F_PASTE_RENAME);
 		if (psu_label != NULL && en[PSUPASTE])
 			ADD(DI_MC, psu_label, NULL, 0, F_PSU);
 		ADD(DI_WARNING, "Delete...", fb.nmarked ? marked : NULL, !has_target || !en[DELETE], F_DELETE);
@@ -1489,6 +1489,20 @@ static void clipboardSummary(char *out, int size)
 	}
 }
 
+/* Read clipboard membership by source directory and exact native filename.
+ * No device probing: a retained clipboard survives listing refreshes/tab visits. */
+static int clipboardIcon(const FILEINFO *file)
+{
+	int i;
+
+	if (nclipFiles <= 0 || strcmp(fb.dir, clipPath))
+		return -1;
+	for (i = 0; i < nclipFiles; i++)
+		if (!strcmp(file->name, clipFiles[i].name))
+			return browser_cut ? DI_CUT : DI_COPY;
+	return -1;
+}
+
 static void fmtBytes(char *out, int size, u64 b)
 {
 	if (b >= (u64)1024 * 1024 * 1024)
@@ -1581,6 +1595,8 @@ static void browserDrawBody(void)
 			dashDrawDeviceRow(&fb.devs[i], FB_X, y, FB_W, i == fb.sel);
 		} else {
 			FILEINFO *f = &fb.files[i];
+			int clipboard_icon = clipboardIcon(f);
+			DashColor name_color = (fb.mark[i] || clipboard_icon >= 0) ? DASH_C_OK : col;
 			char sz[24], date[40], label[MAX_NAME + 8];
 			int details = fbShowsDetails(fb_show) && !isMisc(fb.dir);
 			float label_w = FB_W - 60;
@@ -1605,6 +1621,8 @@ static void browserDrawBody(void)
 			}
 			if (fb.mark[i])
 				dashIcon(DI_CHECK, FB_X + 8, y + 2, 16, DASH_C_OK);
+			else if (clipboard_icon >= 0)
+				dashIcon(clipboard_icon, FB_X + 8, y + 2, 16, name_color);
 			else
 				dashIcon(isMisc(fb.dir) ? DI_TOOLS : fileIcon(f), FB_X + 8, y + 2, 16, col);
 			/* save titles are Shift-JIS; the dashboard font shows their ASCII */
@@ -1613,9 +1631,9 @@ static void browserDrawBody(void)
 			else
 				dashStrCopy(label, getMiscEntryDisplayName(fb.dir, f->name), sizeof(label));
 			if (i == fb.sel)
-				dashTextScroll(FB_X + 34, y, label_w, label, DASH_FS_SMALL, fb.mark[i] ? DASH_C_OK : col);
+				dashTextScroll(FB_X + 34, y, label_w, label, DASH_FS_SMALL, name_color);
 			else
-				dashTextFit(FB_X + 34, y, label_w, label, DASH_FS_SMALL, fb.mark[i] ? DASH_C_OK : col);
+				dashTextFit(FB_X + 34, y, label_w, label, DASH_FS_SMALL, name_color);
 			if (details) {
 				if (date[0])
 					dashTextRight(meta_right, y + 1, date, DASH_FS_CAPTION, DASH_C_TEXT3);

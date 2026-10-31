@@ -475,7 +475,10 @@ enum DashIcon {
 	DI_RECENT,  /* recently used */
 	DI_IMAGE,   /* wallpaper / picture */
 	DI_DPAD_UD, /* D-pad with up/down highlighted ("scroll") */
-	DI_COUNT    /* the SDF atlas holds 56 icons (7 x 8) and is now full, pad glyphs included */
+	DI_CUT,     /* first small icon in the atlas margin, after the 56 grid icons */
+	DI_COPY,
+	DI_PASTE_RENAME, /* pencil with a small upper-right plus */
+	DI_COUNT
 };
 
 void dashIconsInit(void);

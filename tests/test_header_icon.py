@@ -56,16 +56,17 @@ static void dashTexDrawQuadUV(GSTEXTURE *tex,
 }
 '''
 for macro in ("ICON_SIZE", "ICON_SLOT", "ICON_COLS", "ICON_TEX_W", "ICON_TEX_H",
-              "SELECT_HALF_W", "APP_PART_SIZE", "APP_PART_SLOT", "APP_PART_X"):
+              "SELECT_HALF_W", "APP_PART_SIZE", "APP_PART_SLOT", "APP_PART_X", "CLIP_ICON_Y"):
     code += re.search(r"^#define " + macro + r" .+$", icons, re.M).group() + "\n"
 start = header.index("enum DashIcon {")
 code += header[start:header.index("};", start) + 2] + "\n"
 code += icons[icons.index("typedef struct"):icons.index("static inline int clutSwizzle(")]
-for signature in ("static void initHeaderIconParts(", "static void drawHeaderIconPart(",
+for signature in ("static void initHeaderIconParts(", "static void initClipboardIcons(",
+                  "static void drawHeaderIconPart(",
                   "void dashHeaderIcon("):
     code += function(icons, signature)
 code += r'''
-static u8 atlas[ICON_TEX_W*ICON_TEX_H];
+static u8 atlas[ICON_TEX_W*ICON_TEX_H], before_clipboard[ICON_TEX_W*ICON_TEX_H];
 static void check_at(u64 ms,float degrees)
 {
     const float cx=401,cy=40,size=26;
@@ -93,7 +94,7 @@ static void check_at(u64 ms,float degrees)
 int main(void)
 {
     assert(APP_PART_X+APP_PART_SLOT<=ICON_TEX_W && 2*APP_PART_SLOT<=ICON_TEX_H);
-    assert(((DI_COUNT+ICON_COLS-1)/ICON_COLS)*ICON_SLOT<=ICON_TEX_H);
+    assert(((DI_CUT+ICON_COLS-1)/ICON_COLS)*ICON_SLOT<=ICON_TEX_H);
     for(int y=0;y<ICON_TEX_H;y++) memset(atlas+y*ICON_TEX_W,0xA5,APP_PART_X);
     initHeaderIconParts(atlas);
     int ink[2]={0};
@@ -110,6 +111,27 @@ int main(void)
     int middle=APP_PART_SIZE/2+2;
     assert(!atlas[middle*ICON_TEX_W+APP_PART_X+middle]);
     assert(atlas[(APP_PART_SLOT+middle)*ICON_TEX_W+APP_PART_X+middle]==255);
+
+    /* New tiles may change only their interiors, preserving the main
+     * grid, both rotating parts and every transparent filtering gutter. */
+    assert(CLIP_ICON_Y+(DI_COUNT-DI_CUT)*APP_PART_SLOT<=ICON_TEX_H);
+    memcpy(before_clipboard,atlas,sizeof(atlas));
+    initClipboardIcons(atlas);
+    int clipboard_ink[DI_COUNT-DI_CUT]={0};
+    for(int y=0;y<ICON_TEX_H;y++) for(int x=0;x<ICON_TEX_W;x++) {
+        int part=(y-CLIP_ICON_Y)/APP_PART_SLOT;
+        int local_y=(y-CLIP_ICON_Y)%APP_PART_SLOT;
+        int inside=y>=CLIP_ICON_Y && part<DI_COUNT-DI_CUT &&
+                   x>=APP_PART_X+2 && x<APP_PART_X+2+APP_PART_SIZE &&
+                   local_y>=2 && local_y<2+APP_PART_SIZE;
+        int offset=y*ICON_TEX_W+x;
+        if(!inside)assert(atlas[offset]==before_clipboard[offset]);
+        else clipboard_ink[part]+=atlas[offset]!=0;
+    }
+    for(int part=0;part<DI_COUNT-DI_CUT;part++)assert(clipboard_ink[part]>0);
+    assert(iconSdf(DI_CUT,(V2){-0.54f,-0.40f})>0); /* hollow handles */
+    assert(iconSdf(DI_CUT,(V2){-0.54f,0.40f})>0);
+    assert(iconSdf(DI_COPY,(V2){0.20f,0.20f})>0); /* hollow front square */
 
     check_at(0,0);check_at(1000,12);check_at(7500,90);
     check_at(15000,180);check_at(22500,270);
@@ -129,6 +151,7 @@ int main(void)
 }
 '''
 assert "initHeaderIconParts(mem);" in function(icons, "void dashIconsInit(")
+assert "initClipboardIcons(mem);" in function(icons, "void dashIconsInit(")
 assert "dashHeaderIcon(" in function(ui, "void dashDrawHeader(")
 compiler = shutil.which("gcc") or shutil.which("clang")
 assert compiler, "Host C compiler required"
