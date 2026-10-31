@@ -205,7 +205,7 @@ static void base(DashTheme *t)
 	t->warn = DC(255, 204, 92, 255);
 	t->danger = DC(255, 98, 110, 255);
 	t->ok = DC(92, 220, 150, 255);
-	t->panel = DC(6, 6, 16, 150);
+	t->panel = DC(6, 6, 16, 255 * 70 / 100); /* 30% transparency */
 	t->border = DC(255, 255, 255, 16);
 	t->corner = DASH_CORNER_SOFT;
 	t->tile_style = DASH_TILE_MEMORY_CARD;

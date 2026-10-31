@@ -86,8 +86,11 @@ puts that group back to the values of the preset the theme started from.
 | Clock | Clock (off, standard, system), Position (header, footer), Hours (system, 24-hour, 12-hour), Seconds, Date (system, YYYY/MM/DD, MM/DD/YYYY, DD/MM/YYYY, off) |
 | Artwork background | App artwork background (off, focused app), Artwork dimming. Enable artwork loading under Settings > Home & applications. |
 
-Motion and animation belong to Appearance. Panel opacity is edited with the
-Panels colour under Interface colours. Group resets only reset that group's
+Motion, animation and Panel transparency belong to Appearance. Transparency
+uses 0% for fully opaque panels and 100% for fully transparent panels. The
+default OSD Classic theme uses 30% transparency. The Panels colour under
+Interface colours edits opacity, where 70% opacity corresponds to 30%
+transparency. Group resets only reset that group's
 controls; resetting Tiles & menus does not change panel opacity. Clock
 format controls are unavailable while the clock is off; artwork-background
 controls explain their artwork-loading dependency when unavailable.

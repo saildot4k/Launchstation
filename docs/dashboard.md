@@ -243,7 +243,7 @@ interface can continue responding.
 
 | Group | Contents |
 |-------|----------|
-| Appearance | Theme preset, customization groups, screen calibration, motion, animation, theme files and resets. Panel opacity belongs to Interface colours > Panels. |
+| Appearance | Theme preset, customization groups, screen calibration, motion, animation, theme files and resets. Panel transparency: 0% opaque, 100% transparent, default 30%. Panel colour/opacity is under Interface colours > Panels. |
 | Home & applications | Start screen, view, artwork, recent count/history and Application library (folders and refresh). |
 | Sound | Interface effects, music and their separate volumes. |
 | Input | Confirm button, on-screen keyboard and USB keyboard (driver and map). |
