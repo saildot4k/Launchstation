@@ -96,7 +96,7 @@ static int kbActionRow(int action)
 
 static int kbActionColumn(const DashKeyboard *kb)
 {
-	/* One empty key column separates all actions from the character grid. */
+	/* Logical navigation column; side-button pixel spacing is independent. */
 	return getVirtualKeyboardLayoutFirstColumn(kb->layout) + kbColumnCount(kb) + 1;
 }
 
@@ -246,11 +246,11 @@ static float kbActionWidth(int action)
 	return action == KA_SYMBOLS ? 90.0f : 60.0f;
 }
 
-static float kbActionX(const DashKeyboard *kb, float kw, float gap)
+static float kbActionX(int action, float center_x)
 {
-	int first_col = getVirtualKeyboardLayoutFirstColumn(kb->layout);
-
-	return (kbActionColumn(kb) - first_col) * (kw + gap);
+	/* Align the side buttons' right edges at a 40px screen inset. The narrower
+	 * Tab/Return keys fit beside even a centered 13-column character grid. */
+	return center_x + DASH_VW * 0.5f - 40.0f - kbActionWidth(action);
 }
 
 static float kbGridOrigin(const DashKeyboard *kb, float center_x, float kw, float gap)
@@ -259,10 +259,10 @@ static float kbGridOrigin(const DashKeyboard *kb, float center_x, float kw, floa
 	int first_col = getVirtualKeyboardLayoutFirstColumn(kb->layout);
 	float left = (3 - first_col) * (kw + gap);
 	float right = left + 6 * (kw + gap) + kw;
-	int key, a;
+	int key;
 
-	/* Center the visible keys and right-side actions for this kind of prompt.
-	 * Keep the normal-page footprint so Caps and Symbols never shift it. */
+	/* Center only the main character keys and Space. Side buttons do not shift
+	 * this grid. Keep the normal-page footprint through Caps/Symbols changes. */
 	normal.page = 0;
 	for (key = 0; key < KB_CHAR_ROWS * VKEY_LAYOUT_COLS; key++) {
 		float x;
@@ -271,15 +271,6 @@ static float kbGridOrigin(const DashKeyboard *kb, float center_x, float kw, floa
 		x = (key % VKEY_LAYOUT_COLS - first_col) * (kw + gap);
 		if (x < left) left = x;
 		if (x + kw > right) right = x + kw;
-	}
-	for (a = 0; a < KA_COUNT; a++) {
-		float x, end;
-		if (!kbHasAction(&normal, a))
-			continue;
-		x = kbActionX(&normal, kw, gap);
-		end = x + kbActionWidth(a);
-		if (x < left) left = x;
-		if (end > right) right = end;
 	}
 	return center_x - (left + right) * 0.5f;
 }
@@ -354,7 +345,7 @@ void dashKeyboardDraw(const DashKeyboard *kb, float center_x, float y0)
 	for (a = 0; a < KA_COUNT; a++) {
 		float aw = kbActionWidth(a);
 		float ay = y0 + kbActionRow(a) * (kh + gap);
-		float ax = gx + kbActionX(kb, kw, gap);
+		float ax = kbActionX(a, center_x);
 		int on = (kb->action == a);
 
 		if (!kbHasAction(kb, a))

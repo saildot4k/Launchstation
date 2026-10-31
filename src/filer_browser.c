@@ -1471,7 +1471,7 @@ int getFilePath(char *out, int cnfmode)
 							if ((ret = genOpen(tmp1, FIO_O_RDONLY)) >= 0) {  //if old "icon.sys" file exists
 								genClose(ret);
 							sprintf(msg1,
-							        "\n\"icon.sys\" %s.\n\n%s ?", LNG(file_alredy_exists),
+							        "\n\"icon.sys\" %s.\n\n%s?", LNG(file_alredy_exists),
 							        LNG(Do_you_wish_to_overwrite_it));
 							if (ynDialog(msg1) < 0)
 								goto DoneIcon;
@@ -1489,7 +1489,7 @@ int getFilePath(char *out, int cnfmode)
 							if ((ret = genOpen(tmp1, FIO_O_RDONLY)) >= 0) {  //if old "icon.icn" file exists
 								genClose(ret);
 							sprintf(msg1,
-							        "\n\"icon.icn\" %s.\n\n%s ?", LNG(file_alredy_exists),
+							        "\n\"icon.icn\" %s.\n\n%s?", LNG(file_alredy_exists),
 							        LNG(Do_you_wish_to_overwrite_it));
 							if (ynDialog(msg1) < 0)
 								goto DoneIcon;
@@ -2367,7 +2367,7 @@ int filerCreateFolderIcon(const char *path, const char *title, const char *text,
 	strcat(file, "icon.sys");
 	if ((fd = genOpen(file, FIO_O_RDONLY)) >= 0) {
 		genClose(fd);
-		snprintf(q, sizeof(q), "\"icon.sys\" %s.\n%s ?", LNG(file_alredy_exists), LNG(Do_you_wish_to_overwrite_it));
+		snprintf(q, sizeof(q), "\"icon.sys\" %s.\n%s?", LNG(file_alredy_exists), LNG(Do_you_wish_to_overwrite_it));
 		if (ynDialog(q) < 0)
 			return 0;
 		genRemove(file);
@@ -2384,7 +2384,7 @@ int filerCreateFolderIcon(const char *path, const char *title, const char *text,
 	strcat(file, "icon.icn");
 	if ((fd = genOpen(file, FIO_O_RDONLY)) >= 0) {
 		genClose(fd);
-		snprintf(q, sizeof(q), "\"icon.icn\" %s.\n%s ?", LNG(file_alredy_exists), LNG(Do_you_wish_to_overwrite_it));
+		snprintf(q, sizeof(q), "\"icon.icn\" %s.\n%s?", LNG(file_alredy_exists), LNG(Do_you_wish_to_overwrite_it));
 		if (ynDialog(q) < 0)
 			return 0;
 		genRemove(file);

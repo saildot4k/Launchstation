@@ -523,7 +523,7 @@ static void joinIconSysTitleLines(unsigned char *title, int line_break)
 
 int filerGetGameTitle(const char *path, const FILEINFO *file, unsigned char *out)
 {
-	char party[MAX_NAME], dir[MAX_PATH], tmpdir[MAX_PATH];
+	char fullpath[MAX_PATH], dir[MAX_PATH], tmpdir[MAX_PATH];
 	int fd = -1, size, ret;
 	psu_header PSU_head;
 	int i, tst, PSU_content, psu_pad_pos;
@@ -536,30 +536,11 @@ int filerGetGameTitle(const char *path, const FILEINFO *file, unsigned char *out
 	if (path[0] == 0 || isHddRootPath(path) || !strcmp(path, "dvr_hdd0:/"))
 		return -1;
 
-	if (!strncmp(path, "hdd", 3)) {
-		ret = getHddParty(path, file, party, dir);
-		if (ret < 0)
-			return -1;
-		ret = mountParty(party);
-		if (ret < 0)
-			return -1;
-		dir[3] = ret + '0';
-#ifdef DVRP
-	} else if (!strncmp(path, "dvr_hdd", 7)) {
-		ret = getHddDVRPParty(path, file, party, dir);
-		if (ret < 0)
-			return -1;
-		ret = mountDVRPParty(party);
-		if (ret < 0)
-			return -1;
-		dir[7] = ret + '0';
-#endif
-	} else {
-		strcpy(dir, path);
-		strcat(dir, file->name);
-		if (file->stats.AttrFile & sceMcFileAttrSubdir)
-			strcat(dir, "/");
-	}
+	/* Use the same device/alias resolution as ordinary file access. */
+	if (snprintf(fullpath, sizeof(fullpath), "%s%s%s", path, file->name,
+	             file->stats.AttrFile & sceMcFileAttrSubdir ? "/" : "") >= (int)sizeof(fullpath) ||
+	    genFixPath(fullpath, dir) < 0)
+		return -1;
 
 	ret = -1;  //Assume that result will be failure, to simplify aborts
 
@@ -571,12 +552,12 @@ int filerGetGameTitle(const char *path, const FILEINFO *file, unsigned char *out
 		//Here we know that the object needing a title is a PSU file
 		if ((fd = genOpen(tmpdir, FIO_O_RDONLY)) < 0)
 			goto finish;  //Abort if open fails
-		tst = genRead(fd, (void *)&PSU_head, sizeof(PSU_head));
+		tst = copyReadChunk(fd, (void *)&PSU_head, sizeof(PSU_head));
 		if (tst != sizeof(PSU_head))
 			goto finish;  //Abort if read fails
 		PSU_content = PSU_head.size;
 		for (i = 0; i < PSU_content; i++) {
-			tst = genRead(fd, (void *)&PSU_head, sizeof(PSU_head));
+			tst = copyReadChunk(fd, (void *)&PSU_head, sizeof(PSU_head));
 			if (tst != sizeof(PSU_head))
 				goto finish;  //Abort if read fails
 			PSU_head.name[sizeof(PSU_head.name) - 1] = '\0';
@@ -584,7 +565,8 @@ int filerGetGameTitle(const char *path, const FILEINFO *file, unsigned char *out
 				goto read_icon_title;
 			if (PSU_head.size) {
 				psu_pad_pos = (PSU_head.size + 0x3FF) & -0x400;
-				genLseek(fd, psu_pad_pos, SEEK_CUR);
+				if (genLseek(fd, psu_pad_pos, SEEK_CUR) < 0)
+					goto finish;
 			}
 			//Here the PSU file pointer is positioned for reading next header
 		}  //ends for
@@ -599,7 +581,8 @@ int filerGetGameTitle(const char *path, const FILEINFO *file, unsigned char *out
 	if ((fd = genOpen(tmpdir, FIO_O_RDONLY)) >= 0) {
 		if ((size = genLseek(fd, 0, SEEK_END)) <= 0x100)
 			goto finish;
-		genLseek(fd, 0, SEEK_SET);
+		if (genLseek(fd, 0, SEEK_SET) != 0)
+			goto finish;
 		goto read_icon_title;
 	}
 	//Next try to find a valid PS1 savefile inside the folder instead
@@ -613,15 +596,16 @@ get_PS1_GameTitle:
 		goto finish;  //Min size is 8K
 	if (size & 0x1FFF)
 		goto finish;  //Size must be a multiple of 8K
-	genLseek(fd, 0, SEEK_SET);
-	genRead(fd, out, 2);
+	if (genLseek(fd, 0, SEEK_SET) != 0 || copyReadChunk(fd, out, 2) != 2)
+		goto finish;
 	if (strncmp((const char *)out, "SC", 2))
 		goto finish;  //PS1 gamesaves always start with "SC"
-	genLseek(fd, 4, SEEK_SET);
+	if (genLseek(fd, 4, SEEK_SET) != 4)
+		goto finish;
 	goto read_title;
 
 read_icon_title:
-	if (genRead(fd, icon_header, sizeof(icon_header)) != sizeof(icon_header) ||
+	if (copyReadChunk(fd, icon_header, sizeof(icon_header)) != sizeof(icon_header) ||
 	    memcmp(icon_header, "PS2D", 4))
 		goto finish;
 	/* nlOffset is a little-endian byte offset into the SJIS title. */
@@ -630,7 +614,7 @@ read_icon_title:
 		goto finish;
 
 read_title:
-	size = genRead(fd, out, 32 * 2);
+	size = copyReadChunk(fd, out, 32 * 2);
 	if (size <= 0)
 		goto finish;
 	out[size] = 0;
@@ -640,6 +624,8 @@ read_title:
 	ret = 0;
 
 finish:
+	if (ret < 0)
+		out[0] = '\0'; /* Never display a partial or invalid title. */
 	if (fd >= 0)
 		genClose(fd);
 	return ret;
@@ -873,7 +859,7 @@ restart_copy:  //restart point for PM_PSU_RESTORE to reprocess modified argument
 					strcat(progress, tmp);
 				else
 					strcat(progress, LNG(Undefined_Not_a_gamesave));
-				sprintf(tmp, "\n\n%s ?", LNG(Do_you_wish_to_overwrite_it));
+				sprintf(tmp, "\n\n%s?", LNG(Do_you_wish_to_overwrite_it));
 				strcat(progress, tmp);
 				if (ynDialog(progress) < 0)
 					return copyDiagFail(-1);

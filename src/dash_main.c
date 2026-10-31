@@ -539,7 +539,7 @@ void dashLaunchApp(DashApp *app, int with_args_prompt)
 
 		snprintf(argp, sizeof(argp), "%.*s.arg", base, path);
 		dashModalMessage(DI_EDIT, "Launch with arguments",
-		                 "Write one argument per line, then choose \"Launch with these arguments\" "
+		                 "Write one argument per line, then choose \"Use as launch arguments\" "
 		                 "in the Text Editor menu (START). Save keeps them next to the application.",
 		                 argp);
 		/* the sidecar is opened, or started as a new document with its name */

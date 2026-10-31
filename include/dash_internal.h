@@ -482,6 +482,7 @@ enum DashIcon {
 	DI_SELECT_ALL,   /* checkmark with a small upper-left plus */
 	DI_INVERT_SELECTION, /* filled rounded square with a checkmark cutout */
 	DI_CLEAR_SELECTION, /* checkmark with a small upper-left minus */
+	DI_LAUNCH_ARGS, /* rocket-launch: use a text file/buffer as launch arguments */
 	DI_COUNT
 };
 

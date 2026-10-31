@@ -756,7 +756,7 @@ static int editorMenu(EdDoc *d)
 	ADD(DI_FOLDER, "Open...", NULL, ndocs >= ED_MAX_DOCS, M_OPEN);
 	if (ndocs > 1)
 		ADD(DI_VIEW_LIST, "Switch document...", NULL, 0, M_SWITCH);
-	ADD(d->mark >= 0 ? DI_CLEAR_SELECTION : DI_CHECK, d->mark >= 0 ? "Stop selecting" : "Start selecting", "Square", 0, M_SELECT);
+	ADD(d->mark >= 0 ? DI_CLEAR_SELECTION : DI_PIN, d->mark >= 0 ? "Stop selecting" : "Start selecting", "Square", 0, M_SELECT);
 	ADD(DI_SELECT_ALL, "Select all", NULL, d->len == 0, M_SELALL);
 	ADD(DI_COPY, "Copy", NULL, !has_sel, M_COPY);
 	ADD(DI_CUT, "Cut", NULL, !has_sel, M_CUT);
@@ -764,7 +764,7 @@ static int editorMenu(EdDoc *d)
 	ADD(DI_SETTINGS, "Line endings", eol_names[d->eol], 0, M_EOL);
 	ADD(DI_BTN_UP, "Go to the start", NULL, 0, M_GOTO_TOP);
 	ADD(DI_BTN_DOWN, "Go to the end", NULL, 0, M_GOTO_END);
-	ADD(DI_PLAY, "Launch with these arguments...", NULL, d->len == 0, M_LAUNCH);
+	ADD(DI_LAUNCH_ARGS, "Use as launch arguments", NULL, d->len == 0, M_LAUNCH);
 	ADD(DI_CLOSE, "Close document", NULL, 0, M_CLOSE);
 	ADD(DI_BACK, "Exit Text Editor", NULL, 0, M_EXIT);
 #undef ADD

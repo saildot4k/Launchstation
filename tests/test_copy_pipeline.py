@@ -101,6 +101,7 @@ static FILEINFO clipFiles[MAX_ENTRY];static char clipPath[MAX_PATH];
 static unsigned clipIopResetGeneration,generation;
 static u64 written_size,PasteTime,clock_ms;
 static int source_ready=1,load_ok=1,reset_preflight,read_cap=4096,write_cap=37,cancel_copy;
+static int small_read_cap;
 static int fail_open,fail_rewind,fail_read,fail_write,fail_close,fail_listing,fail_stat,fail_out_open,early_eof,fail_measure,corrupt_verify,fail_publish;
 static int fail_tail_read,fail_tail_write,dash_active=1,fatfs_stat_error;
 static int hdd_attr_calls,mc_attr_calls,mc_normal_files,mc_normal_folders,mc_last_flags,mc_last_port;
@@ -155,7 +156,11 @@ static int prepareTransferDeviceStacks(const char *a,const char *b){assert(!hand
 static int clipboardSourceDeviceReady(void){return source_ready;}
 static void waitUntilTimer(u64 end){clock_ms=end;}
 static void drawMsg(const char *s){(void)s;}
-static int ynDialog(const char *s){if(strstr(s,"Name_conflict_for_this_folder"))overwrite_confirms++;return cancel_copy?-1:1;}
+static char overwrite_prompt[MAX_PATH*4];
+static int ynDialog(const char *s){
+ if(strstr(s,"Name_conflict_for_this_folder")){overwrite_confirms++;snprintf(overwrite_prompt,sizeof(overwrite_prompt),"%s",s);}
+ return cancel_copy?-1:1;
+}
 static int readpad(void){return cancel_copy;}
 static int DashIsActive(void){return dash_active;}
 static int DashFileProgress(const char *a,const char *b,u64 r,u64 t){(void)a;(void)b;assert(r<=t);return 1;}
@@ -201,7 +206,7 @@ static int genOpen(const char *p,int flags){
 }
 static int genClose(int fd){int kind=fd_kind[fd];assert(kind&&handles>0);fd_kind[fd]=0;handles--;int r=close(fd);return fail_close&&kind==2?-EIO:r;}
 static s64 genLseek(int fd,s64 n,int whence){assert(fd_generation[fd]==generation);if(fail_measure&&whence==SEEK_END)return -EIO;if(fail_rewind&&whence==SEEK_SET)return -EIO;return lseek(fd,n,whence);}
-static int genRead(int fd,void *p,int n){assert(fd_generation[fd]==generation);read_calls++;if(early_eof&&fd_kind[fd]==1&&read_calls>1)return 0;if(fail_read&&fd_kind[fd]==1&&read_calls>=fail_read)return -ETIMEDOUT;if(fail_tail_read&&fd_kind[fd]==1){int left=256-lseek(fd,0,SEEK_CUR);if(!left)return 0;if(n>left)n=left;}int r=read(fd,p,n>read_cap?read_cap:n);if(corrupt_verify&&fd_kind[fd]==3&&r>0)((char*)p)[0]^=1;return r<0?-errno:r;}
+static int genRead(int fd,void *p,int n){assert(fd_generation[fd]==generation);read_calls++;if(early_eof&&fd_kind[fd]==1&&read_calls>1)return 0;if(fail_read&&fd_kind[fd]==1&&read_calls>=fail_read)return -ETIMEDOUT;if(fail_tail_read&&fd_kind[fd]==1){int left=256-lseek(fd,0,SEEK_CUR);if(!left)return 0;if(n>left)n=left;}int cap=small_read_cap && n<=8?small_read_cap:read_cap;int r=read(fd,p,n>cap?cap:n);if(corrupt_verify&&fd_kind[fd]==3&&r>0)((char*)p)[0]^=1;return r<0?-errno:r;}
 static int genWrite(int fd,void *p,int n){assert(fd_generation[fd]==generation);write_calls++;if(fail_write&&write_calls>=2)return -ENOSPC;if(fail_tail_write){int left=256-lseek(fd,0,SEEK_CUR);if(!left)return 0;if(n>left)n=left;}int r=write(fd,p,n>write_cap?write_cap:n);return r<0?-errno:r;}
 static int genRemove(char *p){return unlink(p)?-errno:0;}
 static int fileXioRename(const char *a,const char *b){
@@ -247,7 +252,6 @@ static int mountParty(const char *p){assert(!strncmp(p,"hdd",3));return p[3]-'0'
 static int getDVRPPartyMountIndex(const char *p){return strstr(p,"__xdata")?1:0;}
 static int mountDVRPParty(const char *p){return getDVRPPartyMountIndex(p);}
 static int fileShowTitles(void){return 0;}
-static int filerGetGameTitle(const char *p,const FILEINFO *f,unsigned char *out){(void)p;(void)f;out[0]=0;return -1;}
 static void transcpy_sjis(char *out,const unsigned char *in){strcpy(out,(const char *)in);}
 static int filerConfirmExploitDelete(const char *p,const FILEINFO *f){(void)p;(void)f;return 1;}
 static int filerConfirmExploitModify(const char *p,const FILEINFO *f){(void)p;(void)f;return 1;}
@@ -313,12 +317,14 @@ start=dash_header.index('typedef struct\n{\n\tu64 written_total;')
 stats_type=dash_header[start:dash_header.index('} DashTransferStats;',start)+len('} DashTransferStats;')]
 code=code.replace('#include "mmce_cmds.h"',stats_type+'\n#include "mmce_cmds.h"',1)
 a=copy.index('/* One paste context');b=copy.index('static int isMemoryCardLikePath(',a);code+=copy[a:b]
-for sig in ('static int isMemoryCardLikePath(', 'static int isHddCommonParty(',
+for sig in ('static int isMemoryCardLikePath(', 'static int isHddRootPath(', 'static int isHddCommonParty(',
             'static int copyReadChunk(', 'static int copyWriteChunk(',
             'static int calcTransferSpeed(', 'static int calcRemainingTime(',
             'static int smoothTransferSpeed(', 'static int applyMcInfoToMcPath(',
             'static const char *getXfromRelativePath(const char *path)\n{'):
     code+=function(copy,sig)
+code+=function(copy,'static void joinIconSysTitleLines(')
+code+=function(copy,'int filerGetGameTitle(')
 code+=copy[copy.index('int copy('):]
 code+=function(browser,'static int waitForClipboardSourceDevice(')
 code+=function(browser,'static void subfunc_Paste(')
@@ -358,7 +364,7 @@ static int matchesPsu(const char *path,int size) {
  }
  close(fd);return !n && done==size;
 }
-static void reset(void){assert(!handles&&!mmce_locked);last_file_index=last_file_count=0;fatfs_stat_error=0;hdd_attr_calls=mc_attr_calls=mc_normal_files=mc_normal_folders=0;mx4sio_driver_running=0;USB_mass_loaded=1;mmce_fault_phase=mmce_bad_marker=mmce_stat_calls=0;mmce_status=-1;psu_stat_is_dir=psu_stat_checks=psu_metadata=folder_deletes=overwrite_confirms=0;read_cap=4096;write_cap=37;source_ready=load_ok=dash_active=1;reset_preflight=0;fail_open=fail_rewind=fail_read=fail_write=fail_close=fail_listing=cancel_copy=fail_stat=fail_out_open=early_eof=fail_measure=corrupt_verify=fail_publish=fail_tail_read=fail_tail_write=0;read_calls=write_calls=0;browser_cut=0;browser_cd=0;generation=1;clipIopResetGeneration=1;PasteMode=PM_NORMAL;strcpy(clipPath,"udpfs:/");nclipFiles=1;memset(clipFiles,0,sizeof(clipFiles));strcpy(clipFiles[0].name,"BOOT.ELF");clipFiles[0].stats.FileSizeByte=sizeof(input);}
+static void reset(void){assert(!handles&&!mmce_locked);overwrite_prompt[0]=0;small_read_cap=0;last_file_index=last_file_count=0;fatfs_stat_error=0;hdd_attr_calls=mc_attr_calls=mc_normal_files=mc_normal_folders=0;mx4sio_driver_running=0;USB_mass_loaded=1;mmce_fault_phase=mmce_bad_marker=mmce_stat_calls=0;mmce_status=-1;psu_stat_is_dir=psu_stat_checks=psu_metadata=folder_deletes=overwrite_confirms=0;read_cap=4096;write_cap=37;source_ready=load_ok=dash_active=1;reset_preflight=0;fail_open=fail_rewind=fail_read=fail_write=fail_close=fail_listing=cancel_copy=fail_stat=fail_out_open=early_eof=fail_measure=corrupt_verify=fail_publish=fail_tail_read=fail_tail_write=0;read_calls=write_calls=0;browser_cut=0;browser_cd=0;generation=1;clipIopResetGeneration=1;PasteMode=PM_NORMAL;strcpy(clipPath,"udpfs:/");nclipFiles=1;memset(clipFiles,0,sizeof(clipFiles));strcpy(clipFiles[0].name,"BOOT.ELF");clipFiles[0].stats.FileSizeByte=sizeof(input);}
 int main(void){
  assert(sizeof(copy_diag)<=128); /* fixed runtime budget, no log allocation */
  assert(MC_ATTR_norm_folder==0x8427&&MC_ATTR_norm_file==0x8497);
@@ -532,11 +538,20 @@ int main(void){
  for(int port=0;port<2;port++)for(int attempt=0;attempt<2;attempt++) {
   reset();PasteMode=PM_PSU_RESTORE;strcpy(clipFiles[0].name,"SAVE.PSU");psu_stat_is_dir=1;
   char dest[12];snprintf(dest,sizeof(dest),"mc%d:/",port);
+  if(attempt) {
+   unsigned char icon[257]={0};memcpy(icon,"PS2D",4);memcpy(icon+0xc0,"Existing save",14);
+   snprintf(target,sizeof(target),"%sAPP_LAUNCHSTATION/icon.sys",dest);put(target,icon,sizeof(icon));
+   small_read_cap=7; /* A short header read used to hide a valid existing title. */
+  }
   message[0]=0;subfunc_Paste(message,dest);
   if(message[0])fprintf(stderr,"PSU failure: %s\n",message);
   assert(!message[0] && !handles && !copy_diag.error && generation==1);
   assert(!psu_stat_checks && psu_metadata==4 && last_file_index==3 && last_file_count==3);
   assert(folder_deletes==attempt && overwrite_confirms==attempt);
+  if(attempt) {
+   assert(strstr(overwrite_prompt,"Existing save") && !strstr(overwrite_prompt,"Undefined_Not_a_gamesave"));
+   assert(strstr(overwrite_prompt,"Do_you_wish_to_overwrite_it?") && !strstr(overwrite_prompt,"overwrite_it ?"));
+  }
   snprintf(target,sizeof(target),"%sAPP_LAUNCHSTATION/LAUNCHSTATION.ELF",dest);assert(matchesPsu(target,1443120));
   snprintf(target,sizeof(target),"%sAPP_LAUNCHSTATION/icon.sys",dest);assert(matches(target,input,257));
   snprintf(target,sizeof(target),"%sAPP_LAUNCHSTATION/EMPTY",dest);assert(matches(target,input,0));

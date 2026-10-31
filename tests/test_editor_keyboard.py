@@ -481,14 +481,25 @@ static void draw(void) {
     float top_gap=first_top-boxes[0].y;
     float bottom_gap=boxes[0].y+boxes[0].h-last_bottom;
     assert(fabsf(top_gap-6)<0.01f && fabsf(bottom_gap-top_gap)<0.01f);
+    /* Main keys are centered independently; the appended side buttons
+     * share a right edge and must not shift that center. Partial Symbols
+     * pages keep the normal grid origin instead of centering their contents. */
+    int main_end=nboxes;
+    for(int a=0;a<KA_COUNT;a++)main_end-=kbHasAction(&editor_keyboard,a);
     float left=1000,right=0;
-    for(int i=1;i<nboxes;i++) {
+    for(int i=1;i<main_end;i++) {
         Box b=boxes[i];
         float x=b.x+b.selected,end=b.x+b.w-b.selected;
         if(x<left)left=x;
         if(end>right)right=end;
     }
-    assert(fabsf((left+right)*0.5f-DASH_VW*0.5f)<0.01f);
+    if(!kb_page)assert(fabsf((left+right)*0.5f-DASH_VW*0.5f)<0.01f);
+    for(int i=main_end;i<nboxes;i++) {
+        Box b=boxes[i];
+        float edge=b.x+b.w-b.selected;
+        assert(edge<=boxes[0].x+boxes[0].w-5);
+        assert(fabsf(edge-(boxes[main_end].x+boxes[main_end].w-boxes[main_end].selected))<0.01f);
+    }
 }
 static int state(void) { return kb_act<0?kb_sel:VKEY_LAYOUT_SIZE+kb_act; }
 static void setState(int s) {
@@ -717,7 +728,7 @@ int main(void) {
         setting->virtual_keyboard_layout=layout;dashKeyboardInit(&editor_keyboard,layout);
         kb_act=-1;kb_sel=KB_SPACE_KEY;draw();
         Label fixed_space=*label("Space");
-        Box fixed_tab=*actionBox(KA_TAB),fixed_return=*actionBox(KA_RETURN);
+        Box fixed_tab=*actionBox(KA_TAB),fixed_return=*actionBox(KA_RETURN),fixed_first=boxes[1];
         int cols=getVirtualKeyboardLayoutColumnCount(layout);
         assert(kbColumnCount(&editor_keyboard)==cols && cols>=12);
         for(kb_page=0;kb_page<=kbSymbolPageCount(&editor_keyboard);kb_page++) {
@@ -739,12 +750,11 @@ int main(void) {
             /* All themes/layouts fit the keyboard panel above the footer. */
             kb_act=-1;kb_sel=KB_SPACE_KEY;draw();
             assert(label("Space") && !label("Tab") && !label("Del") && !label("Return") && nstrokes==8);
-            float left=boxes[1].x,right=boxes[1].x+boxes[1].w;
-            for(int i=2;i<nboxes;i++) {
-                if(boxes[i].x<left)left=boxes[i].x;
-                if(boxes[i].x+boxes[i].w>right)right=boxes[i].x+boxes[i].w;
-            }
-            assert(fabsf((left+right)*0.5f-DASH_VW*0.5f)<0.01f);
+            /* The first character stays fixed on every page, even when
+             * the last Symbols page leaves some columns/rows empty. */
+            assert(boxes[1].x==fixed_first.x && boxes[1].y==fixed_first.y);
+            float grid_right=fixed_first.x+cols*33-3;
+            assert(fixed_return.x-grid_right>=3 && fixed_return.x-grid_right<36);
             assert(actionBox(KA_RETURN)->x==fixed_return.x && actionBox(KA_RETURN)->y==fixed_return.y);
             assert(docInsert(&d,"!",1));int before_delete=d.len;
             keyboardInput(&d,DASH_IN_BACK);assert(d.len==before_delete-1);
@@ -794,14 +804,16 @@ int main(void) {
     }
     assert(found==1);
     kbTypeKey(&d); assert(d.buf[d.len-1]==' ');
-    /* Right-side actions: Tab row 1, Return row 2, Symbols row 5, one empty column. */
+    /* Center the main keys; right-align Tab row 1, Return row 2 and Symbols row 5. */
     kb_act=-1;kb_sel=2*VKEY_LAYOUT_COLS;draw();
     Box tab=*actionBox(KA_TAB),ret=*actionBox(KA_RETURN),symbols=*keyBox("Symbols");
     Box number=*keyBox("1"),q=*keyBox("q"),apostrophe=*keyBox("'"),slash=*keyBox("\\");
     assert(tab.y==number.y && ret.y==q.y && symbols.y==keyBox("Space")->y);
-    assert(tab.x==ret.x && ret.x==symbols.x);
-    /* One 30px empty key plus the two 3px gutters beyond the last character. */
-    Box equals=*keyBox("=");assert(fabsf(tab.x-equals.x-equals.w-36)<0.01f);
+    assert(tab.x==ret.x && tab.x+tab.w==symbols.x+symbols.w);
+    Box equals=*keyBox("=");
+    float side_gap=tab.x-equals.x-equals.w;
+    assert(side_gap>=3 && side_gap<36);
+    assert(fabsf((number.x+equals.x+equals.w)*0.5f-DASH_VW*0.5f)<0.01f);
     assert(slash.y==apostrophe.y && fabsf(slash.x-apostrophe.x-33)<0.01f);
     kb_caps=1;draw();
     Box quote=*keyBox("\""),pipe=*keyBox("|");
@@ -874,7 +886,7 @@ int main(void) {
     checkNamingPaths();
     checkTypingRepeat();
     free(d.buf);free(d.lines);
-    puts("PASS: editor keyboard side-key/space geometry, viewport resize, reachable keys/actions, normal/caps input, complete symbol cycles including 0xFF, centered fixed pages, Tab/Return and controller Delete");
+    puts("PASS: editor keyboard side-key/space geometry, viewport resize, reachable keys/actions, normal/caps input, complete symbol cycles including 0xFF, centered main keys with right-aligned side buttons, fixed pages, Tab/Return and controller Delete");
 }
 '''
 with tempfile.TemporaryDirectory(prefix="editor-keyboard-") as folder:

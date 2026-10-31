@@ -166,6 +166,80 @@ static float appTriangleSdf(V2 p)
 	return sdTriP(p, -0.26f, 0.2f, 0.0f, -0.32f, 0.26f, 0.2f);
 }
 
+/* Pictogrammers MDI rocket-launch, Apache-2.0; see
+ * res/icons/rocket-launch.svg and docs/licenses/Material-Design-Icons-LICENSE.txt.
+ * SVG contours in their original 24x24 coordinates: C/S curves sampled at
+ * t = 1/8 ... 1. The nonzero fill rule preserves the transparent window.
+ * Source SHA-256: 9d74afce10d849ebca9831c1005329b8ed7d6e6ce475e662ef612ac5f61de723 */
+static float rocketLaunchSdf(V2 p)
+{
+	static const V2 points[] = {
+		{13.130f, 22.190f}, {11.500f, 18.360f}, {12.084f, 18.133f}, {12.659f, 17.889f},
+		{13.224f, 17.627f}, {13.779f, 17.349f}, {14.324f, 17.055f}, {14.860f, 16.747f},
+		{15.385f, 16.425f}, {15.900f, 16.090f}, {13.130f, 22.190f}, {5.640f, 12.500f},
+		{1.810f, 10.870f}, {7.910f, 8.100f}, {7.575f, 8.615f}, {7.253f, 9.140f},
+		{6.945f, 9.676f}, {6.651f, 10.221f}, {6.373f, 10.776f}, {6.111f, 11.341f},
+		{5.867f, 11.916f}, {5.640f, 12.500f}, {21.610f, 2.390f}, {21.386f, 2.310f},
+		{20.748f, 2.147f}, {19.745f, 2.017f}, {18.428f, 2.037f}, {16.844f, 2.322f},
+		{15.046f, 2.989f}, {13.081f, 4.153f}, {11.000f, 5.930f}, {10.219f, 6.761f},
+		{9.516f, 7.606f}, {8.885f, 8.459f}, {8.322f, 9.315f}, {7.822f, 10.167f},
+		{7.380f, 11.009f}, {6.991f, 11.836f}, {6.650f, 12.640f}, {6.567f, 12.924f},
+		{6.526f, 13.210f}, {6.527f, 13.496f}, {6.569f, 13.776f}, {6.649f, 14.048f},
+		{6.767f, 14.306f}, {6.921f, 14.548f}, {7.110f, 14.770f}, {9.240f, 16.890f},
+		{9.458f, 17.082f}, {9.698f, 17.238f}, {9.955f, 17.355f}, {10.225f, 17.435f},
+		{10.505f, 17.475f}, {10.790f, 17.475f}, {11.076f, 17.434f}, {11.360f, 17.350f},
+		{12.173f, 17.017f}, {13.003f, 16.632f}, {13.846f, 16.191f}, {14.696f, 15.689f},
+		{15.549f, 15.123f}, {16.399f, 14.488f}, {17.241f, 13.782f}, {18.070f, 13.000f},
+		{19.847f, 10.919f}, {21.011f, 8.954f}, {21.677f, 7.156f}, {21.962f, 5.572f},
+		{21.982f, 4.255f}, {21.853f, 3.252f}, {21.690f, 2.614f}, {21.610f, 2.390f},
+		{14.540f, 9.460f}, {14.284f, 9.146f}, {14.101f, 8.798f}, {13.992f, 8.427f},
+		{13.955f, 8.045f}, {13.992f, 7.663f}, {14.101f, 7.292f}, {14.284f, 6.944f},
+		{14.540f, 6.630f}, {14.854f, 6.374f}, {15.202f, 6.191f}, {15.573f, 6.082f},
+		{15.955f, 6.045f}, {16.337f, 6.082f}, {16.708f, 6.191f}, {17.056f, 6.374f},
+		{17.370f, 6.630f}, {17.623f, 6.944f}, {17.805f, 7.292f}, {17.914f, 7.663f},
+		{17.951f, 8.045f}, {17.916f, 8.427f}, {17.807f, 8.798f}, {17.626f, 9.146f},
+		{17.370f, 9.460f}, {17.056f, 9.716f}, {16.708f, 9.899f}, {16.337f, 10.008f},
+		{15.955f, 10.045f}, {15.573f, 10.008f}, {15.202f, 9.899f}, {14.854f, 9.716f},
+		{14.540f, 9.460f}, {6.240f, 22.000f}, {9.880f, 18.360f}, {9.753f, 18.323f},
+		{9.627f, 18.281f}, {9.503f, 18.233f}, {9.380f, 18.180f}, {9.259f, 18.121f},
+		{9.140f, 18.056f}, {9.024f, 17.986f}, {8.910f, 17.910f}, {4.830f, 22.000f},
+		{6.240f, 22.000f}, {2.000f, 22.000f}, {3.410f, 22.000f}, {8.180f, 17.240f},
+		{6.760f, 15.830f}, {2.000f, 20.590f}, {2.000f, 22.000f}, {2.000f, 19.170f},
+		{6.090f, 15.090f}, {6.014f, 14.977f}, {5.944f, 14.861f}, {5.879f, 14.744f},
+		{5.820f, 14.624f}, {5.767f, 14.502f}, {5.719f, 14.377f}, {5.677f, 14.250f},
+		{5.640f, 14.120f}, {2.000f, 17.760f}, {2.000f, 19.170f},
+	};
+	static const unsigned short ends[] = {11, 22, 72, 105, 117, 123, 135};
+	float nearest = 1e9f;
+	int contour, start = 0, winding = 0;
+
+	p.x = p.x * 12.0f + 12.0f;
+	p.y = p.y * 12.0f + 12.0f;
+	for (contour = 0; contour < (int)(sizeof(ends) / sizeof(ends[0])); contour++) {
+		int i, end = ends[contour];
+		V2 a = points[end - 1];
+
+		for (i = start; i < end; i++) {
+			V2 b = points[i];
+			float ex = b.x - a.x, ey = b.y - a.y;
+			float px = p.x - a.x, py = p.y - a.y;
+			float length_sq = ex * ex + ey * ey;
+			float h = length_sq > 0.0f ? dashClampf((px * ex + py * ey) / length_sq, 0.0f, 1.0f) : 0.0f;
+			float dx = px - h * ex, dy = py - h * ey;
+			float cross = ex * py - ey * px;
+
+			nearest = fminf2(nearest, dx * dx + dy * dy);
+			if (a.y <= p.y && b.y > p.y && cross > 0.0f)
+				winding++;
+			else if (a.y > p.y && b.y <= p.y && cross < 0.0f)
+				winding--;
+			a = b;
+		}
+		start = end;
+	}
+	return (winding ? -1.0f : 1.0f) * sqrtf(nearest) / 12.0f;
+}
+
 static float iconSdf(int id, V2 p)
 {
 	float d = 1e9f;
@@ -318,6 +392,9 @@ static float iconSdf(int id, V2 p)
 			d = U(d, sdRing(p, -0.54f, 0.40f, 0.25f, T));
 			d = U(d, sdSeg(p, -0.34f, -0.22f, 0.80f, 0.48f, T));
 			d = U(d, sdSeg(p, -0.34f, 0.22f, 0.80f, -0.48f, T));
+			break;
+		case DI_LAUNCH_ARGS:
+			d = rocketLaunchSdf(p);
 			break;
 		case DI_COPY:
 			/* The front rounded square occludes the rear square's inner edges. */
