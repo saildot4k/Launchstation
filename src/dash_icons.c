@@ -339,10 +339,8 @@ static float iconSdf(int id, V2 p)
 			{
 				float check = U(sdSeg(p, -0.46f, -0.02f, -0.12f, 0.34f, 0.12f),
 				                sdSeg(p, -0.12f, 0.34f, 0.50f, -0.34f, 0.12f));
-				/* Cut the check out of the filled square. Its right-hand tail
-				 * switches to an outline, with the center filled back in. */
-				float cutout = U(fmaxf2(check, p.x), fmaxf2(fabsf(check) - 0.055f, -p.x));
-				d = S(sdBox(p, 0.0f, 0.0f, 0.78f, 0.78f, 0.18f), cutout);
+				/* Cut the entire checkmark out of the filled rounded square. */
+				d = S(sdBox(p, 0.0f, 0.0f, 0.78f, 0.78f, 0.18f), check);
 			}
 			break;
 		case DI_CLOSE:

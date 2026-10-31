@@ -479,7 +479,7 @@ enum DashIcon {
 	DI_COPY,
 	DI_PASTE_RENAME, /* pencil with a small upper-right plus */
 	DI_SELECT_ALL,   /* checkmark with a small upper-left plus */
-	DI_INVERT_SELECTION, /* filled rounded square with a half-outlined check */
+	DI_INVERT_SELECTION, /* filled rounded square with a checkmark cutout */
 	DI_CLEAR_SELECTION, /* checkmark with a small upper-left minus */
 	DI_COUNT
 };
