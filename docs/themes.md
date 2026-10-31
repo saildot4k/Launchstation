@@ -81,7 +81,7 @@ puts that group back to the values of the preset the theme started from.
 | Background | Background type, Colour, Second colour, Brightness (10-200 %), CRT scanlines, Wallpaper image... |
 | Interface colours | Text, Secondary text, Muted text, Selected text, Accent, Selection (with opacity), Panels (with opacity), Borders (with opacity), Warnings |
 | Tiles & menus | Tile style (memory card, rounded, chamfered, floating object, crystal slab), Selection style (solid bar, accent bar, outline, text colour), Corners (square, soft, round), Glow |
-| Text | Font (Roboto, System), external System font file, Text size (90-115 %), Bold, Text shadow |
+| Text | Font (Roboto, System, Emotion Engine), external System font file, Text size (90-115 %), Style (Regular/Bold), Text shadow |
 | Icons | Icon colour (text colours, accent, monochrome), Default app icon (application, device, initials), Custom app icon image... |
 | Clock | Clock (off, standard, system), Position (header, footer), Hours (system, 24-hour, 12-hour), Seconds, Date (system, YYYY/MM/DD, MM/DD/YYYY, DD/MM/YYYY, off) |
 | Artwork background | App artwork background (off, focused app), Artwork dimming. Enable artwork loading under Settings > Home & applications. |
@@ -179,13 +179,22 @@ The sample uses `wallpaper = off` so its static background stays visible.
   characters used by the language files, and at the dashboard's body size
   it maps almost 1:1 to screen pixels, which is crisp on a CRT.
 
-Bold off uses regular stroke weight at every dashboard text size. Small and
-medium Roboto atlases have their stored alpha boost corrected before drawing;
-only Bold adds an extra stroke pass. Text shadow is controlled separately.
+* **Emotion Engine**: Pixel Sagas's PS2-inspired typeface, bundled at the
+  same three source sizes. Choose **Style > Regular** or **Style > Bold** to
+  select its original regular or bold outlines. Both cover printable ASCII
+  and Latin-1, including accented letters and the degree symbol.
+
+**Style** offers Regular and Bold for every family. Roboto and System retain
+their existing extra stroke pass for Bold; Emotion Engine uses its real Bold
+face without an additional stroke pass.
+Small/medium atlases have their stored alpha boost corrected before drawing.
+Text shadow is controlled separately.
 
 Arbitrary TTF files are not loaded on the console: a font engine and its
 glyph cache would cost too much memory and time. To use another typeface
 for *Roboto*, regenerate the atlas on a PC with `scripts/gen_dash_font.py`.
+See [font-generation.md](font-generation.md) for source versions, coverage
+checks, Emotion Engine commands and license notices.
 
 ## Application tile styles
 
@@ -312,7 +321,7 @@ clock_position = header
 | `tile_style` | `memory_card` (default), `rounded`, `chamfered`, `floating`, `crystal` |
 | `corners` | `square`, `soft`, `round` |
 | `glow`, `bold`, `text_shadow` | 0 / 1 |
-| `font` | `roboto`, `system` |
+| `font` | `roboto`, `system`, `emotion_engine` |
 | `font_scale` | 90-115 (%) |
 | `icon_tint` | `text`, `accent`, `mono` |
 | `app_icon_style` | `system`, `device`, `monogram` |

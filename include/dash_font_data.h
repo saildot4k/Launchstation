@@ -33,6 +33,9 @@ typedef struct
 	const DashGlyphData *glyphs;   /* indexed by code - DASH_FONT_FIRST */
 } DashFaceData;
 
+/* Three sizes per family; only the selected family's textures are resident. */
 extern const DashFaceData dash_font_faces[DASH_FONT_FACES];
+extern const DashFaceData dash_emotion_engine_faces[DASH_FONT_FACES];
+extern const DashFaceData dash_emotion_engine_bold_faces[DASH_FONT_FACES];
 
 #endif

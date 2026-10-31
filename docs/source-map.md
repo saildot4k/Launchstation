@@ -1,6 +1,6 @@
 # Launchstation source map
 
-Current ownership map, reviewed October 25, 2026. This describes the existing tree; proposed extractions are in the [refactoring and ELF-size plan](plans/2026-10-25-refactor-and-elf-size.md). All 101 top-level `src/*.c` files are listed once. The standard PS2BUILD target compiles 100 of them; the DS34 variant substitutes `pad_ds34.c` for `pad.c`.
+Current ownership map, updated October 31, 2026. This describes the existing tree; proposed extractions are in the [refactoring and ELF-size plan](plans/2026-10-25-refactor-and-elf-size.md). All 104 top-level `src/*.c` files are listed once. The DS34 variant substitutes `pad_ds34.c` for the standard target's `pad.c`.
 
 ## Where to start
 
@@ -56,6 +56,7 @@ Current ownership map, reviewed October 25, 2026. This describes the existing tr
 | [neutrino_iso.c](../src/neutrino_iso.c) | Neutrino ISO discovery, launch configuration and keep-IOP launch coordination. |
 | [gui_neutrino.c](../src/gui_neutrino.c) | Per-game Neutrino options, profile handling and argument construction. |
 | [ember.c](../src/ember.c) | Ember image/core discovery, path resolution, launch arguments and USB handoff coordination. |
+| [ember_gameid.c](../src/ember_gameid.c) | Bounded CUE/BIN image reading and PS1 game-ID extraction for Ember RetroGem handoff. |
 | [popstarter.c](../src/popstarter.c) | Public POPStarter VCD recognition and launch orchestration. |
 | [popstarter_path.c](../src/popstarter_path.c) | POPStarter candidate selection, HDD/PFS path handling and launch preparation. |
 | [popstarter_vcd.c](../src/popstarter_vcd.c) | VCD validation, ISO primary volume descriptor and SYSTEM.CNF reads. |
@@ -140,7 +141,9 @@ and the HOST ioctl.
 | [makeicon.c](../src/makeicon.c) | Generate memory-card folder icons/icon.sys, text rasterization and RLE encoding. |
 | [dash_gfx.c](../src/dash_gfx.c) | Dashboard frame presentation, GS/texture state, clipping/offset/alpha stacks, primitives and sprite batches. |
 | [dash_font.c](../src/dash_font.c) | Dashboard font texture lifecycle, bitmap fallback, proportional face selection, text measurement/layout/drawing. |
-| [dash_font_data.c](../src/dash_font_data.c) | Generated three-face pixel atlases and glyph metrics; edit scripts/gen_dash_font.py and regenerate. |
+| [dash_font_data.c](../src/dash_font_data.c) | Generated Roboto pixel atlases and glyph metrics at three sizes; edit scripts/gen_dash_font.py and regenerate. |
+| [dash_font_emotion_engine.c](../src/dash_font_emotion_engine.c) | Generated Emotion Engine Regular atlases/metrics; source version, license and regeneration commands in docs/font-generation.md. |
+| [dash_font_emotion_engine_bold.c](../src/dash_font_emotion_engine_bold.c) | Generated Emotion Engine Bold atlases/metrics at the same three sizes. |
 | [dash_icons.c](../src/dash_icons.c) | Procedural dashboard icon distance fields, atlas generation and icon rendering. |
 | [dash_png.c](../src/dash_png.c) | Bounded PNG decode/downsample and gen* file loading; returns CPU pixel buffers. |
 | [dash_jpeg.c](../src/dash_jpeg.c) | Bounded JPEG decode/downsample and gen* file loading; returns CPU pixel buffers. |
@@ -215,7 +218,7 @@ and the HOST ioctl.
 | `iop/oldlibs/libcdvd/` | Historical Makefile LEGACY CD/DVD support; not the default PS2BUILD path. |
 | `res/`, `exploits/`, `__Headers/`, `Lang/` | Sound/CA assets, installer payloads, HDD header templates and translations. |
 | `igr/`, `research/`, `windows/` | Auxiliary inputs/research/platform material; not top-level EE sources in ps2.yaml. Inspect their own references before cleanup. |
-| [scripts/gen_dash_font.py](../scripts/gen_dash_font.py) | Authoritative generator for pre-rasterized proportional glyph atlases. |
+| [scripts/gen_dash_font.py](../scripts/gen_dash_font.py) | Generate proportional font atlases/metrics, validate ASCII/Latin-1 coverage, and name each family's export and license notice. |
 | [scripts/build_https_tls.sh](../scripts/build_https_tls.sh) | Pinned Mbed TLS source/checksum and EE dependency configuration. |
 | `scripts/gen_githash.py`, `scripts/check_build_identity.py` | Installed commit metadata generation and compiled release identity checks. |
 | `Makefile`, `embed.make`, `scripts/ci/resolve_make_args.sh` | Retained historical/profile build workflow; not release CI source of truth. |

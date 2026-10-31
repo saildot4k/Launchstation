@@ -142,6 +142,7 @@ enum DashCorner {
 enum DashFontFace {
 	DASH_FONT_ROBOTO = 0, /* smooth proportional (bundled) */
 	DASH_FONT_SYSTEM,     /* wLaunchELF bitmap font / user .fnt (localized glyphs) */
+	DASH_FONT_EMOTION_ENGINE, /* Regular/Bold selected by DashTheme.bold */
 	DASH_FONT_COUNT
 };
 
