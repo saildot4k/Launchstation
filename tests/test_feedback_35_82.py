@@ -15,8 +15,8 @@ assert "(details_column + 9) * FONT_WIDTH" in classic
 assert "explicit size/date-time gap" in browser
 
 # 55/75: sort keys and direction are dashboard controls.
-for label in ('"Name"', '"Size"', '"Date-Time"', '"Kind"'):
-    assert label in browser
+for label in ('"Name"', '"Size"', '"Date-Time"', '"Extension"'):
+    assert label in browser, f"Missing browser sort label: {label}"
 assert "fb_sort_desc" in browser
 assert '"Sort direction"' in browser
 
