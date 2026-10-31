@@ -24,7 +24,8 @@ def function(source, signature):
     return source[start:end] + "\n"
 
 
-code = r'''
+label_gap = next(line for line in ui.splitlines() if line.startswith('#define STACKED_LABEL_GAP '))
+code = label_gap + '\n' + r'''
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>

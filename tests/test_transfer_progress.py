@@ -13,7 +13,8 @@ stats_type=header[start:header.index('} DashTransferStats;',start)+len('} DashTr
 start=source.index('static void loadingDraw(')
 render_source=source[start:source.index('void dashLoadingBegin(',start)]
 globals_source=source[source.index('static int loading_active;'):source.index('DashLoadingView dashLoadingSetView(')]
-code=r'''
+label_gap=next(line for line in source.splitlines() if line.startswith('#define STACKED_LABEL_GAP '))
+code=label_gap+'\n'+r'''
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -85,19 +86,22 @@ int main(void){
  DashFileProgress("Pasting file","BOOT.ELF",0,8ULL<<30);assert(loading_done==10000&&draws==2);
  assert(!strcmp(loading_copied,"8192.00 MB"));
  loading_fraction=1;DashFileProgress("Pasting file","SECOND.ELF",1024,1024);
- assert(loading_fraction==0&&loading_done==0&&!strcmp(loading_copied,"0 bytes"));
- assert(!strcmp(loading_transfer[2],"1024 bytes"));
+ assert(loading_fraction==0&&loading_done==0&&!strcmp(loading_copied,"0 KB"));
+ assert(!strcmp(loading_transfer[2],"1 KB"));
  DashFileProgress("Pasting file","empty",0,0);assert(loading_done==10000);
- assert(!strcmp(loading_copied,"0 bytes")&&!strcmp(loading_transfer[2],"0 bytes"));
+ assert(!strcmp(loading_copied,"0 KB")&&!strcmp(loading_transfer[2],"0 KB"));
  DashFileProgress("Pasting file","bad count",200,100);assert(loading_done==0);
- assert(!strcmp(loading_copied,"0 bytes"));
- char bytes[64];loadingTransferBytes(bytes,sizeof(bytes),1,1);assert(!strcmp(bytes,"1 byte"));
- loadingTransferBytes(bytes,sizeof(bytes),2048,2048);assert(!strcmp(bytes,"2048 bytes"));
- loadingTransferBytes(bytes,sizeof(bytes),(1ULL<<20)-1,(1ULL<<20)-1);assert(!strcmp(bytes,"1048575 bytes"));
- loadingTransferBytes(bytes,sizeof(bytes),1ULL<<20,1ULL<<20);assert(!strcmp(bytes,"1024.00 KB"));
+ assert(!strcmp(loading_copied,"0 KB"));
+ char bytes[64];loadingTransferBytes(bytes,sizeof(bytes),1,1);assert(!strcmp(bytes,"0.00 KB"));
+ loadingTransferBytes(bytes,sizeof(bytes),2048,2048);assert(!strcmp(bytes,"2 KB"));
+ loadingTransferBytes(bytes,sizeof(bytes),512,512);assert(!strcmp(bytes,"0.50 KB"));
+ loadingTransferBytes(bytes,sizeof(bytes),1024,1024);assert(!strcmp(bytes,"1 KB"));
+ loadingTransferBytes(bytes,sizeof(bytes),1200ULL*1024+999,1200ULL*1024+999);assert(!strcmp(bytes,"1200 KB"));
+ loadingTransferBytes(bytes,sizeof(bytes),(1ULL<<20)-1,(1ULL<<20)-1);assert(!strcmp(bytes,"1023 KB"));
+ loadingTransferBytes(bytes,sizeof(bytes),1ULL<<20,1ULL<<20);assert(!strcmp(bytes,"1024 KB"));
  loadingTransferBytes(bytes,sizeof(bytes),512,1ULL<<20);assert(!strcmp(bytes,"0.50 KB"));
- loadingTransferBytes(bytes,sizeof(bytes),3ULL<<20,3ULL<<20);assert(!strcmp(bytes,"3072.00 KB"));
- loadingTransferBytes(bytes,sizeof(bytes),0,(1ULL<<30)-1);assert(!strcmp(bytes,"0.00 KB"));
+ loadingTransferBytes(bytes,sizeof(bytes),3ULL<<20,3ULL<<20);assert(!strcmp(bytes,"3072 KB"));
+ loadingTransferBytes(bytes,sizeof(bytes),0,(1ULL<<30)-1);assert(!strcmp(bytes,"0 KB"));
  loadingTransferBytes(bytes,sizeof(bytes),1ULL<<30,1ULL<<30);assert(!strcmp(bytes,"1024.00 MB"));
  loadingTransferBytes(bytes,sizeof(bytes),8ULL<<30,8ULL<<30);assert(!strcmp(bytes,"8192.00 MB"));
  loadingTransferBytes(bytes,sizeof(bytes),0,(1ULL<<40)-1);assert(!strcmp(bytes,"0.00 MB"));
@@ -109,15 +113,15 @@ int main(void){
  assert(!strcmp(loading_transfer[0],"Average speed: 1024 B/s"));
  assert(!strcmp(loading_transfer[1],"Remaining time: 1 h 1 m 1 sec"));
  assert(!strcmp(loading_copied,"4096.00 MB")&&!strcmp(loading_transfer[2],"8192.00 MB"));
- assert(panel_w==420&&panel_h==220&&panel_x==110&&panel_y==114&&text_count==6);
+ assert(panel_w==420&&panel_h==210&&panel_x==110&&panel_y==119&&text_count==6);
  assert(!strcmp(texts[0].text,loading_title)&&!strcmp(texts[1].text,"BIG.ELF"));
- assert(texts[1].y+16<bar_y&&bar_y+8<texts[2].y);
+ assert(texts[1].y+16<bar_y&&texts[2].y==bar_y+8+STACKED_LABEL_GAP);
  assert(texts[2].y==texts[3].y&&texts[2].x==panel_x+30&&!texts[2].right&&texts[3].right);
  assert(texts[2].x+texts[2].w<texts[3].x);
  assert(texts[3].x+texts[3].w==panel_x+panel_w-30);
  assert(texts[3].y+16<texts[4].y&&texts[4].y+16<texts[5].y&&texts[5].y+16<panel_y+panel_h);
  loading_cancel=1;loadingDraw();
- assert(panel_h==248&&hint_y>texts[5].y+16&&hint_y+16<panel_y+panel_h);loading_cancel=0;
+ assert(panel_h==238&&hint_y>texts[5].y+16&&hint_y+16<panel_y+panel_h);loading_cancel=0;
  loading_fraction=0.5f;DashFileTransferProgress("Pasting file","BIG.ELF",2ULL<<30,8ULL<<30,&stats);
  assert(loading_fraction==0.5f&&!strcmp(loading_copied,"6144.00 MB"));
  stats.file_index=2;DashFileTransferProgress("Pasting file","BIG.ELF",8ULL<<30,8ULL<<30,&stats);
@@ -138,8 +142,8 @@ int main(void){
  stats.remaining_seconds=0;DashFileTransferProgress("Pasting file","BIG.ELF",0,100,&stats);
  assert(!strcmp(loading_transfer[1],"Remaining time: 0 sec")&&loading_done==10000);
  DashFileProgress("Verifying file","BIG.ELF",10,100);loadingDraw();
- assert(!loading_transfer[0][0]&&text_count==4&&panel_h==164);
- assert(!strcmp(loading_copied,"90 bytes")&&!strcmp(loading_transfer[2],"100 bytes"));
+ assert(!loading_transfer[0][0]&&text_count==4&&panel_h==154);
+ assert(!strcmp(loading_copied,"0.09 KB")&&!strcmp(loading_transfer[2],"0.10 KB"));
  DashFileTransferProgress("Pasting file","BIG.ELF",10,100,&stats);
  loading_active=0;tick+=20;DashFileTransferProgress("Pasting file","SECOND.ELF",100,100,&stats);
  assert(loading_active&&loading_done==0&&loading_fraction==0);
@@ -150,7 +154,7 @@ int main(void){
  assert(!strcmp(loading_title,"Deleting file")&&!strcmp(loading_status,"nested.bin"));
  assert(!loading_transfer[0][0]&&!loading_copied[0]&&!loading_total&&!loading_done&&loading_fraction==0);
  loading_total=10;loading_done=3;DashFileDeleteProgress("another.bin");assert(loading_total==10&&loading_done==3);
- puts("PASS: numbered file title, filename, bounded rounded bar and advancing byte labels, average/ETA order, sizes through 64-bit and modal ownership");
+ puts("PASS: numbered file title, filename, bounded rounded bar and advancing size labels matching the tab icon/text gap, average/ETA order, sizes through 64-bit and modal ownership");
 }
 '''
 # Renderer uses the scene tick once and bounds its fill to the track.

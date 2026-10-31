@@ -273,6 +273,8 @@ void dashDrawHints(const DashHint *hints, int n)
 #define HEADER_TAB_PAD 40.0f
 #define HEADER_ICON_SIZE 26.0f
 #define HEADER_ICON_GAP 12.0f
+/* Gap from a stacked icon or bar's lower edge to its text origin. */
+#define STACKED_LABEL_GAP 1.0f
 
 static float tab_anim_x = -1.0f;
 
@@ -423,7 +425,7 @@ void dashDrawHeader(int section, float section_anim)
 		float k = dashClampf(1.0f - dist, 0.0f, 1.0f);
 		DashColor c = dashColorLerp(DASH_C_TEXT3, DASH_C_SELTEXT, k);
 		dashIcon(dashSectionIcon(actual), cx - 8, tab_y + 3, 16, c);
-		dashTextCenter(cx, tab_y + 20, dashSectionName(actual), DASH_FS_CAPTION * 0.92f, c);
+		dashTextCenter(cx, tab_y + 3 + 16 + STACKED_LABEL_GAP, dashSectionName(actual), DASH_FS_CAPTION * 0.92f, c);
 	}
 	{
 		float lw = buttonWidth(-1, "L1"), rw = buttonWidth(-1, "R1");
@@ -1135,10 +1137,11 @@ static void loadingDraw(void)
 {
 	int file_progress = loading_copied[0] != '\0';
 	int transfer = file_progress && loading_transfer[0][0] != '\0';
-	float w = 420.0f, h = file_progress ? (transfer ? 220.0f : 164.0f) + (loading_cancel ? 28.0f : 0.0f) :
+	float w = 420.0f, h = file_progress ? (transfer ? 210.0f : 154.0f) + (loading_cancel ? 28.0f : 0.0f) :
 	                     loading_cancel ? 150.0f : 128.0f;
 	float x = (DASH_VW - w) * 0.5f, y = (DASH_VH - h) * 0.5f;
 	float bar_y = y + 102.0f;
+	float bytes_y = bar_y + 8.0f + STACKED_LABEL_GAP;
 	float dt = dashVisualUpdate();
 
 	if (loading_view != NULL) {
@@ -1157,13 +1160,13 @@ static void loadingDraw(void)
 	dashTextFit(x + 84, y + 26, w - 110, loading_title, DASH_FS_LABEL, DASH_C_TEXT);
 	dashTextFit(x + 84, y + 58, w - 110, loading_status, DASH_FS_SMALL, DASH_C_TEXT2);
 	if (file_progress) {
-		dashTextFit(x + 30, y + 124, (w - 76) * 0.5f,
+		dashTextFit(x + 30, bytes_y, (w - 76) * 0.5f,
 		            loading_copied, DASH_FS_SMALL, DASH_C_TEXT2);
-		dashTextRight(x + w - 30, y + 124, loading_transfer[2], DASH_FS_SMALL, DASH_C_TEXT2);
+		dashTextRight(x + w - 30, bytes_y, loading_transfer[2], DASH_FS_SMALL, DASH_C_TEXT2);
 	}
 	if (transfer) {
-		dashTextFit(x + 30, y + 154, w - 60, loading_transfer[0], DASH_FS_SMALL, DASH_C_TEXT2);
-		dashTextFit(x + 30, y + 180, w - 60, loading_transfer[1], DASH_FS_SMALL, DASH_C_TEXT2);
+		dashTextFit(x + 30, bytes_y + 30, w - 60, loading_transfer[0], DASH_FS_SMALL, DASH_C_TEXT2);
+		dashTextFit(x + 30, bytes_y + 56, w - 60, loading_transfer[1], DASH_FS_SMALL, DASH_C_TEXT2);
 	}
 	if (loading_total > 0) {
 		float p = dashClampf(loading_done / (float)loading_total, 0.0f, 1.0f);
@@ -1235,12 +1238,14 @@ void dashLoadingStatus(const char *status, int done, int total)
 
 static void loadingTransferBytes(char *out, int size, u64 bytes, u64 total)
 {
-	/* Both endpoints keep the same unit, chosen once from this file's size. */
-	if (total < 1024ULL * 1024)
-		snprintf(out, size, "%llu %s", (unsigned long long)bytes, bytes == 1 ? "byte" : "bytes");
-	else if (total < 1024ULL * 1024 * 1024)
-		snprintf(out, size, "%.2f KB", (double)bytes / 1024.0);
-	else if (total < 1024ULL * 1024 * 1024 * 1024)
+	/* Both endpoints keep the same unit, chosen once from this file's size.
+	 * KB is the smallest unit; discard sub-KB precision once it reaches 1. */
+	if (total < 1024ULL * 1024 * 1024) {
+		if (bytes > 0 && bytes < 1024)
+			snprintf(out, size, "%.2f KB", (double)bytes / 1024.0);
+		else
+			snprintf(out, size, "%llu KB", (unsigned long long)(bytes / 1024));
+	} else if (total < 1024ULL * 1024 * 1024 * 1024)
 		snprintf(out, size, "%.2f MB", (double)bytes / (1024.0 * 1024.0));
 	else
 		snprintf(out, size, "%.2f GB", (double)bytes / (1024.0 * 1024.0 * 1024.0));

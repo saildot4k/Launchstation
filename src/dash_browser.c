@@ -1473,6 +1473,22 @@ static int fileIcon(const FILEINFO *f)
 	return DI_FILE;
 }
 
+/* Display the saved source, independently of the folder now being browsed.
+ * Keep native HDD/VMC device paths; this formatter must never resolve them. */
+static void clipboardSummary(char *out, int size)
+{
+	if (nclipFiles <= 0)
+		out[0] = '\0';
+	else if (nclipFiles > 1)
+		snprintf(out, size, "Clipboard: Assortment in %s", clipPath);
+	else {
+		size_t len = strlen(clipPath);
+		const char *separator = len && clipPath[len - 1] != '/' && clipPath[len - 1] != ':' ? "/" : "";
+
+		snprintf(out, size, "Clipboard: %s%s%s", clipPath, separator, clipFiles[0].name);
+	}
+}
+
 static void fmtBytes(char *out, int size, u64 b)
 {
 	if (b >= (u64)1024 * 1024 * 1024)
@@ -1544,11 +1560,13 @@ static void browserDrawBody(void)
 			dashText(FB_X, status_y, info, DASH_FS_CAPTION, DASH_C_ACCENT);
 	}
 	if (nclipFiles > 0) {
-		snprintf(info, sizeof(info), "Clipboard: %d to %s", nclipFiles, browser_cut ? "move" : "copy");
+		char clipboard[MAX_PATH + MAX_NAME + 32];
+
+		clipboardSummary(clipboard, sizeof(clipboard));
 		if (!fb_tab_active)
-			dashTextRight(FB_X + FB_W, 26, info, DASH_FS_CAPTION, DASH_C_ACCENT);
+			dashTextScroll(FB_X + 200, 26, FB_W - 200, clipboard, DASH_FS_CAPTION, DASH_C_ACCENT);
 		else if (!LaunchArgsPending())
-			dashText(FB_X, status_y, info, DASH_FS_CAPTION, DASH_C_ACCENT);
+			dashTextScroll(FB_X, status_y, FB_W, clipboard, DASH_FS_CAPTION, DASH_C_ACCENT);
 	}
 
 	dashDrawPanelBox(DASH_PANE_L, FB_Y - 6, DASH_PANE_W, FB_ROWS * FB_ROW_H + 12, 14);
