@@ -211,7 +211,8 @@ and the HOST ioctl.
 | `ee_libs/iopreboot/`, `ee_libs/hdd/` | Local EE libraries for IOP reboot and HDD RPC. |
 | `iop/ata_bd/`, `iop/pccf/`, `iop/ps2hdd_osd/` | ATA block driver, PC CARD CompactFlash and HDD/APA driver. |
 | `iop/mmceman/`, `iop/vmcman/`, `iop/usbd-ra/` | Memory-card emulator, virtual memory-card and pinned USB host implementations. |
-| `iop/udpfs_smap/`, `iop/ps2ips_rpc/`, `iop/ps2host/`, `iop/oldlibs/ps2ftpd/` | Network transport/interface, socket RPC server, host filesystem and FTP service. |
+| `iop/udpfs_smap/`, `iop/ps2ips_rpc/`, `iop/ps2host/` | Network transport/interface, socket RPC server and host filesystem. |
+| `iop/oldlibs/ps2ftpd/` | On-demand FTP service. [Integration map](../iop/oldlibs/ps2ftpd/LAUNCHSTATION.md) describes device discovery, file operations, connection state and tests. |
 | `iop/ds34usb/`, `iop/ds34bt/` | Optional controller EE clients and IOP backends. |
 | `iop/AllowDVDV/`, `iop/dev9_poweroff/`, `iop/hdl_info/`, `iop/xparam/` | DVD access, DEV9 shutdown, HDL service and Deckard game parameters. |
 | `iop/__precompiled/`, `packages/` | Embedded prebuilt dependencies and local package fallbacks. Preserve provenance/ABI notices. |
