@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix="launchstation-ftp-network-") as tmp:
     exe = work / "ftp-server"
     subprocess.run([
         cc, *shlex.split(os.environ.get("CFLAGS", "")),
-        "-std=gnu11", "-DLINUX", "-Wall", "-Wextra", "-Werror", "-fno-builtin",
+        "-std=gnu11", "-DLINUX", "-I", str(root / "include"), "-Wall", "-Wextra", "-Werror", "-fno-builtin",
         *[str(source / name) for name in
           ("FileSystem.c", "FtpClient.c", "FtpCommands.c", "FtpServer.c", "FtpMessages.c", "main.c")],
         "-o", str(exe),

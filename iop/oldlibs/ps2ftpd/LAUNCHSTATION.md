@@ -1,89 +1,130 @@
 # Launchstation FTP integration
 
-The default PS2BUILD target compiles this directory into `ps2ftpd.irx` and
-embeds it in Launchstation. `src/init.c` loads it when FTP is requested.
-It has a separate filesystem layer from the EE file browser.
+The standard PS2BUILD target embeds this directory as `ps2ftpd.irx`.
+FTP is an exclusive file-transfer mode. It has its own filesystem adapter;
+the EE file browser's lazy-loading rules do not apply inside the FTP service.
 
-| File | Responsibility |
+| Source | Responsibility |
 | --- | --- |
-| `FileSystem.c` / `.h` | Export-based device discovery, virtual-to-driver paths, native file operations, directory metadata and PFS mount generations. |
-| `FtpCommands.c` | FTP command replies and dispatch into the filesystem layer. |
-| `FtpClient.c` / `.h` | Authentication, per-connection rename state, data connections, exact transfer I/O and completion/error replies. |
-| `FtpServer.c` / `.h` | Client/socket ownership, select loop and bounded TCP command framing. |
-| `imports.lst` / `irx_imports.h` | IOP imports and SDK header dependencies. |
-| `main.c` | Module startup, configuration and the 8 KiB server-thread stack. |
+| `src/dash_ftp.c` | FTP screen, controller Stop action and exclusive rendering. |
+| `src/ftp_session.c` | EE startup, control-RPC binding, status/stop calls and IOP restoration. |
+| `include/ftp_protocol.h` | Fixed-width, versioned EE/IOP status and shutdown protocol. |
+| `src/init.c:loadNetModules()` | Core, ATA, HDD/PFS, USB and network startup before FTP accepts clients. |
+| `FtpControl.c` / `.h` | Independent IOP control thread: status snapshots and cooperative stop. |
+| `FileSystem.c` / `.h` | Allowed paths/units, virtual HDD partitions, mount ownership and native file operations. |
+| `FtpCommands.c` | FTP command replies and filesystem dispatch. |
+| `FtpClient.c` / `.h` | Authentication, connection-local rename state, data sockets and exact transfer I/O. |
+| `FtpServer.c` / `.h` | Socket ownership, bounded TCP command framing and select loop. |
+| `main.c` | IOP server thread, control-service startup and final file/mount cleanup. |
+| `imports.lst` / `irx_imports.h` | Explicit SDK imports and header dependencies. |
 
-## Device and path contracts
+## Startup, exclusivity and stopping
 
-Discovery uses `iomanX_GetDeviceList()` (import 3), without scanning the module
-list or calculating private data offsets. The existing 32-slot bound is the
-supported PS2BUILD legacy-hook IOMANX contract; the table is sparse, so a NULL
-entry is not its end. Recheck that capacity when changing the IOMANX package.
+`DashFtpServer()` drains background jobs and outstanding libmc status requests.
+`ftpSessionBegin()` establishes a fresh IOP session through the normal reset path,
+which restores PADMAN and controller ports and removes MMCE/MX4SIO hooks and old
+PFS mounts. It rejects unavailable resets and conflicting PC CARD CF ownership.
+`loadNetModules()` then prepares core memory-card services, ATA (EXFAT builds),
+HDD/APA/PFS and USB before starting FTP. HDD/ATA startup uses the existing
+`shouldHideHddAtaDevices()` console compatibility policy, independent of saved
+visibility settings. Unsupported consoles skip those driver loads and pass
+`-no-hdd` to the IOP service, which omits both families and rejects their direct
+paths even if a driver is registered. Ethernet's shared DEV9 still starts.
+Missing storage media on a compatible console does not prevent serving the other
+devices. There is no driver loading triggered by FTP requests.
+The FTP entry point does not start the separate netfs listener.
 
-FTP exposes `usb`, `ata`, `mx4sio`, `mc`, `mmce`, `hdd` and `pfs` when registered.
-The shared BDM `mass` namespace is not exposed. A non-extended, USB-only legacy
-USBMASS driver can be presented as `usb`; it is never used to guess the identity
-of a BDM volume. Duplicate registry entries produce one visible device name.
-Unit probing opens and closes roots, with two MC/MMCE slots and four PFS mounts.
+The modal owns its frame loop. It does not run dashboard device polling, scans,
+artwork workers, remote-command dispatch or the staged ISO receiver. The loading
+flag remains active to prevent theme texture getters from queuing fresh disk IO.
+The regular background libmc poll also checks FTP module residency.
+Confirm and Back both request Stop directly, using the user's button mapping.
 
-`FileSystem_BuildPath()` accepts absolute or CWD-relative virtual paths, resolves
-`.` and `..`, and rejects overflow. Its output buffer must hold `FS_PATH_MAX`
-bytes. `FileSystem_ClassifyPath()` selects an exact device name and decimal
-unit, then returns the driver-relative path. The virtual path remains the
-stable identity retained by an RNFR command.
+The separate 4 KiB IOP control thread can report status while the 8 KiB FTP thread
+is inside a driver or socket call. Stop marks the session stopping and shuts down
+client sockets to wake pending sends/receives. It does not close filesystem handles
+from the control thread. The FTP owner finishes its current driver call, closes
+all clients/files, unmounts its idle PFS slots, and only then reports STOPPED.
+Close/unmount errors are retained in the final status. The EE then resets the IOP
+and returns to normal dashboard operation. An interrupted upload may be partial;
+no transfer is declared successful by the stop path.
 
-`FileSystem_ReadDir()` returns 1 for an entry, 0 for end, or a negative error.
-`FileSystem_Close()` clears ownership even on an error; transfers check its
-result before sending their success reply.
+## Exported devices
 
-## Rename and transfer contracts
+| Virtual path | Accessible storage |
+| --- | --- |
+| `/mc/0/`, `/mc/1/` | Memory-card slots 1 and 2. |
+| `/usb/0/`, `/usb/1/` | Typed USB filesystem units 0 and 1. |
+| `/hdd/0/<partition>/` | Browsable PFS partitions on HDD0. |
+| `/ata/0/` | ATA0 FAT/exFAT filesystem. |
 
-A pending RNFR belongs to its connection and must be followed by RNTO. It
-retains the complete source path, driver and unit, closes its existence-check
-handle, and is consumed by one RNTO attempt. Another client's PWD, PASV, SIZE
-or RNFR cannot replace that source. PFS mount generations reject a pending
-rename after its specific mount point changes.
+The root lists these four device families once. Unit lists probe only their
+allowed units and omit unavailable media. Path classification applies the same
+limits to every operation, including absolute paths supplied without CWD.
+`mass`, `pfs`, `mmce`, `mx4sio`, extra units and other device prefixes cannot be
+accessed by spelling their paths manually. SITE mount management is unsupported.
+Virtual device/partition roots cannot be renamed, overwritten or deleted.
 
-Native rename is used only within one device and unit. Cross-device requests
-and drivers without an extended rename operation return explicit errors.
-There is no copy/delete emulation or case-only temporary-name workaround.
-Legacy MC drivers without rename support remain unsupported for RNFR/RNTO;
-normal file upload/download still uses their read/write operations.
+Driver lookup uses `iomanX_GetDeviceList()` import 3, without module-memory offsets.
+The supported PS2BUILD legacy-hook IOMANX table has 32 sparse slots; NULL entries
+are holes. Recheck that bound when changing SDK packages. HDD advertises BLOCK,
+not FS, so discovery accepts both types. A USB-only, non-extended legacy `mass`
+driver may back `/usb/`; extended shared BDM `mass` is never guessed to be USB.
 
-The server uses blocking sockets and one shared transfer buffer. Every chunk
-must be fully written or sent before another client can reuse it. Partial I/O
-is completed in a loop; read, write, send, directory and close failures abort
-the operation instead of reporting success. Failed REST seeks never reopen
-with truncation. SIZE, restart offsets and MMCE EOF checks use 64-bit sizes.
+## HDD paths and mount ownership
 
-The command loop handles split and coalesced TCP commands, reserves room for
-the terminating NUL, and disconnects an overlong command. While a transfer is
-active, unrelated commands cannot replace its filesystem handle. ABOR closes
-that handle and its data connection.
+HDD partition validation retains the browsable-PFS filter. Every operation maps
+`/hdd/0/<partition>/...` to a private PFS mount, so CWD and PWD retain the virtual
+HDD path. Absolute LIST, SIZE, upload/download, rename and nested paths use the
+same translator; clients never need to manage `/pfs` aliases.
 
-IOP formatting uses the SDK's imported `sprintf`, with bounded strings and
-buffers sized for the worst-case fields. The 64-bit size formatter uses decimal
-place subtraction, avoiding unresolved `__udivdi3`/`__umoddi3` runtime helpers.
-The send helper accepts mutable buffers to match the IOP `lwip_send` signature.
-Do not introduce an unprovided `snprintf` or global socket `errno` dependency
-into this module.
+Four private mount slots match the PFS startup configuration. Open files and
+directories pin their slots. A second connection can share a partition, while
+only an unreferenced slot can be remounted. Exhaustion fails the request instead
+of replacing an active transfer's partition. One-shot operations release their
+references immediately, including errors. Pending renames retain mount generations
+and reject a source whose original slot has since been repurposed.
+
+## Transfer and rename contracts
+
+`FileSystem_ReadDir()` returns 1 for an entry, 0 at end, or a negative error.
+`FileSystem_Close()` clears handle ownership even on failure. Transfers check
+close/flush results before reporting success. The server has blocking sockets
+and one shared data buffer; each chunk is fully written/sent before another
+client can reuse it. Short I/O loops preserve all bytes. Read/write/socket/list
+errors abort the transfer. Failed REST seeks never reopen a file with truncation.
+SIZE and restart offsets retain 64-bit sizes.
+
+Each connection owns its RNFR source. Native rename is supported only within the
+same device and unit. Cross-device requests and drivers without native extended
+rename return errors. There is no copy/delete or temporary-name emulation.
+
+TCP parsing supports split and coalesced commands, reserves its terminating NUL,
+and rejects overlong lines. During a data transfer, unrelated commands cannot
+replace that connection's filesystem handle. ABOR closes the handle/socket.
+Operation status excludes authentication commands.
+
+IOP formatting uses imported `sprintf` with bounded strings/buffers. Decimal
+size conversion uses place subtraction, avoiding unresolved 64-bit division
+helpers. Socket sends use mutable buffers to match the SDK API. Do not introduce
+an unprovided IOP `snprintf` or global socket `errno` dependency.
 
 ## Validation
 
-Run `python3 tests/test_ftp_server.py` with a host C compiler. On Linux/x86,
-it also compiles the production size formatter as a freestanding 32-bit object
-and rejects external runtime dependencies. Decimal conversion is checked at
-power-of-ten and power-of-two boundaries and against 5000 random values.
-The same test compiles the IOP startup branch, including its explicit `loadcore.h`
-dependency for the module-end constants. It also compiles all five production
-filesystem/command/client/server/message units unchanged,
-using the preserved PS2BUILD ABI headers and mocked drivers/sockets in
-`tests/ftp/`. Fault cases cover short transfers, concurrent clients, directory
-errors, close errors, failed resumes, large sizes and command framing. The
-normal CI host-test step runs it before both target builds.
-`tests/test_ftp_network.py` also builds the POSIX backend and checks two real
-loopback clients, passive/active transfers, resume and command pipelining.
+- `python3 tests/test_ftp_server.py`: actual IOP filesystem/command/socket/control
+  units with preserved ABI headers and faulted drivers/sockets; fixed scope,
+  legacy/extended cards, PFS pinning/eviction, native rename, short I/O, failures,
+  cooperative shutdown, 64-bit sizes, command framing and freestanding 32-bit
+  decimal formatting. Also compiles the IOP startup/control service branches.
+- `python3 tests/test_ftp_session.py`: actual EE session and screen, covering
+  reset/ownership gates, bounded bind, stale RPC sessions, version checks,
+  exclusive frames, both Stop buttons and return to the dashboard.
+- `python3 tests/test_ftp_network.py`: two real loopback clients, passive/active
+  connections, resume, listings and exact payloads using the POSIX backend.
+- `tests/test_dev9_transition.py`: storage-before-FTP ordering, shared DEV9,
+  missing HDDs, network-mode transitions, failed startup and EXFAT builds.
 
-These host tests do not simulate IOP scheduling, physical storage, networking,
-or GS/UI behavior. Physical PS2 checks should cover two simultaneous client
-connections, USB0/USB1, MC uploads/downloads, MMCE and HDD/PFS native renames.
+Host tests do not simulate physical IOP scheduling, SIO2, Ethernet or storage.
+Hardware checks should cover startup after MMCE/MX4SIO use, both controllers/card
+slots, USB0/USB1, HDD/PFS and ATA0, multiple FileZilla connections, and Stop during
+uploads/downloads as well as idle sessions.

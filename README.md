@@ -124,7 +124,7 @@ Drivers load on demand for maximum compatibility and initial boot speed.
 - HDD Manager can inject APA partition headers
 - View/edit APA partiion header `system.cnf`
 - All drivers besides core lazy loading for faster boot and support of all devices.
-- FTP and PS2Link network services are included in the standard build and start only when requested from Tools > FTP server / Remote access.
+- Tools > FTP Server opens an exclusive transfer screen with memory cards 0/1, USB units 0/1, HDD0 PFS partitions and ATA0. Required drivers load at FTP startup; Confirm or Back stops the service and returns to Launchstation.
 - Create and Extract PSU options so user knows what will happen
 - Native dashboard image viewer for PNG, JPG and JPEG files opened directly from the File Browser, with previous/next browsing, rotation, zoom/pan, fullscreen and slideshow controls.
 - Extra file extensions for Text Editor ShortCuts

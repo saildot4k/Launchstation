@@ -165,9 +165,6 @@ void FtpClient_OnCmdRest(FtpClient *pClient, s64 iMarker);
 void FtpClient_OnCmdSize(FtpClient *pClient, const char *pFile);
 void FtpClient_OnCmdFeat(FtpClient *pClient);
 
-void FtpClient_OnSiteMount(FtpClient *pClient, const char *pMountPoint, const char *pMountFile);
-void FtpClient_OnSiteUmount(FtpClient *pClient, const char *pMountPoint);
-void FtpClient_OnSiteSync(FtpClient *pClient, const char *pDeviceName);
 void FtpClient_OnDataConnect(FtpClient *pClient, int *ip, int port);
 void FtpClient_OnDataConnected(FtpClient *pClient);
 void FtpClient_OnDataRead(FtpClient *pClient);

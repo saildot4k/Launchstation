@@ -166,6 +166,8 @@ and the HOST ioctl.
 | [dash_widgets.c](../src/dash_widgets.c) | Keyboard model/presentation, IP editor, path picker and classic-dialog adapter. |
 | [dash_sound.c](../src/dash_sound.c) | audsrv/IOP sound lifecycle, embedded ADP effects and optional BGM.ADP streaming. |
 | [dash_clock_sync.c](../src/dash_clock_sync.c) | Internet/manual clock changes and time service integration. |
+| [dash_ftp.c](../src/dash_ftp.c) | Exclusive FTP screen, live status and controller Stop action. |
+| [ftp_session.c](../src/ftp_session.c) | FTP IOP session startup/restoration and status/shutdown RPC transport. |
 | [remote_control.c](../src/remote_control.c) | Remote command polling and action dispatch integration. |
 | [pc_game_receiver.c](../src/pc_game_receiver.c) | Network game transfer receiver polling and receive workflow. |
 | [https_client.c](../src/https_client.c) | PS2 socket/entropy/time adapter, TLS verification/session, HTTP parsing/redirects, streaming download and optional request-thread status reports. |

@@ -50,7 +50,7 @@ static const Tool tools[] = {
     {TA_MISC, DI_APP, "PS2 system browser", "Leave Launchstation and open the console's own Browser.", NULL, 2, MISC(Misc_PS2Browser)},
     {TA_MISC, DI_APP, "OSDSYS", "Start the console's OSD (or the OSDSYS path configured in Launchstation).", NULL, 2, MISC(Misc_OSDSYS)},
 #ifdef ETH
-    {TA_MISC, DI_NETWORK, "FTP Server", "Start FTP on demand, accept remote commands, and receive staged/resumable ISO transfers from MrRexD-compatible PC tools.", "Switching to Host, UDPFS or Internet clock sync reboots the IOP and stops this server.", 0, MISC(Misc_PS2Net)},
+    {TA_MISC, DI_NETWORK, "FTP Server", "Transfer files using memory cards 0/1, USB units 0/1, HDD0 PFS partitions and ATA0. Required drivers load when FTP starts.", "Launchstation remains on the FTP screen until you stop the server.", 0, MISC(Misc_PS2Net)},
 #endif
     {TA_MISC, DI_INFO, "System information", "Console model, ROM version, boot path, loaded configuration and debug details.", NULL, 0, MISC(Misc_Debug_Info)},
     {TA_MISC, DI_CHIP, "Build information", "Features and drivers included in this build of Launchstation.", NULL, 0, MISC(Misc_Show_Build_Info)},

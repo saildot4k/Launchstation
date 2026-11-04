@@ -10,6 +10,7 @@
  */
 
 #include "FtpServer.h"
+#include "FtpControl.h"
 
 #ifndef LINUX
 #include <loadcore.h>
@@ -35,6 +36,10 @@ int process_args(FtpServer *pServer, int argc, char *argv[])
 		} else if (!strcmp("-anonymous", argv[i])) {
 			// enable anonymous logins
 			FtpServer_SetAnonymous(pServer, 1);
+#ifndef LINUX
+		} else if (!strcmp("-no-hdd", argv[i])) {
+			FileSystem_SetHddEnabled(0);
+#endif
 		} else if (!strcmp("-user", argv[i])) {
 			// set new username
 
@@ -67,10 +72,14 @@ int server(void *argv)
 {
 	// run server
 
-	while (FtpServer_IsRunning(&srv))
-		FtpServer_HandleEvents(&srv);
-
+	FileSystem_ResetMounts();
+	if (FtpControl_Init(&srv) >= 0)
+		while (FtpServer_IsRunning(&srv) && !FtpControl_Stopping())
+			FtpServer_HandleEvents(&srv);
 	FtpServer_Destroy(&srv);
+	FileSystem_UnmountAll();
+	FtpControl_Stopped();
+	ExitDeleteThread();
 	return 0;
 }
 

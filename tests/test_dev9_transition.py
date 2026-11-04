@@ -34,6 +34,7 @@ code = r'''
 #include <stdio.h>
 #include <stddef.h>
 #include <string.h>
+#include <stdlib.h>
 #define ETH 1
 #ifndef TEST_ETH_ONLY
 #define UDPFS 1
@@ -74,8 +75,8 @@ static void ps2ipc_dns_setserver(u8 n, const DashboardDnsAddress *ip) {
 }
 static u8 ps2dev9_irx[1], ata_bd_irx[1];
 static int size_ps2dev9_irx=1, size_ata_bd_irx=1;
-static u8 ps2ip_irx[1], ps2ips_irx[1], ps2smap_irx[1], ps2host_irx[1], ps2ftpd_irx[1], ps2netfs_irx[1];
-static int size_ps2ip_irx=1, size_ps2ips_irx=1, size_ps2smap_irx=1, size_ps2host_irx=1, size_ps2ftpd_irx=1, size_ps2netfs_irx=1;
+static u8 ps2ip_irx[1], ps2ips_irx[1], ps2smap_irx[1], ps2host_irx[1], ps2ftpd_irx[1];
+static int size_ps2ip_irx=1, size_ps2ips_irx=1, size_ps2smap_irx=1, size_ps2host_irx=1, size_ps2ftpd_irx=1;
 static int have_ps2ip, have_ps2ips, have_ps2smap, have_ps2host, have_ps2ftpd, have_ps2netfs, network_calls;
 static int client_calls, if_conf_len, have_NetModules;
 static unsigned int generation;
@@ -86,6 +87,10 @@ static int size_udpfs_smap_irx=1, size_udpfs_ministack_irx=1, size_udpfs_ioman_i
 static char ip[]="192.168.1.10";
 #endif
 static int console_is_PSX, have_Flash_modules, xfromserv_loaded, power_calls, flash_calls;
+static int hide_hdd_ata_devices=-1;
+static char ROMVER_data[16]="0190AC20030623";
+static void uLE_InitializeRegion(void) {}
+int shouldHideHddAtaDevices(void);
 static char if_conf[1];
 static int ps2dev9_loaded, have_ps2dev9, have_ata_bd;
 static int cf_owned, allow_reset, resets, bdm_live, bdm_ok, bdm_calls, ata_calls, dev9_calls, settle_calls;
@@ -95,7 +100,28 @@ static int pcCardCfOwnsBus(void) { return cf_owned; }
 static unsigned int getIopResetGeneration(void) { return generation; }
 #endif
 static void showLoadingModulesMsg(const char *name) { (void)name; }
-static void ensureCoreIoStackReady(void) {}
+static int core_ready, usb_live, hdd_prepared, storage_calls, mc_poll_pending, mc_drain_calls;
+static void ensureCoreIoStackReady(void) { core_ready=1; }
+static void loadUsbModules(void) {
+    assert(core_ready && network_stack_mode==NETWORK_STACK_FTP && !have_ps2ftpd);
+    usb_live=1;storage_calls++;
+}
+static int loadHddModules(void) {
+    assert(!shouldHideHddAtaDevices());
+    assert(core_ready && network_stack_mode==NETWORK_STACK_FTP && !have_ps2ftpd);
+    hdd_prepared=1;storage_calls++;return 0; /* Absent HDD must not block FTP. */
+}
+#ifdef EXFAT
+#define FTP_STORAGE_CALLS 3
+static int loadAtaModules(void) {
+    assert(!shouldHideHddAtaDevices());
+    assert(core_ready && network_stack_mode==NETWORK_STACK_FTP && !have_ps2ftpd);
+    storage_calls++;return 0;
+}
+#else
+#define FTP_STORAGE_CALLS 2
+#endif
+static void filerRootMcPollIdle(void) { mc_poll_pending=0;mc_drain_calls++; }
 static void setupPowerOff(void) { power_calls++; }
 static void load_pflash(void) { flash_calls++; xfromserv_loaded=1; }
 static void getIpConfig(void) {}
@@ -107,7 +133,7 @@ static int ps2ip_init(void) {
 static void resetRuntimeDeviceState(int show) {
     assert(show == TRUE); resets++;
     if (allow_reset) {
-        generation++;have_NetModules=0;
+        generation++;have_NetModules=0;core_ready=usb_live=hdd_prepared=0;
 #ifdef UDPFS
         have_udpfs_smap=have_udpfs_ministack=have_udpfs_ioman=0;
 #endif
@@ -149,6 +175,16 @@ static int SifExecModuleBuffer(const void *module, int size, int len, const void
         }
         network_calls++;
     }
+    if(module==ps2ftpd_irx) {
+        int unsupported=shouldHideHddAtaDevices();
+        assert(core_ready && usb_live && !!hdd_prepared==!unsupported && !mc_poll_pending);
+        assert(mc_drain_calls>0);
+        assert(args && !strcmp(args,"-anonymous"));
+        if(unsupported) {
+            int first=strlen(args)+1;
+            assert(len>first && !strcmp((const char *)args+first,"-no-hdd"));
+        } else assert(len==(int)strlen(args));
+    }
     if(module==failed_module) { *ret=failed_result;return failed_id; }
     *ret=module_result; return module_id;
 }
@@ -171,8 +207,11 @@ switch_source = function("switchNetworkStack")
 switch_pos = source.index(switch_source.rstrip())
 switch_guard = source[source.rfind("#if", 0, switch_pos):switch_pos].strip()
 code += switch_guard + "\n" + switch_source + "#endif\n"
+startup = (root / "src/main_startup.c").read_text()
+code += function("getRomverPrefixNumber", startup)
+code += function("shouldHideHddAtaDevices", startup)
 for name in ("load_ps2dev9", "loadAtaBlockDriver", "load_ps2ip", "load_ps2host",
-             "load_ps2ftpd", "load_ps2netfs", "loadNetModules", "isFtpNetworkReady", "configureDashboardDns", "dashboardIpNetworkError", "ensureDashboardIpNetworkReady", "loadFlashModules"):
+             "load_ps2ftpd", "loadNetModules", "isFtpServerRunning", "isFtpNetworkReady", "configureDashboardDns", "dashboardIpNetworkError", "ensureDashboardIpNetworkReady", "loadFlashModules"):
     code += function(name)
 code += "#ifdef UDPFS\n"
 for name in ("load_udpfs_stack", "load_udpfs", "reloadUdpfsModules"):
@@ -205,10 +244,11 @@ static void reset(void) {
     have_netman=0;
 #endif
     failed_module=NULL;failed_id=-1;failed_result=0;
-    dashboard_ip_error=NULL;
+    dashboard_ip_error=NULL;core_ready=usb_live=hdd_prepared=storage_calls=mc_drain_calls=0;mc_poll_pending=1;
     memset(dns_servers,0,sizeof(dns_servers));
     strcpy(gw,"192.168.1.1");
     console_is_PSX=have_Flash_modules=xfromserv_loaded=power_calls=flash_calls=0;
+    strcpy(ROMVER_data,"0190AC20030623");hide_hdd_ata_devices=-1;
 }
 static int startNetworkMode(int mode) {
     switch(mode) {
@@ -225,7 +265,7 @@ static void assertOnlyMode(int mode) {
     assert(network_stack_mode==mode);
     assert(!!have_NetModules==(mode==NETWORK_STACK_FTP));
     assert(!!have_ps2ftpd==(mode==NETWORK_STACK_FTP));
-    assert(!!have_ps2netfs==(mode==NETWORK_STACK_FTP));
+    assert(!have_ps2netfs);
     assert(!!have_ps2host==(mode==NETWORK_STACK_HOST));
     assert(!!have_ps2ips==(mode==NETWORK_STACK_CLIENT));
     assert(!!have_ps2ip==(mode!=NETWORK_STACK_UDPFS));
@@ -262,7 +302,7 @@ int main(void) {
     reset(); bdm_ok=0; assert(!loadAtaBlockDriver() && !ata_calls);
     /* Refused network-mode resets stop dependent service loads. */
     reset(); network_stack_mode=NETWORK_STACK_UDPFS;allow_reset=0;
-    load_ps2host(); load_ps2ftpd(); load_ps2netfs();
+    load_ps2host(); load_ps2ftpd();
     assert(!ensureDashboardIpNetworkReady() && !network_calls && !dev9_calls && !client_calls);
     char clock_result[160];
     reset(); assert(dashClockSyncInternet(clock_result,sizeof(clock_result)));
@@ -310,6 +350,33 @@ int main(void) {
     assert(strstr(dashboardIpNetworkError(),"Internet"));
     reset();module_id=-1;assert(!ensureDashboardIpNetworkReady());
     assert(strstr(dashboardIpNetworkError(),"DEV9"));
+    /* Storage is prepared in the surviving IOP session and pending card
+     * status is drained before the FTP thread can run. An absent HDD is OK. */
+    reset();assert(!isFtpServerRunning());
+    assert(startNetworkMode(NETWORK_STACK_FTP));
+    assert(isFtpServerRunning() && usb_live && hdd_prepared && storage_calls==FTP_STORAGE_CALLS);
+    assert(!mc_poll_pending && mc_drain_calls==1);
+    assert(startNetworkMode(NETWORK_STACK_FTP) && storage_calls==FTP_STORAGE_CALLS && mc_drain_calls==1);
+    /* FTP residency continues to gate MCMAN polling during partial startup. */
+    have_NetModules=have_ps2netfs=0;
+    assert(isFtpServerRunning() && !isFtpNetworkReady());
+    resetRuntimeDeviceState(TRUE);assert(!isFtpServerRunning());
+    /* Reuse the actual ROM capability policy, including the early Slim
+     * revisions whose ATA support must remain available. USB and Ethernet
+     * still start when the console cannot support the HDD/ATA services. */
+    const struct { const char *rom; int unsupported; } hardware[]={
+        {"0190AC20030623",0},{"0200HC20040614",0},{"0210EC20050516",0},
+        {"0220EC20050620",1},{"0230AC20060210",1},{"0250EC20100415",1},{"",0}
+    };
+    for(unsigned i=0;i<sizeof(hardware)/sizeof(hardware[0]);i++) {
+        reset();strcpy(ROMVER_data,hardware[i].rom);
+        assert(startNetworkMode(NETWORK_STACK_FTP));
+        assert(shouldHideHddAtaDevices()==hardware[i].unsupported);
+        assert(usb_live && !mc_poll_pending && isFtpNetworkReady());
+        assert(!!hdd_prepared==!hardware[i].unsupported);
+        assert(storage_calls==(hardware[i].unsupported?1:FTP_STORAGE_CALLS));
+        assert(ps2dev9_loaded && have_ps2smap && dev9_calls==1);
+    }
     /* Exercise the real entry points and reset gate for every mode pair. */
     const int modes[]={NETWORK_STACK_FTP,NETWORK_STACK_HOST,NETWORK_STACK_CLIENT,
 #ifdef UDPFS
@@ -359,7 +426,7 @@ with tempfile.TemporaryDirectory(prefix="dev9-transition-") as folder:
     cc = shutil.which("gcc") or shutil.which("clang")
     assert cc, "Host C compiler required"
     for flags in ([], ["-DWLE_NETMAN_IP"], ["-DTEST_ETH_ONLY"],
-                  ["-DTEST_ETH_ONLY", "-DWLE_NETMAN_IP"], ["-DUDPTTY"]):
+                  ["-DTEST_ETH_ONLY", "-DWLE_NETMAN_IP"], ["-DUDPTTY"], ["-DEXFAT", "-DWLE_NETMAN_IP"]):
         subprocess.run([cc, "-std=c11", "-Wall", "-Wextra", "-Werror", *flags,
                         str(path / "test.c"), "-o", str(exe)], check=True)
         subprocess.run([str(exe)], check=True, timeout=10)

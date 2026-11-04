@@ -45,6 +45,9 @@ code = r'''
 #define MC_BROWSER_RETRY_COUNT 4
 #define MC_BROWSER_RETRY_DELAY_US 100000
 #define MX4SIO 1
+#define ETH 1
+static int ftp_running, info_calls;
+static int isFtpServerRunning(void) { return ftp_running; }
 #define sceMcResSucceed 0
 #define sceMcResChangedCard -1
 #define sceMcResFailDetect -3
@@ -65,7 +68,7 @@ static u64 now_ms;
 static u64 Timer(void) { return now_ms; }
 static int fail_port1_start, fail_port1_sync, pending_port = -1;
 static int mcGetInfo(int port, int slot, int *type, int *free, int *format) {
-    (void)slot; (void)format;
+    (void)slot; (void)format; info_calls++;
     if (port == 1 && fail_port1_start) return -1;
     if(type)*type=2;if(free)*free=4096;pending_port=port;
     pending_result=changed_card ? (changed_card--,-1) : card_result;return 0;
@@ -204,6 +207,21 @@ int main(void) {
     assert(!dashLibScanRunning() && dashAppCount==1 && cache_saves==1);
     assert(!strcmp(dashApps[0].path,"mc0:/APPS/BOOT.ELF"));
     assert(dashLibApplyScan(NULL)==-2);
+    /* FTP and MCSERV share MCMAN state. Cached presence stays available,
+     * but do not issue background get-info/free-space RPCs during FTP. */
+    filerRootMcPollIdle();
+    ftp_running=1;int info_before=info_calls;
+    run(40);
+    assert(info_calls==info_before && pending_port==-1 && !root_mc_poll_active);
+    assert(filerRootMcPresent(0,NULL,NULL)==1);
+    /* A request already pending may finish; it must not spawn another one. */
+    root_mc_poll_active=1;root_mc_poll_port=0;pending_port=0;pending_result=0;
+    pollRootMemoryCardDevices();
+    assert(!root_mc_poll_active && pending_port==-1 && info_calls==info_before);
+    run(8);assert(info_calls==info_before);
+    ftp_running=0;run(4);assert(info_calls>info_before);
+    filerRootMcPollIdle();
+    puts("PASS: FTP pauses background MCMAN RPCs, preserves presence and resumes after shutdown");
     puts("PASS: cold/stale MC readiness, retry/cache preservation, pending scan publication, browser drain, lazy USB and MX4SIO ownership");
     puts("PASS: an unresponsive memory-card slot cannot starve the other or stay Checking forever");
     return 0;

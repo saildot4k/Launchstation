@@ -31,6 +31,7 @@
 #endif
 
 #include "FtpServer.h"
+#include "FtpControl.h"
 
 #include <errno.h>
 
@@ -193,7 +194,9 @@ int FtpServer_HandleEvents(FtpServer *pServer)
 	}
 	FtpServer_ClientEndTraverse;
 
-	res = select(hs + 1, &r, &w, NULL, NULL);
+	struct timeval timeout = {0, 100000};
+	res = select(hs + 1, &r, &w, NULL, &timeout);
+	if (FtpControl_Stopping()) return 0;
 	if (res <= 0)
 		return res;
 

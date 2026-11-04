@@ -49,17 +49,36 @@ with tempfile.TemporaryDirectory(prefix="launchstation-ftp-") as tmp:
         "-DIOMANX_OLD_NAME_ADDDELDRV=0", "-Wall", "-Werror", "-fno-builtin",
         "-include", str(root / "tests/ftp/startup.h"),
         "-I", str(root / "tests/ftp"),
-        "-I", str(root / "tests/pccf-stubs"), "-I", str(source),
+        "-I", str(root / "tests/pccf-stubs"), "-I", str(source), "-I", str(root / "include"),
         "-c", str(source / "main.c"), "-o", str(Path(tmp) / "ftp-startup.o"),
     ], check=True)
     print("PASS: IOP FTP startup compiles with explicit loadcore definitions", flush=True)
+    subprocess.run([
+        cc, "-std=gnu11", "-D_IOP", "-DIOMANX_OLD_NAME_COMPATIBILITY=0",
+        "-DIOMANX_OLD_NAME_ADDDELDRV=0", "-Wall", "-Wextra", "-Werror", "-fno-builtin",
+        "-include", str(root / "tests/ftp/startup.h"),
+        "-I", str(root / "tests/ftp"), "-I", str(root / "tests/pccf-stubs"),
+        "-I", str(root / "include"), "-I", str(source),
+        "-c", str(source / "FtpControl.c"), "-o", str(Path(tmp) / "ftp-control.o"),
+    ],check=True)
+
+    # Exercise the production argument parser without linking a second _start.
+    main = (source / "main.c").read_text()
+    arg_start = main.index("int process_args(")
+    arg_end = main.index("{", arg_start) + 1
+    depth = 1
+    while depth:
+        depth += (main[arg_end] == "{") - (main[arg_end] == "}")
+        arg_end += 1
+    arguments = Path(tmp) / "startup-arguments.c"
+    arguments.write_text('#include "FtpServer.h"\n' + main[arg_start:arg_end] + "\n")
     exe = Path(tmp) / "ftp-test"
     subprocess.run([
-        cc, *shlex.split(os.environ.get("CFLAGS", "")), "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-fno-builtin", "-g",
+        cc, *shlex.split(os.environ.get("CFLAGS", "")), "-std=gnu11", "-DFTP_CONTROL_TEST", "-Wall", "-Wextra", "-Werror", "-fno-builtin", "-g",
         "-include", str(root / "tests/ftp/platform.h"),
-        "-I", str(root / "tests/pccf-stubs"), "-I", str(source),
+        "-I", str(root / "tests/pccf-stubs"), "-I", str(source), "-I", str(root / "include"),
         *[str(source / name) for name in
-          ("FileSystem.c", "FtpClient.c", "FtpCommands.c", "FtpServer.c", "FtpMessages.c")],
-        str(root / "tests/ftp/test_server.c"), "-o", str(exe),
+          ("FtpControl.c", "FileSystem.c", "FtpClient.c", "FtpCommands.c", "FtpServer.c", "FtpMessages.c")],
+        str(arguments), str(root / "tests/ftp/test_server.c"), "-o", str(exe),
     ], check=True)
     subprocess.run([str(exe)], check=True, timeout=30)
