@@ -10,6 +10,7 @@
 #define LS_FTP_STOPPED 3
 typedef struct {
 	unsigned int version;
+	/* clients counts live FTP control connections; one app may open several. */
 	int state, error, clients, transfers;
 	unsigned int bytes_low, bytes_high;
 	char operation[128];

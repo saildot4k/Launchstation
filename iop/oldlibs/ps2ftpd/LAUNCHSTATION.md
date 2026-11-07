@@ -38,7 +38,8 @@ The modal owns its frame loop. It does not run dashboard device polling, scans,
 artwork workers, remote-command dispatch or the staged ISO receiver. The loading
 flag remains active to prevent theme texture getters from queuing fresh disk IO.
 The regular background libmc poll also checks FTP module residency.
-Confirm and Back both request Stop directly, using the user's button mapping.
+The single Cancel action requests Stop using the user's configured physical
+cancel button.
 
 The separate 4 KiB IOP control thread can report status while the 8 KiB FTP thread
 is inside a driver or socket call. Stop marks the session stopping and shuts down
@@ -53,14 +54,16 @@ no transfer is declared successful by the stop path.
 
 | Virtual path | Accessible storage |
 | --- | --- |
-| `/mc/0/`, `/mc/1/` | Memory-card slots 1 and 2. |
-| `/usb/0/`, `/usb/1/` | Typed USB filesystem units 0 and 1. |
-| `/hdd/0/<partition>/` | Browsable PFS partitions on HDD0. |
-| `/ata/0/` | ATA0 FAT/exFAT filesystem. |
+| `/mc0/`, `/mc1/` | Memory-card slots 1 and 2. |
+| `/usb0/`, `/usb1/` | Typed USB filesystem units 0 and 1. |
+| `/hdd0/<partition>/` | Browsable PFS partitions on HDD0. |
+| `/ata0/` | ATA0 FAT/exFAT filesystem. |
 
-The root lists these four device families once. Unit lists probe only their
-allowed units and omit unavailable media. Path classification applies the same
-limits to every operation, including absolute paths supplied without CWD.
+The root directly lists available `mc0`, `mc1`, `usb0`, `usb1`, `hdd0` and `ata0`
+devices, probing only those supported units and omitting unavailable media.
+There are no intermediate family/unit directories or legacy path aliases.
+Path classification applies the same limits to every operation, including
+absolute paths supplied without CWD.
 `mass`, `pfs`, `mmce`, `mx4sio`, extra units and other device prefixes cannot be
 accessed by spelling their paths manually. SITE mount management is unsupported.
 Virtual device/partition roots cannot be renamed, overwritten or deleted.
@@ -69,12 +72,13 @@ Driver lookup uses `iomanX_GetDeviceList()` import 3, without module-memory offs
 The supported PS2BUILD legacy-hook IOMANX table has 32 sparse slots; NULL entries
 are holes. Recheck that bound when changing SDK packages. HDD advertises BLOCK,
 not FS, so discovery accepts both types. A USB-only, non-extended legacy `mass`
-driver may back `/usb/`; extended shared BDM `mass` is never guessed to be USB.
+driver may back `/usb0/` and `/usb1/`; extended shared BDM `mass` is never guessed
+to be USB.
 
 ## HDD paths and mount ownership
 
 HDD partition validation retains the browsable-PFS filter. Every operation maps
-`/hdd/0/<partition>/...` to a private PFS mount, so CWD and PWD retain the virtual
+`/hdd0/<partition>/...` to a private PFS mount, so CWD and PWD retain the virtual
 HDD path. Absolute LIST, SIZE, upload/download, rename and nested paths use the
 same translator; clients never need to manage `/pfs` aliases.
 

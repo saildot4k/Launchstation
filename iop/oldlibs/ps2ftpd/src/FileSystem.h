@@ -46,7 +46,6 @@ typedef struct FSContext
 
 #ifndef LINUX
 	FSType m_eType;
-	int m_iFamily; /* -1: virtual root, otherwise the fixed FTP family index. */
 	int m_iMount; /* PFS mount reference held by this operation. */
 	int m_iRoot; /* Native path is the root of a device/partition. */
 	iop_file_t m_kFile;

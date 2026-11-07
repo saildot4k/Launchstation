@@ -187,6 +187,10 @@ void dashInputFlush(void) {}
 void dashInputPoll(DashInput *in)
 {
 	in->pressed = ++inputs == 3 ? stop_button : 0;
+	if (inputs == 4) {
+		assert(!stop_calls && server_state == LS_FTP_RUNNING);
+		in->pressed = DASH_IN_BACK;
+	}
 }
 u64 Timer(void)
 {
@@ -240,7 +244,7 @@ int main(void)
 	assert(DashFtpServer() && frames >= 3 && stop_calls == 1 && resets == 2 && !loading && !messages);
 	clear();
 	stop_button = DASH_IN_OK;
-	assert(DashFtpServer() && stop_calls == 1 && resets == 2);
+	assert(DashFtpServer() && inputs == 4 && stop_calls == 1 && resets == 2);
 	clear();
 	fail_calls = 1;
 	assert(!DashFtpServer() && resets == 2 && messages == 1 && !loading);

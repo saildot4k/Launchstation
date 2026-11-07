@@ -18,7 +18,7 @@ static void ftpFrame(const LsFtpStatus *status, int stopping)
 	dashTextS(x + 60, y + 24, stopping ? "Stopping FTP" : "FTP server running", DASH_FS_LABEL, DASH_C_TEXT);
 	snprintf(line, sizeof(line), "IP address: %s    Port: 21", ip);
 	dashTextFit(x + 24, y + 65, w - 48, line, DASH_FS_SMALL, DASH_C_TEXT);
-	snprintf(line, sizeof(line), "Connected clients: %d    Active transfers: %d", status->clients,
+	snprintf(line, sizeof(line), "FTP connections: %d    Active transfers: %d", status->clients,
 			 status->transfers);
 	dashTextFit(x + 24, y + 93, w - 48, line, DASH_FS_SMALL, DASH_C_TEXT2);
 	dashTextFit(x + 24, y + 125, w - 48,
@@ -33,7 +33,7 @@ static void ftpFrame(const LsFtpStatus *status, int stopping)
 				stopping ? "Closing files and connections..." : "Stop FTP to return to Launchstation.",
 				DASH_FS_SMALL, DASH_C_TEXT3);
 	if (!stopping)
-		dashModalHintRow(x + 24, y + h - 42, dashOkIcon(), "Stop FTP", dashBackIcon(), "Stop FTP");
+		dashModalHintRow(x + 24, y + h - 42, 0, NULL, dashBackIcon(), "Cancel");
 	dashGfxPresent();
 }
 
@@ -63,7 +63,7 @@ int DashFtpServer(void)
 	while (status.state != LS_FTP_STOPPED) {
 		DashInput input;
 		dashInputPoll(&input);
-		if (!stopping && (input.pressed & (DASH_IN_OK | DASH_IN_BACK))) {
+		if (!stopping && (input.pressed & DASH_IN_BACK)) {
 			stopping = 1;
 			dashSoundPlay(DASH_SND_CANCEL);
 			if (!ftpSessionStop()) {
