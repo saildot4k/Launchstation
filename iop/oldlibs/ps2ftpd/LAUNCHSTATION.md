@@ -41,6 +41,20 @@ The regular background libmc poll also checks FTP module residency.
 The single Cancel action requests Stop using the user's configured physical
 cancel button.
 
+The screen counts distinct source IPv4 addresses across live control connections
+as FTP clients. Multiple sessions from the same PC count once; an address leaves
+the count when its last control connection closes. Transfer counts still cover
+every session. The accepted control peer is stored separately from the PORT/data
+address so active and passive data connections cannot change the client count.
+
+The IOP records the three latest received commands, newest first, with their PS2
+RTC date/time. EE rendering converts those timestamps to the console's local
+timezone and displays HH:MM:SS before each command. USER and PASS are excluded,
+including rejected login attempts. Unknown clock values display --:--:-- without
+losing the command. Long command text is bounded, and history resets with each
+FTP session. The version 2 status packet is 512 bytes, aligned to 64-byte cache
+lines on both sides of the SIF RPC transport.
+
 The separate 4 KiB IOP control thread can report status while the 8 KiB FTP thread
 is inside a driver or socket call. Stop marks the session stopping and shuts down
 client sockets to wake pending sends/receives. It does not close filesystem handles
@@ -106,7 +120,7 @@ rename return errors. There is no copy/delete or temporary-name emulation.
 TCP parsing supports split and coalesced commands, reserves its terminating NUL,
 and rejects overlong lines. During a data transfer, unrelated commands cannot
 replace that connection's filesystem handle. ABOR closes the handle/socket.
-Operation status excludes authentication commands.
+Command history excludes authentication commands.
 
 IOP formatting uses imported `sprintf` with bounded strings/buffers. Decimal
 size conversion uses place subtraction, avoiding unresolved 64-bit division
@@ -118,11 +132,12 @@ an unprovided IOP `snprintf` or global socket `errno` dependency.
 - `python3 tests/test_ftp_server.py`: actual IOP filesystem/command/socket/control
   units with preserved ABI headers and faulted drivers/sockets; fixed scope,
   legacy/extended cards, PFS pinning/eviction, native rename, short I/O, failures,
-  cooperative shutdown, 64-bit sizes, command framing and freestanding 32-bit
-  decimal formatting. Also compiles the IOP startup/control service branches.
+  cooperative shutdown, unique client IPs, timestamped command history, 64-bit
+  sizes, command framing and freestanding 32-bit decimal formatting. Also compiles the IOP startup/control service branches.
 - `python3 tests/test_ftp_session.py`: actual EE session and screen, covering
   reset/ownership gates, bounded bind, stale RPC sessions, version checks,
-  exclusive frames, both Stop buttons and return to the dashboard.
+  exclusive frames, cancel-only stopping, local command timestamps, missing-clock
+  fallback and return to the dashboard.
 - `python3 tests/test_ftp_network.py`: two real loopback clients, passive/active
   connections, resume, listings and exact payloads using the POSIX backend.
 - `tests/test_dev9_transition.py`: storage-before-FTP ordering, shared DEV9,

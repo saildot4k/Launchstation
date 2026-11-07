@@ -185,6 +185,11 @@ void FtpClient_OnCommand(FtpClient *pClient, const char *pString)
 		for (i = 0; *c && i < 4; i++)
 			result = (result << 8) | tolower(*(c++));
 
+		/* Keep received commands in order, including rejected commands, but
+		 * never publish login names or passwords in the dashboard history. */
+		if (result != FTPCMD_USER && result != FTPCMD_PASS)
+			FtpControl_Operation(pString);
+
 		if (result != FTPCMD_RNTO && result != FTPCMD_RNFR)
 			pClient->m_Rename.path[0] = '\0';
 		if (pClient->m_eDataMode != DATAMODE_IDLE && result != FTPCMD_ABOR &&
@@ -229,9 +234,6 @@ void FtpClient_OnCommand(FtpClient *pClient, const char *pString)
 
 			return;
 		}
-
-		if (result != FTPCMD_USER && result != FTPCMD_PASS)
-			FtpControl_Operation(pString);
 
 		switch (result) {
 			case FTPCMD_USER:

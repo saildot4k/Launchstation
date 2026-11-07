@@ -37,19 +37,23 @@ static int next_socket = 30, connect_error;
 static iop_device_t *devices[FS_IOMANX_DEVICES];
 static iop_device_t usb, mass, mc, mmce, pfs, duplicate_usb, ata;
 static unsigned char payload[PAYLOAD_SIZE];
+static sceCdCLOCK rtc;
+static int rtc_ok = 1, interrupts_disabled;
 int CpuSuspendIntr(int *state)
 {
-	*state = 0;
+	*state = interrupts_disabled;
+	interrupts_disabled = 1;
 	return 0;
 }
 int CpuResumeIntr(int state)
 {
-	(void)state;
+	interrupts_disabled = state;
 	return 0;
 }
 int lwip_shutdown(int fd, int how)
 {
 	(void)how;
+	assert(!interrupts_disabled);
 	sockets[fd].write_error = EPIPE;
 	sockets[fd].read_error = ECONNRESET;
 	return 0;
@@ -323,11 +327,9 @@ iomanX_iop_device_t **iomanX_GetDeviceList(void)
 }
 int sceCdReadClock(sceCdCLOCK *clock)
 {
-	memset(clock, 0, sizeof(*clock));
-	clock->day = 0x31;
-	clock->month = 0x10;
-	clock->year = 0x26;
-	return 1;
+	assert(!interrupts_disabled);
+	*clock = rtc;
+	return rtc_ok;
 }
 int DelayThread(unsigned int delay)
 {
@@ -523,10 +525,12 @@ static void setup(void)
 	add(&pfs, 0, "/file.elf", 0, payload, 7);
 	next_socket = 30;
 	connect_error = 0;
+	rtc = (sceCdCLOCK){.year = 0x26, .month = 0x10, .day = 0x31, .hour = 0x16, .minute = 0x59};
+	rtc_ok = 1;
 }
 static FtpClient *client(FtpServer *server, int fd, const char *cwd)
 {
-	FtpClient *c = FtpServer_OnClientConnect(server, fd);
+	FtpClient *c = FtpServer_OnClientConnect(server, fd, htonl(0xc0a80114));
 	assert(c);
 	c->m_eAuthState = AUTHSTATE_VALID;
 	assert(FileSystem_ChangeDir(&c->m_kContext, cwd) == 0);
@@ -1015,6 +1019,134 @@ static void test_transfers(void)
 	puts("PASS: exact upload/download bytes with short I/O, directory sends and network/filesystem failures");
 }
 
+static void test_client_count(void)
+{
+	setup();
+	FtpServer server;
+	FtpServer_Create(&server);
+	FtpControl_Init(&server);
+	FtpClient *a = client(&server, 10, "/usb0");
+	FtpClient *b = client(&server, 11, "/usb0");
+	FtpClient *c = client(&server, 12, "/usb0");
+	LsFtpStatus status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(status.clients == 1 && !status.transfers);
+	/* A PORT command's data address cannot change the source host's identity. */
+	command(c, "PORT 192,168,1,99,10,1");
+	assert(reply(12) == 200 && c->m_iRemoteAddress[3] == 99);
+	assert(c->m_uiPeerAddress == htonl(0xc0a80114));
+	assert(!FileSystem_OpenFile(&a->m_kContext, "file.elf", FM_READ, 0));
+	assert(!FileSystem_OpenFile(&b->m_kContext, "file.elf", FM_READ, 0));
+	start_data(a, 20, DATAACTION_RETR);
+	start_data(b, 21, DATAACTION_RETR);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(status.clients == 1 && status.transfers == 2);
+	FtpClient *d = FtpServer_OnClientConnect(&server, 13, htonl(0xc0a80115));
+	assert(d && d->m_uiPeerAddress == htonl(0xc0a80115));
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(status.clients == 2 && status.transfers == 2);
+	FtpServer_OnClientDisconnect(&server, a);
+	FtpServer_OnClientDisconnect(&server, b);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(status.clients == 2 && !status.transfers);
+	FtpServer_OnClientDisconnect(&server, c);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(status.clients == 1);
+	/* Reusing a released slot must count the new peer, not its former address. */
+	a = FtpServer_OnClientConnect(&server, 14, htonl(0xc0a80116));
+	assert(a && a->m_uiPeerAddress == htonl(0xc0a80116));
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(status.clients == 2);
+	FtpServer_OnClientDisconnect(&server, d);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(status.clients == 1);
+	FtpServer_OnClientDisconnect(&server, a);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(!status.clients && !status.transfers);
+	FtpServer_Destroy(&server);
+	assert(open_count == close_count);
+	puts("PASS: unique control-peer IP counts, parallel transfers, PORT independence, disconnects and slot reuse");
+}
+static void test_command_history(void)
+{
+	setup();
+	FtpServer server;
+	FtpServer_Create(&server);
+	FtpControl_Init(&server);
+	FtpServer_SetUsername(&server, "private-user");
+	FtpServer_SetPassword(&server, "hidden-password");
+	FtpClient *a = FtpServer_OnClientConnect(&server, 10, htonl(0xc0a80114));
+	assert(a);
+	command(a, "uSeR private-user");
+	command(a, "pAsS hidden-password");
+	assert(a->m_eAuthState == AUTHSTATE_VALID);
+	LsFtpStatus status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	for (int i = 0; i < LS_FTP_HISTORY_COUNT; i++)
+		assert(!status.history[i].text[0]);
+	FtpClient *b = client(&server, 11, "/");
+	rtc.second = 0x01;
+	command(a, "PWD");
+	rtc.second = 0x02;
+	command(b, "TYPE I");
+	rtc.second = 0x03;
+	command(a, "CWD /usb0");
+	rtc.second = 0x04;
+	command(b, "NOOP");
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	const char *expected[] = {"NOOP", "CWD /usb0", "TYPE I"};
+	for (int i = 0; i < LS_FTP_HISTORY_COUNT; i++) {
+		const LsFtpCommand *entry = &status.history[i];
+		assert(!strcmp(entry->text, expected[i]));
+		assert(entry->year == 2026 && entry->month == 10 && entry->day == 31);
+		assert(entry->hour == 16 && entry->minute == 59 && entry->second == 4 - i);
+	}
+	assert(sizeof(status) == 512 && status.version == LS_FTP_PROTOCOL_VERSION);
+	/* Status polling never retimestamps the commands or changes their order. */
+	rtc.second = 0x30;
+	LsFtpStatus polled = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(!memcmp(status.history, polled.history, sizeof(status.history)));
+	command(a, "USER should-not-appear");
+	command(a, "PASS should-not-appear");
+	polled = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(!memcmp(status.history, polled.history, sizeof(status.history)));
+	char long_command[300];
+	memset(long_command, 'x', sizeof(long_command) - 1);
+	memcpy(long_command, "CWD ", 4);
+	long_command[sizeof(long_command) - 1] = 0;
+	command(a, long_command);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(strlen(status.history[0].text) == sizeof(status.history[0].text) - 1);
+	assert(!strncmp(status.history[0].text, long_command, sizeof(status.history[0].text) - 1));
+	assert(!strcmp(status.history[1].text, "NOOP"));
+	rtc_ok = 0;
+	command(a, "PWD");
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(!strcmp(status.history[0].text, "PWD") && !status.history[0].year);
+	rtc_ok = 1;
+	rtc.stat = 1;
+	command(a, "NOOP");
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(!status.history[0].year);
+	rtc.stat = 0;
+	rtc.hour = 0x2a;
+	command(a, "PWD");
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(!status.history[0].year);
+	rtc.hour = 0x16;
+	rtc.month = 0x90; /* RTC month carries a separate high-bit flag. */
+	a->m_eDataMode = DATAMODE_WRITE;
+	command(a, "CWD /mc0");
+	assert(reply(10) == 450);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(!strcmp(status.history[0].text, "CWD /mc0") && status.history[0].month == 10);
+	FtpControl_Init(&server);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	for (int i = 0; i < LS_FTP_HISTORY_COUNT; i++)
+		assert(!status.history[i].text[0]);
+	FtpServer_Destroy(&server);
+	assert(open_count == close_count);
+	puts("PASS: newest-first timestamped history across sessions, credential exclusion, truncation, RTC failures and reset");
+}
+
 static void test_stop_control(void)
 {
 	setup();
@@ -1180,6 +1312,8 @@ int main(void)
 	test_denied_commands();
 	test_memory_card_browsing();
 	test_transfers();
+	test_client_count();
+	test_command_history();
 	test_stop_control();
 	test_decimal_formatting();
 	test_resume_and_size();
