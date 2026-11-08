@@ -191,8 +191,8 @@ int main(void) {
     for (int port = 2; port <= 3; port++) {
         ping_calls = reset_commands = ping_success_at = 0;
         mmce_init(port);
-        assert(selected_port == port && ping_calls == 2 && reset_commands == 0);
-        for (int success = 1; success <= 2; success++) {
+        assert(selected_port == port && ping_calls == MMCE_PING_ATTEMPTS && reset_commands == 0);
+        for (int success = 1; success <= MMCE_PING_ATTEMPTS; success++) {
             ping_calls = reset_commands = 0;
             ping_success_at = success;
             mmce_init(port);

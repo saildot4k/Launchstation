@@ -1951,10 +1951,7 @@ static int filerRenameHost(const char *old_path, const char *new_path, int direc
 	closed = directory ? fileXioDclose(fd) : fileXioClose(fd);
 	if (ret < 0) return ret == -6 ? -EEXIST : ret;
 	if (closed < 0) return closed;
-	if (case_alias) return 0;
-	if (filerPathExistsForConflict(old_path)) return -EIO;
-	ret = filerPathConflictType(new_path);
-	return ret == (directory ? FILER_CONFLICT_DIR : FILER_CONFLICT_FILE) ? 0 : -EIO;
+	return 0;
 }
 
 static int filerRenameSiblingOnce(const char *from, const char *to, int directory)
@@ -2022,7 +2019,7 @@ static int filerRenameCaseOnly(const char *from, const char *to, const char *old
 	if (state != FILER_RENAME_OLD) return -ENOENT;
 	/* The target lookup aliases the one exact source entry. Ask its driver
 	 * once; unsupported case changes are not emulated with temporary names.
-	 * Ordinary no-replace renames retain their strict checks, including copy. */
+	 * Ordinary renames use the R3Z directory/file conflict probes. */
 	ret = host ? filerRenameHost(from, to, directory, 1) : fileXioRename(from, to);
 	state = filerRenameCaseState(parent, old_name, new_name);
 	if (state == FILER_RENAME_NEW) return ret < 0 ? ret : 0;

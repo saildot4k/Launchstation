@@ -1113,14 +1113,31 @@ static void loadBasicModules(void)
 //------------------------------
 //endfunc loadBasicModules
 //---------------------------------------------------------------------------
+/* Match R3Z's IOP transfer-buffer tuning. The SDK frees the old buffer
+ * before resizing, so explicitly recreate its 16 KiB default if both larger
+ * allocations fail. */
+static void configureFileXioTransferBuffer(void)
+{
+	static const int sizes[] = {128 * 1024, 64 * 1024, 16 * 1024};
+	int i, ret = -ENOMEM;
+
+	for (i = 0; i < (int)(sizeof(sizes) / sizeof(sizes[0])); i++) {
+		ret = fileXioSetRWBufferSize(sizes[i]);
+		if (ret >= 0) {
+			DPRINTF(" [FILEXIO_RWB]: set %d bytes\n", sizes[i]);
+			return;
+		}
+	}
+	DPRINTF(" [FILEXIO_RWB]: allocation failed (ret=%d)\n", ret);
+}
+
 void ensureCoreIoStackReady(void)
 {
 	loadBasicModules();
 
 	if (!have_filexio_ready) {
 		fileXioInit();
-		/* Keep the SDK transfer buffer: network, USB and BDM services share
-		 * the IOP heap. Do not reserve a large throughput buffer here. */
+		configureFileXioTransferBuffer();
 		have_filexio_ready = 1;
 	}
 
