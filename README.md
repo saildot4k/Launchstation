@@ -41,7 +41,7 @@ icons and clock, plus shareable theme folders. See
 
 ## Building with TechWritesCode's PS2BUILD SDK
 
-Launchstation is built and validated with the **PS2BUILD SDK by [TechWritesCode](https://github.com/techwritescode)**. It provides our EE/IOP toolchains, SDK packages and `ps2.yaml` build workflow, locally and in CI. Start with the [official PS2BUILD installation and guide](https://ps2.techwritescode.dev/guide/getting-started).
+Launchstation is built and validated with the **PS2BUILD SDK by [TechWritesCode](https://github.com/techwritescode)**. It provides our EE/IOP toolchains, SDK packages and `ps2.yaml` build workflow, locally and in CI. Start with the [official PS2BUILD installation and guide](https://ps2build.dev/guide/installation).
 
 ```
 python3 scripts/gen_githash.py
@@ -391,7 +391,7 @@ The four current dashboard tabs are **Home, Files, Tools, Settings**. The Applic
 
 **Direct lineage and maintainers:** [wLaunchELF_R3Z](https://github.com/saildot4k/wLaunchELF_R3Z) by R3Z3N / Saildot4K; earlier wLaunchELF, uLaunchELF and LaunchELF authors; [johnson-cooper](https://github.com/johnson-cooper), who created and transferred this fork; [NathanNeurotic / Ripto](https://github.com/NathanNeurotic), current maintainer; [techwritescode](https://github.com/techwritescode), TnA, oMrRexD, Zack and FitthFox for collaboration, insight or testing as noted in the detailed credits.
 
-**Build SDK:** [TechWritesCode's PS2BUILD SDK](https://ps2.techwritescode.dev/guide/getting-started) powers our local and CI builds.
+**Build SDK:** [TechWritesCode's PS2BUILD SDK](https://ps2build.dev/guide/installation) powers our local and CI builds.
 
 **Upstream source/dependency credits:** [PS2SDK/ps2dev](https://github.com/ps2dev/ps2sdk), [ps2-mmce/mmceman](https://github.com/ps2-mmce/mmceman), [RiptOPL usbd-ra](https://github.com/NathanNeurotic/Open-PS2-Loader), legacy [ps2ftpd](https://github.com/ps2homebrew/ps2ftpd), the legacy libcdvd authors, inherited DS34 driver authors including Alex Parrado, [Mbed TLS](https://github.com/Mbed-TLS/mbedtls), [Xiph.org ogg/vorbis](https://xiph.org/), audsrv and font contributors.
 
