@@ -38,7 +38,22 @@ The modal owns its frame loop. It does not run dashboard device polling, scans,
 artwork workers, remote-command dispatch or the staged ISO receiver. The loading
 flag remains active to prevent theme texture getters from queuing fresh disk IO.
 The regular background libmc poll also checks FTP module residency.
-Confirm and Back both request Stop directly, using the user's button mapping.
+The single Cancel action requests Stop using the user's configured physical
+cancel button.
+
+The screen counts distinct source IPv4 addresses across live control connections
+as FTP clients. Multiple sessions from the same PC count once; an address leaves
+the count when its last control connection closes. Transfer counts still cover
+every session. The accepted control peer is stored separately from the PORT/data
+address so active and passive data connections cannot change the client count.
+
+The IOP records the three latest received commands, newest first, with their PS2
+RTC date/time. EE rendering converts those timestamps to the console's local
+timezone and displays HH:MM:SS before each command. USER and PASS are excluded,
+including rejected login attempts. Unknown clock values display --:--:-- without
+losing the command. Long command text is bounded, and history resets with each
+FTP session. The version 2 status packet is 512 bytes, aligned to 64-byte cache
+lines on both sides of the SIF RPC transport.
 
 The separate 4 KiB IOP control thread can report status while the 8 KiB FTP thread
 is inside a driver or socket call. Stop marks the session stopping and shuts down
@@ -53,14 +68,16 @@ no transfer is declared successful by the stop path.
 
 | Virtual path | Accessible storage |
 | --- | --- |
-| `/mc/0/`, `/mc/1/` | Memory-card slots 1 and 2. |
-| `/usb/0/`, `/usb/1/` | Typed USB filesystem units 0 and 1. |
-| `/hdd/0/<partition>/` | Browsable PFS partitions on HDD0. |
-| `/ata/0/` | ATA0 FAT/exFAT filesystem. |
+| `/mc0/`, `/mc1/` | Memory-card slots 1 and 2. |
+| `/usb0/`, `/usb1/` | Typed USB filesystem units 0 and 1. |
+| `/hdd0/<partition>/` | Browsable PFS partitions on HDD0. |
+| `/ata0/` | ATA0 FAT/exFAT filesystem. |
 
-The root lists these four device families once. Unit lists probe only their
-allowed units and omit unavailable media. Path classification applies the same
-limits to every operation, including absolute paths supplied without CWD.
+The root directly lists available `mc0`, `mc1`, `usb0`, `usb1`, `hdd0` and `ata0`
+devices, probing only those supported units and omitting unavailable media.
+There are no intermediate family/unit directories or legacy path aliases.
+Path classification applies the same limits to every operation, including
+absolute paths supplied without CWD.
 `mass`, `pfs`, `mmce`, `mx4sio`, extra units and other device prefixes cannot be
 accessed by spelling their paths manually. SITE mount management is unsupported.
 Virtual device/partition roots cannot be renamed, overwritten or deleted.
@@ -69,12 +86,13 @@ Driver lookup uses `iomanX_GetDeviceList()` import 3, without module-memory offs
 The supported PS2BUILD legacy-hook IOMANX table has 32 sparse slots; NULL entries
 are holes. Recheck that bound when changing SDK packages. HDD advertises BLOCK,
 not FS, so discovery accepts both types. A USB-only, non-extended legacy `mass`
-driver may back `/usb/`; extended shared BDM `mass` is never guessed to be USB.
+driver may back `/usb0/` and `/usb1/`; extended shared BDM `mass` is never guessed
+to be USB.
 
 ## HDD paths and mount ownership
 
 HDD partition validation retains the browsable-PFS filter. Every operation maps
-`/hdd/0/<partition>/...` to a private PFS mount, so CWD and PWD retain the virtual
+`/hdd0/<partition>/...` to a private PFS mount, so CWD and PWD retain the virtual
 HDD path. Absolute LIST, SIZE, upload/download, rename and nested paths use the
 same translator; clients never need to manage `/pfs` aliases.
 
@@ -102,7 +120,7 @@ rename return errors. There is no copy/delete or temporary-name emulation.
 TCP parsing supports split and coalesced commands, reserves its terminating NUL,
 and rejects overlong lines. During a data transfer, unrelated commands cannot
 replace that connection's filesystem handle. ABOR closes the handle/socket.
-Operation status excludes authentication commands.
+Command history excludes authentication commands.
 
 IOP formatting uses imported `sprintf` with bounded strings/buffers. Decimal
 size conversion uses place subtraction, avoiding unresolved 64-bit division
@@ -114,11 +132,12 @@ an unprovided IOP `snprintf` or global socket `errno` dependency.
 - `python3 tests/test_ftp_server.py`: actual IOP filesystem/command/socket/control
   units with preserved ABI headers and faulted drivers/sockets; fixed scope,
   legacy/extended cards, PFS pinning/eviction, native rename, short I/O, failures,
-  cooperative shutdown, 64-bit sizes, command framing and freestanding 32-bit
-  decimal formatting. Also compiles the IOP startup/control service branches.
+  cooperative shutdown, unique client IPs, timestamped command history, 64-bit
+  sizes, command framing and freestanding 32-bit decimal formatting. Also compiles the IOP startup/control service branches.
 - `python3 tests/test_ftp_session.py`: actual EE session and screen, covering
   reset/ownership gates, bounded bind, stale RPC sessions, version checks,
-  exclusive frames, both Stop buttons and return to the dashboard.
+  exclusive frames, cancel-only stopping, local command timestamps, missing-clock
+  fallback and return to the dashboard.
 - `python3 tests/test_ftp_network.py`: two real loopback clients, passive/active
   connections, resume, listings and exact payloads using the POSIX backend.
 - `tests/test_dev9_transition.py`: storage-before-FTP ordering, shared DEV9,

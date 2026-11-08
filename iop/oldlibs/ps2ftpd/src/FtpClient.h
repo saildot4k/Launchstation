@@ -110,6 +110,7 @@ typedef struct FtpClient
 	struct FtpServer *m_pServer;  // owning server
 
 	int m_iControlSocket;
+	unsigned int m_uiPeerAddress; /* Source IPv4 address, independent of PORT/data sockets. */
 	AuthState m_eAuthState;
 	int m_iAuthAttempt;
 

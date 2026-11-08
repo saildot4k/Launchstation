@@ -63,7 +63,7 @@ static int host_use_Bsl;
 static int handles,last_fd=-1,rename_calls,ioctl_calls,set_calls,close_error;
 static int case_insensitive,mutation_calls,fail_at,applied_error_at;
 static int native_case_calls,case_support,case_error,case_applied_error,dread_calls;
-static int case_stat_error;
+static int case_stat_error,mc_stat_bug,stat_calls;
 static int scan_calls,scan_fail_at,scan_close_fail_at,scan_open_fail_at,scan_bad_name_at;
 static char fd_path[1024][MAX_PATH];
 static int fd_directory[1024];
@@ -121,6 +121,7 @@ static int mutate(const char *from,const char *to){
  return mutation_calls==applied_error_at?-EIO:0;
 }
 static int genGetStat(const char *p,iox_stat_t *out){
+ stat_calls++;if(mc_stat_bug&&!strncmp(p,"mc",2)){out->mode=S_IFDIR;return 0;}
  if(!strncmp(p,"host",4))return -ENOSYS;
  if(stat_error&&strstr(p,"/NEW.BIN"))return -stat_error;
  if(case_stat_error&&strstr(p,"/old.bin"))return -case_stat_error;
@@ -200,7 +201,7 @@ static void reset(void){assert(!handles);load_ok=cf_online=1;card_type=2;last_fd
  rename_calls=ioctl_calls=set_calls=close_error=completion_error=host_use_Bsl=0;
  case_insensitive=mutation_calls=fail_at=applied_error_at=0;
  native_case_calls=case_support=case_error=case_applied_error=dread_calls=0;
- case_stat_error=0;
+ case_stat_error=mc_stat_bug=stat_calls=0;
  scan_calls=scan_fail_at=scan_close_fail_at=scan_open_fail_at=scan_bad_name_at=0;}
 static void put(const char *p){int fd=open(p,O_CREAT|O_TRUNC|O_WRONLY,0644);assert(fd>=0);assert(write(fd,"exact file bytes",16)==16);assert(!close(fd));}
 static void remove_entry(const char *p){
@@ -259,12 +260,13 @@ int main(void){
    reset();remove_entry(to);assert(!Rename(path,&file,"OLD.BIN")&&!rename_calls&&!ioctl_calls&&!set_calls&&!handles);operations++;
    for(int failure=0;failure<2;failure++){
     reset();false_success=!failure;driver_error=failure?ENOSPC:0;
-    int r=Rename(path,&file,"NEW.BIN");assert(r==(failure?-ENOSPC:-EIO));
+    int r=Rename(path,&file,"NEW.BIN");assert(r==(failure?-ENOSPC:0));
     assert(!access(old,F_OK)&&access(to,F_OK)<0&&!handles&&!memcmp(&file,&unchanged,sizeof(file)));operations++;
    }
    if(strncmp(path,"host",4)){
-    reset();stat_error=EACCES;assert(Rename(path,&file,"NEW.BIN")==-EACCES);
-    assert(!rename_calls&&!set_calls&&!handles&&!access(old,F_OK));operations++;
+    reset();stat_error=EACCES;assert(!Rename(path,&file,"NEW.BIN"));
+    assert(!stat_calls&&!handles&&access(old,F_OK)<0&&!access(to,F_OK));
+    remove_entry(to);make_entry(old,directory);operations++;
    }
    char case_to[MAX_PATH];snprintf(case_to,sizeof(case_to),"%sold.bin",parent);
    for(int insensitive=0;insensitive<(devices[d].sensitive?1:2);insensitive++){
@@ -305,7 +307,7 @@ int main(void){
   snprintf(old,sizeof(old),"%sOLD.BIN",parent);snprintf(to,sizeof(to),"%sold.bin",parent);make_entry(old,directory);
   FILEINFO f={0};strcpy(f.name,"OLD.BIN");f.stats.AttrFile=directory?sceMcFileAttrSubdir:0;
   if(fault==0)fail_at=1;if(fault==1)false_success=1;if(fault==2)applied_error_at=1;
-  assert(Rename(devices[d].path,&f,"old.bin")== (fault==0?-ENOSPC:-EIO));
+  assert(Rename(devices[d].path,&f,"old.bin")== (fault==0?-ENOSPC:fault==1?0:-EIO));
   assert(rename_calls+set_calls==1&&!dread_calls&&!handles&&mutation_calls==(fault==1?0:1));
   assert(!access(fault==2?to:old,F_OK));remove_entry(old);remove_entry(to);operations++;
  }
@@ -408,6 +410,18 @@ int main(void){
  for(int i=0;i<10;i++){snprintf(to,sizeof(to),"usb0:/%d",i);put(to);}
  assert(!Rename("usb0:/",&short_file,"a")&&mutation_calls==1&&native_case_calls==1&&!handles&&!access("usb0:/a",F_OK));
  for(int i=0;i<10;i++){snprintf(to,sizeof(to),"usb0:/%d",i);assert(!access(to,F_OK));remove_entry(to);}remove_entry("usb0:/a");operations++;
+ /* The SDK's missing-card stat bug must not participate in native rename.
+  * Both file/folder renames on each MC slot use directory/file conflict opens
+  * and one checked card RPC, with no pre/post stat requests. */
+ for(int port=0;port<2;port++)for(int directory=0;directory<2;directory++){
+  reset();mc_stat_bug=1;snprintf(path,sizeof(path),"mc%d:/",port);
+  snprintf(old,sizeof(old),"%sOLD.BIN",path);snprintf(to,sizeof(to),"%sNEW.BIN",path);
+  remove_entry(to);make_entry(old,directory);FILEINFO f={0};strcpy(f.name,"OLD.BIN");
+  f.stats.AttrFile=directory?sceMcFileAttrSubdir:0;FILEINFO original=f;
+  assert(!Rename(path,&f,"NEW.BIN")&&!stat_calls&&set_calls==1&&!handles);
+  assert(access(old,F_OK)<0&&!access(to,F_OK)&&!memcmp(&f,&original,sizeof(f)));
+  remove_entry(to);operations++;
+ }
  /* Card name limits: never shorten the requested name or write FILEINFO. */
  const char *cards[]={"mc0:/","mc1:/","vmc0:/","vmc1:/","xfrom0:/"};
  for(unsigned d=0;d<sizeof(cards)/sizeof(cards[0]);d++)for(int type=1;type<=2;type++){

@@ -389,8 +389,7 @@ int genRenameNoReplace(const char *from, const char *to)
 {
 	char old_path[MAX_PATH], new_path[MAX_PATH];
 	const char *old_leaf, *new_leaf;
-	iox_stat_t source, target;
-	int ret, parent;
+	int ret, parent, fd;
 
 	if (from == NULL || to == NULL || !from[0] || !to[0]) return -EINVAL;
 	if (!strncmp(from, "cdfs", 4)) return -EROFS;
@@ -417,12 +416,18 @@ int genRenameNoReplace(const char *from, const char *to)
 	if (strlen(new_leaf) >= MAX_NAME) return -ENAMETOOLONG;
 	if ((!strncmp(old_path, "mc", 2) || !strncmp(old_path, "vmc", 3) || !strncmp(old_path, "xfrom", 5)) &&
 	    strlen(new_leaf) > sizeof(((sceMcTblGetDir *)0)->EntryName)) return -ENAMETOOLONG;
-	ret = genGetStat(old_path, &source);
-	if (ret < 0) return ret;
 	if (!strcmp(old_path, new_path)) return 0;
-	ret = genGetStat(new_path, &target);
-	if (ret >= 0) return -EEXIST;
-	if (ret != -ENOENT) return ret;
+	/* R3Z probes the requested name through native directory/file opens.
+	 * MCMAN stat can report success for a missing entry without filling it. */
+	fd = fileXioDopen(new_path);
+	if (fd >= 0) { fileXioDclose(fd); return -EEXIST; }
+	fd = fileXioOpen(new_path, FIO_O_RDONLY, 0);
+	if (fd >= 0) { fileXioClose(fd); return -EEXIST; }
+	if (!strncmp(old_path, "mmce", 4)) {
+		const char *old_relative = strchr(old_path, ':'), *new_relative = strchr(new_path, ':');
+		if (old_relative == NULL || new_relative == NULL) return -EINVAL;
+		if (strlen(old_relative + 1) > 254 || strlen(new_relative + 1) > 254) return -ENAMETOOLONG;
+	}
 	if (!strncmp(old_path, "mc", 2)
 #ifdef XFROM
 	    || !strncmp(old_path, "xfrom", 5)
@@ -466,12 +471,7 @@ int genRenameNoReplace(const char *from, const char *to)
 		/* VMCMAN accepts a sibling leaf; other filesystems accept paths. */
 		ret = fileXioRename(old_path, !strncmp(old_path, "vmc", 3) ? new_leaf : new_path);
 	}
-	if (ret < 0) return ret;
-	/* A false/ambiguous success must never discard a recovery copy. */
-	if (genGetStat(old_path, &target) != -ENOENT) return -EIO;
-	ret = genGetStat(new_path, &target);
-	if (ret < 0) return ret;
-	return FIO_S_ISDIR(source.mode) == FIO_S_ISDIR(target.mode) ? 0 : -EIO;
+	return ret;
 }
 
 int genMkdir(const char *path, int mode)

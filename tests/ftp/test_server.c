@@ -37,19 +37,23 @@ static int next_socket = 30, connect_error;
 static iop_device_t *devices[FS_IOMANX_DEVICES];
 static iop_device_t usb, mass, mc, mmce, pfs, duplicate_usb, ata;
 static unsigned char payload[PAYLOAD_SIZE];
+static sceCdCLOCK rtc;
+static int rtc_ok = 1, interrupts_disabled;
 int CpuSuspendIntr(int *state)
 {
-	*state = 0;
+	*state = interrupts_disabled;
+	interrupts_disabled = 1;
 	return 0;
 }
 int CpuResumeIntr(int state)
 {
-	(void)state;
+	interrupts_disabled = state;
 	return 0;
 }
 int lwip_shutdown(int fd, int how)
 {
 	(void)how;
+	assert(!interrupts_disabled);
 	sockets[fd].write_error = EPIPE;
 	sockets[fd].read_error = ECONNRESET;
 	return 0;
@@ -323,11 +327,9 @@ iomanX_iop_device_t **iomanX_GetDeviceList(void)
 }
 int sceCdReadClock(sceCdCLOCK *clock)
 {
-	memset(clock, 0, sizeof(*clock));
-	clock->day = 0x31;
-	clock->month = 0x10;
-	clock->year = 0x26;
-	return 1;
+	assert(!interrupts_disabled);
+	*clock = rtc;
+	return rtc_ok;
 }
 int DelayThread(unsigned int delay)
 {
@@ -523,10 +525,12 @@ static void setup(void)
 	add(&pfs, 0, "/file.elf", 0, payload, 7);
 	next_socket = 30;
 	connect_error = 0;
+	rtc = (sceCdCLOCK){.year = 0x26, .month = 0x10, .day = 0x31, .hour = 0x16, .minute = 0x59};
+	rtc_ok = 1;
 }
 static FtpClient *client(FtpServer *server, int fd, const char *cwd)
 {
-	FtpClient *c = FtpServer_OnClientConnect(server, fd);
+	FtpClient *c = FtpServer_OnClientConnect(server, fd, htonl(0xc0a80114));
 	assert(c);
 	c->m_eAuthState = AUTHSTATE_VALID;
 	assert(FileSystem_ChangeDir(&c->m_kContext, cwd) == 0);
@@ -540,11 +544,11 @@ static void test_paths_and_listing(void)
 	FSFileInfo info;
 	char path[FS_PATH_MAX];
 	FileSystem_Create(&ctx);
-	assert(!FileSystem_BuildPath(path, "/usb/0/folder/", ".././file.elf") &&
-		   !strcmp(path, "/usb/0/file.elf"));
+	assert(!FileSystem_BuildPath(path, "/usb0/folder/", ".././file.elf") &&
+		   !strcmp(path, "/usb0/file.elf"));
 	assert(!FileSystem_BuildPath(path, "/", "../../") && !strcmp(path, "/"));
-	strcpy(path, "/usb/0/folder");
-	assert(!FileSystem_BuildPath(path, path, "../other.elf") && !strcmp(path, "/usb/0/other.elf"));
+	strcpy(path, "/usb0/folder");
+	assert(!FileSystem_BuildPath(path, path, "../other.elf") && !strcmp(path, "/usb0/other.elf"));
 	char oversized[FS_PATH_MAX + 1];
 	memset(oversized, 'a', sizeof(oversized) - 1);
 	oversized[sizeof(oversized) - 1] = 0;
@@ -553,34 +557,21 @@ static void test_paths_and_listing(void)
 	assert(!FileSystem_ScanDevice("usb-extra"));
 	assert(!FileSystem_ScanDevice("mass"));
 	assert(!FileSystem_OpenDir(&ctx, "/"));
-	int seen_usb = 0, seen_pfs = 0, count = 0;
-	while (FileSystem_ReadDir(&ctx, &info) > 0) {
-		assert(strcmp(info.m_Name, "mass"));
-		seen_usb += !strcmp(info.m_Name, "usb");
-		seen_pfs += !strcmp(info.m_Name, "pfs");
-		count++;
-	}
-	assert(count == 4 && seen_usb == 1 && seen_pfs == 0);
-	assert(!FileSystem_OpenDir(&ctx, "/usb"));
-	count = 0;
-	while (FileSystem_ReadDir(&ctx, &info) > 0) {
-		assert(atoi(info.m_Name) == count++);
-	}
-	assert(count == 2);
-	assert(!FileSystem_OpenDir(&ctx, "/mc"));
-	count = 0;
-	while (FileSystem_ReadDir(&ctx, &info) > 0)
-		count++;
-	assert(count == 1);
-	assert(!FileSystem_ChangeDir(&ctx, "/usb/0"));
+	const char *expected[] = {"mc0", "usb0", "usb1"};
+	for (unsigned i = 0; i < sizeof(expected) / sizeof(expected[0]); i++)
+		assert(FileSystem_ReadDir(&ctx, &info) == 1 && !strcmp(info.m_Name, expected[i]) &&
+			   info.m_eType == FT_DIRECTORY);
+	assert(FileSystem_ReadDir(&ctx, &info) == 0);
+	assert(FileSystem_ReadDir(&ctx, &info) == 0);
+	assert(!FileSystem_ChangeDir(&ctx, "/usb0"));
 	assert(!FileSystem_ChangeDir(&ctx, "."));
-	assert(!strcmp(ctx.m_Path, "/usb/0/"));
+	assert(!strcmp(ctx.m_Path, "/usb0/"));
 	assert(FileSystem_ChangeDir(&ctx, "missing") < 0);
-	assert(!strcmp(ctx.m_Path, "/usb/0/"));
+	assert(!strcmp(ctx.m_Path, "/usb0/"));
 	assert(!FileSystem_ChangeDir(&ctx, ".."));
-	assert(!strcmp(ctx.m_Path, "/usb/"));
-	assert(!FileSystem_OpenDir(&ctx, "/usb/0"));
-	count = 0;
+	assert(!strcmp(ctx.m_Path, "/"));
+	assert(!FileSystem_OpenDir(&ctx, "/usb0"));
+	int count = 0;
 	while (FileSystem_ReadDir(&ctx, &info) > 0)
 		count++;
 	assert(count == 3);
@@ -589,18 +580,21 @@ static void test_paths_and_listing(void)
 	dir_error = 0;
 	FileSystem_Close(&ctx);
 	assert(open_count == close_count);
-	/* Legacy USB-only driver is still presented as usb, never mass. */
+	/* Missing unit 0 must not hide unit 1, including legacy USB mass. */
 	devices[2] = devices[3] = devices[4] = NULL;
 	mass.type = IOP_DT_FS;
+	add(&mass, 1, "/", 1, NULL, 0);
+	find(&mc, 0, "/")->device = NULL;
+	add(&mc, 1, "/", 1, NULL, 0);
 	assert(FileSystem_ScanDevice("usb") == &mass);
 	assert(!FileSystem_OpenDir(&ctx, "/"));
-	seen_usb = 0;
-	while (FileSystem_ReadDir(&ctx, &info) > 0) {
-		assert(strcmp(info.m_Name, "mass"));
-		seen_usb += !strcmp(info.m_Name, "usb");
-	}
-	assert(seen_usb == 1);
+	assert(FileSystem_ReadDir(&ctx, &info) == 1 && !strcmp(info.m_Name, "mc1"));
+	assert(FileSystem_ReadDir(&ctx, &info) == 1 && !strcmp(info.m_Name, "usb1"));
+	assert(FileSystem_ReadDir(&ctx, &info) == 0);
+	assert(!FileSystem_OpenDir(&ctx, "/usb1"));
+	assert(ctx.m_kFile.device == &mass && ctx.m_kFile.unit == 1);
 	FileSystem_Close(&ctx);
+	assert(open_count == close_count);
 	puts("PASS: sparse device discovery, duplicate drivers, usb-only namespace, unit probing, paths and "
 		 "directory errors");
 }
@@ -616,16 +610,16 @@ static void test_hdd_listing(void)
 	FSContext ctx;
 	FSFileInfo info;
 	FileSystem_Create(&ctx);
-	assert(!FileSystem_OpenDir(&ctx, "/hdd/0"));
+	assert(!FileSystem_OpenDir(&ctx, "/hdd0"));
 	dir_calls = 0;
 	dir_fail_on = 2;
 	assert(FileSystem_ReadDir(&ctx, &info) == -EIO);
 	dir_fail_on = 0;
-	assert(!FileSystem_OpenDir(&ctx, "/hdd/0"));
+	assert(!FileSystem_OpenDir(&ctx, "/hdd0"));
 	assert(FileSystem_ReadDir(&ctx, &info) == 1 && !strcmp(info.m_Name, "__common"));
 	assert(FileSystem_ReadDir(&ctx, &info) == 0);
-	assert(!FileSystem_ChangeDir(&ctx, "/hdd/0/__common/"));
-	assert(!strcmp(ctx.m_Path, "/hdd/0/__common/"));
+	assert(!FileSystem_ChangeDir(&ctx, "/hdd0/__common/"));
+	assert(!strcmp(ctx.m_Path, "/hdd0/__common/"));
 	FileSystem_Close(&ctx);
 	assert(open_count == close_count);
 	puts("PASS: HDD partition filtering terminates on errors and CWD preserves virtual partition paths");
@@ -643,23 +637,25 @@ static void test_model_device_scope(void)
 	iop_device_t hdd = {.name = "hdd", .type = IOP_DT_BLOCK | IOP_DT_FSEXT, .ops = &ops};
 	devices[16] = &hdd;
 	add(&hdd, 0, "/", 1, NULL, 0);
+	add(&ata, 0, "/", 1, NULL, 0);
 	FSContext ctx;
 	FSFileInfo info;
 	FileSystem_Create(&ctx);
 	assert(!FileSystem_OpenDir(&ctx, "/"));
-	assert(FileSystem_ReadDir(&ctx, &info) == 1 && !strcmp(info.m_Name, "mc"));
-	assert(FileSystem_ReadDir(&ctx, &info) == 1 && !strcmp(info.m_Name, "usb"));
+	assert(FileSystem_ReadDir(&ctx, &info) == 1 && !strcmp(info.m_Name, "mc0"));
+	assert(FileSystem_ReadDir(&ctx, &info) == 1 && !strcmp(info.m_Name, "usb0"));
+	assert(FileSystem_ReadDir(&ctx, &info) == 1 && !strcmp(info.m_Name, "usb1"));
 	assert(FileSystem_ReadDir(&ctx, &info) == 0);
 	/* Even a registered driver cannot bypass the startup capability mask. */
-	assert(FileSystem_OpenDir(&ctx, "/ata") < 0);
-	assert(FileSystem_OpenDir(&ctx, "/hdd/0") < 0);
-	assert(FileSystem_OpenFile(&ctx, "/ata/0/target.bin", FM_WRITE, 0) < 0);
-	assert(FileSystem_GetFileSize(&ctx, "/ata/0/target.bin") < 0);
-	assert(FileSystem_CreateDir(&ctx, "/hdd/0/new") < 0);
+	assert(FileSystem_OpenDir(&ctx, "/ata0") < 0);
+	assert(FileSystem_OpenDir(&ctx, "/hdd0") < 0);
+	assert(FileSystem_OpenFile(&ctx, "/ata0/target.bin", FM_WRITE, 0) < 0);
+	assert(FileSystem_GetFileSize(&ctx, "/ata0/target.bin") < 0);
+	assert(FileSystem_CreateDir(&ctx, "/hdd0/new") < 0);
 	assert(!mount_calls && !truncations);
-	assert(!FileSystem_OpenDir(&ctx, "/mc/0"));
+	assert(!FileSystem_OpenDir(&ctx, "/mc0"));
 	FileSystem_Close(&ctx);
-	assert(!FileSystem_OpenFile(&ctx, "/usb/0/file.elf", FM_READ, 0));
+	assert(!FileSystem_OpenFile(&ctx, "/usb0/file.elf", FM_READ, 0));
 	FileSystem_Close(&ctx);
 	assert(open_count == close_count);
 	FileSystem_SetHddEnabled(1);
@@ -668,7 +664,7 @@ static void test_model_device_scope(void)
 	int count = 0;
 	while (FileSystem_ReadDir(&ctx, &info) > 0)
 		count++;
-	assert(count == 4);
+	assert(count == 5);
 	FileSystem_Close(&ctx);
 	FtpServer_Destroy(&server);
 	puts("PASS: no-HDD startup argument hides HDD/ATA, rejects direct paths, and preserves MC/USB access");
@@ -678,9 +674,13 @@ static void test_ftp_scope(void)
 	setup();
 	FSContext ctx;
 	FileSystem_Create(&ctx);
-	const char *denied[] = {"/pfs/0/file.elf",	  "/mass/0/file.elf", "/mmce/0/file.elf",
-							"/mx4sio/0/file.elf", "/usb/2/file.elf",  "/usb/10/file.elf",
-							"/mc/2/file.elf",	  "/ata/1/file.elf",  "/hdd/1/__common/file.elf"};
+	const char *denied[] = {
+		"/pfs0/file.elf", "/mass0/file.elf", "/mmce0/file.elf", "/mx4sio0/file.elf",
+		"/usb2/file.elf", "/usb10/file.elf", "/mc2/file.elf", "/ata1/file.elf",
+		"/hdd1/__common/file.elf", "/usb00/file.elf", "/mc01/file.elf", "/usb0-extra/file.elf",
+		"/mc", "/usb", "/hdd", "/ata", "/mc/0/file.elf", "/mc/1/file.elf",
+		"/usb/0/file.elf", "/usb/1/file.elf", "/hdd/0/__common/file.elf", "/ata/0/file.elf",
+	};
 	int opens = open_count;
 	for (unsigned i = 0; i < sizeof(denied) / sizeof(denied[0]); i++) {
 		FSRename rename;
@@ -695,12 +695,12 @@ static void test_ftp_scope(void)
 	}
 	assert(open_count == opens && !truncations && !rename_calls);
 	/* Resolving .. must not turn a forbidden family into a driver prefix. */
-	assert(FileSystem_OpenFile(&ctx, "/usb/0/../../mmce/0/file.elf", FM_WRITE, 0) < 0);
+	assert(FileSystem_OpenFile(&ctx, "/usb0/../mmce0/file.elf", FM_WRITE, 0) < 0);
 	assert(FileSystem_DeleteFile(&ctx, "/") < 0 && FileSystem_CreateDir(&ctx, "/mc") < 0);
-	assert(FileSystem_DeleteDir(&ctx, "/usb/0") < 0);
+	assert(FileSystem_DeleteDir(&ctx, "/usb0") < 0);
 	add(&ata, 0, "/", 1, NULL, 0);
 	add(&ata, 0, "/ata.txt", 0, payload, 17);
-	assert(!FileSystem_OpenFile(&ctx, "/ata/0/ata.txt", FM_READ, 0));
+	assert(!FileSystem_OpenFile(&ctx, "/ata0/ata.txt", FM_READ, 0));
 	char value[17];
 	assert(FileSystem_ReadFile(&ctx, value, 17) == 17 && !memcmp(value, payload, 17));
 	FileSystem_Close(&ctx);
@@ -728,24 +728,24 @@ static void test_hdd_mount_ownership(void)
 		}
 	}
 	for (int i = 0; i < 4; i++) {
-		snprintf(path, sizeof(path), "/hdd/0/%s/file.elf", names[i]);
+		snprintf(path, sizeof(path), "/hdd0/%s/file.elf", names[i]);
 		assert(!FileSystem_OpenFile(&contexts[i], path, FM_READ, 0));
 		assert(contexts[i].m_kFile.unit == i);
 	}
 	assert(mount_calls == 4 && !unmount_calls);
-	assert(FileSystem_OpenFile(&contexts[4], "/hdd/0/DATA4/file.elf", FM_READ, 0) < 0);
+	assert(FileSystem_OpenFile(&contexts[4], "/hdd0/DATA4/file.elf", FM_READ, 0) < 0);
 	assert(mount_calls == 4 && !unmount_calls);
 	FileSystem_Close(&contexts[1]);
-	assert(!FileSystem_OpenFile(&contexts[4], "/hdd/0/DATA4/file.elf", FM_READ, 0));
+	assert(!FileSystem_OpenFile(&contexts[4], "/hdd0/DATA4/file.elf", FM_READ, 0));
 	assert(contexts[4].m_kFile.unit == 1 && unmount_calls == 1 && mount_calls == 5);
 	assert(!strcmp(mounted_sources[0], "hdd0:__common") && !strcmp(mounted_sources[1], "hdd0:DATA4"));
 	char byte;
 	assert(FileSystem_ReadFile(&contexts[0], &byte, 1) == 1 && byte == (char)payload[0]);
 	for (int i = 0; i < 5; i++)
 		FileSystem_Close(&contexts[i]);
-	assert(!FileSystem_ChangeDir(&contexts[0], "/hdd/0/__common"));
-	assert(!strcmp(contexts[0].m_Path, "/hdd/0/__common/"));
-	assert(!FileSystem_ChangeDir(&contexts[0], "..") && !strcmp(contexts[0].m_Path, "/hdd/0/"));
+	assert(!FileSystem_ChangeDir(&contexts[0], "/hdd0/__common"));
+	assert(!strcmp(contexts[0].m_Path, "/hdd0/__common/"));
+	assert(!FileSystem_ChangeDir(&contexts[0], "..") && !strcmp(contexts[0].m_Path, "/hdd0/"));
 	FSRename root_rename;
 	assert(FileSystem_PrepareRename(&contexts[0], "__common", &root_rename) < 0);
 	assert(FileSystem_DeleteDir(&contexts[0], "__common") < 0);
@@ -767,7 +767,7 @@ static void test_renames(void)
 	setup();
 	FtpServer s;
 	FtpServer_Create(&s);
-	FtpClient *a = client(&s, 10, "/usb/0"), *b = client(&s, 11, "/usb/0");
+	FtpClient *a = client(&s, 10, "/usb0"), *b = client(&s, 11, "/usb0");
 	command(a, "RNFR file.elf");
 	assert(reply(10) == 350);
 	assert(!a->m_kContext.m_iOpen);
@@ -784,7 +784,7 @@ static void test_renames(void)
 	command(a, "RNTO stale.elf");
 	assert(reply(10) == 503);
 	command(a, "RNFR moved.elf");
-	command(a, "RNTO /usb/1/wrong.elf");
+	command(a, "RNTO /usb1/wrong.elf");
 	assert(reply(10) == 550);
 	assert(find(&usb, 0, "/moved.elf") && !find(&usb, 1, "/wrong.elf"));
 	assert(find(&usb, 1, "/file.elf")->size == 13);
@@ -797,10 +797,10 @@ static void test_renames(void)
 	assert(reply(10) == 503);
 	command(a, "RNFR missing.elf");
 	assert(reply(10) == 550 && !a->m_Rename.path[0]);
-	command(a, "CWD /mc/0");
+	command(a, "CWD /mc0");
 	command(a, "RNFR file.elf");
 	assert(reply(10) == 502 && !a->m_Rename.path[0]);
-	command(a, "CWD /usb/0");
+	command(a, "CWD /usb0");
 	command(a, "RNFR folder");
 	assert(reply(10) == 350);
 	command(a, "RNTO new-folder");
@@ -848,15 +848,21 @@ static void test_denied_commands(void)
 	setup();
 	FtpServer server;
 	FtpServer_Create(&server);
-	FtpClient *c = client(&server, 10, "/usb/0");
+	FtpClient *c = client(&server, 10, "/usb0");
 	command(c, "PASV");
 	assert(reply(10) == 227);
 	command(c, "LIST /mmce/0");
 	assert(reply(10) == 550 && c->m_iDataSocket < 0 && c->m_eDataAction == DATAACTION_NONE);
 	command(c, "SITE MNT /pfs/0 hdd0:__common");
 	assert(reply(10) == 502 && !mount_calls);
-	command(c, "CWD /ata/1");
-	assert(reply(10) == 550 && !strcmp(c->m_kContext.m_Path, "/usb/0/"));
+	command(c, "CWD /ata1");
+	assert(reply(10) == 550 && !strcmp(c->m_kContext.m_Path, "/usb0/"));
+	command(c, "PASV");
+	assert(reply(10) == 227);
+	command(c, "LIST /usb/0");
+	assert(reply(10) == 550 && c->m_iDataSocket < 0 && c->m_eDataAction == DATAACTION_NONE);
+	command(c, "CWD /mc/0");
+	assert(reply(10) == 550 && !strcmp(c->m_kContext.m_Path, "/usb0/"));
 	FtpServer_Destroy(&server);
 	assert(open_count == close_count);
 	puts("PASS: denied absolute LIST and SITE cannot leave data actions armed or bypass the FTP scope");
@@ -876,13 +882,15 @@ static void test_memory_card_browsing(void)
 		FtpClient *first = client(&server, 10, "/"), *second = client(&server, 11, "/");
 		command(first, "TYPE I");
 		assert(reply(10) == 200);
-		command(first, "CWD /mc");
-		assert(reply(10) == 250);
 		passive_listing(first, 20);
-		assert(strstr((char *)sockets[20].output, " 0\r\n") && strstr((char *)sockets[20].output, " 1\r\n"));
-		command(first, "CWD 0");
+		assert(strstr((char *)sockets[20].output, " mc0\r\n") &&
+			   strstr((char *)sockets[20].output, " mc1\r\n") &&
+			   strstr((char *)sockets[20].output, " usb0\r\n") &&
+			   strstr((char *)sockets[20].output, " usb1\r\n") &&
+			   !strstr((char *)sockets[20].output, " mc\r\n"));
+		command(first, "CWD mc0");
 		assert(reply(10) == 250);
-		command(second, "CWD /mc/1");
+		command(second, "CWD /mc1");
 		assert(reply(11) == 250);
 		passive_listing(first, 21);
 		assert(strstr((char *)sockets[21].output, " APP_LAUNCHSTATION\r\n") &&
@@ -896,7 +904,7 @@ static void test_memory_card_browsing(void)
 		passive_listing(first, 23);
 		assert(strstr((char *)sockets[23].output, " LAUNCHSTATION.ELF\r\n"));
 		command(first, "PWD");
-		assert(strstr((char *)sockets[10].output, "/mc/0/APP_LAUNCHSTATION/"));
+		assert(strstr((char *)sockets[10].output, "/mc0/APP_LAUNCHSTATION/"));
 		command(first, "SIZE LAUNCHSTATION.ELF");
 		assert(!strcmp((char *)sockets[10].output, "213 23\r\n"));
 		assert(!FileSystem_OpenFile(&first->m_kContext, "LAUNCHSTATION.ELF", FM_READ, 0));
@@ -904,8 +912,12 @@ static void test_memory_card_browsing(void)
 		while (first->m_iDataSocket >= 0)
 			FtpClient_OnDataWrite(first);
 		assert(reply(10) == 226 && sockets[24].out == 23 && !memcmp(sockets[24].output, payload, 23));
-		command(first, "CWD /mc/0/missing");
-		assert(reply(10) == 550 && !strcmp(first->m_kContext.m_Path, "/mc/0/APP_LAUNCHSTATION/"));
+		command(first, "CWD /mc0/missing");
+		assert(reply(10) == 550 && !strcmp(first->m_kContext.m_Path, "/mc0/APP_LAUNCHSTATION/"));
+		command(first, "CDUP");
+		assert(reply(10) == 250 && !strcmp(first->m_kContext.m_Path, "/mc0/"));
+		command(first, "CDUP");
+		assert(reply(10) == 250 && !strcmp(first->m_kContext.m_Path, "/"));
 		FtpServer_Destroy(&server);
 		assert(open_count == close_count);
 	}
@@ -919,7 +931,7 @@ static void test_transfers(void)
 		setup();
 		FtpServer s;
 		FtpServer_Create(&s);
-		FtpClient *c = client(&s, 10, "/usb/0");
+		FtpClient *c = client(&s, 10, "/usb0");
 		assert(!FileSystem_OpenFile(&c->m_kContext, "upload.bin", FM_WRITE, 0));
 		start_data(c, 20, DATAACTION_STOR);
 		memcpy(sockets[20].input, payload, sizeof(payload));
@@ -946,7 +958,7 @@ static void test_transfers(void)
 	setup();
 	FtpServer s;
 	FtpServer_Create(&s);
-	FtpClient *c = client(&s, 10, "/usb/0");
+	FtpClient *c = client(&s, 10, "/usb0");
 	assert(!FileSystem_OpenFile(&c->m_kContext, "file.elf", FM_READ, 0));
 	start_data(c, 20, DATAACTION_RETR);
 	read_error = -ENOENT;
@@ -972,7 +984,7 @@ static void test_transfers(void)
 	FtpClient_OnDataRead(c);
 	assert(reply(10) == 500 && !find(&usb, 0, "/bad.bin")->size);
 	write_error = 0;
-	assert(!FileSystem_OpenDir(&c->m_kContext, "/usb/0"));
+	assert(!FileSystem_OpenDir(&c->m_kContext, "/usb0"));
 	start_data(c, 24, DATAACTION_LIST);
 	dir_error = -EIO;
 	FtpClient_OnDataWrite(c);
@@ -983,8 +995,10 @@ static void test_transfers(void)
 	sockets[25].write_cap = 1;
 	while (c->m_iDataSocket >= 0)
 		FtpClient_OnDataWrite(c);
-	assert(reply(10) == 226 && strstr((char *)sockets[25].output, " usb\r\n") &&
-		   !strstr((char *)sockets[25].output, " mass\r\n"));
+	assert(reply(10) == 226 && strstr((char *)sockets[25].output, " usb0\r\n") &&
+		   strstr((char *)sockets[25].output, " usb1\r\n") &&
+		   !strstr((char *)sockets[25].output, " mass0\r\n") &&
+		   !strstr((char *)sockets[25].output, " usb\r\n"));
 	assert(!FileSystem_OpenDir(&c->m_kContext, "/"));
 	start_data(c, 26, DATAACTION_NLST);
 	sockets[26].write_error = EPIPE;
@@ -1005,13 +1019,141 @@ static void test_transfers(void)
 	puts("PASS: exact upload/download bytes with short I/O, directory sends and network/filesystem failures");
 }
 
+static void test_client_count(void)
+{
+	setup();
+	FtpServer server;
+	FtpServer_Create(&server);
+	FtpControl_Init(&server);
+	FtpClient *a = client(&server, 10, "/usb0");
+	FtpClient *b = client(&server, 11, "/usb0");
+	FtpClient *c = client(&server, 12, "/usb0");
+	LsFtpStatus status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(status.clients == 1 && !status.transfers);
+	/* A PORT command's data address cannot change the source host's identity. */
+	command(c, "PORT 192,168,1,99,10,1");
+	assert(reply(12) == 200 && c->m_iRemoteAddress[3] == 99);
+	assert(c->m_uiPeerAddress == htonl(0xc0a80114));
+	assert(!FileSystem_OpenFile(&a->m_kContext, "file.elf", FM_READ, 0));
+	assert(!FileSystem_OpenFile(&b->m_kContext, "file.elf", FM_READ, 0));
+	start_data(a, 20, DATAACTION_RETR);
+	start_data(b, 21, DATAACTION_RETR);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(status.clients == 1 && status.transfers == 2);
+	FtpClient *d = FtpServer_OnClientConnect(&server, 13, htonl(0xc0a80115));
+	assert(d && d->m_uiPeerAddress == htonl(0xc0a80115));
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(status.clients == 2 && status.transfers == 2);
+	FtpServer_OnClientDisconnect(&server, a);
+	FtpServer_OnClientDisconnect(&server, b);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(status.clients == 2 && !status.transfers);
+	FtpServer_OnClientDisconnect(&server, c);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(status.clients == 1);
+	/* Reusing a released slot must count the new peer, not its former address. */
+	a = FtpServer_OnClientConnect(&server, 14, htonl(0xc0a80116));
+	assert(a && a->m_uiPeerAddress == htonl(0xc0a80116));
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(status.clients == 2);
+	FtpServer_OnClientDisconnect(&server, d);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(status.clients == 1);
+	FtpServer_OnClientDisconnect(&server, a);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(!status.clients && !status.transfers);
+	FtpServer_Destroy(&server);
+	assert(open_count == close_count);
+	puts("PASS: unique control-peer IP counts, parallel transfers, PORT independence, disconnects and slot reuse");
+}
+static void test_command_history(void)
+{
+	setup();
+	FtpServer server;
+	FtpServer_Create(&server);
+	FtpControl_Init(&server);
+	FtpServer_SetUsername(&server, "private-user");
+	FtpServer_SetPassword(&server, "hidden-password");
+	FtpClient *a = FtpServer_OnClientConnect(&server, 10, htonl(0xc0a80114));
+	assert(a);
+	command(a, "uSeR private-user");
+	command(a, "pAsS hidden-password");
+	assert(a->m_eAuthState == AUTHSTATE_VALID);
+	LsFtpStatus status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	for (int i = 0; i < LS_FTP_HISTORY_COUNT; i++)
+		assert(!status.history[i].text[0]);
+	FtpClient *b = client(&server, 11, "/");
+	rtc.second = 0x01;
+	command(a, "PWD");
+	rtc.second = 0x02;
+	command(b, "TYPE I");
+	rtc.second = 0x03;
+	command(a, "CWD /usb0");
+	rtc.second = 0x04;
+	command(b, "NOOP");
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	const char *expected[] = {"NOOP", "CWD /usb0", "TYPE I"};
+	for (int i = 0; i < LS_FTP_HISTORY_COUNT; i++) {
+		const LsFtpCommand *entry = &status.history[i];
+		assert(!strcmp(entry->text, expected[i]));
+		assert(entry->year == 2026 && entry->month == 10 && entry->day == 31);
+		assert(entry->hour == 16 && entry->minute == 59 && entry->second == 4 - i);
+	}
+	assert(sizeof(status) == 512 && status.version == LS_FTP_PROTOCOL_VERSION);
+	/* Status polling never retimestamps the commands or changes their order. */
+	rtc.second = 0x30;
+	LsFtpStatus polled = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(!memcmp(status.history, polled.history, sizeof(status.history)));
+	command(a, "USER should-not-appear");
+	command(a, "PASS should-not-appear");
+	polled = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(!memcmp(status.history, polled.history, sizeof(status.history)));
+	char long_command[300];
+	memset(long_command, 'x', sizeof(long_command) - 1);
+	memcpy(long_command, "CWD ", 4);
+	long_command[sizeof(long_command) - 1] = 0;
+	command(a, long_command);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(strlen(status.history[0].text) == sizeof(status.history[0].text) - 1);
+	assert(!strncmp(status.history[0].text, long_command, sizeof(status.history[0].text) - 1));
+	assert(!strcmp(status.history[1].text, "NOOP"));
+	rtc_ok = 0;
+	command(a, "PWD");
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(!strcmp(status.history[0].text, "PWD") && !status.history[0].year);
+	rtc_ok = 1;
+	rtc.stat = 1;
+	command(a, "NOOP");
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(!status.history[0].year);
+	rtc.stat = 0;
+	rtc.hour = 0x2a;
+	command(a, "PWD");
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(!status.history[0].year);
+	rtc.hour = 0x16;
+	rtc.month = 0x90; /* RTC month carries a separate high-bit flag. */
+	a->m_eDataMode = DATAMODE_WRITE;
+	command(a, "CWD /mc0");
+	assert(reply(10) == 450);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	assert(!strcmp(status.history[0].text, "CWD /mc0") && status.history[0].month == 10);
+	FtpControl_Init(&server);
+	status = *(LsFtpStatus *)FtpControl_Exchange(LS_FTP_STATUS, NULL, 0);
+	for (int i = 0; i < LS_FTP_HISTORY_COUNT; i++)
+		assert(!status.history[i].text[0]);
+	FtpServer_Destroy(&server);
+	assert(open_count == close_count);
+	puts("PASS: newest-first timestamped history across sessions, credential exclusion, truncation, RTC failures and reset");
+}
+
 static void test_stop_control(void)
 {
 	setup();
 	FtpServer server;
 	FtpServer_Create(&server);
 	FtpControl_Init(&server);
-	FtpClient *c = client(&server, 10, "/usb/0");
+	FtpClient *c = client(&server, 10, "/usb0");
 	assert(!FileSystem_OpenFile(&c->m_kContext, "upload.bin", FM_WRITE, 0));
 	start_data(c, 20, DATAACTION_STOR);
 	c->m_uiDataOffset = ((u64)5 << 30) + 23;
@@ -1072,7 +1214,7 @@ static void test_resume_and_size(void)
 	setup();
 	FtpServer s;
 	FtpServer_Create(&s);
-	FtpClient *c = client(&s, 10, "/usb/0");
+	FtpClient *c = client(&s, 10, "/usb0");
 	int before = truncations;
 	seek_error = 1;
 	assert(FileSystem_OpenFile(&c->m_kContext, "file.elf", FM_WRITE, 500) < 0);
@@ -1088,7 +1230,7 @@ static void test_resume_and_size(void)
 	assert(!strcmp((char *)sockets[10].output, "213 5368709243\r\n"));
 	Node *large = add(&usb, 0, "/large.bin", 0, payload, 7);
 	large->reported_size = ((u64)5 << 30) + 123;
-	assert(!FileSystem_OpenFile(&c->m_kContext, "/usb/0/large.bin", FM_READ, large->reported_size));
+	assert(!FileSystem_OpenFile(&c->m_kContext, "/usb0/large.bin", FM_READ, large->reported_size));
 	read_error = -EIO;
 	char byte;
 	assert(FileSystem_ReadFile(&c->m_kContext, &byte, 1) == -EIO);
@@ -1117,7 +1259,7 @@ static void test_command_stream(void)
 	setup();
 	FtpServer s;
 	FtpServer_Create(&s);
-	FtpClient *c = client(&s, 10, "/usb/0");
+	FtpClient *c = client(&s, 10, "/usb0");
 	feed(&sockets[10], "RNFR file.elf\r\nRNTO pipelined.elf\r\nPWD\r\n");
 	assert(FtpServer_HandleEvents(&s) > 0);
 	assert(find(&usb, 0, "/pipelined.elf") && strstr((char *)sockets[10].output, "350 ") &&
@@ -1129,8 +1271,8 @@ static void test_command_stream(void)
 		FtpServer_HandleEvents(&s);
 	assert(reply(10) == 200 && !c->m_iCommandOffset);
 	c->m_eDataMode = DATAMODE_WRITE;
-	command(c, "CWD /mc/0");
-	assert(reply(10) == 450 && !strcmp(c->m_kContext.m_Path, "/usb/0/"));
+	command(c, "CWD /mc0");
+	assert(reply(10) == 450 && !strcmp(c->m_kContext.m_Path, "/usb0/"));
 	command(c, "ABOR");
 	assert(reply(10) == 226 && c->m_eDataMode == DATAMODE_IDLE);
 	memset(c->m_kContext.m_Path, 'a', sizeof(c->m_kContext.m_Path) - 1);
@@ -1150,7 +1292,7 @@ static void test_command_stream(void)
 	assert(open_count == close_count);
 	setup();
 	FtpServer_Create(&s);
-	c = client(&s, 10, "/usb/0");
+	c = client(&s, 10, "/usb0");
 	sockets[10].write_error = EPIPE;
 	command(c, "PWD");
 	assert(!c->m_pServer && sockets[10].closed);
@@ -1170,6 +1312,8 @@ int main(void)
 	test_denied_commands();
 	test_memory_card_browsing();
 	test_transfers();
+	test_client_count();
+	test_command_history();
 	test_stop_control();
 	test_decimal_formatting();
 	test_resume_and_size();

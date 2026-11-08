@@ -17,7 +17,6 @@
 #ifndef LINUX
 #include "irx_imports.h"
 #define assert(x)
-#define isnum(c) ((c) >= '0' && (c) <= '9')
 #else
 #include <assert.h>
 #include <fcntl.h>
@@ -31,13 +30,20 @@
 #include <unistd.h>
 #endif
 
-// present in FtpClient.c
-extern char *itoa(char *in, int val);
-
 #ifndef LINUX
-/* FTP exposes a fixed set of device families and units. */
-static const char *families[] = {"mc", "usb", "hdd", "ata"};
-static const int family_units[] = {2, 2, 1, 1};
+/* Public FTP roots map directly to a supported driver and unit. */
+static const struct {
+	const char *name, *family;
+	int unit, needs_hdd;
+} roots[] = {
+	{"mc0", "mc", 0, 0},
+	{"mc1", "mc", 1, 0},
+	{"usb0", "usb", 0, 0},
+	{"usb1", "usb", 1, 0},
+	{"hdd0", "hdd", 0, 1},
+	{"ata0", "ata", 0, 1},
+};
+enum { FS_ROOT_COUNT = sizeof(roots) / sizeof(roots[0]) };
 static int hdd_enabled = 1;
 
 static unsigned int pfs_mount_generation[FS_PFS_UNITS];
@@ -67,9 +73,9 @@ static const char *FileSystem_DeviceName(const iop_device_t *device)
 		return "usb";
 	if (!strcmp(device->name, "pfs"))
 		return "pfs";
-	for (int i = 0; i < 4; i++)
-		if (!strcmp(device->name, families[i]))
-			return families[i];
+	for (int i = 0; i < FS_ROOT_COUNT; i++)
+		if (!strcmp(device->name, roots[i].family))
+			return roots[i].family;
 	return NULL;
 }
 
@@ -159,7 +165,7 @@ void FileSystem_Create(FSContext *pContext)
 
 #ifndef LINUX
 	pContext->m_eType = FS_INVALID;
-	pContext->m_iFamily = pContext->m_iMount = -1;
+	pContext->m_iMount = -1;
 	pContext->m_iRoot = 1;
 	memset(&(pContext->m_kFile), 0, sizeof(pContext->m_kFile));
 	pContext->m_iOpen = 0;
@@ -273,7 +279,7 @@ int FileSystem_OpenDir(FSContext *pContext, const char *pDir)
 		}
 	} break;
 
-	// either device-list or unit-list (depending on if pContext->m_kFile.device was set)
+	// flat device-root listing
 	case FS_DEVLIST: {
 		pContext->m_kFile.unit = 0; // virtual enumeration cursor
 		return 0;
@@ -388,32 +394,25 @@ int FileSystem_ReadDir(FSContext *pContext, FSFileInfo *pInfo)
 	pInfo->m_TS.m_iMinute = time.min;
 	pInfo->m_TS.m_iSecond = time.sec;
 	if (pContext->m_eType == FS_DEVLIST) {
-		int family = pContext->m_iFamily;
 		pInfo->m_iProtection = 0777;
 		pInfo->m_eType = FT_DIRECTORY;
-		if (family < 0) {
-			while (pContext->m_kFile.unit < 4) {
-				int index = pContext->m_kFile.unit++;
-				if (!hdd_enabled && index >= 2)
-					continue;
-				strcpy(pInfo->m_Name, families[index]);
-				return 1;
-			}
-			return 0;
-		}
-		if (!device)
-			return -ENODEV;
-		while (pContext->m_kFile.unit < family_units[family]) {
-			iop_file_t probe = pContext->m_kFile;
-			int unit = pContext->m_kFile.unit++;
-			probe.privdata = NULL;
-			probe.mode = O_DIROPEN;
-			if (device->ops->dopen(&probe, "/") < 0)
+		while (pContext->m_kFile.unit < FS_ROOT_COUNT) {
+			iop_file_t probe;
+			int index = pContext->m_kFile.unit++;
+			if (!hdd_enabled && roots[index].needs_hdd)
 				continue;
-			int closed = device->ops->dclose(&probe);
+			memset(&probe, 0, sizeof(probe));
+			probe.device = FileSystem_ScanDevice(roots[index].family);
+			if (!probe.device)
+				continue;
+			probe.unit = roots[index].unit;
+			probe.mode = O_DIROPEN;
+			if (probe.device->ops->dopen(&probe, "/") < 0)
+				continue;
+			int closed = probe.device->ops->dclose(&probe);
 			if (closed < 0)
 				return closed;
-			itoa(pInfo->m_Name, unit);
+			strcpy(pInfo->m_Name, roots[index].name);
 			return 1;
 		}
 		return 0;
@@ -633,7 +632,6 @@ int FileSystem_Close(FSContext *pContext)
 		mounts[pContext->m_iMount].references--;
 		pContext->m_iMount = -1;
 	}
-	pContext->m_iFamily = -1;
 	pContext->m_iRoot = 1;
 	pContext->m_eType = FS_INVALID;
 	memset(&pContext->m_kFile, 0, sizeof(pContext->m_kFile));
@@ -753,51 +751,34 @@ s64 FileSystem_GetFileSize(FSContext *pContext, const char *pFile)
 #ifndef LINUX
 const char *FileSystem_ClassifyPath(FSContext *pContext, const char *pPath)
 {
-	char path[FS_PATH_MAX], name[32];
+	char path[FS_PATH_MAX];
 	const char *cursor, *end;
 	size_t length;
-	int family = -1, unit = 0;
+	int root = -1;
 	FileSystem_Close(pContext);
 	if (!pPath || pPath[0] != '/' || FileSystem_BuildPath(path, "/", pPath) < 0)
 		return NULL;
-	pContext->m_eType = FS_DEVLIST;
-	if (!strcmp(path, "/"))
+	if (!strcmp(path, "/")) {
+		pContext->m_eType = FS_DEVLIST;
 		return "/";
+	}
 	cursor = path + 1;
 	end = strchr(cursor, '/');
 	length = end ? (size_t)(end - cursor) : strlen(cursor);
-	if (length >= sizeof(name))
-		return NULL;
-	memcpy(name, cursor, length);
-	name[length] = '\0';
-	for (int i = 0; i < 4; i++)
-		if (!strcmp(name, families[i]))
-			family = i;
-	if (family < 0 || (!hdd_enabled && family >= 2))
-		return NULL;
-	/* Reject unsupported unit numbers before looking up the driver. */
-	if (end) {
-		cursor = end + 1;
-		if (!isnum(*cursor))
-			return NULL;
-		while (isnum(*cursor)) {
-			int digit = *cursor++ - '0';
-			if (unit > (0x7fffffff - digit) / 10)
-				return NULL;
-			unit = unit * 10 + digit;
+	for (int i = 0; i < FS_ROOT_COUNT; i++)
+		if (strlen(roots[i].name) == length && !strncmp(cursor, roots[i].name, length)) {
+			root = i;
+			break;
 		}
-		if ((*cursor && *cursor != '/') || unit >= family_units[family])
-			return NULL;
-	}
-	pContext->m_iFamily = family;
-	pContext->m_kFile.device = FileSystem_ScanDevice(name);
+	if (root < 0 || (!hdd_enabled && roots[root].needs_hdd))
+		return NULL;
+	pContext->m_kFile.device = FileSystem_ScanDevice(roots[root].family);
 	if (!pContext->m_kFile.device)
 		return NULL;
-	if (!end)
-		return "/";
-	pContext->m_kFile.unit = unit;
+	pContext->m_kFile.unit = roots[root].unit;
 	pContext->m_eType = FS_IODEVICE;
-	if (family == 2 && *cursor && cursor[1]) {
+	cursor = end ? end : "";
+	if (!strcmp(roots[root].family, "hdd") && *cursor && cursor[1]) {
 		char partition[33];
 		const char *leaf = strchr(cursor + 1, '/');
 		length = leaf ? (size_t)(leaf - cursor - 1) : strlen(cursor + 1);
