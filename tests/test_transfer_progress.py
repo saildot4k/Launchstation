@@ -164,7 +164,6 @@ assert '(w - 60) * loading_fraction' in renderer and '* p + 8' not in renderer
 assert 'dashTextFit(x + 84, y + 26' in renderer
 copy=(root/'src/filer_copy.c').read_text()
 assert 'if (!DashFileTransferProgress("Pasting file", file.name, size, original_size, &transfer_stats))' in copy
-assert 'buffSize = 16384' in copy
 assert 'DashFileDeleteProgress(file->name)' in (root/'src/filer_actions.c').read_text()
 def function(text, signature):
  a=text.index(signature);b=text.index('{',a)+1;depth=1

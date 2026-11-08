@@ -69,8 +69,7 @@ void filerCopyDiagFormat(char *out, int size, int result)
 
 	if (error == -ENOSPC) {
 		snprintf(out, size, "%s (%d)\n"
-		         "Not enough free space to copy the complete file. For replacements, "
-		         "free space must cover the new file before the old one can be replaced.\n"
+		         "Not enough free space to copy the complete file.\n"
 		         "%.39s\n%s -> %s\n%llu/%llu B\nIOP %u>%u; %.12s",
 		         copy_diag.stage ? copy_diag.stage : "Copy failed", error,
 		         copy_diag.name, copy_diag.source, copy_diag.destination,
@@ -191,101 +190,6 @@ int filerCopyProgressBegin(const char *path, const FILEINFO *files, int count)
 		ret = copyCountFiles(path, &files[i], 0, &copy_file_count);
 		if (ret < 0) return copyDiagFail(ret);
 	}
-	return 0;
-}
-
-/* File replacements keep the old entry until a complete sibling copy has
- * been closed and read back. Never delete an existing file to make room. */
-static int copyPathMissing(int result)
-{
-	/* genGetStat normalizes backend stat results; only ENOENT means absent. */
-	return result == -ENOENT;
-}
-
-static u32 copyChecksum(u32 hash, const void *data, int size)
-{
-	const unsigned char *p = data;
-	while (size-- > 0)
-		hash = (hash ^ *p++) * 16777619u;
-	return hash;
-}
-
-static int copyRenameFile(const char *from, const char *to)
-{
-	return genRenameNoReplace(from, to);
-}
-
-static int copyPrepareTarget(char *out, char *target, char *backup)
-{
-	iox_stat_t stat;
-	char stage[MAX_PATH];
-	const char *leaf;
-	int ret = genGetStat(out, &stat), parent, i;
-	target[0] = backup[0] = '\0';
-	if (copyPathMissing(ret)) return 0;
-	if (ret < 0) return ret;
-	if (FIO_S_ISDIR(stat.mode)) return -EISDIR;
-	leaf = strrchr(out, '/');
-	if (leaf == NULL) leaf = strchr(out, ':');
-	if (leaf == NULL) return -EINVAL;
-	parent = (int)(leaf - out + 1);
-	for (i = 0; i < 1000; i++) {
-		if (snprintf(stage, sizeof(stage), "%.*sLS-COPY-%03d.TMP", parent, out, i) >= (int)sizeof(stage) ||
-		    snprintf(backup, MAX_PATH, "%.*sLS-OLD-%03d.BAK", parent, out, i) >= MAX_PATH)
-			return -ENAMETOOLONG;
-		ret = genGetStat(stage, &stat);
-		if (ret >= 0) continue;
-		if (!copyPathMissing(ret)) return ret;
-		ret = genGetStat(backup, &stat);
-		if (ret >= 0) continue;
-		if (!copyPathMissing(ret)) return ret;
-		strcpy(target, out);
-		strcpy(out, stage);
-		return 0;
-	}
-	return -EEXIST;
-}
-
-static int copyVerifyTarget(const char *path, const char *name, u64 size, u32 checksum)
-{
-	unsigned char buffer[4096];
-	u64 total = size;
-	u32 hash = 2166136261u;
-	int fd = genOpen(path, FIO_O_RDONLY), count, ret = -EIO;
-	if (fd < 0) return fd;
-	while (size > 0) {
-		DashFileProgress("Verifying file", name, size, total);
-		int request = size < sizeof(buffer) ? (int)size : (int)sizeof(buffer);
-		count = genRead(fd, buffer, request);
-		if (count < 0) { ret = count; goto done; }
-		if (count == 0 || count > request) goto done;
-		hash = copyChecksum(hash, buffer, count);
-		size -= count;
-	}
-	if (hash == checksum) {
-		count = genRead(fd, buffer, 1);
-		ret = count < 0 ? count : (count == 0 ? 0 : -EIO);
-	}
-done:
-	count = genClose(fd);
-	if (ret < 0) return ret;
-	if (count < 0) return count;
-	DashFileProgress("Verifying file", name, 0, total);
-	return 0;
-}
-
-static int copyPublishTarget(char *stage, const char *target, char *backup)
-{
-	int ret = copyRenameFile(target, backup);
-	if (ret < 0) return ret;
-	ret = copyRenameFile(stage, target);
-	if (ret < 0) {
-		/* Preserve both recoverable copies if rollback itself is refused. */
-		copyRenameFile(backup, target);
-		return ret;
-	}
-	genRemove(backup); /* A failed cleanup retains the old copy, never the new one. */
-	strcpy(stage, target);
 	return 0;
 }
 
@@ -646,8 +550,6 @@ int copy(char *outPath, const char *inPath, FILEINFO file, int recurses)
 	int nfiles, i;
 	u64 size = 0;
 	u64 original_size = 0;
-	u32 copy_hash = 2166136261u;
-	char replace_target[MAX_PATH] = "", replace_backup[MAX_PATH] = "";
 	int ret = -1, pfsout = -1, pfsin = -1, in_fd = -1, out_fd = -1, buffSize, bytesRead, bytesWritten;
 	int buffCount = 1, buffIndex = 0;
 	int dummy;
@@ -1107,35 +1009,23 @@ non_PSU_RESTORE_init:
 			goto copy_file_exit;
 		}
 	} else {            //Any other PasteMode than PM_PSU_BACKUP needs a new output file
-		int open_mode = FIO_O_WRONLY | FIO_O_CREAT | FIO_O_EXCL;
 #if defined(ETH) || defined(UDPFS)
 		if (!strncmp(out, "host:/", 6))
 			makeHostPath(out, out);
 #endif
-		genLimObjName(out, 0);                                //Limit dest file name
+		genLimObjName(out, 0);  //Limit dest file name
 		if (!strcmp(in, out)) { ret = 0; goto copy_file_exit; }
-		if (PM_flag[recurses] == PM_PSU_RESTORE) {
-			/* The restore folder was created/recreated above. Match R3Z 4.80:
-			 * replace each archive entry directly, without ordinary-copy stat,
-			 * staging or replacement checks on memory-card file entries. */
-			genRemove(out);
-			open_mode = FIO_O_WRONLY | FIO_O_TRUNC | FIO_O_CREAT;
-		} else
-#if defined(ETH) || defined(UDPFS)
-		/* HOST lacks stat/standard rename; UDPFS has stat but no rename. Keep R3Z's
-		 * direct-write replacement on these drivers instead of staging a file
-		 * that cannot be published. Failed transfers still retain move sources. */
-		if (!strncmp(out, "host:", 5) || !strncmp(out, "udpfs:", 6))
-			open_mode = FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC;
-		else
+		/* Match R3Z 4.80 for ordinary files and PSU entries: remove the old
+		 * destination if present, then create/write the requested filename.
+		 * Do not depend on destination stat or rename support. */
+		filerCopyDiagStage("Removing destination");
+		dummy = genRemove(out);
+#if FILEOP_TRACE
+		if (trace_vmc_copy)
+			printf("[VMC_COPY] remove existing out='%s' ret=%d recurse=%d\n", out, dummy, recurses);
 #endif
-		{
-			filerCopyDiagStage("Checking destination");
-			ret = copyPrepareTarget(out, replace_target, replace_backup);
-			if (ret < 0) goto copy_file_exit;
-		}
 		filerCopyDiagStage("Opening destination");
-		out_fd = genOpen(out, open_mode);
+		out_fd = genOpen(out, FIO_O_WRONLY | FIO_O_TRUNC | FIO_O_CREAT);
 		if (out_fd < 0) {
 			ret = out_fd;
 #if FILEOP_TRACE
@@ -1177,12 +1067,6 @@ non_PSU_RESTORE_init:
 
 	if (size < (u64)buffSize)
 		buffSize = (int)size;
-	/* Bound returned I/O chunks on slow card media so the dashboard gets
-	 * regular opportunities to draw its scene and handle cancellation. */
-	if (DashIsActive() && buffSize > 16384 &&
-	    (!strncmp(in, "mc", 2) || !strncmp(out, "mc", 2) ||
-	     !strncmp(in, "vmc", 3) || !strncmp(out, "vmc", 3)))
-		buffSize = 16384;
 
 	if (buffSize == 0) {
 #if FILEOP_TRACE
@@ -1368,7 +1252,6 @@ non_PSU_RESTORE_init:
 				ret = bytesRead < 0 ? bytesRead : (bytesWritten < 0 ? bytesWritten : -EIO);
 				goto copy_file_exit;
 			}
-			copy_hash = copyChecksum(copy_hash, copyBuff, buffSize);
 			size -= buffSize;
 			written_size += buffSize;
 			copy_diag.done = original_size - size;
@@ -1422,20 +1305,9 @@ copy_file_data_done:
 		else if ((isPcCardCfPath(out) && !isPcCardCfOnline()) || (isPcCardCfPath(in) && !isPcCardCfOnline()))
 			ret = -EIO;
 		out_fd = -1;  //prevent dual closure attempt
-		if (ret < 0) {
-			if (PM_flag[recurses] != PM_PSU_BACKUP)
-				genRemove(out);
+		/* R3Z leaves the output available when closing reports a failure. */
+		if (ret < 0)
 			goto copy_file_exit;
-		}
-	}
-
-	if (replace_target[0]) {
-		filerCopyDiagStage("Verifying replacement");
-		ret = copyVerifyTarget(out, file.name, original_size, copy_hash);
-		if (ret < 0) { genRemove(out); goto copy_file_exit; }
-		filerCopyDiagStage("Publishing replacement");
-		ret = copyPublishTarget(out, replace_target, replace_backup);
-		if (ret < 0) goto copy_file_exit;
 	}
 
 	if (!strncmp(out, "mc", 2)) {                                 //Handle file copied to MC

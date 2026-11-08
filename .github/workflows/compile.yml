@@ -35,8 +35,10 @@ jobs:
           python3 tests/test_pccf.py
           python3 tests/test_pccf_owner.py
           python3 tests/test_pccf_fs.py
-          python3 tests/test_paste_replace.py
           python3 tests/test_copy_short_io.py
+          python3 tests/test_r3z_file_io.py
+          python3 tests/test_rename_devices.py
+          python3 tests/test_vmc_rename.py
           python3 tests/test_file_stat_errors.py
           python3 tests/test_copy_pipeline.py
           python3 tests/test_gamesave_titles.py

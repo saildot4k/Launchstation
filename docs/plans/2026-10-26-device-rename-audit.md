@@ -1,5 +1,23 @@
 # Writable-device rename audit
 
+## November 7: R3Z ordinary rename flow
+
+This supersedes the ordinary stat-based conflict and post-mutation verification
+policy described below. Shared sibling rename now probes the requested target
+with native directory/file opens, performs one native operation and reports
+its result. It does not require source/destination stat or query stat afterward.
+The MC stat bug can therefore neither invent a destination conflict nor turn
+an already-completed rename into an apparent failure.
+
+Card RPC submission/completion checks, bounded 20/32-byte names, VMC sibling
+leaves, HOST's handle ioctl, case-only single-attempt policy, protected paths
+and driver wire limits remain. Ordinary HOST rename likewise reports its
+native ioctl/close result without a separate post-mutation existence check.
+The host rename matrix includes both files and folders in both MC slots with
+bogus stat enabled and verifies no stat request occurs on those routes.
+
+## Earlier audit
+
 Reviewed the interactive Rename operation for files and directories and its
 relationship to the copy replacement transaction. CDFS remains read-only.
 Host tests execute production C functions with filesystem/driver fixtures;
