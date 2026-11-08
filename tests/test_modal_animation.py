@@ -36,7 +36,8 @@ gfx = read("src/dash_gfx.c")
 header = read("include/dash_internal.h")
 orbs = read("src/dash_bg_ps2.c")
 widgets = read("src/dash_widgets.c")
-menu = function(ui, "int dashModalMenu(")
+menu = (function(ui, "static int modalMenu(") + function(ui, "int dashModalMenu(")
+        + function(ui, "int dashModalMenuEdit("))
 buttons = (function(ui, "static int modalButtons(") + function(ui, "int dashModalKeepVideo(")
            + function(ui, "int dashModalConfirm(") + function(ui, "void dashModalMessage("))
 button_icons = function(ui, "int dashOkIcon(") + function(ui, "int dashBackIcon(")
@@ -52,6 +53,7 @@ code = r"""
 typedef uint64_t u64;
 typedef struct { int r,g,b,a; } DashColor;
 typedef struct { int icon; const char *label,*detail; int disabled; } DashMenuItem;
+typedef int (*DashMenuEdit)(int, int, void *);
 typedef struct { int pressed; } DashInput;
 static struct { int anim,effects; } dashCfg={100,100};
 static struct { int glow,highlight; } dashTheme;
@@ -60,11 +62,20 @@ static u64 last_frame_ms,now_ms;
 static int bg_calls,ui_calls,renders,depth,nested,frames[2],step_ms[3]={16,20,33};
 static int preview_calls;
 static int nav_scenario, timed_scenario, video_scenario, video_direction;
+static int edit_scenario, edit_nested, edit_calls, edit_value, edit_frames, flushes;
+static float edit_open;
 static int scroll_scenario, scroll_top, scroll_rows, scroll_count;
 static float selection_y,selection_row;
 static int selections;
 static int swapKeys,button_count,drawn_icons[2];
-static void recordButton(int icon) { if(button_count<2)drawn_icons[button_count]=icon;button_count++; }
+static float recordButton(int icon) { if(button_count<2)drawn_icons[button_count]=icon;button_count++;return 24; }
+static float recordText(void) { return 0; }
+static void recordPanel(float k) {
+    if(edit_scenario && depth==0) {
+        assert(k>=edit_open); /* edits must not restart the opening animation */
+        edit_open=k;edit_frames++;
+    }
+}
 static void recordSelection(float x,float y,float w,float h,float r,float a) {
     (void)x;(void)w;(void)h;(void)r;(void)a;
     selections++; selection_y=y;
@@ -80,7 +91,7 @@ static void dashBgUpdate(float dt) { bg_calls++; bg_time+=dt*dashCfg.effects/100
 static void dashUiUpdate(float dt) { ui_calls++; ui_time+=dt; }
 static void dashRenderScene(void) { renders++; }
 static void dashGfxPresent(void) {}
-static void dashInputFlush(void) {}
+static void dashInputFlush(void) { flushes++; }
 static void dashSoundPlay(int s) { (void)s; }
 static float dashClampf(float x,float lo,float hi) { return x<lo?lo:x>hi?hi:x; }
 static float dashLerpf(float a,float b,float t) { return a+(b-a)*t; }
@@ -104,8 +115,8 @@ input_start = header.rfind("enum {", 0, header.index("DASH_IN_UP"))
 code += header[input_start:header.index("};", input_start) + 2] + "\n"
 for color in colors:
     code += f"#define {color} ((DashColor){{255,255,255,255}})\n"
-for draw in ("modalBackdrop", "dashGfxPushAlpha", "dashGfxPushOffset", "modalPanel",
-             "dashTextS", "dashTextFit", "dashTextScrollTimed", "dashTextScroll", "dashGfxScissor",
+for draw in ("modalBackdrop", "dashGfxPushAlpha", "dashGfxPushOffset",
+             "dashTextFit", "dashTextScrollTimed", "dashTextScroll", "dashGfxScissor",
              "dashIcon", "dashTextRight", "dashGfxScissorReset",
              "modalHintRow", "dashGfxPopOffset", "dashGfxPopAlpha", "dashGfxBlend",
              "dashGlow", "dashTextWrap", "dashPanel", "dashPanelBorder", "dashTextCenter"):
@@ -113,6 +124,8 @@ for draw in ("modalBackdrop", "dashGfxPushAlpha", "dashGfxPushOffset", "modalPan
 code += "#define dashDrawSelection(...) recordSelection(__VA_ARGS__)\n"
 code += "#define dashDrawScrollbar(...) recordScrollbar(__VA_ARGS__)\n"
 code += "#define drawButton(x,y,icon,key) recordButton(icon)\n"
+code += "#define dashTextS(...) recordText()\n"
+code += "#define modalPanel(x,y,w,h,k) recordPanel(k)\n"
 code += function(gfx, "float dashApproach(")
 code += function(shell, "float dashTime(")
 code += function(shell, "float dashAnimSpeed(")
@@ -162,6 +175,11 @@ static void dashInputPoll(DashInput *in) {
         if(f==2)
             in->pressed=video_scenario==1?DASH_IN_OK:DASH_IN_BACK;
     }
+    if(edit_scenario && depth==0) {
+        const int inputs[]={DASH_IN_DOWN,DASH_IN_RIGHT,DASH_IN_LEFT,DASH_IN_OK,
+                            0,DASH_IN_UP,DASH_IN_RIGHT,DASH_IN_OK};
+        assert(f<=8);in->pressed=inputs[f-1];
+    }
     if(nested && depth==0 && f==2) {
         depth=1;
         assert(!modalButtons("nested","confirm",NULL,0,(DashColor){0},"OK","Cancel",0));
@@ -175,6 +193,19 @@ code += (root / "include/list_scroll.h").read_text() + "\n"
 code += menu + buttons
 code += function(widgets, "static void classicClean(") + function(widgets, "static int classicYesNo(")
 code += r"""
+static int editRow(int row,int direction,void *arg) {
+    assert(arg==&edit_value);
+    if(row!=1) return 0; /* action rows ignore arrows and accept Confirm */
+    edit_calls++;
+    assert(direction==(edit_calls==1?1:edit_calls==2?-1:0));
+    edit_value+=direction?direction:1;
+    if(!direction && edit_nested) {
+        depth=1;
+        assert(!modalButtons("nested","choose",NULL,0,(DashColor){0},"OK","Cancel",0));
+        depth=0;
+    }
+    return 1;
+}
 static void reset(void) {
     anim_time=bg_time=ui_time=0; bg_calls=ui_calls=renders=preview_calls=0;
     section_anim=fade_in=0;
@@ -184,6 +215,7 @@ static void reset(void) {
     scroll_scenario=scroll_top=scroll_rows=scroll_count=0; selection_y=selection_row=0;
     swapKeys=button_count=0;
     dashCfg.anim=100; dashCfg.effects=100;
+    edit_scenario=edit_nested=edit_calls=edit_value=edit_frames=flushes=0;edit_open=0;
 }
 static void check(void) {
     assert(renders>0 && bg_calls==renders && ui_calls==renders);
@@ -193,6 +225,16 @@ static void check(void) {
 }
 int main(void) {
     DashMenuItem items[]={{0,"one",NULL,0},{0,"two",NULL,0}};
+    for(int nested_edit=0;nested_edit<=1;nested_edit++) {
+        reset();edit_scenario=1;edit_nested=nested_edit;
+        assert(dashModalMenuEdit("edit in place",NULL,items,2,0,editRow,&edit_value)==0);
+        assert(frames[0]==8 && edit_calls==3 && edit_value==1 && edit_frames==7);
+        assert(flushes==(nested_edit?4:2)); /* only entry/exit, plus any nested dialog */
+        check(); /* every frame still advances visuals exactly once */
+    }
+    reset();edit_scenario=1;
+    assert(dashModalMenu("ordinary after edit",NULL,items,2,0)==1);
+    assert(frames[0]==4 && !edit_calls && flushes==2); /* no editor callback leaks */
     for(int ms=16;ms<=33;ms+=(ms==16?4:13)) {
         reset(); step_ms[0]=step_ms[1]=step_ms[2]=ms;
         assert(dashModalMenu("ordinary",NULL,items,2,0)==-1);
@@ -379,7 +421,7 @@ if len(sys.argv) == 1:
 # Menu rows: a long detail must never overlap its label (Settings changes >
 # Discard changes), and START hints must draw the START glyph even without the
 # pad PNG atlas (the text badge read as a SELECT bar on CRTs).
-menu = function(ui, "int dashModalMenu(")
+menu = function(ui, "static int modalMenu(")
 assert "detail ? 90" not in menu
 assert "detail_w = avail - label_w - 14.0f;" in menu
 assert "dashTextFit(tx, ry + 4.0f, label_w, items[i].label, DASH_FS_SMALL," in menu

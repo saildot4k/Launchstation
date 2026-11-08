@@ -22,7 +22,7 @@ into concrete make flags (e.g. `EXFAT`, `MMCE`, `MX4SIO`, `DVRP`, `XFROM`, `DS34
 This keeps CI and local profile builds aligned.
 
 Local `make` defaults to the CI-style UDPFS stack (`ETH=0 UDPFS=1`). Developers can
-opt into the legacy host/netfs stack with `ETH=1 UDPFS=0`, or compile both stacks
+opt into the legacy host/FTP stack with `ETH=1 UDPFS=0`, or compile both stacks
 with `ETH=1 UDPFS=1`. Combined builds must switch between `host:` and `udpfs:`
 by rebooting the IOP before loading the other network stack.
 

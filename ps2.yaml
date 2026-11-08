@@ -256,6 +256,7 @@ targets:
 
   - name: wLaunchELF
     type: ee
+    opt: -Os
     pack: true
     sources:
       - src/main.c
@@ -389,6 +390,7 @@ targets:
       - "-Wa,-I.."
     ldflags:
       - "-Wl,--no-warn-mismatch"
+      - "-Wl,-Map,wLaunchELF.map"
       - "-L../.https-deps/lib"
     headers: [sior, audsrv]
     libs: [iopreboot, hdd_ee, gskit, dmakit, png, z, jpeg, mc, kbd, mbedtls, mbedx509, mbedcrypto, ps2ips, cglue, m, cdvd, filexio, patches, poweroff, debug, secr, pad, audsrv]
@@ -405,7 +407,6 @@ targets:
       - ps2ip-nm:ps2ip
       - ps2ips_rpc:ps2ips
       - ps2host
-      - netfs:ps2netfs
       - ps2ftpd
       - dev9_poweroff
       - pccf

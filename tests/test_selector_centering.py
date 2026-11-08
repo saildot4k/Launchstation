@@ -14,7 +14,9 @@ SMALL, CAPTION = 0.66, 0.60
 
 
 def num(text, pattern):
-    return float(re.search(pattern, text).group(1) or 0)
+    match = re.search(pattern, text)
+    assert match, f"Missing row-layout expression: {pattern}"
+    return float(match.group(1) or 0)
 
 
 lists = []
@@ -46,12 +48,16 @@ color_bar = num(color_editor, r"dashDrawSelection\(x \+ 12, ry \+ 2, w - 24, ([\
 lists.append(("Colour picker", 2, color_bar, color_editor, r"dashText\(x \+ 24, ry \+ ([\d.]+)f, ch_names\[i\], DASH_FS_SMALL", SMALL))
 
 ui = src("dash_ui.c")
-menu = ui[ui.index("int dashModalMenu("):ui.index("int dashModalChoice(")]
+menu = ui[ui.index("static int modalMenu("):ui.index("int dashModalChoice(")]
 menu_row = num(menu, r"row_h = ([\d.]+)f")
 assert menu_row == irow, "Popup rows must match Settings spacing"
 menu_bar = menu_row - num(menu, r"dashDrawSelection\(x \+ 14, fy \+ 2, w - 28, row_h - ([\d.]+)")
 lists.append(("Popup menu", 2, menu_bar, menu, r"dashTextFit\(tx, ry \+ ([\d.]+)f, label_w, items\[i\]\.label, DASH_FS_SMALL", SMALL))
-lists.append(("Popup detail", 2, menu_bar, menu, r"dashTextRight\(x \+ w - 28, ry \+ ([\d.]+)f, items\[i\]\.detail, DASH_FS_CAPTION", CAPTION))
+# Horizontal placement reserves space for arrows on editable rows. Check the
+# vertical baseline for short, scrolling and clipped values independently.
+for draw in ("dashTextRight", "dashTextScroll", "dashTextFit"):
+    lists.append((f"Popup {draw[8:]}", 2, menu_bar, menu,
+                  rf"{draw}\([^,\n]+, ry \+ ([\d.]+)f, (?:detail_w, )?items\[i\]\.detail, DASH_FS_CAPTION", CAPTION))
 buttons = ui[ui.index("static int modalButtons("):ui.index("int dashModalConfirm(")]
 button_h = num(buttons, r"button_h = ([\d.]+)f")
 assert button_h <= irow, "Confirmation selection must not exceed a normal row"

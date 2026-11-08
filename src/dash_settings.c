@@ -59,7 +59,6 @@ enum SetId {
 	S_SCANPATHS,
 	S_RESCAN,
 	S_CLEAR_RECENT,
-	S_INTRO,
 	/* controls */
 	S_CONFIRM,
 	S_VKEY,
@@ -86,15 +85,13 @@ enum SetId {
 	S_HIDE_HDD,
 	S_HIDE_MC,
 	S_REBOOT_ELF,
-	S_ABOUT_PROJECT,
 	/* network */
 	S_NET_IP,
 	S_NET_NM,
 	S_NET_GW,
 	S_HOSTWRITE,
-	S_CLOCK_MANUAL,
+	S_CLOCK,
 	S_TEMP_UNITS,
-	S_CLOCK_SYNC,
 	/* advanced */
 	S_LANGUAGE,
 	S_GAMEID,
@@ -294,9 +291,6 @@ static const SetItem net_items[] = {
 #if defined(ETH) || defined(UDPFS)
     {ST_CHOICE, S_HOSTWRITE, "Allow writing over the network", "Lets host: / udpfs: be written to, not only read."},
 #endif
-#ifdef ETH
-    {ST_ACTION, S_CLOCK_SYNC, "Sync PS2 clock from Internet", "Get time from 0.pool.ntp.org, track elapsed time, then write and verify the PS2 hardware RTC."},
-#endif
 };
 
 static const SetItem language_items[] = {
@@ -318,12 +312,10 @@ static const SetItem psu_items[] = {
 static const SetItem system_items[] = {
     {ST_PAGE, P_LANGUAGE, "Language", "Built-in language and external translations for file operations and tools."},
     {ST_PAGE, P_PSU, "Memory card backup files", "PSU naming and overwrite rules used by File Browser operations."},
-    {ST_ACTION, S_CLOCK_MANUAL, "Set PS2 clock manually...", "Enter the local date and time as YYYY-MM-DD HH:MM:SS; the hardware RTC is written and verified."},
+    {ST_ACTION, S_CLOCK, "Set PS2 Clock", "Set the console's date and time manually or synchronize from the Internet."},
     {ST_CHOICE, S_TEMP_UNITS, "PS2 Temperature Units (50K and later)", "Celsius or Fahrenheit beside the clock. Hidden automatically when the console has no supported temperature sensor."},
     {ST_PATH, S_CNF_PATH, "Configuration override folder", "Load and save LAUNCHELF.CNF in this folder instead of the default places."},
     {ST_ACTION, S_SAVE_AS, "Save launch & tool settings to...", "Writes LAUNCHELF.CNF immediately to another location; dashboard and network settings are saved separately."},
-    {ST_ACTION, S_INTRO, "Show welcome message again", "Show the introduction the next time the dashboard checks for it."},
-    {ST_ACTION, S_ABOUT_PROJECT, "About Launchstation", "Version, commit, project origin, upstream credits and contributors."},
 };
 
 #define NITEMS(a) ((int)(sizeof(a) / sizeof(a[0])))
@@ -419,7 +411,7 @@ static const SetPage pages[P_COUNT] = {
     [P_GAMEID] = PAGE("Game ID output", DI_APP, "Identification for compatible OSD/HDMI adapters.", gameid_items),
     [P_DEVICES] = PAGE("Storage & devices", DI_DEVICES, "Device visibility and storage preferences.", device_items),
     [P_NETWORK] = PAGE("Network", DI_NETWORK, "Console address for FTP, PS2Link and UDPFS.", net_items),
-    [P_SYSTEM] = PAGE("System", DI_TOOLS, "Language, backup file rules and settings locations.", system_items),
+    [P_SYSTEM] = PAGE("System", DI_TOOLS, "Language, console clock, backup rules and settings locations.", system_items),
     [P_LANGUAGE] = PAGE("Language", DI_TEXT, "These translations apply to file operations and tools.", language_items),
     [P_PSU] = PAGE("Memory card backup files", DI_MC, "Naming and overwrite behavior when creating PSU backups.", psu_items),
     [P_THEME_BG] = PAGE("Background", DI_IMAGE, "Scene, brightness and static wallpaper.", tbg_items),
@@ -1827,7 +1819,7 @@ static int settingsLeave(void)
 	char what[96];
 	int n = 0, r;
 	DashMenuItem items[] = {
-	    {DI_CHECK, "Save changes", NULL, 0},
+	    {DI_SAVE, "Save changes", NULL, 0},
 	    {DI_CLOSE, "Discard changes", NULL, 0},
 	    {DI_BACK, "Keep editing", NULL, 0}};
 
@@ -2372,6 +2364,178 @@ static void runThemeAction(int id)
 	}
 }
 
+/* Whole date/time fields use the same pad controls as the IPv4 editor. */
+static int editClockDateTime(int fields[6])
+{
+	static const char *const labels[] = {"Year", "Month", "Day", "Hour", "Minute", "Second"};
+	static const int low[] = {2000, 1, 1, 0, 0, 0};
+	int high[] = {2099, 12, 31, 23, 59, 59};
+	int value[6], sel = 0, i, accepted = 0;
+	float open = 0.0f, sel_anim = 0.0f;
+	const float w = 528.0f, h = 268.0f, bw = 64.0f, gap = 16.0f;
+	const float x = (DASH_VW - w) * 0.5f, y = (DASH_VH - h) * 0.5f;
+	const float bx0 = x + (w - (6 * bw + 5 * gap)) * 0.5f, by = y + 120.0f;
+	DashInput in;
+
+	memcpy(value, fields, sizeof(value));
+	for (i = 0; i < 6; i++) {
+		if (i == 2)
+			high[2] = dashClockDaysInMonth(value[0], value[1]);
+		if (value[i] < low[i])
+			value[i] = low[i];
+		if (value[i] > high[i])
+			value[i] = high[i];
+	}
+	dashInputFlush();
+	while (1) {
+		int step = 0;
+		float dt, oe;
+
+		dashInputPoll(&in);
+		if (in.pressed & (DASH_IN_BACK | DASH_IN_MENU))
+			break;
+		if (in.pressed & (DASH_IN_LEFT | DASH_IN_RIGHT)) {
+			int next = (sel + ((in.pressed & DASH_IN_LEFT) ? 5 : 1)) % 6;
+			if ((sel == 0 && next == 5) || (sel == 5 && next == 0))
+				sel_anim = (float)next;
+			sel = next;
+			dashSoundPlay(DASH_SND_CURSOR);
+		}
+		if (in.pressed & DASH_IN_UP)
+			step = 1;
+		if (in.pressed & DASH_IN_DOWN)
+			step = -1;
+		if (in.pressed & (DASH_IN_R1 | DASH_IN_R2))
+			step = 10;
+		if (in.pressed & (DASH_IN_L1 | DASH_IN_L2))
+			step = -10;
+		if (step) {
+			int range = high[sel] - low[sel] + 1;
+			value[sel] = low[sel] + (value[sel] - low[sel] + step + range) % range;
+			high[2] = dashClockDaysInMonth(value[0], value[1]);
+			if (value[2] > high[2])
+				value[2] = high[2];
+			dashSoundPlay(DASH_SND_CURSOR);
+		}
+		if (in.pressed & DASH_IN_OK) {
+			accepted = 1;
+			break;
+		}
+		dt = dashVisualUpdate();
+		open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dt);
+		sel_anim = dashApproach(sel_anim, (float)sel, 22.0f * dashAnimSpeed(), dt);
+		oe = dashEaseOutCubic(open);
+		dashRenderScene();
+		dashModalBackdrop(oe);
+		dashGfxPushAlpha(oe);
+		dashGfxPushOffset(0, 18.0f * (1.0f - oe));
+		dashModalPanel(x, y, w, h, oe);
+		dashIcon(DI_CLOCK, x + 24, y + 18, 22, DASH_C_ACCENT);
+		dashTextS(x + 56, y + 18, "Set PS2 Clock", DASH_FS_LABEL, DASH_C_TEXT);
+		dashTextFit(x + 24, y + 48, w - 48, "Local date and time (24-hour clock, 2000-2099)", DASH_FS_CAPTION, DASH_C_TEXT3);
+		dashDrawSelection(bx0 + sel_anim * (bw + gap), by, bw, 44, 10, 1.0f);
+		for (i = 0; i < 6; i++) {
+			char num[8];
+			float bx = bx0 + i * (bw + gap);
+
+			dashTextCenter(bx + bw * 0.5f, by - 46, labels[i], DASH_FS_CAPTION, DASH_C_TEXT3);
+			if (i != sel)
+				dashPanel(bx, by, bw, 44, 10, DC(255, 255, 255, 16));
+			snprintf(num, sizeof(num), i == 0 ? "%04d" : "%02d", value[i]);
+			dashTextCenter(bx + bw * 0.5f, by + 10, num, DASH_FS_LABEL, dashItemColor(i == sel));
+			if (i < 5)
+				dashTextCenter(bx + bw + gap * 0.5f, by + 10, i < 2 ? "-" : i == 2 ? "" : ":", DASH_FS_LABEL, DASH_C_TEXT2);
+			if (i == sel) {
+				dashTextCenter(bx + bw * 0.5f, by - 20, "+", DASH_FS_BODY, DASH_C_ACCENT);
+				dashTextCenter(bx + bw * 0.5f, by + 48, "-", DASH_FS_BODY, DASH_C_ACCENT);
+			}
+		}
+		{
+			float hx = x + 24, hy = y + h - 68;
+
+			hx += dashDrawButton(hx, hy, DI_BTN_LEFT, NULL) + 12;
+			hx += dashDrawButton(hx, hy, DI_BTN_RIGHT, NULL) + 4;
+			hx = dashTextS(hx, hy + 4.5f, "Select field", DASH_FS_SMALL, DASH_C_TEXT2) + 20;
+			hx += dashDrawButton(hx, hy, DI_BTN_UP, NULL) + 12;
+			hx += dashDrawButton(hx, hy, DI_BTN_DOWN, NULL) + 4;
+			dashTextS(hx, hy + 4.5f, "Change", DASH_FS_SMALL, DASH_C_TEXT2);
+		}
+		{
+			float hx = x + 24, hy = y + h - 36;
+
+			hx += dashDrawButton(hx, hy, -1, "L1") + 2;
+			hx += dashDrawButton(hx, hy, -1, "R1") + 4;
+			hx = dashTextS(hx, hy + 4.5f, "10", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
+			dashModalHintRow(hx, hy, dashOkIcon(), "Apply", dashBackIcon(), "Cancel");
+		}
+		dashGfxPopOffset();
+		dashGfxPopAlpha();
+		dashGfxPresent();
+	}
+	if (accepted)
+		memcpy(fields, value, sizeof(value));
+	dashSoundPlay(accepted ? DASH_SND_CONFIRM : DASH_SND_CANCEL);
+	dashInputFlush();
+	return accepted;
+}
+
+static void setClockManually(void)
+{
+	char input[24], result[160];
+	int fields[] = {2000, 1, 1, 0, 0, 0};
+	int use12, datefmt;
+	int ok;
+
+	if (!menuTitleGetClockFields(&fields[0], &fields[1], &fields[2], &fields[3], &fields[4], &fields[5],
+	                             &use12, &datefmt)) {
+		fields[0] = 2000;
+		fields[1] = fields[2] = 1;
+		fields[3] = fields[4] = fields[5] = 0;
+	}
+	if (!editClockDateTime(fields))
+		return;
+	snprintf(input, sizeof(input), "%04d-%02d-%02d %02d:%02d:%02d",
+	         fields[0], fields[1], fields[2], fields[3], fields[4], fields[5]);
+	ok = dashClockSetManual(fields[0], fields[1], fields[2], fields[3], fields[4], fields[5], result, sizeof(result));
+	dashModalMessage(ok ? DI_CHECK : DI_WARNING,
+	                 ok ? "PS2 clock updated" : "Clock update failed", result, input);
+}
+
+#ifdef ETH
+static void syncClockFromInternet(void)
+{
+	char result[160];
+	int ok;
+
+	if (!dashWorkerAwaitAll("Finishing background storage work"))
+		return;
+	dashLoadingBegin("Synchronizing PS2 clock");
+	ok = dashClockSyncInternet(result, sizeof(result));
+	dashLoadingEnd();
+	dashModalMessage(ok ? DI_CHECK : DI_WARNING,
+	                 ok ? "PS2 clock synchronized" : "Clock synchronization failed",
+	                 result[0] ? result : (ok ? "The hardware clock was updated." : "No reliable Internet time was available."), NULL);
+}
+#endif
+
+static void setPs2Clock(void)
+{
+	DashMenuItem items[] = {
+	    {DI_CLOCK, "Set manually...", "Adjust the local date and time", 0},
+#ifdef ETH
+	    {DI_CLOCK, "Sync from Internet", "Use Internet time", 0},
+#endif
+	};
+	int choice = dashModalMenu("Set PS2 Clock", NULL, items, NITEMS(items), 0);
+
+	if (choice == 0)
+		setClockManually();
+#ifdef ETH
+	else if (choice == 1)
+		syncClockFromInternet();
+#endif
+}
+
 static void runAction(int id)
 {
 	if (id >= S_T_PRESET) {
@@ -2398,60 +2562,12 @@ static void runAction(int id)
 				dashToast(DASH_TOAST_OK, "Recent list cleared");
 			}
 			break;
-		case S_INTRO:
-			dashCfg.intro_done = 0;
-			dash_dirty = 1;
-			dashToast(DASH_TOAST_INFO, "The welcome message will be shown next time");
-			break;
 		case S_LAUNCHKEYS:
 			openPage(P_LKEY);
 			break;
-		case S_ABOUT_PROJECT:
-			dashShowAbout();
+		case S_CLOCK:
+			setPs2Clock();
 			break;
-		case S_CLOCK_MANUAL: {
-			char input[24];
-			char result[160];
-			int year, month, day, hour, minute, second;
-			int use12, datefmt;
-			int ok;
-
-			if (menuTitleGetClockFields(&year, &month, &day, &hour, &minute, &second,
-			                            &use12, &datefmt))
-				snprintf(input, sizeof(input), "%04d-%02d-%02d %02d:%02d:%02d",
-				         year, month, day, hour, minute, second);
-			else
-				snprintf(input, sizeof(input), "2000-01-01 00:00:00");
-
-			if (!dashModalKeyboard("Set PS2 clock: YYYY-MM-DD HH:MM:SS", input, sizeof(input)))
-				break;
-			if (sscanf(input, "%4d-%2d-%2d %2d:%2d:%2d",
-			           &year, &month, &day, &hour, &minute, &second) != 6) {
-				dashModalMessage(DI_WARNING, "Invalid date / time",
-				                 "Use YYYY-MM-DD HH:MM:SS, for example 2026-10-07 15:30:00.", input);
-				break;
-			}
-			ok = dashClockSetManual(year, month, day, hour, minute, second, result, sizeof(result));
-			dashModalMessage(ok ? DI_CHECK : DI_WARNING,
-			                 ok ? "PS2 clock updated" : "Clock update failed",
-			                 result, input);
-			break;
-		}
-#ifdef ETH
-		case S_CLOCK_SYNC: {
-			char result[160];
-			int ok;
-			if (!dashWorkerAwaitAll("Finishing background storage work"))
-				break;
-			dashLoadingBegin("Synchronizing PS2 clock");
-			ok = dashClockSyncInternet(result, sizeof(result));
-			dashLoadingEnd();
-			dashModalMessage(ok ? DI_CHECK : DI_WARNING,
-			                 ok ? "PS2 clock synchronized" : "Clock synchronization failed",
-			                 result[0] ? result : (ok ? "The hardware clock was updated." : "No reliable Internet time was available."), NULL);
-			break;
-		}
-#endif
 		case S_SAVE_CLASSIC:
 			settingsSaveAction();
 			break;
@@ -2526,7 +2642,7 @@ static void settingsMenu(void)
 	int changed = anyDirty();
 	int failed = failedSaves();
 	DashMenuItem menu[] = {
-	    {DI_CHECK, !changed && failed ? "Retry failed saves" : "Save changes", "Save current settings", !(changed || failed)},
+	    {DI_SAVE, !changed && failed ? "Retry failed saves" : "Save changes", "Save current settings", !(changed || failed)},
 	    {DI_CLOSE, "Discard changes", "Undo edits since opening Settings or choosing Save", !changed},
 	    {DI_BACK, "Keep editing", NULL, 0}};
 	int r = dashModalMenu("Settings changes", changed ? "Changes preview immediately" : failed ? "An earlier save failed; retry is optional" : "No unsaved changes", menu, NITEMS(menu), (changed || failed) ? 0 : 2);
@@ -2765,7 +2881,7 @@ static void settingsDraw(void)
 			               it->type == ST_PATH ? DI_FOLDER :
 			               it->type == ST_IP ? DI_NETWORK :
 			               it->type == ST_LKEY ? DI_KEY :
-			               it->type == ST_ACTION ? DI_PLAY :
+			               it->type == ST_ACTION ? (it->id == S_SAVE_AS ? DI_SAVE : it->id == S_CLOCK ? DI_CLOCK : DI_PLAY) :
 			               it->type == ST_INFO ? DI_INFO : DI_SETTINGS;
 			dashIcon(row_icon, ix + 12, y + 7, 15, col);
 		}

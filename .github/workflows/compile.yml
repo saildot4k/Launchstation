@@ -52,6 +52,7 @@ jobs:
           python3 tests/test_poweroff_init.py
           python3 tests/test_settings_save_prompt.py
           python3 tests/test_settings_navigation.py
+          python3 tests/test_settings_clock.py
           python3 tests/test_language_preview.py
           python3 tests/test_navigation_wraparound.py
           python3 tests/test_device_handoff.py
@@ -202,6 +203,13 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/build_https_tls.sh
+
+      - name: Verify HTTPS client profile
+        run: |
+          toolbin="$HOME/.local/share/ps2build/toolchain/ee/bin"
+          python3 scripts/check_https_tls.py \
+            "$toolbin/mips64r5900el-ps2-elf-gcc" \
+            "$toolbin/mips64r5900el-ps2-elf-nm"
 
       - name: Build isolated PC CARD CF driver
         run: ps2build build -c iop/pccf/ps2.yaml

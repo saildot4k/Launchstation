@@ -44,10 +44,6 @@ for path in ('src/dash_browser.c', 'src/dash_tools.c', 'src/dash_settings.c',
                     'WLE-MMCE-Backups', 'WLE-Recovered', 'S_MMCE_', 'P_MMCE_BACKUP',
                     'wle_igr', 'mmce_igr', 'igr_auto_backup', 'igr_after'):
         assert removed not in text, (path, removed)
-settings = (root / 'src/dash_settings.c').read_text()
-system = settings[settings.index('static const SetItem system_items[]'):]
-system = system[:system.index('\n};')]
-assert 'S_ABOUT_PROJECT' in system
 browser = (root / 'src/dash_browser.c').read_text()
 assert 'Mount as vmc0:' in browser and 'Mount as vmc1:' in browser
 assert 'opPaste(PASTE_PSU);' in browser

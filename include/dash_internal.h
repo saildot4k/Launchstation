@@ -486,6 +486,7 @@ enum DashIcon {
 	DI_NEW_DOCUMENT, /* lined document with a small upper-right plus */
 	DI_KEY_TAB,     /* keyboard right arrow ending at a vertical bar */
 	DI_KEY_RETURN,  /* keyboard bent left arrow; arrowhead centered at y=0 */
+	DI_SAVE,        /* upstream floppy disk: shutter on top, label below */
 	DI_COUNT
 };
 
@@ -849,6 +850,12 @@ typedef struct
 } DashMenuItem;
 
 int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *items, int n, int initial);
+/* Editable rows update in the same modal session. direction is -1/+1 for
+ * Left/Right, or 0 for Confirm. Return nonzero when handled to keep the menu
+ * open; unhandled Confirm accepts the row. The callback may update items. */
+typedef int (*DashMenuEdit)(int index, int direction, void *arg);
+int dashModalMenuEdit(const char *title, const char *subtitle, DashMenuItem *items, int n, int initial,
+                     DashMenuEdit edit, void *arg);
 /* dialog building blocks for custom modals */
 void dashModalBackdrop(float k);
 void dashModalPanel(float x, float y, float w, float h, float k);
@@ -1044,6 +1051,7 @@ void dashClassicUiDone(void);
 int dashOpenTextEditor(const char *file); /* 0 = the user backed out before it opened */
 void dashAppActions(DashApp *app);
 void dashRescanLibrary(int interactive);
+int dashClockDaysInMonth(int year, int month);
 int dashClockSetManual(int year, int month, int day, int hour, int minute, int second,
                        char *result, int result_size);
 int dashClockSyncInternet(char *result, int result_size);

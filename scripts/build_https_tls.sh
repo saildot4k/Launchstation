@@ -36,14 +36,20 @@ tar -xjf "${cache}/${archive}" -C "${work}"
 src="${work}/mbedtls-${version}"
 build="${work}/build"
 
-# The EE target is neither POSIX nor Windows. Keep certificate/date support,
-# but provide the millisecond clock from wLaunchELF and omit Mbed TLS's
-# Unix/Windows timing module.
-python3 "${src}/scripts/config.py" -f "${src}/include/mbedtls/mbedtls_config.h" unset MBEDTLS_TIMING_C
-python3 "${src}/scripts/config.py" -f "${src}/include/mbedtls/mbedtls_config.h" unset MBEDTLS_NET_C
-python3 "${src}/scripts/config.py" -f "${src}/include/mbedtls/mbedtls_config.h" set MBEDTLS_PLATFORM_MS_TIME_ALT
+# Install the exact configuration used to compile the archives. Consumers must
+# see the same feature-dependent context layouts as the library itself.
+cat "${repo_root}/include/https_mbedtls_config.h" >> "${src}/include/mbedtls/mbedtls_config.h"
 
-cmake -S "${src}" -B "${build}"     -DCMAKE_SYSTEM_NAME=Generic     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY     -DCMAKE_C_COMPILER="${prefix}-gcc"     -DCMAKE_AR="${prefix}-ar"     -DCMAKE_RANLIB="${prefix}-ranlib"     -DCMAKE_INSTALL_PREFIX="${out}"     -DENABLE_PROGRAMS=OFF     -DENABLE_TESTING=OFF     -DBUILD_SHARED_LIBS=OFF     -DMBEDTLS_FATAL_WARNINGS=OFF     -DCMAKE_BUILD_TYPE=MinSizeRel     -DCMAKE_C_FLAGS="-G0 -Os -ffunction-sections -fdata-sections -DMBEDTLS_NO_PLATFORM_ENTROPY -DMBEDTLS_ENTROPY_HARDWARE_ALT"
+cmake -S "${src}" -B "${build}" \
+    -DCMAKE_SYSTEM_NAME=Generic \
+    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+    -DCMAKE_C_COMPILER="${prefix}-gcc" \
+    -DCMAKE_AR="${prefix}-ar" \
+    -DCMAKE_RANLIB="${prefix}-ranlib" \
+    -DCMAKE_INSTALL_PREFIX="${out}" \
+    -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DBUILD_SHARED_LIBS=OFF \
+    -DMBEDTLS_FATAL_WARNINGS=OFF -DCMAKE_BUILD_TYPE=MinSizeRel \
+    -DCMAKE_C_FLAGS="-G0 -Os -ffunction-sections -fdata-sections"
 
 cmake --build "${build}" --parallel
 cmake --install "${build}"

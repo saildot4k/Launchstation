@@ -275,6 +275,7 @@ static unsigned int getIopResetGeneration(void) { return reset_generation; }
 static char LaunchElfBootDir[256], LaunchElfDir[256], netConfig[32];
 static int mc_present[2], usb_mask, usb_loaded, resident, media, loads, opens, closes;
 static int failed_load, reset_on_load, reset_on_type, usb_snapshot_valid=1;
+static int udpfs_reloads, udpfs_server_seen, reset_refused, worker_allowed=1;
 static u64 delayed_ata;
 enum { S_HDD=1, S_ATA=2, S_MX=4, S_MMCE0=8, S_MMCE1=16, S_UDPFS=32, S_HOST=64 };
 static int slot(const char *p) {
@@ -303,7 +304,12 @@ static int loadHddModules(void) { return load(S_HDD); }
 static int loadAtaModules(void) { return load(S_ATA); }
 static int loadMx4sioModules(void) { usb_snapshot_valid=0; return load(S_MX); }
 static int loadMmceModules(void) { return load(S_MMCE0|S_MMCE1); }
-static int load_udpfs(void) { return load(S_UDPFS); }
+static int load_udpfs(void) {
+    int was_resident=resident&S_UDPFS, ok=load(S_UDPFS);
+    /* Server discovery can be latched by the resident ministack. */
+    if(ok && !was_resident) udpfs_server_seen=(media&S_UDPFS)!=0;
+    return ok;
+}
 static int ensurePathDeviceStackReady(const char *path) {
     assert(!strncmp(path,"host",4));
     return load(S_HOST) && (media & S_HOST);
@@ -319,6 +325,7 @@ static int absent_hdd_units, absent_ata_units;
 static char last_open[32];
 static int fileXioDopen(const char *p) {
     opens++; int s=slot(p);snprintf(last_open,sizeof(last_open),"%s",p);
+    if(s==S_UDPFS && !udpfs_server_seen) return -1;
     if(s==S_HDD && (absent_hdd_units & (1 << (p[3]=='1')))) return -1;
     if(s==S_ATA && (absent_ata_units & (1 << (p[3]=='1')))) return -1;
     return (media&s) && (s!=S_ATA || now_ms>=delayed_ata)?0:-1;
@@ -344,6 +351,12 @@ static int filerUsbRefreshDriveMask(void) {
 }
 static int isUsbMassStackLoaded(void) { return usb_loaded; }
 static void rebootIopAndReloadCoreStackSilent(void) { reset_generation++; resident=0; usb_loaded=0; }
+static int reloadUdpfsModules(void) {
+    udpfs_reloads++;
+    if(reset_refused) return 0;
+    rebootIopAndReloadCoreStackSilent();
+    return load_udpfs();
+}
 #define DPRINTF(...) ((void)0)
 static void loadUsbModules(void) { usb_loaded=1; }
 static int prepareUsbRootBrowse(void) { return usb_mask?0:-1; }
@@ -355,7 +368,7 @@ static void dashSoundPlay(int i) {
 }
 static void dashAppsRebuildView(void) { device_view_updates++; }
 static void dashStrCopy(char *d,const char *s,int n) { snprintf(d,n,"%s",s); }
-static int dashWorkerAwaitAll(const char *t) { (void)t; return 1; }
+static int dashWorkerAwaitAll(const char *t) { (void)t; return worker_allowed; }
 static int startup_quiet;
 static int isStartupDriverStatusQuiet(void) { return startup_quiet; }
 static void setStartupDriverStatusQuiet(int quiet) { startup_quiet = quiet; }
@@ -376,6 +389,8 @@ static int getPcCardCfCapacitySectors(u32 *s) { (void)s; return -1; }
 static int loadPcCardCfModules(void) { return 0; }
 """
 devcode += re.sub(r"^#include[^\n]*\n", "", devices, flags=re.M)
+devcode += "static DashDevice devs[DASH_MAX_DEVICES]; static int ndevs;\n"
+devcode += function(read("src/dash_files.c"), "static int devSelectable(")
 # Compile the browser's real root-list assembly to catch duplicate VMCs and capacity loss.
 browser = read("src/dash_browser.c")
 a = browser.index('		fb.ndevs = dashDevicesList(')
@@ -404,6 +419,12 @@ static void probe(const char *m) {
     assert(dashDevicesStart(&d,done,NULL)==0);
 }
 int main(void) {
+    ndevs=3;
+    strcpy(devs[0].mount,"udpfs:");devs[0].icon=DI_NETWORK;devs[0].state=DASH_DEV_ABSENT;
+    strcpy(devs[1].mount,"hdd0:");devs[1].icon=DI_HDD;devs[1].state=DASH_DEV_ABSENT;
+    strcpy(devs[2].mount,"mc0:");devs[2].icon=DI_MC;devs[2].state=DASH_DEV_BUSY;
+    assert(devSelectable(0) && !devSelectable(1) && devSelectable(2));
+    assert(!devSelectable(-1) && !devSelectable(ndevs));
     /* An initial lazy USB load is discovery, not an attach/failure sound.
      * A missing second unit must not negate any other usable USB unit. */
     for(int unit=0;unit<10;unit++) {
@@ -552,6 +573,39 @@ int main(void) {
     assert(opens==before && loads==before_loads);
     puts("PASS: both HDD units probe independently; every root fits without duplicate VMCs or enumeration IO");
     puts("PASS: driver-only/failed/empty/late roots, lazy device entries, MMCE units, reboot invalidation, boot source, no draw IO");
+    /* Offline first attempt: cache the result without rebooting. A server
+     * appearing later is not enough to repair this resident test ministack. */
+    reset_generation++;resident=media=0;
+    unsigned int udp_gen=reset_generation;
+    int before_reloads=udpfs_reloads;
+    probe("udpfs:");
+    assert(!result && state("udpfs:")==DASH_DEV_ABSENT && (resident&S_UDPFS));
+    assert(reset_generation==udp_gen && udpfs_reloads==before_reloads);
+    media=S_UDPFS;assert(fileXioDopen("udpfs:/")<0);
+    before=opens;before_loads=loads;
+    for(int i=0;i<10;i++) assert(state("udpfs:")==DASH_DEV_ABSENT);
+    assert(opens==before && loads==before_loads && udpfs_reloads==before_reloads);
+    /* Backing out before background IO drains must not start a retry. */
+    DashDevice retry={0};strcpy(retry.mount,"udpfs:");strcpy(retry.name,"Network");
+    worker_allowed=0;
+    assert(dashDevicesStart(&retry,done,NULL)==-1);
+    assert(reset_generation==udp_gen && udpfs_reloads==before_reloads && opens==before);
+    worker_allowed=1;reset_refused=1;probe("udpfs:");
+    assert(!result && reset_generation==udp_gen && opens==before);
+    assert(state("udpfs:")==DASH_DEV_ABSENT && udpfs_reloads==before_reloads+1);
+    reset_refused=0;probe("udpfs:");
+    assert(result && reset_generation==udp_gen+1 && udpfs_reloads==before_reloads+2);
+    assert(udpfs_server_seen && state("udpfs:")==DASH_DEV_READY && dashDevicePathReady("udpfs:/"));
+    /* Rechecking a healthy connection reuses it. Each failed explicit retry
+     * does at most one reboot; enumeration never retries on its own. */
+    udp_gen=reset_generation;before_reloads=udpfs_reloads;probe("udpfs:");
+    assert(result && reset_generation==udp_gen && udpfs_reloads==before_reloads);
+    media=0;probe("udpfs:");assert(!result && reset_generation==udp_gen);
+    probe("udpfs:");assert(!result && reset_generation==udp_gen+1);
+    before_reloads=udpfs_reloads;reset_generation++;resident=0;media=S_UDPFS;
+    udp_gen=reset_generation;probe("udpfs:");
+    assert(result && reset_generation==udp_gen && udpfs_reloads==before_reloads);
+    puts("PASS: offline UDPFS stays selectable; explicit retry reloads after failure, respects worker/reset refusal, reuses healthy sessions and forgets failures after reboot");
 }
 """
 

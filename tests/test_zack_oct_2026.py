@@ -22,7 +22,7 @@ blobs = read("src/embed_blobs.S")
 header = read("include/dash_internal.h")
 
 # Measure the current row/subtitle/footer layout instead of the former 38px rows.
-menu = ui[ui.index("int dashModalMenu("):ui.index("int dashModalChoice(")]
+menu = ui[ui.index("static int modalMenu("):ui.index("int dashModalChoice(")]
 rows = int(re.search(r"const int max_rows = ([0-9]+);", menu).group(1))
 row_h = float(re.search(r"row_h = ([\d.]+)f", menu).group(1))
 list_y = max(map(float, re.search(r"list_y = subtitle \? ([\d.]+)f : ([\d.]+)f", menu).groups()))

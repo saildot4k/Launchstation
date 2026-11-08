@@ -569,7 +569,7 @@ static void docClose(int i)
 static int confirmDiscard(EdDoc *d)
 {
 	DashMenuItem items[] = {
-	    {DI_CHECK, "Save", NULL, 0},
+	    {DI_SAVE, "Save", NULL, 0},
 	    {DI_CLOSE, "Don't save", NULL, 0},
 	    {DI_BACK, "Cancel", NULL, 0}};
 	char sub[96];

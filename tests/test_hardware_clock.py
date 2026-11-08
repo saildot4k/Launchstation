@@ -71,7 +71,7 @@ code += "int menuTitleUpdateAsync(int force) { return updateClock(Timer(), force
 code += function(title, "int menuTitleGetClockFields(")
 for signature in (
     "static u8 manualToBcd(", "static int manualFromBcd(",
-    "static int manualLeap(", "static int manualDaysInMonth(",
+    "static int manualLeap(", "int dashClockDaysInMonth(",
     "static s64 manualSerialSeconds(", "int dashClockSetManual(",
 ):
     code += function(clock, signature)
