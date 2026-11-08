@@ -2364,7 +2364,7 @@ static void runThemeAction(int id)
 	}
 }
 
-/* Each editable segment is two digits; the RTC's century is always 20. */
+/* Whole date/time fields use the same pad controls as the IPv4 editor. */
 static int editClockDateTime(int fields[6])
 {
 	static const char *const labels[] = {"Year", "Month", "Day", "Hour", "Minute", "Second"};
@@ -2372,9 +2372,9 @@ static int editClockDateTime(int fields[6])
 	int high[] = {2099, 12, 31, 23, 59, 59};
 	int value[6], sel = 0, i, accepted = 0;
 	float open = 0.0f, sel_anim = 0.0f;
-	const float w = 528.0f, h = 248.0f, bw = 48.0f, gap = 20.0f;
+	const float w = 528.0f, h = 268.0f, bw = 64.0f, gap = 16.0f;
 	const float x = (DASH_VW - w) * 0.5f, y = (DASH_VH - h) * 0.5f;
-	const float bx0 = x + 85.0f, by = y + 98.0f;
+	const float bx0 = x + (w - (6 * bw + 5 * gap)) * 0.5f, by = y + 120.0f;
 	DashInput in;
 
 	memcpy(value, fields, sizeof(value));
@@ -2405,12 +2405,13 @@ static int editClockDateTime(int fields[6])
 			step = 1;
 		if (in.pressed & DASH_IN_DOWN)
 			step = -1;
+		if (in.pressed & (DASH_IN_R1 | DASH_IN_R2))
+			step = 10;
+		if (in.pressed & (DASH_IN_L1 | DASH_IN_L2))
+			step = -10;
 		if (step) {
-			value[sel] += step;
-			if (value[sel] > high[sel])
-				value[sel] = low[sel];
-			if (value[sel] < low[sel])
-				value[sel] = high[sel];
+			int range = high[sel] - low[sel] + 1;
+			value[sel] = low[sel] + (value[sel] - low[sel] + step + range) % range;
 			high[2] = dashClockDaysInMonth(value[0], value[1]);
 			if (value[2] > high[2])
 				value[2] = high[2];
@@ -2432,22 +2433,25 @@ static int editClockDateTime(int fields[6])
 		dashIcon(DI_CLOCK, x + 24, y + 18, 22, DASH_C_ACCENT);
 		dashTextS(x + 56, y + 18, "Set PS2 Clock", DASH_FS_LABEL, DASH_C_TEXT);
 		dashTextFit(x + 24, y + 48, w - 48, "Local date and time (24-hour clock, 2000-2099)", DASH_FS_CAPTION, DASH_C_TEXT3);
-		dashTextRight(bx0 - 2, by + 10, "20", DASH_FS_LABEL, DASH_C_TEXT2);
 		dashDrawSelection(bx0 + sel_anim * (bw + gap), by, bw, 44, 10, 1.0f);
 		for (i = 0; i < 6; i++) {
-			char num[4];
+			char num[8];
 			float bx = bx0 + i * (bw + gap);
 
-			dashTextCenter(bx + bw * 0.5f, by - 24, labels[i], DASH_FS_CAPTION, DASH_C_TEXT3);
+			dashTextCenter(bx + bw * 0.5f, by - 46, labels[i], DASH_FS_CAPTION, DASH_C_TEXT3);
 			if (i != sel)
 				dashPanel(bx, by, bw, 44, 10, DC(255, 255, 255, 16));
-			snprintf(num, sizeof(num), "%02d", value[i] % 100);
+			snprintf(num, sizeof(num), i == 0 ? "%04d" : "%02d", value[i]);
 			dashTextCenter(bx + bw * 0.5f, by + 10, num, DASH_FS_LABEL, dashItemColor(i == sel));
 			if (i < 5)
 				dashTextCenter(bx + bw + gap * 0.5f, by + 10, i < 2 ? "-" : i == 2 ? "" : ":", DASH_FS_LABEL, DASH_C_TEXT2);
+			if (i == sel) {
+				dashTextCenter(bx + bw * 0.5f, by - 20, "+", DASH_FS_BODY, DASH_C_ACCENT);
+				dashTextCenter(bx + bw * 0.5f, by + 48, "-", DASH_FS_BODY, DASH_C_ACCENT);
+			}
 		}
 		{
-			float hx = x + 24, hy = y + h - 76;
+			float hx = x + 24, hy = y + h - 68;
 
 			hx += dashDrawButton(hx, hy, DI_BTN_LEFT, NULL) + 12;
 			hx += dashDrawButton(hx, hy, DI_BTN_RIGHT, NULL) + 4;
@@ -2456,7 +2460,14 @@ static int editClockDateTime(int fields[6])
 			hx += dashDrawButton(hx, hy, DI_BTN_DOWN, NULL) + 4;
 			dashTextS(hx, hy + 4.5f, "Change", DASH_FS_SMALL, DASH_C_TEXT2);
 		}
-		dashModalHintRow(x + 24, y + h - 38, dashOkIcon(), "Apply", dashBackIcon(), "Cancel");
+		{
+			float hx = x + 24, hy = y + h - 36;
+
+			hx += dashDrawButton(hx, hy, -1, "L1") + 2;
+			hx += dashDrawButton(hx, hy, -1, "R1") + 4;
+			hx = dashTextS(hx, hy + 4.5f, "10", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
+			dashModalHintRow(hx, hy, dashOkIcon(), "Apply", dashBackIcon(), "Cancel");
+		}
 		dashGfxPopOffset();
 		dashGfxPopAlpha();
 		dashGfxPresent();

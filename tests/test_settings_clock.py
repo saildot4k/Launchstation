@@ -48,7 +48,8 @@ code += function(clock, "static int manualLeap(") + function(clock, "int dashClo
 code += function(gfx, "float dashApproach(")
 code += r'''
 static int inputs[512], input_count, input_index;
-static int flushes, ticks, renders, presents, digits, prefix, selected, sounds[3];
+static int flushes, ticks, renders, presents, digits, plus, minus, selected, sounds[3];
+static float selected_x, plus_x, minus_x;
 static int shown[6], choice=-1, rtc_valid=1, manual_ok=1;
 static int current[6], expected[6], menus, field_reads, manual_writes, messages, last_icon;
 static float panel_open;
@@ -68,7 +69,7 @@ static float dashVisualUpdate(void) { ticks++;return 0.02f; }
 static float dashAnimSpeed(void) { return 1; }
 static float dashEaseOutCubic(float t) { return 1-(1-t)*(1-t)*(1-t); }
 static DashColor dashItemColor(int selected) { return 100+selected; }
-static void dashRenderScene(void) { renders++;digits=prefix=0;selected=-1; }
+static void dashRenderScene(void) { renders++;digits=plus=minus=0;selected=-1; }
 static void dashModalPanel(float x,float y,float w,float h,float open) {
     assert(x>=40 && x+w<=600 && y>=26 && y+h<=424);
     assert(open>=panel_open);panel_open=open; /* Edits keep the same open panel. */
@@ -78,14 +79,14 @@ static void dashDrawSelection(float x,float y,float w,float h,float r,float a) {
 }
 static void dashTextCenter(float x,float y,const char *text,float size,DashColor color) {
     assert(x>=40 && x<=600 && y>=26 && y<=424);
-    if(size==DASH_FS_LABEL && strlen(text)==2 && isdigit((unsigned char)text[0])) {
+    if(size==DASH_FS_LABEL && isdigit((unsigned char)text[0])) {
         assert(digits<6 && (color==100 || color==101));shown[digits]=atoi(text);
-        if(color==101) { assert(selected==-1);selected=digits; }
+        assert(strlen(text)==(digits==0?4:2)); /* The full year shares one box. */
+        if(color==101) { assert(selected==-1);selected=digits;selected_x=x; }
         digits++;
     }
-}
-static void dashTextRight(float x,float y,const char *text,float size,DashColor color) {
-    (void)x;(void)y;(void)size;(void)color;assert(!strcmp(text,"20"));prefix++;
+    if(size==DASH_FS_BODY && !strcmp(text,"+")) { plus++;plus_x=x; }
+    if(size==DASH_FS_BODY && !strcmp(text,"-")) { minus++;minus_x=x; }
 }
 static float dashTextS(float x,float y,const char *text,float size,DashColor color) {
     (void)y;(void)size;(void)color;return x+strlen(text)*7;
@@ -94,7 +95,8 @@ static void dashTextFit(float x,float y,float w,const char *text,float size,Dash
     (void)x;(void)y;(void)w;(void)text;(void)size;(void)color;
 }
 static float dashDrawButton(float x,float y,int icon,const char *key) {
-    (void)key;assert(x>=40 && x+22<=600 && y>=26 && y+22<=424);
+    assert(x>=40 && x+22<=600 && y>=26 && y+22<=424);
+    if(icon==-1) { assert(key && (!strcmp(key,"L1") || !strcmp(key,"R1")));return 24; }
     assert(icon==DI_BTN_LEFT || icon==DI_BTN_RIGHT || icon==DI_BTN_UP || icon==DI_BTN_DOWN);return 22;
 }
 static void dashModalHintRow(float x,float y,int ok,const char *apply,int back,const char *cancel) {
@@ -103,9 +105,11 @@ static void dashModalHintRow(float x,float y,int ok,const char *apply,int back,c
 static int dashOkIcon(void) { return 1; }
 static int dashBackIcon(void) { return 2; }
 static void dashGfxPresent(void) {
-    assert(digits==6 && prefix==1 && selected>=0 && selected<6);
+    assert(digits==6 && plus==1 && minus==1 && selected>=0 && selected<6);
+    assert(selected_x==plus_x && selected_x==minus_x);
+    assert(shown[0]>=2000 && shown[0]<=2099);
     assert(shown[1]>=1 && shown[1]<=12 && shown[2]>=1);
-    assert(shown[2]<=dashClockDaysInMonth(2000+shown[0],shown[1]));
+    assert(shown[2]<=dashClockDaysInMonth(shown[0],shown[1]));
     assert(shown[3]<=23 && shown[4]<=59 && shown[5]<=59);
     presents++;assert(ticks==renders && renders==presents);
 }
@@ -173,11 +177,19 @@ static void acceptAndCheck(int fields[6]) {
     assert(flushes==2 && sounds[0]==1 && !sounds[1] && renders==input_count-1);
 }
 int main(void) {
-    /* Every selected pair increments/decrements independently; no keyboard symbol is linked. */
+    /* Every whole field increments/decrements independently; no keyboard symbol is linked. */
     for(int field=0;field<6;field++)for(int direction=-1;direction<=1;direction+=2) {
         reset();selectField(field);press(direction==1?DASH_IN_UP:DASH_IN_DOWN);
         expected[field]+=direction;acceptAndCheck(current);
-        assert(shown[field]==expected[field]%100 && selected==field);
+        assert(shown[field]==expected[field] && selected==field);
+    }
+    /* The IP editor's shoulder shortcuts change the selected field by ten. */
+    const int buttons[]={DASH_IN_L1,DASH_IN_L2,DASH_IN_R1,DASH_IN_R2};
+    const int less10[]={2016,1,28,22,20,5},more10[]={2036,9,18,18,40,25};
+    for(int field=0;field<6;field++)for(int button=0;button<4;button++) {
+        reset();selectField(field);press(buttons[button]);
+        expected[field]=(button<2?less10:more10)[field];acceptAndCheck(current);
+        assert(shown[field]==expected[field] && selected==field);
     }
     /* Bounds wrap without carrying into other fields. */
     const int lower[]={2000,1,1,0,0,0},upper[]={2099,12,31,23,59,59};
@@ -187,7 +199,7 @@ int main(void) {
         expected[field]=up?lower[field]:upper[field];selectField(field);
         press(up?DASH_IN_UP:DASH_IN_DOWN);acceptAndCheck(current);
     }
-    /* Selection wraps in both directions, always highlighting a two-digit field. */
+    /* Selection wraps in both directions, including the full four-digit year. */
     reset();press(DASH_IN_LEFT);press(DASH_IN_UP);expected[5]++;acceptAndCheck(current);assert(selected==5);
     reset();selectField(6);press(DASH_IN_UP);expected[0]++;acceptAndCheck(current);assert(selected==0);
     /* Month/year changes clamp the day, including leap-day loss. */
@@ -195,6 +207,8 @@ int main(void) {
     expected[1]=2;expected[2]=29;selectField(1);press(DASH_IN_UP);acceptAndCheck(current);
     reset();current[0]=2028;current[1]=expected[1]=2;current[2]=29;
     expected[0]=2029;expected[2]=28;press(DASH_IN_UP);acceptAndCheck(current);
+    reset();current[0]=2028;current[1]=expected[1]=2;current[2]=29;
+    expected[0]=2038;expected[2]=28;press(DASH_IN_R1);acceptAndCheck(current);
     reset();current[1]=3;current[2]=31;expected[1]=2;expected[2]=28;
     selectField(1);press(DASH_IN_DOWN);acceptAndCheck(current);
     reset();current[1]=3;current[2]=31;expected[1]=4;expected[2]=30;
@@ -236,7 +250,7 @@ int main(void) {
     reset();choice=1;sync_ok=0;empty_error=1;setPs2Clock();
     assert(!strcmp(last_body,"No reliable Internet time was available."));
 #endif
-    puts("PASS: two-digit D-pad clock fields, valid-date wrapping, leap years, stable animation, cancel without writes, RTC feedback and Internet dispatch");
+    puts("PASS: whole-year clock field, IP-style adjustment cues and shoulder shortcuts, valid-date wrapping, leap years, stable animation, safe cancellation and RTC/Internet dispatch");
 }
 '''
 

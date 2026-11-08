@@ -2,7 +2,7 @@
 
 ## Rolling
 
-- **System settings:** Set PS2 Clock now offers manual editing and Internet synchronization together, with clock icons. Manual editing uses Left/Right to select two-digit fields and Up/Down to adjust them, without opening the virtual keyboard. The duplicate Network clock action, System About Launchstation entry and Show welcome message again action are removed; About remains in Tools.
+- **System settings:** Set PS2 Clock now offers manual editing and Internet synchronization together, with clock icons. Manual editing matches the IP editor's boxed fields and plus/minus cues: Left/Right selects a whole field, including the four-digit year; Up/Down adjusts it, and L1/R1 changes it by ten, without opening the virtual keyboard. The duplicate Network clock action, System About Launchstation entry and Show welcome message again action are removed; About remains in Tools.
 - **Save icons:** Neutrino game profiles, Settings save prompts, the editor's Save changes popup and the System save-location action use upstream Launchstation's floppy disk icon.
 - **UDPFS retry:** a failed server check stays selectable. Opening it again reboots and reloads the UDPFS stack after background I/O finishes, so a server started later can be discovered. Healthy connections reuse their current session.
 - **Neutrino launch options:** settings update in place without reopening the popup or resetting its focus and scroll. Left/Right changes compatibility, video, debug-color and PS2-logo values; Confirm toggles switches or opens the video choice list.

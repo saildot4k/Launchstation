@@ -404,9 +404,11 @@ For each project's exact role, paths, credit, bundled/unbundled status and licen
 ### PS2 hardware clock
 
 In **Settings > System > Set PS2 Clock**, choose **Set manually...** or
-**Sync from Internet**. In the manual editor, Left/Right selects a two-digit
-date/time field, Up increments it and Down decrements it. Confirm applies the
-local date and 24-hour time; Back cancels. No virtual keyboard is needed.
+**Sync from Internet**. The manual editor uses the IP editor's boxed fields and
+plus/minus cues. Left/Right selects a date/time field, including the full
+four-digit year; Up increments it and Down decrements it. L1/R1 changes the
+selected field by ten. Confirm applies the local date and 24-hour time;
+Back cancels. No virtual keyboard is needed.
 Internet synchronization is available in Ethernet builds.
 Launchstation writes the hardware RTC, verifies the result, and refreshes the
 displayed clock immediately. A dead CMOS battery may require setting the date
