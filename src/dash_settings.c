@@ -2364,27 +2364,128 @@ static void runThemeAction(int id)
 	}
 }
 
+/* Each editable segment is two digits; the RTC's century is always 20. */
+static int editClockDateTime(int fields[6])
+{
+	static const char *const labels[] = {"Year", "Month", "Day", "Hour", "Minute", "Second"};
+	static const int low[] = {2000, 1, 1, 0, 0, 0};
+	int high[] = {2099, 12, 31, 23, 59, 59};
+	int value[6], sel = 0, i, accepted = 0;
+	float open = 0.0f, sel_anim = 0.0f;
+	const float w = 528.0f, h = 248.0f, bw = 48.0f, gap = 20.0f;
+	const float x = (DASH_VW - w) * 0.5f, y = (DASH_VH - h) * 0.5f;
+	const float bx0 = x + 85.0f, by = y + 98.0f;
+	DashInput in;
+
+	memcpy(value, fields, sizeof(value));
+	for (i = 0; i < 6; i++) {
+		if (i == 2)
+			high[2] = dashClockDaysInMonth(value[0], value[1]);
+		if (value[i] < low[i])
+			value[i] = low[i];
+		if (value[i] > high[i])
+			value[i] = high[i];
+	}
+	dashInputFlush();
+	while (1) {
+		int step = 0;
+		float dt, oe;
+
+		dashInputPoll(&in);
+		if (in.pressed & (DASH_IN_BACK | DASH_IN_MENU))
+			break;
+		if (in.pressed & (DASH_IN_LEFT | DASH_IN_RIGHT)) {
+			int next = (sel + ((in.pressed & DASH_IN_LEFT) ? 5 : 1)) % 6;
+			if ((sel == 0 && next == 5) || (sel == 5 && next == 0))
+				sel_anim = (float)next;
+			sel = next;
+			dashSoundPlay(DASH_SND_CURSOR);
+		}
+		if (in.pressed & DASH_IN_UP)
+			step = 1;
+		if (in.pressed & DASH_IN_DOWN)
+			step = -1;
+		if (step) {
+			value[sel] += step;
+			if (value[sel] > high[sel])
+				value[sel] = low[sel];
+			if (value[sel] < low[sel])
+				value[sel] = high[sel];
+			high[2] = dashClockDaysInMonth(value[0], value[1]);
+			if (value[2] > high[2])
+				value[2] = high[2];
+			dashSoundPlay(DASH_SND_CURSOR);
+		}
+		if (in.pressed & DASH_IN_OK) {
+			accepted = 1;
+			break;
+		}
+		dt = dashVisualUpdate();
+		open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dt);
+		sel_anim = dashApproach(sel_anim, (float)sel, 22.0f * dashAnimSpeed(), dt);
+		oe = dashEaseOutCubic(open);
+		dashRenderScene();
+		dashModalBackdrop(oe);
+		dashGfxPushAlpha(oe);
+		dashGfxPushOffset(0, 18.0f * (1.0f - oe));
+		dashModalPanel(x, y, w, h, oe);
+		dashIcon(DI_CLOCK, x + 24, y + 18, 22, DASH_C_ACCENT);
+		dashTextS(x + 56, y + 18, "Set PS2 Clock", DASH_FS_LABEL, DASH_C_TEXT);
+		dashTextFit(x + 24, y + 48, w - 48, "Local date and time (24-hour clock, 2000-2099)", DASH_FS_CAPTION, DASH_C_TEXT3);
+		dashTextRight(bx0 - 2, by + 10, "20", DASH_FS_LABEL, DASH_C_TEXT2);
+		dashDrawSelection(bx0 + sel_anim * (bw + gap), by, bw, 44, 10, 1.0f);
+		for (i = 0; i < 6; i++) {
+			char num[4];
+			float bx = bx0 + i * (bw + gap);
+
+			dashTextCenter(bx + bw * 0.5f, by - 24, labels[i], DASH_FS_CAPTION, DASH_C_TEXT3);
+			if (i != sel)
+				dashPanel(bx, by, bw, 44, 10, DC(255, 255, 255, 16));
+			snprintf(num, sizeof(num), "%02d", value[i] % 100);
+			dashTextCenter(bx + bw * 0.5f, by + 10, num, DASH_FS_LABEL, dashItemColor(i == sel));
+			if (i < 5)
+				dashTextCenter(bx + bw + gap * 0.5f, by + 10, i < 2 ? "-" : i == 2 ? "" : ":", DASH_FS_LABEL, DASH_C_TEXT2);
+		}
+		{
+			float hx = x + 24, hy = y + h - 76;
+
+			hx += dashDrawButton(hx, hy, DI_BTN_LEFT, NULL) + 12;
+			hx += dashDrawButton(hx, hy, DI_BTN_RIGHT, NULL) + 4;
+			hx = dashTextS(hx, hy + 4.5f, "Select field", DASH_FS_SMALL, DASH_C_TEXT2) + 20;
+			hx += dashDrawButton(hx, hy, DI_BTN_UP, NULL) + 12;
+			hx += dashDrawButton(hx, hy, DI_BTN_DOWN, NULL) + 4;
+			dashTextS(hx, hy + 4.5f, "Change", DASH_FS_SMALL, DASH_C_TEXT2);
+		}
+		dashModalHintRow(x + 24, y + h - 38, dashOkIcon(), "Apply", dashBackIcon(), "Cancel");
+		dashGfxPopOffset();
+		dashGfxPopAlpha();
+		dashGfxPresent();
+	}
+	if (accepted)
+		memcpy(fields, value, sizeof(value));
+	dashSoundPlay(accepted ? DASH_SND_CONFIRM : DASH_SND_CANCEL);
+	dashInputFlush();
+	return accepted;
+}
+
 static void setClockManually(void)
 {
 	char input[24], result[160];
-	int year, month, day, hour, minute, second, use12, datefmt;
+	int fields[] = {2000, 1, 1, 0, 0, 0};
+	int use12, datefmt;
 	int ok;
 
-	if (menuTitleGetClockFields(&year, &month, &day, &hour, &minute, &second,
-	                            &use12, &datefmt))
-		snprintf(input, sizeof(input), "%04d-%02d-%02d %02d:%02d:%02d",
-		         year, month, day, hour, minute, second);
-	else
-		snprintf(input, sizeof(input), "2000-01-01 00:00:00");
-	if (!dashModalKeyboard("Set PS2 clock: YYYY-MM-DD HH:MM:SS", input, sizeof(input)))
-		return;
-	if (sscanf(input, "%4d-%2d-%2d %2d:%2d:%2d",
-	           &year, &month, &day, &hour, &minute, &second) != 6) {
-		dashModalMessage(DI_WARNING, "Invalid date / time",
-		                 "Use YYYY-MM-DD HH:MM:SS, for example 2026-10-07 15:30:00.", input);
-		return;
+	if (!menuTitleGetClockFields(&fields[0], &fields[1], &fields[2], &fields[3], &fields[4], &fields[5],
+	                             &use12, &datefmt)) {
+		fields[0] = 2000;
+		fields[1] = fields[2] = 1;
+		fields[3] = fields[4] = fields[5] = 0;
 	}
-	ok = dashClockSetManual(year, month, day, hour, minute, second, result, sizeof(result));
+	if (!editClockDateTime(fields))
+		return;
+	snprintf(input, sizeof(input), "%04d-%02d-%02d %02d:%02d:%02d",
+	         fields[0], fields[1], fields[2], fields[3], fields[4], fields[5]);
+	ok = dashClockSetManual(fields[0], fields[1], fields[2], fields[3], fields[4], fields[5], result, sizeof(result));
 	dashModalMessage(ok ? DI_CHECK : DI_WARNING,
 	                 ok ? "PS2 clock updated" : "Clock update failed", result, input);
 }
@@ -2409,7 +2510,7 @@ static void syncClockFromInternet(void)
 static void setPs2Clock(void)
 {
 	DashMenuItem items[] = {
-	    {DI_CLOCK, "Set manually...", "Enter the local date and time", 0},
+	    {DI_CLOCK, "Set manually...", "Adjust the local date and time", 0},
 #ifdef ETH
 	    {DI_CLOCK, "Sync from Internet", "Use Internet time", 0},
 #endif

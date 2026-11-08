@@ -921,16 +921,27 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 					float avail = w - (tx - x) - 30.0f, label_w = avail;
 					if (items[i].detail) {
 						float dw = dashTextWidth(items[i].detail, DASH_FS_CAPTION), detail_w;
+						float right = x + w - 28;
 						label_w = dashTextWidth(items[i].label, DASH_FS_SMALL);
 						if (label_w > avail * 0.6f)
 							label_w = avail * 0.6f;
 						detail_w = avail - label_w - 14.0f;
+						if (edit != NULL && i == sel && !items[i].disabled) {
+							float vw;
+							/* Match Settings arrows and leave room for both
+							 * glyphs even when a long value scrolls. */
+							detail_w -= 38.0f;
+							right -= 16.0f;
+							vw = dw < detail_w ? dw : detail_w;
+							dashIcon(DI_BACK, right - vw - 22, ry + 7, 12, DASH_C_ACCENT);
+							dashIcon(DI_PLAY, x + w - 28, ry + 8, 10, DASH_C_ACCENT);
+						}
 						if (dw <= detail_w)
-							dashTextRight(x + w - 28, ry + 4.5f, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
+							dashTextRight(right, ry + 4.5f, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
 						else if (i == sel)
-							dashTextScroll(x + w - 28 - detail_w, ry + 4.5f, detail_w, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
+							dashTextScroll(right - detail_w, ry + 4.5f, detail_w, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
 						else
-							dashTextFit(x + w - 28 - detail_w, ry + 4.5f, detail_w, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
+							dashTextFit(right - detail_w, ry + 4.5f, detail_w, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
 					}
 					dashTextFit(tx, ry + 4.0f, label_w, items[i].label, DASH_FS_SMALL, c);
 				}
