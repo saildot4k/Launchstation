@@ -783,7 +783,8 @@ static int modalEnabledEdge(const DashMenuItem *items, int n, int from_end)
 	return -1;
 }
 
-int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *items, int n, int initial)
+static int modalMenu(const char *title, const char *subtitle, const DashMenuItem *items, int n, int initial,
+                     DashMenuEdit edit, void *arg)
 {
 	int sel = initial, top = 0, i, previewed = -1;
 	void (*preview)(int) = modal_preview;
@@ -853,10 +854,19 @@ int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *i
 				sel = last;
 			}
 		}
+		if (edit != NULL && !items[sel].disabled &&
+		    (in.pressed & (DASH_IN_LEFT | DASH_IN_RIGHT)) &&
+		    !(in.pressed & (DASH_IN_OK | DASH_IN_BACK | DASH_IN_MENU))) {
+			int direction = (in.pressed & DASH_IN_LEFT) ? -1 : 1;
+			if (edit(sel, direction, arg))
+				dashSoundPlay(DASH_SND_CURSOR);
+		}
 		if ((in.pressed & DASH_IN_OK) && !items[sel].disabled) {
 			dashSoundPlay(DASH_SND_CONFIRM);
-			dashInputFlush();
-			return sel;
+			if (edit == NULL || !edit(sel, 0, arg)) {
+				dashInputFlush();
+				return sel;
+			}
 		}
 		if (in.pressed & (DASH_IN_BACK | DASH_IN_MENU)) {
 			dashSoundPlay(DASH_SND_CANCEL);
@@ -928,12 +938,31 @@ int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *i
 			}
 			dashGfxScissorReset();
 			dashDrawScrollbar(x + w - 12, ly, rows * row_h - 4, top, rows, n);
-			modalHintRow(x + 24, y + h - 36, dashOkIcon(), "Select", dashBackIcon(), "Back");
+			{
+				float hx = x + 24, hy = y + h - 36;
+				if (edit != NULL) {
+					hx += drawButton(hx, hy, DI_BTN_LEFT, NULL) + 2;
+					hx += drawButton(hx, hy, DI_BTN_RIGHT, NULL) + 8;
+					hx = dashTextS(hx, hy + 4.5f, "Change", DASH_FS_SMALL, DASH_C_TEXT2) + 20;
+				}
+				modalHintRow(hx, hy, dashOkIcon(), "Select", dashBackIcon(), "Back");
+			}
 		}
 		dashGfxPopOffset();
 		dashGfxPopAlpha();
 		dashGfxPresent();
 	}
+}
+
+int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *items, int n, int initial)
+{
+	return modalMenu(title, subtitle, items, n, initial, NULL, NULL);
+}
+
+int dashModalMenuEdit(const char *title, const char *subtitle, DashMenuItem *items, int n, int initial,
+                     DashMenuEdit edit, void *arg)
+{
+	return modalMenu(title, subtitle, items, n, initial, edit, arg);
 }
 
 int dashModalChoice(const char *title, const char *const *options, int n, int current)

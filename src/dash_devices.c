@@ -419,7 +419,7 @@ int dashDevicesList(DashDevice *out, int max)
 	}
 
 #ifdef UDPFS
-	addStorage(out, &n, max, DI_NETWORK, "Network (UDPFS)", "udpfs:", "udpfs:/", netConfig[0] ? netConfig : "Connected", "UDPFS server not found");
+	addStorage(out, &n, max, DI_NETWORK, "Network (UDPFS)", "udpfs:", "udpfs:/", netConfig[0] ? netConfig : "Connected", "UDPFS server not found - open to retry");
 #endif
 #ifdef ETH
 	add(out, &n, max, DI_NETWORK, DASH_DEV_PROBE, "Network Host", "host:", "host:/", "PS2Link host");
@@ -566,7 +566,11 @@ static int probeMount(const char *m)
 #endif
 #ifdef UDPFS
 	else if (!strncmp(m, "udpfs", 5)) {
-		ok = load_udpfs();
+		/* A failed discovery can stay latched in the resident ministack.
+		 * Explicit retries need a fresh IOP session; healthy connections and
+		 * failures from an older reset generation can use the normal loader.
+		 * startSync has already drained background IO on the UI thread. */
+		ok = storageState(m) == DASH_DEV_ABSENT ? reloadUdpfsModules() : load_udpfs();
 		if (ok) ok = probeRoot("udpfs:/", 0);
 	}
 #endif

@@ -77,7 +77,7 @@ static u8 ps2dev9_irx[1], ata_bd_irx[1];
 static int size_ps2dev9_irx=1, size_ata_bd_irx=1;
 static u8 ps2ip_irx[1], ps2ips_irx[1], ps2smap_irx[1], ps2host_irx[1], ps2ftpd_irx[1];
 static int size_ps2ip_irx=1, size_ps2ips_irx=1, size_ps2smap_irx=1, size_ps2host_irx=1, size_ps2ftpd_irx=1;
-static int have_ps2ip, have_ps2ips, have_ps2smap, have_ps2host, have_ps2ftpd, have_ps2netfs, network_calls;
+static int have_ps2ip, have_ps2ips, have_ps2smap, have_ps2host, have_ps2ftpd, network_calls;
 static int client_calls, if_conf_len, have_NetModules;
 static unsigned int generation;
 #ifdef UDPFS
@@ -138,7 +138,7 @@ static void resetRuntimeDeviceState(int show) {
         have_udpfs_smap=have_udpfs_ministack=have_udpfs_ioman=0;
 #endif
         have_ps2dev9=ps2dev9_loaded=have_ata_bd=bdm_live=0;
-        have_ps2ip=have_ps2ips=have_ps2smap=have_ps2host=have_ps2ftpd=have_ps2netfs=0;
+        have_ps2ip=have_ps2ips=have_ps2smap=have_ps2host=have_ps2ftpd=0;
         network_stack_mode=0;
         memset(dns_servers,0,sizeof(dns_servers));
 #ifdef WLE_NETMAN_IP
@@ -233,7 +233,7 @@ static void reset(void) {
     ps2dev9_loaded=have_ps2dev9=have_ata_bd=cf_owned=resets=bdm_live=0;
     bdm_calls=ata_calls=dev9_calls=settle_calls=module_result=0;
     allow_reset=bdm_ok=module_id=1;
-    have_ps2ip=have_ps2ips=have_ps2smap=have_ps2host=have_ps2ftpd=have_ps2netfs=network_calls=client_calls=0;
+    have_ps2ip=have_ps2ips=have_ps2smap=have_ps2host=have_ps2ftpd=network_calls=client_calls=0;
     network_stack_mode=0;generation=0;have_NetModules=0;
 #ifdef UDPFS
     have_udpfs_smap=have_udpfs_ministack=have_udpfs_ioman=0;
@@ -265,7 +265,6 @@ static void assertOnlyMode(int mode) {
     assert(network_stack_mode==mode);
     assert(!!have_NetModules==(mode==NETWORK_STACK_FTP));
     assert(!!have_ps2ftpd==(mode==NETWORK_STACK_FTP));
-    assert(!have_ps2netfs);
     assert(!!have_ps2host==(mode==NETWORK_STACK_HOST));
     assert(!!have_ps2ips==(mode==NETWORK_STACK_CLIENT));
     assert(!!have_ps2ip==(mode!=NETWORK_STACK_UDPFS));
@@ -325,7 +324,7 @@ int main(void) {
         assert(!dashClockSyncInternet(clock_result,sizeof(clock_result)) && !client_calls && !dns_writes);
         assert(!query_calls && !clock_writes && strstr(clock_result,errors[i]));
         assert(strstr(dashboardIpNetworkError(),errors[i]));
-        assert(!have_ps2host && !have_ps2ftpd && !have_ps2netfs);
+        assert(!have_ps2host && !have_ps2ftpd);
         failed_module=NULL;assert(ensureDashboardIpNetworkReady());
         assert(client_calls==1 && socket_calls==(i==2?2:1) && dns_writes==2);
     }
@@ -358,7 +357,7 @@ int main(void) {
     assert(!mc_poll_pending && mc_drain_calls==1);
     assert(startNetworkMode(NETWORK_STACK_FTP) && storage_calls==FTP_STORAGE_CALLS && mc_drain_calls==1);
     /* FTP residency continues to gate MCMAN polling during partial startup. */
-    have_NetModules=have_ps2netfs=0;
+    have_NetModules=0;
     assert(isFtpServerRunning() && !isFtpNetworkReady());
     resetRuntimeDeviceState(TRUE);assert(!isFtpServerRunning());
     /* Reuse the actual ROM capability policy, including the early Slim

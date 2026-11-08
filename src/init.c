@@ -27,7 +27,6 @@ IMPORT_BIN2C(netman_irx);
 #endif
 IMPORT_BIN2C(ps2smap_irx);
 IMPORT_BIN2C(ps2host_irx);
-IMPORT_BIN2C(ps2netfs_irx);
 IMPORT_BIN2C(ps2ftpd_irx);
 #endif
 
@@ -144,7 +143,6 @@ extern const DashboardDnsAddress *ps2ipc_dns_getserver(u8 numdns);
 extern void ps2ipc_dns_setserver(u8 numdns, const DashboardDnsAddress *server);
 #endif
 static u8 have_NetModules = 0;
-static u8 have_ps2netfs = 0;
 #ifdef UDPFS
 static u8 have_udpfs_smap = 0;
 static u8 have_udpfs_ministack = 0;
@@ -2480,7 +2478,7 @@ const char *dashboardIpNetworkError(void)
 }
 
 /* Minimal demand-driven network path for SNTP/other dashboard clients.
- * Unlike loadNetModules(), this does not start FTP/netfs services. */
+ * Unlike loadNetModules(), this does not start the FTP service. */
 int ensureDashboardIpNetworkReady(void)
 {
 	int id, ret;
@@ -2588,7 +2586,6 @@ static void clearIopModuleState(void)
 #endif
 	dashboard_ip_error = NULL;
 #endif
-	have_ps2netfs = 0;
 #ifdef UDPFS
 	have_udpfs_smap = 0;
 	have_udpfs_ministack = 0;

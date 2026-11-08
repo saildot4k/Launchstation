@@ -3,6 +3,7 @@
 Launchstation is built and validated with the **PS2BUILD SDK by [TechWritesCode](https://github.com/techwritescode)**. It provides our EE/IOP toolchains, SDK packages and `ps2.yaml` build workflow, locally and in CI. Start with the [official PS2BUILD installation and guide](https://ps2build.dev/guide/installation).
 
 ```sh
+bash scripts/build_https_tls.sh
 python3 scripts/gen_githash.py
 ps2build build
 python scripts/configure_ds34.py
@@ -10,6 +11,20 @@ ps2build build -c .ps2-ds34.yaml -o build-ds34
 ```
 
 The standard packed ELF is `build/bin/wLaunchELF-packed.elf`; the optional DualShock variant uses `build-ds34/bin/`. CI uses this same SDK for both variants. The retained Makefile describes historical profiles; the supported workflow is `ps2.yaml` with PS2BUILD.
+
+The main EE target explicitly uses `-Os`. The pinned Mbed TLS dependency uses
+the client profile in `include/https_mbedtls_config.h`; rebuild it after changing
+that profile, then rebuild both controller variants. The dependency builder
+installs the same configuration header used to compile its archives, since TLS
+context layouts depend on enabled features. It requires CMake, Make, curl and
+tar with bzip2, and honors `PS2BUILD_ROOT` for a nondefault SDK installation.
+Check the resulting headers and archives with:
+
+```sh
+toolbin="${PS2BUILD_ROOT:-$HOME/.local/share/ps2build}/toolchain/ee/bin"
+python3 scripts/check_https_tls.py \
+  "$toolbin/mips64r5900el-ps2-elf-gcc" "$toolbin/mips64r5900el-ps2-elf-nm"
+```
 
 Run `scripts/gen_githash.py` again after changing commits. Both variants include
 the same generated `githash.h`; it records the full installed commit ID for the

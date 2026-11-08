@@ -279,91 +279,114 @@ static int moveNeutrinoSelection(int selection, int direction)
 	return selection + 1;
 }
 
-/* Keep dashboard rendering, input and audio maintenance on their existing
- * modal path. The classic shell continues to use the upstream dialog below. */
-static int showDashboardNeutrinoOptions(NEUTRINO_LAUNCH_OPTIONS *options)
-{
-	DashMenuItem items[NEUTRINO_CANCEL + 3];
-	const int profile_enabled = active_profile_gameid[0] != '\0';
-	const int cancel_index = profile_enabled ? NEUTRINO_CANCEL + 2 : NEUTRINO_CANCEL;
-	const int item_count = cancel_index + 1;
-	int selection, menu_selection = 0, i, choice;
+typedef struct {
+	NEUTRINO_LAUNCH_OPTIONS *options;
+	DashMenuItem *items;
+} DashboardNeutrinoOptions;
 
-	/* ISO/profile preparation may have restarted the storage IOP. The main
-	 * dashboard loop is paused while these options are open. */
-	dashSoundMaintain();
-	for (;;) {
-		memset(items, 0, sizeof(items));
-		for (i = 0; i < NEUTRINO_COMPAT_COUNT; i++) {
-			items[i].icon = DI_INFO;
-			items[i].label = compatibility_options[i].label;
-			items[i].detail = options->game_compatibility & (1u << compatibility_options[i].mode) ? "On" : "Off";
-		}
-		items[NEUTRINO_VIDEO_MODE].icon = DI_SETTINGS;
-		items[NEUTRINO_VIDEO_MODE].label = "Video mode";
-		items[NEUTRINO_VIDEO_MODE].detail = video_modes[options->video_mode].label;
-		items[NEUTRINO_VIDEO_COMPATIBILITY].icon = DI_SETTINGS;
-		items[NEUTRINO_VIDEO_COMPATIBILITY].label = "Video compatibility";
-		items[NEUTRINO_VIDEO_COMPATIBILITY].detail = video_compatibility_modes[options->video_compatibility];
-		items[NEUTRINO_DEBUG_COLORS].icon = DI_INFO;
-		items[NEUTRINO_DEBUG_COLORS].label = "Debug colors";
-		items[NEUTRINO_DEBUG_COLORS].detail = options->debug_colors ? "On" : "Off";
-		items[NEUTRINO_LOGO].icon = DI_INFO;
-		items[NEUTRINO_LOGO].label = "PS2 logo";
-		items[NEUTRINO_LOGO].detail = options->logo ? "On" : "Off";
-		items[NEUTRINO_RUN].icon = DI_PLAY;
-		items[NEUTRINO_RUN].label = "Run game";
-		if (profile_enabled) {
-			items[NEUTRINO_CANCEL].icon = DI_STAR;
-			items[NEUTRINO_CANCEL].label = "Save for this game";
-			items[NEUTRINO_CANCEL + 1].icon = DI_REFRESH;
-			items[NEUTRINO_CANCEL + 1].label = "Reset this launch";
-		}
-		items[cancel_index].icon = DI_BACK;
-		items[cancel_index].label = "Cancel";
-		/* Put Run first; map its displayed row back to the shared option IDs. */
-		{
-			DashMenuItem run = items[NEUTRINO_RUN];
-			memmove(items + 1, items, NEUTRINO_RUN * sizeof(items[0]));
-			items[0] = run;
-		}
-		menu_selection = dashModalMenu("Neutrino launch options",
-		                               profile_enabled ? active_profile_gameid : "For this launch only",
-		                               items, item_count, menu_selection);
-		selection = menu_selection;
-		if (selection == 0)
-			selection = NEUTRINO_RUN;
-		else if (selection > 0 && selection <= NEUTRINO_RUN)
-			selection--;
-		if (selection < 0 || selection == cancel_index)
-			return FALSE;
-		if (selection == NEUTRINO_RUN)
-			return TRUE;
-		if (profile_enabled && selection == NEUTRINO_CANCEL) {
-			int saved = profileSave(active_profile_gameid, options);
-			dashToast(saved ? DASH_TOAST_OK : DASH_TOAST_WARN,
-			          saved ? "Saved Neutrino game profile" : "Could not save game profile");
-			continue;
-		}
-		if (profile_enabled && selection == NEUTRINO_CANCEL + 1) {
-			memset(options, 0, sizeof(*options));
-			continue;
-		}
+/* Run occupies row zero; the editable rows follow the shared option IDs. */
+static void refreshDashboardNeutrinoOptions(DashboardNeutrinoOptions *menu)
+{
+	NEUTRINO_LAUNCH_OPTIONS *options = menu->options;
+	DashMenuItem *items = menu->items;
+	int i;
+
+	for (i = 0; i < NEUTRINO_COMPAT_COUNT; i++)
+		items[i + 1].detail = options->game_compatibility & (1u << compatibility_options[i].mode) ? "On" : "Off";
+	items[NEUTRINO_VIDEO_MODE + 1].detail = video_modes[options->video_mode].label;
+	items[NEUTRINO_VIDEO_COMPATIBILITY + 1].detail = video_compatibility_modes[options->video_compatibility];
+	items[NEUTRINO_DEBUG_COLORS + 1].detail = options->debug_colors ? "On" : "Off";
+	items[NEUTRINO_LOGO + 1].detail = options->logo ? "On" : "Off";
+}
+
+static int editDashboardNeutrinoOption(int index, int direction, void *arg)
+{
+	DashboardNeutrinoOptions *menu = arg;
+	NEUTRINO_LAUNCH_OPTIONS *options = menu->options;
+	int selection = index - 1;
+	int step = direction < 0 ? -1 : 1;
+
+	if (index > 0 && index <= NEUTRINO_RUN) {
 		if (selection < NEUTRINO_COMPAT_COUNT)
 			options->game_compatibility ^= 1u << compatibility_options[selection].mode;
 		else if (selection == NEUTRINO_VIDEO_MODE) {
-			const char *labels[NEUTRINO_VIDEO_COUNT];
-			for (i = 0; i < NEUTRINO_VIDEO_COUNT; i++) labels[i] = video_modes[i].label;
-			choice = dashModalChoice("Video mode", labels, NEUTRINO_VIDEO_COUNT, options->video_mode);
-			if (choice >= 0) options->video_mode = choice;
+			if (direction) {
+				options->video_mode = (options->video_mode + step + NEUTRINO_VIDEO_COUNT) % NEUTRINO_VIDEO_COUNT;
+			} else {
+				const char *labels[NEUTRINO_VIDEO_COUNT];
+				int i, choice;
+				for (i = 0; i < NEUTRINO_VIDEO_COUNT; i++)
+					labels[i] = video_modes[i].label;
+				choice = dashModalChoice("Video mode", labels, NEUTRINO_VIDEO_COUNT, options->video_mode);
+				if (choice >= 0)
+					options->video_mode = choice;
+			}
 		} else if (selection == NEUTRINO_VIDEO_COMPATIBILITY) {
-			choice = dashModalChoice("Video compatibility", video_compatibility_modes, NEUTRINO_VIDEO_COMPAT_COUNT, options->video_compatibility);
-			if (choice >= 0) options->video_compatibility = choice;
+			if (direction) {
+				options->video_compatibility = (options->video_compatibility + step + NEUTRINO_VIDEO_COMPAT_COUNT) % NEUTRINO_VIDEO_COMPAT_COUNT;
+			} else {
+				int choice = dashModalChoice("Video compatibility", video_compatibility_modes,
+				                             NEUTRINO_VIDEO_COMPAT_COUNT, options->video_compatibility);
+				if (choice >= 0)
+					options->video_compatibility = choice;
+			}
 		} else if (selection == NEUTRINO_DEBUG_COLORS)
 			options->debug_colors = !options->debug_colors;
 		else if (selection == NEUTRINO_LOGO)
 			options->logo = !options->logo;
+	} else if (direction == 0 && active_profile_gameid[0] && index == NEUTRINO_CANCEL) {
+		int saved = profileSave(active_profile_gameid, options);
+		dashToast(saved ? DASH_TOAST_OK : DASH_TOAST_WARN,
+		          saved ? "Saved Neutrino game profile" : "Could not save game profile");
+	} else if (direction == 0 && active_profile_gameid[0] && index == NEUTRINO_CANCEL + 1) {
+		memset(options, 0, sizeof(*options));
+	} else {
+		return FALSE;
 	}
+	refreshDashboardNeutrinoOptions(menu);
+	return TRUE;
+}
+
+/* Keep one modal session through edits, profile saves and launch resets, so
+ * opening/selection/scroll animation is not restarted after a value changes. */
+static int showDashboardNeutrinoOptions(NEUTRINO_LAUNCH_OPTIONS *options)
+{
+	DashMenuItem items[NEUTRINO_CANCEL + 3];
+	DashboardNeutrinoOptions menu = {options, items};
+	const int profile_enabled = active_profile_gameid[0] != '\0';
+	const int cancel_index = profile_enabled ? NEUTRINO_CANCEL + 2 : NEUTRINO_CANCEL;
+	int i;
+
+	/* ISO/profile preparation may have restarted the storage IOP. The main
+	 * dashboard loop is paused while these options are open. */
+	dashSoundMaintain();
+	memset(items, 0, sizeof(items));
+	items[0].icon = DI_PLAY;
+	items[0].label = "Run game";
+	for (i = 0; i < NEUTRINO_COMPAT_COUNT; i++) {
+		items[i + 1].icon = DI_INFO;
+		items[i + 1].label = compatibility_options[i].label;
+	}
+	items[NEUTRINO_VIDEO_MODE + 1].icon = DI_SETTINGS;
+	items[NEUTRINO_VIDEO_MODE + 1].label = "Video mode";
+	items[NEUTRINO_VIDEO_COMPATIBILITY + 1].icon = DI_SETTINGS;
+	items[NEUTRINO_VIDEO_COMPATIBILITY + 1].label = "Video compatibility";
+	items[NEUTRINO_DEBUG_COLORS + 1].icon = DI_INFO;
+	items[NEUTRINO_DEBUG_COLORS + 1].label = "Debug colors";
+	items[NEUTRINO_LOGO + 1].icon = DI_INFO;
+	items[NEUTRINO_LOGO + 1].label = "PS2 logo";
+	if (profile_enabled) {
+		items[NEUTRINO_CANCEL].icon = DI_SAVE;
+		items[NEUTRINO_CANCEL].label = "Save for this game";
+		items[NEUTRINO_CANCEL + 1].icon = DI_REFRESH;
+		items[NEUTRINO_CANCEL + 1].label = "Reset this launch";
+	}
+	items[cancel_index].icon = DI_BACK;
+	items[cancel_index].label = "Cancel";
+	refreshDashboardNeutrinoOptions(&menu);
+	return dashModalMenuEdit("Neutrino launch options",
+	                         profile_enabled ? active_profile_gameid : "For this launch only",
+	                         items, cancel_index + 1, 0, editDashboardNeutrinoOption, &menu) == 0;
 }
 
 static void drawNeutrinoHeading(const char *heading, int y)

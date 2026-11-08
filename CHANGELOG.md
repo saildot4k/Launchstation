@@ -2,6 +2,10 @@
 
 ## Rolling
 
+- **System settings:** Set PS2 Clock now offers manual entry and Internet synchronization together, with clock icons. The duplicate Network clock action, System About Launchstation entry and Show welcome message again action are removed; About remains in Tools.
+- **Save icons:** Neutrino game profiles, Settings save prompts, the editor's Save changes popup and the System save-location action use upstream Launchstation's floppy disk icon.
+- **UDPFS retry:** a failed server check stays selectable. Opening it again reboots and reloads the UDPFS stack after background I/O finishes, so a server started later can be discovered. Healthy connections reuse their current session.
+- **Neutrino launch options:** settings update in place without reopening the popup or resetting its focus and scroll. Left/Right changes compatibility, video, debug-color and PS2-logo values; Confirm toggles switches or opens the video choice list.
 - **Infinite list navigation wrap-around:** dashboard lists now cycle at boundaries (up from first selects last, down from last selects first), including File Browser views, app/library lists, Files/Devices pickers, Tools, Settings and HDD Manager.
 - **R3Z file-copy behavior:** ordinary copies and overwrites now follow wLaunchELF_R3Z 4.80: remove the old destination, then create and write the requested file directly. This removes destination-stat and rename requirements that blocked memory-card pastes. Failed transfers retain Cut sources; overwritten files are not restored.
 - **R3Z transfer settings:** restored device-specific copy buffers, eligible 1 MiB double buffering, 128/64 KiB IOP transfer-buffer tuning, native rename conflict probes. Two MMCE startup attempts per port and PSU/folder file-count progress remain. Close failures leave the output file for inspection.

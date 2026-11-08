@@ -133,11 +133,11 @@ for signature in (
 expected = """
 S_TVMODE S_SCREEN_X S_SCREEN_Y S_EFFECTS S_ANIM S_SCREEN_RESET
 S_DISPLAY_THEME_RESET S_SOUND S_SVOL S_BGM S_BGMVOL S_START S_VIEW
-S_ARTWORK S_RECENT S_AUTOSCAN S_SCANPATHS S_RESCAN S_CLEAR_RECENT S_INTRO
+S_ARTWORK S_RECENT S_AUTOSCAN S_SCANPATHS S_RESCAN S_CLEAR_RECENT
 S_CONFIRM S_VKEY S_USBKBD S_USBKBD_FILE S_KBDMAP_FILE S_PATHPAD_LOCK
 S_INIT_DELAY S_TIMEOUT S_CNF_PATH S_LANG_FILE S_FONT_FILE S_ESR_PATH
 S_OSDSYS_PATH S_POPS_PATH S_EMBER_PATH S_NEUTRINO_PATH S_HIDE_HDD S_HIDE_MC S_REBOOT_ELF
-S_ABOUT_PROJECT S_NET_IP
+S_NET_IP
 S_NET_NM S_NET_GW S_HOSTWRITE S_LANGUAGE S_GAMEID S_GAMEID_DISC
 S_PSU_HUGE S_PSU_DATE S_PSU_NOOVER S_SAVE_AS S_T_PRESET S_T_LOAD S_T_SAVE
 S_T_DEFAULT S_T_BG S_T_BG1 S_T_BG2 S_T_BRIGHT S_T_SCAN S_T_IMAGE
@@ -145,7 +145,7 @@ S_T_TEXT S_T_TEXT2 S_T_TEXT3 S_T_SELTEXT S_T_ACCENT S_T_SELECT S_T_PANEL
 S_T_BORDER S_T_WARN S_T_HL S_T_CORNER S_T_TILE S_T_GLOW S_T_FONT
 S_T_FSCALE S_T_BOLD S_T_SHADOW S_T_ICONTINT S_T_APPICON S_T_APPICON_IMG
 S_T_CLOCK S_T_CLOCKPOS S_T_HOURS S_T_SECONDS S_T_DATE S_T_WALL S_T_WALLDIM
-S_T_RENAME S_T_RESTORE_PRESET S_CLOCK_MANUAL S_TEMP_UNITS S_CLOCK_SYNC
+S_T_RENAME S_T_RESTORE_PRESET S_CLOCK S_TEMP_UNITS
 """.split()
 code += "static const int expected[] = {" + ",".join(expected) + "};\n"
 code += r"""
@@ -172,6 +172,11 @@ int main(void) {
     for(int k=SETTING_LK_AUTO;k<SETTING_LK_START;k++) assert(occurrences[S_LK_0+k]==1);
     assert(!occurrences[S_LK_0+SETTING_LK_START]); /* START is reserved for contextual actions. */
     for(int s=0;s<S_T_RESETCAT;s++) assert(occurrences[s]<=1);
+    int system_clocks=0;
+    for(int i=0;i<pages[P_SYSTEM].n;i++)
+        system_clocks+=pages[P_SYSTEM].items[i].type==ST_ACTION && pages[P_SYSTEM].items[i].id==S_CLOCK;
+    assert(system_clocks==1);
+    for(int i=0;i<pages[P_NETWORK].n;i++) assert(pages[P_NETWORK].items[i].id!=S_CLOCK);
     settingsEnter(); assert(page==P_ROOT && !item && !item_top && !page_depth && begins==1);
     /* Wrap snaps regardless of page length, including a still-moving bar.
      * An ordinary adjacent move must leave the animation to settingsUpdate. */

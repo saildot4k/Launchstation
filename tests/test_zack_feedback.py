@@ -50,9 +50,9 @@ init = (root / "src/init.c").read_text()
 yaml = (root / "ps2.yaml").read_text()
 make = (root / "Makefile").read_text()
 
-assert "Set PS2 clock manually..." in settings
+assert '"Set PS2 Clock"' in settings
 assert "dashClockSetManual" in settings
-assert "Sync PS2 clock from Internet" in settings
+assert '"Sync from Internet"' in settings
 assert "dashClockSyncInternet" in settings
 assert 'static const char server[] = "0.pool.ntp.org";' in clock
 assert "SNTP_AGREEMENT" not in clock and "sources disagree" not in clock

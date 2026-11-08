@@ -13,6 +13,7 @@ root = Path(__file__).resolve().parents[1]
 http = (root / 'src/https_client.c').read_text()
 header = (root / 'include/https_client.h').read_text()
 build = (root / 'scripts/build_https_tls.sh').read_text()
+profile = (root / 'include/https_mbedtls_config.h').read_text()
 
 
 def function(signature):
@@ -42,9 +43,11 @@ for token in ('MBEDTLS_SSL_VERIFY_REQUIRED', 'mbedtls_ssl_set_hostname',
               'never present it to TLS as the sole source'):
     assert token in http, token
 assert http.index('ps2_tcp_connect(&tls->sock, host)') < http.index('mbedtls_ctr_drbg_seed')
-for token in ('unset MBEDTLS_NET_C', 'MBEDTLS_NO_PLATFORM_ENTROPY',
-              'MBEDTLS_ENTROPY_HARDWARE_ALT', '-ffunction-sections -fdata-sections'):
-    assert token in build, token
+for token in ('#undef MBEDTLS_NET_C', '#define MBEDTLS_NO_PLATFORM_ENTROPY',
+              '#define MBEDTLS_ENTROPY_HARDWARE_ALT'):
+    assert token in profile, token
+assert 'include/https_mbedtls_config.h' in build
+assert '-ffunction-sections -fdata-sections' in build
 
 # Removed feature must have no live callers, settings, endpoints or build inputs.
 for folder in ('src', 'include', 'scripts', '.github/workflows'):

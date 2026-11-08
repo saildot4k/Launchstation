@@ -46,7 +46,7 @@ color_bar = num(color_editor, r"dashDrawSelection\(x \+ 12, ry \+ 2, w - 24, ([\
 lists.append(("Colour picker", 2, color_bar, color_editor, r"dashText\(x \+ 24, ry \+ ([\d.]+)f, ch_names\[i\], DASH_FS_SMALL", SMALL))
 
 ui = src("dash_ui.c")
-menu = ui[ui.index("int dashModalMenu("):ui.index("int dashModalChoice(")]
+menu = ui[ui.index("static int modalMenu("):ui.index("int dashModalChoice(")]
 menu_row = num(menu, r"row_h = ([\d.]+)f")
 assert menu_row == irow, "Popup rows must match Settings spacing"
 menu_bar = menu_row - num(menu, r"dashDrawSelection\(x \+ 14, fy \+ 2, w - 28, row_h - ([\d.]+)")
