@@ -19,6 +19,7 @@ int DashIsEnabled(void);
 
 /* Non-zero while DashRun() is on the call stack (guards re-entry). */
 int DashIsActive(void);
+int DashFtpServer(void);
 /* Route Configure to Settings when the dashboard owns the screen. */
 int DashOpenSettings(void);
 

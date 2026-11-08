@@ -1302,6 +1302,13 @@ int pollRootMemoryCardDevices(void)
 		return changed;
 	}
 
+#ifdef ETH
+	/* The FTP filesystem and MCSERV share MCMAN's mutable card/cache state.
+	 * An in-flight RPC above can finish, but no new background RPC may race
+	 * FTP directory reads or transfers. Keep the last known presence cached. */
+	if (isFtpServerRunning())
+		return FALSE;
+#endif
 	if (Timer() < root_mc_next_poll_time)
 		return FALSE;
 	/* Polling must never reset MX4SIO or send mc1 requests through its

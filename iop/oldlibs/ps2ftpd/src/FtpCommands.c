@@ -39,15 +39,17 @@
 
 // present in FtpClient.c
 extern char *itoa(char *in, int val);
+extern char *uitoa(char *in, u64 val);
 
-static char buffer[512];
+static char buffer[FS_PATH_MAX + 4];
 
 void FtpClient_OnCmdQuit(FtpClient *pClient)
 {
 	assert(pClient);
 
 	FtpClient_Send(pClient, 221, pClient->m_pMessages[FTPMSG_GOODBYE]);
-	FtpServer_OnClientDisconnect(pClient->m_pServer, pClient);
+	if (pClient->m_pServer)
+		FtpServer_OnClientDisconnect(pClient->m_pServer, pClient);
 }
 
 void FtpClient_OnCmdUser(FtpClient *pClient, const char *pUser)
@@ -83,7 +85,8 @@ void FtpClient_OnCmdPass(FtpClient *pClient, const char *pPass)
 
 			pClient->m_iAuthAttempt++;
 			if (pClient->m_iAuthAttempt > 3)
-				FtpServer_OnClientDisconnect(pClient->m_pServer, pClient);
+				if (pClient->m_pServer)
+		FtpServer_OnClientDisconnect(pClient->m_pServer, pClient);
 
 			pClient->m_eAuthState = AUTHSTATE_INVALID;
 		} else
@@ -201,7 +204,7 @@ void FtpClient_OnCmdSyst(FtpClient *pClient)
 	/* UNIX-style LIST format */
 	FtpClient_Send(pClient, 215, "UNIX Type: L8");
 
-	/* MS-style LIST format: To use uncomment this format after commenting out UNIX-style LIST format 
+	/* MS-style LIST format: To use uncomment this format after commenting out UNIX-style LIST format
 		and making changes in FtpClient.c's FtpClient_OnDataWrite
 	FtpClient_Send( pClient, 215, "Windows_NT version 5.0" );
 	*/
@@ -219,7 +222,8 @@ void FtpClient_OnCmdList(struct FtpClient *pClient, const char *pPath, int iName
 	// attempt to open directory
 
 	if (FileSystem_OpenDir(&pClient->m_kContext, pPath) < 0) {
-		FtpClient_Send(pClient, 500, pClient->m_pMessages[FTPMSG_UNABLE_TO_OPEN_DIRECTORY]);
+		FtpClient_OnDataCleanup(pClient);
+		FtpClient_Send(pClient, 550, pClient->m_pMessages[FTPMSG_UNABLE_TO_OPEN_DIRECTORY]);
 		return;
 	}
 
@@ -357,138 +361,56 @@ void FtpClient_OnCmdRmd(FtpClient *pClient, const char *pDir)
 
 void FtpClient_OnCmdRnfr(FtpClient *pClient, const char *name)
 {
-	s64 iMarker = pClient->m_iRestartMarker;
+	int result;
 	pClient->m_iRestartMarker = 0;
-
-	// check if file/dir exists that is to be renamed
-	if ((FileSystem_OpenFile(&pClient->m_kContext, name, FM_READ, iMarker)) && (FileSystem_OpenDir(&pClient->m_kContext, name)) < 0)
+	result = FileSystem_PrepareRename(&pClient->m_kContext, name, &pClient->m_Rename);
+	if (result == -ENOSYS)
+		FtpClient_Send(pClient, 502, "Rename is not supported by this filesystem.");
+	else if (result < 0)
 		FtpClient_Send(pClient, 550, pClient->m_pMessages[FTPMSG_COMMAND_FAILED]);
-	else {
-		// get just the name not the path
-		FileSystem_BuildPath(buffer, pClient->m_kContext.m_Path, name);
-		if (NULL != (name = FileSystem_ClassifyPath(&pClient->m_kContext, buffer)))
-			strcpy(buffer, name);
+	else
 		FtpClient_Send(pClient, 350, pClient->m_pMessages[FTPMSG_COMMAND_SUCCESSFUL]);
-	}
 }
+
 
 void FtpClient_OnCmdRnto(FtpClient *pClient, const char *newName)
 {
-	if (FileSystem_Rename(&pClient->m_kContext, buffer, newName) < 0)
+	int result;
+	if (!pClient->m_Rename.path[0]) {
+		FtpClient_Send(pClient, 503, "Send RNFR before RNTO.");
+		return;
+	}
+	result = FileSystem_Rename(&pClient->m_kContext, &pClient->m_Rename, newName);
+	pClient->m_Rename.path[0] = '\0';
+	if (result == -EXDEV)
+		FtpClient_Send(
+			pClient, 550,
+			"Rename source device changed or destination is on another device. Copy then delete instead.");
+	else if (result == -ENOSYS)
+		FtpClient_Send(pClient, 502, "Rename is not supported by this filesystem.");
+	else if (result < 0)
 		FtpClient_Send(pClient, 550, pClient->m_pMessages[FTPMSG_COMMAND_FAILED]);
 	else
 		FtpClient_Send(pClient, 250, pClient->m_pMessages[FTPMSG_COMMAND_SUCCESSFUL]);
 }
 
+
 void FtpClient_OnCmdSize(FtpClient *pClient, const char *pFile)
 {
-	int size = FileSystem_GetFileSize(&(pClient->m_kContext), pFile);
+	s64 size = FileSystem_GetFileSize(&(pClient->m_kContext), pFile);
 
 	if (size < 0)
 		FtpClient_Send(pClient, 550, pClient->m_pMessages[FTPMSG_COULD_NOT_GET_FILESIZE]);
 	else {
-		itoa(buffer, size);
+		uitoa(buffer, (u64)size);
 		FtpClient_Send(pClient, 213, buffer);
 	}
 }
 
-void FtpClient_OnCmdSite(FtpClient *pClient, const char *pCmd)
+/* Mount management is owned by the virtual HDD namespace. Remote SITE
+ * commands cannot remount a partition underneath another connection. */
+void FtpClient_OnCmdSite(FtpClient *client,const char *command)
 {
-	char *c;
-
-	// copy command to clean buffer
-	strcpy(buffer, pCmd);
-
-	c = strtok(buffer, " ");
-
-	if (c) {
-		int i = 0;
-		unsigned int result = 0;
-
-		for (i = 0; *c && i < 4; i++)
-			result = (result << 8) | tolower(*(c++));
-
-		switch (result) {
-#ifndef LINUX
-			// SITE MNT <device> <file>
-			case SITECMD_MNT: {
-				char *mount_point;
-				char *mount_file;
-
-				// get mount point
-				mount_point = strtok(NULL, " ");
-				if (!mount_point || !strlen(mount_point)) {
-					FtpClient_Send(pClient, 500, pClient->m_pMessages[FTPMSG_REQUIRES_PARAMETERS]);
-					break;
-				}
-
-				// get mount source
-				mount_file = strtok(NULL, "");
-				if (!mount_file || !strlen(mount_file)) {
-					FtpClient_Send(pClient, 500, pClient->m_pMessages[FTPMSG_REQUIRES_PARAMETERS]);
-					break;
-				}
-
-				FtpClient_OnSiteMount(pClient, mount_point, mount_file);
-			} break;
-
-			// SITE UMNT <device>
-			case SITECMD_UMNT: {
-				char *mount_point = strtok(NULL, "");
-
-				if (mount_point)
-					FtpClient_OnSiteUmount(pClient, mount_point);
-				else
-					FtpClient_Send(pClient, 500, pClient->m_pMessages[FTPMSG_REQUIRES_PARAMETERS]);
-			} break;
-
-			// SITE SYNC <device>
-			case SITECMD_SYNC: {
-				char *devname = strtok(NULL, "");
-
-				if (devname)
-					FtpClient_OnSiteSync(pClient, devname);
-				else
-					FtpClient_Send(pClient, 500, pClient->m_pMessages[FTPMSG_REQUIRES_PARAMETERS]);
-			} break;
-#endif
-
-			default: {
-				FtpClient_Send(pClient, 500, pClient->m_pMessages[FTPMSG_NOT_SUPPORTED]);
-			} break;
-		}
-	} else
-		FtpClient_Send(pClient, 500, pClient->m_pMessages[FTPMSG_NOT_UNDERSTOOD]);
+    (void)command;
+    FtpClient_Send(client,502,"SITE mount commands are not supported.");
 }
-
-#ifndef LINUX
-void FtpClient_OnSiteMount(struct FtpClient *pClient, const char *pMountPoint, const char *pMountFile)
-{
-	// mount filesystem
-
-	if (FileSystem_MountDevice(&(pClient->m_kContext), pMountPoint, pMountFile) < 0)
-		FtpClient_Send(pClient, 550, pClient->m_pMessages[FTPMSG_COMMAND_FAILED]);
-	else
-		FtpClient_Send(pClient, 214, pClient->m_pMessages[FTPMSG_COMMAND_SUCCESSFUL]);
-}
-
-void FtpClient_OnSiteUmount(struct FtpClient *pClient, const char *pMountPoint)
-{
-	// unmount filesystem
-
-	if (FileSystem_UnmountDevice(&(pClient->m_kContext), pMountPoint) < 0)
-		FtpClient_Send(pClient, 550, pClient->m_pMessages[FTPMSG_COMMAND_FAILED]);
-	else
-		FtpClient_Send(pClient, 214, pClient->m_pMessages[FTPMSG_COMMAND_SUCCESSFUL]);
-}
-
-void FtpClient_OnSiteSync(struct FtpClient *pClient, const char *pDeviceName)
-{
-	// sync data with filesystem
-
-	if (FileSystem_SyncDevice(&(pClient->m_kContext), pDeviceName) < 0)
-		FtpClient_Send(pClient, 550, pClient->m_pMessages[FTPMSG_COMMAND_FAILED]);
-	else
-		FtpClient_Send(pClient, 214, pClient->m_pMessages[FTPMSG_COMMAND_SUCCESSFUL]);
-}
-#endif

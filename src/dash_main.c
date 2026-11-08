@@ -318,7 +318,6 @@ static void runMiscCommand(const char *misc_path)
 	char path[MAX_PATH];
 	const char *title = "Working";
 	int leaves = 0;
-	int network_command = 0;
 
 	if (!stricmp(misc_path, setting->Misc_PS2Disc))
 		title = "Starting the disc", leaves = 1;
@@ -329,7 +328,7 @@ static void runMiscCommand(const char *misc_path)
 	else if (!stricmp(misc_path, setting->Misc_PS2PowerOff))
 		title = "Powering off", leaves = 1;
 	else if (!stricmp(misc_path, setting->Misc_PS2Net))
-		title = "Starting FTP Server", network_command = 1;
+		title = "Starting FTP Server";
 	else if (!stricmp(misc_path, setting->Misc_Reboot_IOP))
 		title = "Rebooting the IOP";
 	else if (!stricmp(misc_path, setting->Misc_Configure) || !stricmp(misc_path, setting->Misc_Exploit_Installer))
@@ -343,19 +342,6 @@ static void runMiscCommand(const char *misc_path)
 	filerRootMcPollIdle();
 	dashLoadingBegin(title);
 	exec_ctx.main_msg[0] = '\0';
-#ifdef ETH
-#ifdef EXFAT
-	/* MrRexD's PC command protocol uses ata0:/PS2-COMANDO.TXT. Keep the
-	 * device demand-driven: only bring ATA up when the user explicitly starts
-	 * FTP / remote access, and do it before the network so a storage-stack
-	 * reset cannot immediately tear FTP back down. FTP itself still starts
-	 * even when no internal exFAT HDD is present. */
-	if (network_command) {
-		dashLoadingStatus("Preparing HDD command inbox", 0, 0);
-		ensurePathDeviceStackReady("ata0:/");
-	}
-#endif
-#endif
 	if (leaves) {
 		/*
 		 * Any successful handoff destroys this EE process. Stop audsrv/BGM

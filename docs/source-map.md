@@ -67,7 +67,7 @@ Current ownership map, updated October 31, 2026. This describes the existing tre
 ## Storage, browser operations and save archives
 
 The [device transfer audit](plans/2026-10-26-device-transfer-audit.md) records
-R3Z parity, device-specific replacement contracts, HDD-OSD/card attributes,
+R3Z direct-copy behavior, HDD-OSD/card attributes,
 regression coverage and console acceptance checks.
 The [rename audit](plans/2026-10-26-device-rename-audit.md) covers files/folders,
 card RPC completion, device limits, conflict checks, driver-specific case-only renames
@@ -75,14 +75,14 @@ and the HOST ioctl.
 
 | Existing file | Responsibility |
 | --- | --- |
-| [init.c](../src/init.c) | IOP reset generation, module loading, device stack transitions, network/input bring-up, power-off and Ember USB rebuild. Highest-risk lifecycle owner. |
+| [init.c](../src/init.c) | IOP reset generation, module loading, transfer-buffer tuning, device stack transitions, network/input bring-up, power-off and Ember USB rebuild. Highest-risk lifecycle owner. |
 | [filer.c](../src/filer.c) | Filesystem path translation, directory readers, partitions, USB/root device enumeration and shared browser/clipboard/transfer state. |
 | [filer_device.c](../src/filer_device.c) | Ensure source/destination device stacks and reject incompatible transfer combinations. |
 | [filer_mount.c](../src/filer_mount.c) | HDD/DVR partition mounts, VMC relationships and clipboard-aware unmounting. |
 | [filer_fileops.c](../src/filer_fileops.c) | Device-aware `gen*` open/read/write/seek/stat/directory/delete wrappers, BDM FatFs stat-result normalization, shared sibling rename implementation and filename limits. |
 | [filer_browser.c](../src/filer_browser.c) | Classic browser loop/menu plus clipboard/paste entry points, VMC actions, free-space queries and launch-folder helper. |
 | [filer_actions.c](../src/filer_actions.c) | Delete/rename/mkdir, native case-only rename validation/dispatch, exploit-folder protection, title.cfg creation and timestamp editing/organization. |
-| [filer_copy.c](../src/filer_copy.c) | Recursive transfer engine, batch file counting (including PSU payloads), replacement staging/verification, metadata restoration, diagnostics and save-title reads. |
+| [filer_copy.c](../src/filer_copy.c) | Recursive transfer engine, batch file counting (including PSU payloads), R3Z direct overwrites, metadata restoration, diagnostics and save-title reads. |
 | [gui_sort.c](../src/gui_sort.c) | FILEINFO comparison and browser sort ordering. |
 | [gui_hdd0_format.c](../src/gui_hdd0_format.c) | HDD/DVR partition path and selection formatting helpers; not disk formatting implementation. |
 | [gui_texteditor.c](../src/gui_texteditor.c) | Determine whether a selected file can enter the text editor. |
@@ -166,6 +166,8 @@ and the HOST ioctl.
 | [dash_widgets.c](../src/dash_widgets.c) | Keyboard model/presentation, IP editor, path picker and classic-dialog adapter. |
 | [dash_sound.c](../src/dash_sound.c) | audsrv/IOP sound lifecycle, embedded ADP effects and optional BGM.ADP streaming. |
 | [dash_clock_sync.c](../src/dash_clock_sync.c) | Internet/manual clock changes and time service integration. |
+| [dash_ftp.c](../src/dash_ftp.c) | Exclusive FTP screen, live status and controller Stop action. |
+| [ftp_session.c](../src/ftp_session.c) | FTP IOP session startup/restoration and status/shutdown RPC transport. |
 | [remote_control.c](../src/remote_control.c) | Remote command polling and action dispatch integration. |
 | [pc_game_receiver.c](../src/pc_game_receiver.c) | Network game transfer receiver polling and receive workflow. |
 | [https_client.c](../src/https_client.c) | PS2 socket/entropy/time adapter, TLS verification/session, HTTP parsing/redirects, streaming download and optional request-thread status reports. |
@@ -211,7 +213,8 @@ and the HOST ioctl.
 | `ee_libs/iopreboot/`, `ee_libs/hdd/` | Local EE libraries for IOP reboot and HDD RPC. |
 | `iop/ata_bd/`, `iop/pccf/`, `iop/ps2hdd_osd/` | ATA block driver, PC CARD CompactFlash and HDD/APA driver. |
 | `iop/mmceman/`, `iop/vmcman/`, `iop/usbd-ra/` | Memory-card emulator, virtual memory-card and pinned USB host implementations. |
-| `iop/udpfs_smap/`, `iop/ps2ips_rpc/`, `iop/ps2host/`, `iop/oldlibs/ps2ftpd/` | Network transport/interface, socket RPC server, host filesystem and FTP service. |
+| `iop/udpfs_smap/`, `iop/ps2ips_rpc/`, `iop/ps2host/` | Network transport/interface, socket RPC server and host filesystem. |
+| `iop/oldlibs/ps2ftpd/` | On-demand FTP service. [Integration map](../iop/oldlibs/ps2ftpd/LAUNCHSTATION.md) describes device discovery, file operations, connection state and tests. |
 | `iop/ds34usb/`, `iop/ds34bt/` | Optional controller EE clients and IOP backends. |
 | `iop/AllowDVDV/`, `iop/dev9_poweroff/`, `iop/hdl_info/`, `iop/xparam/` | DVD access, DEV9 shutdown, HDL service and Deckard game parameters. |
 | `iop/__precompiled/`, `packages/` | Embedded prebuilt dependencies and local package fallbacks. Preserve provenance/ABI notices. |

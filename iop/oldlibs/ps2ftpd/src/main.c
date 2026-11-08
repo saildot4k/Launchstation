@@ -10,8 +10,10 @@
  */
 
 #include "FtpServer.h"
+#include "FtpControl.h"
 
 #ifndef LINUX
+#include <loadcore.h>
 #include "irx_imports.h"
 #else
 #include <string.h>
@@ -34,6 +36,10 @@ int process_args(FtpServer *pServer, int argc, char *argv[])
 		} else if (!strcmp("-anonymous", argv[i])) {
 			// enable anonymous logins
 			FtpServer_SetAnonymous(pServer, 1);
+#ifndef LINUX
+		} else if (!strcmp("-no-hdd", argv[i])) {
+			FileSystem_SetHddEnabled(0);
+#endif
 		} else if (!strcmp("-user", argv[i])) {
 			// set new username
 
@@ -66,10 +72,14 @@ int server(void *argv)
 {
 	// run server
 
-	while (FtpServer_IsRunning(&srv))
-		FtpServer_HandleEvents(&srv);
-
+	FileSystem_ResetMounts();
+	if (FtpControl_Init(&srv) >= 0)
+		while (FtpServer_IsRunning(&srv) && !FtpControl_Stopping())
+			FtpServer_HandleEvents(&srv);
 	FtpServer_Destroy(&srv);
+	FileSystem_UnmountAll();
+	FtpControl_Stopped();
+	ExitDeleteThread();
 	return 0;
 }
 
@@ -111,7 +121,8 @@ s32 _start(int argc, char *argv[])
 	mythread.attr = 0x02000000;        // attr
 	mythread.option = 0;               // option
 	mythread.thread = (void *)server;  // entry
-	mythread.stacksize = 0x1000;
+	/* Normalized paths and directory metadata share this stack with driver calls. */
+	mythread.stacksize = 0x2000;
 	mythread.priority = 0x43;  // just above ps2link
 
 	pid = CreateThread(&mythread);

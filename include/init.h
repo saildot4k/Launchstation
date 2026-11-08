@@ -56,6 +56,8 @@ int prepareEmberUsbHandoffIop(const char *ember_path, const char *game_image,
 
 #ifdef ETH
 void loadNetModules(void);
+/* Resident FTP can access MCMAN independently of the dashboard RPC client. */
+int isFtpServerRunning(void);
 int isFtpNetworkReady(void);
 int ensureDashboardIpNetworkReady(void);
 const char *dashboardIpNetworkError(void);

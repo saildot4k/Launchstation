@@ -1,5 +1,6 @@
 #include "launchelf.h"
 #include "init.h"
+#include "main_startup.h"
 #include "dash_sound.h"
 #include "pccf_control.h"
 #include <unistd.h>
@@ -298,7 +299,6 @@ static void showRebootingIopMsg(void);
 static void resetUsbHostControllerBeforeIopReset(void);
 #ifdef ETH
 static void load_ps2ftpd(void);
-static void load_ps2netfs(void);
 #endif
 #ifdef UDPFS
 static void load_udpfs_stack(void);
@@ -1034,12 +1034,20 @@ static void load_ps2ftpd(void)
 
 	arg_p = "-anonymous";
 	arglen = strlen(arg_p);
+	/* Share the file browser's hardware gate, independently of Hide HDD settings. */
+	if (shouldHideHddAtaDevices()) {
+		arg_p = "-anonymous\0-no-hdd";
+		arglen = sizeof("-anonymous\0-no-hdd");
+	}
 
 	if (pcCardCfOwnsBus() || !switchNetworkStack(NETWORK_STACK_FTP))
 		return;
 	if (!load_ps2ip())
 		return;
 	if (!have_ps2ftpd) {
+		/* FTP's filesystem calls share MCMAN's caches/SIO2 buffers with
+		 * MCSERV. Finish the dashboard's RPC before starting the IOP thread. */
+		filerRootMcPollIdle();
 		ID = SifExecModuleBuffer(ps2ftpd_irx, size_ps2ftpd_irx, arglen, arg_p, &ret);
 		DPRINTF(" [PS2FTPD]: ID=%d, ret=%d\n", ID, ret);
 		have_ps2ftpd = (ID >= 0 && ret >= 0);
@@ -1048,25 +1056,6 @@ static void load_ps2ftpd(void)
 #endif
 //------------------------------
 //endfunc load_ps2ftpd
-//---------------------------------------------------------------------------
-#ifdef ETH
-static void load_ps2netfs(void)
-{
-	int ret, ID __attribute__((unused));
-
-	if (pcCardCfOwnsBus() || !switchNetworkStack(NETWORK_STACK_FTP))
-		return;
-	if (!load_ps2ip())
-		return;
-	if (!have_ps2netfs) {
-		ID = SifExecModuleBuffer(ps2netfs_irx, size_ps2netfs_irx, 0, NULL, &ret);
-		DPRINTF(" [NETFS]: ID=%d, ret=%d\n", ID, ret);
-		have_ps2netfs = (ID >= 0 && ret >= 0);
-	}
-}
-#endif
-//------------------------------
-//endfunc load_ps2netfs
 //---------------------------------------------------------------------------
 static void loadBasicModules(void)
 {
@@ -1124,14 +1113,31 @@ static void loadBasicModules(void)
 //------------------------------
 //endfunc loadBasicModules
 //---------------------------------------------------------------------------
+/* Match R3Z's IOP transfer-buffer tuning. The SDK frees the old buffer
+ * before resizing, so explicitly recreate its 16 KiB default if both larger
+ * allocations fail. */
+static void configureFileXioTransferBuffer(void)
+{
+	static const int sizes[] = {128 * 1024, 64 * 1024, 16 * 1024};
+	int i, ret = -ENOMEM;
+
+	for (i = 0; i < (int)(sizeof(sizes) / sizeof(sizes[0])); i++) {
+		ret = fileXioSetRWBufferSize(sizes[i]);
+		if (ret >= 0) {
+			DPRINTF(" [FILEXIO_RWB]: set %d bytes\n", sizes[i]);
+			return;
+		}
+	}
+	DPRINTF(" [FILEXIO_RWB]: allocation failed (ret=%d)\n", ret);
+}
+
 void ensureCoreIoStackReady(void)
 {
 	loadBasicModules();
 
 	if (!have_filexio_ready) {
 		fileXioInit();
-		/* Keep the SDK transfer buffer: network, USB and BDM services share
-		 * the IOP heap. Do not reserve a large throughput buffer here. */
+		configureFileXioTransferBuffer();
 		have_filexio_ready = 1;
 	}
 
@@ -2395,20 +2401,42 @@ void loadNetModules(void)
 		dashboard_ip_error = "PC CARD CompactFlash is using the network adapter.";
 		return;
 	}
-	ensureCoreIoStackReady();
-	getIpConfig();
 	if (!switchNetworkStack(NETWORK_STACK_FTP)) {
 		dashboard_ip_error = "Could not reboot the IOP to start FTP Server.";
 		return;
+	}
+	/* Prepare FTP storage in the surviving IOP session before accepting
+	 * connections. MMCE/MX4SIO are excluded from this service. */
+#if defined(MMCE) || defined(MX4SIO)
+	if (storage_driver_stack_mode != STORAGE_STACK_DEFAULT) {
+		dashboard_ip_error = "Restart the IOP before starting FTP.";
+		return;
+	}
+#endif
+	ensureCoreIoStackReady();
+	getIpConfig();
+	if (!have_ps2ftpd) {
+		if (!shouldHideHddAtaDevices()) {
+#ifdef EXFAT
+			loadAtaModules();
+#endif
+			loadHddModules();
+		}
+		loadUsbModules();
 	}
 	if (!load_ps2ip())
 		return;
 	if (!have_NetModules) {
 		showLoadingModulesMsg("FTP Server");
-		load_ps2netfs();
 		load_ps2ftpd();
-		have_NetModules = (have_ps2netfs && have_ps2ftpd);
+		have_NetModules = have_ps2ftpd;
 	}
+}
+
+int isFtpServerRunning(void)
+{
+	/* Module residency also covers the interval while FTP is stopping. */
+	return have_ps2ftpd;
 }
 
 int isFtpNetworkReady(void)

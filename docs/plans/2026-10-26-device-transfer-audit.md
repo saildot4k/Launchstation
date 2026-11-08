@@ -1,5 +1,69 @@
 # Device transfer comparison with wLaunchELF_R3Z
 
+## November 7: buffer, rename and discovery alignment
+
+The following R3Z 4.80 behavior is restored alongside direct paste, with the
+requested Launchstation exceptions noted below:
+
+- Remove the dashboard-only 16 KiB MC/VMC cap. Keep R3Z's first-matching
+  device rule: 128 KiB for MC/VMC/MASS/MX4SIO destinations, 256 KiB for MC
+  sources, 384 KiB for HOST destinations, 512 KiB for MASS/HOST/MX4SIO
+  sources, otherwise 1 MiB. CF retains the equivalent flash-device policy.
+- Keep 64-byte allocation alignment and the second buffer only when the
+  selected size remains 1 MiB after clamping to file length. UDPFS uses that
+  default route for destinations such as PFS and MMCE; UDPFS -> MC remains
+  a single 128 KiB buffer. A failed second allocation falls back to one buffer.
+- Restore R3Z's 128 KiB IOP fileXio buffer, with a 64 KiB fallback. Explicitly
+  recreate 16 KiB if both larger allocations fail, because the SDK frees its
+  old buffer before attempting a resize. Configure once per IOP session.
+- Ordinary rename uses native directory/file conflict probes and the native
+  result, without pre/post stat requirements. Card RPC completion checks,
+  VMC sibling-leaf handling, HOST ioctl and wire/name limits remain.
+- Keep the requested two MMCE startup pings per port, compared with six in
+  R3Z. Keep bus/IRQ restoration and protocol bounds fixes.
+- A destination-close failure reports the error and leaves output in place,
+  matching R3Z. Read/write failures and cancellation still clean partial
+  output; failed transfers retain Cut sources.
+
+The requested exceptions are retained: dashboard copies count source files and
+PSU payload entries before transferring, so numbered file progress remains,
+and MMCE startup uses two attempts per port.
+Short-I/O completion, UDPFS tail correctness, device-stack preparation,
+metadata and dashboard IO serialization remain.
+
+`test_r3z_file_io.py` executes production buffer/allocation code, IOP tuning
+and every MMCE startup retry position. The copy and rename matrices cover
+both MC slots, files/folders, overwrite/failure behavior and bogus MC stat
+responses. These are host checks; console speed and driver behavior require
+physical testing.
+
+## November 7: ordinary paste now follows R3Z 4.80
+
+This supersedes the staged-replacement behavior described in the earlier audit
+below. The earlier alignment retained Launchstation's ordinary-file transaction;
+only PSU entries and HOST/UDPFS destinations used R3Z's direct write path.
+The reported MMCE0 -> MC0 failure (`Checking destination (-21)`, 0/72 B)
+exposed that remaining difference.
+
+Ordinary files on every supported destination now use the same R3Z 4.80 order:
+limit the destination name, remove the old entry if present, then open the
+requested filename with write/create/truncate. Destination stat, temporary
+copy/backup names, readback verification and rename publication are removed
+from paste. An interrupted or failed overwrite does not retain the old
+destination. Partial output is cleaned up on transfer failure; Cut sources
+remain until the entire selected batch copies successfully. Same-folder no-ops,
+device preparation, folder-conflict prompts, metadata, PSU handling, progress,
+short-I/O completion and numeric diagnostics remain in place. Interactive rename
+continues to use its existing backend.
+
+The production copy harness covers the reported 72-byte MMCE-to-MC file and
+folder cases on both card slots, with MC stat configured to return false
+directory information. It asserts paste issues no destination-stat or rename
+requests. The existing device matrix covers new files, shorter/empty overwrites,
+recursive folders, moves, transfer failures, PSU archives and metadata. The
+obsolete standalone staged-replacement test is retired. Physical console
+validation is still required.
+
 Reviewed against saildot4k/wLaunchELF_R3Z `master` at
 [`06b06d000072d358c93d98104d64d2f081e47ba7`](https://github.com/saildot4k/wLaunchELF_R3Z/tree/06b06d000072d358c93d98104d64d2f081e47ba7).
 This records source comparison and host regression evidence. Physical PS2,
