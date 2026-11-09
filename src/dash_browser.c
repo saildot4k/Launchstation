@@ -17,6 +17,7 @@
 #include "dash_sound.h"
 #include "filer_shared.h"
 #include "filer_actions.h"
+#include "filer_saves.h"
 #include "filer_copy.h"
 #include "gui_sort.h"
 #include "init.h"
@@ -47,6 +48,8 @@ static struct
 	char startup_status[64]; /* driver-start title in the path bar */
 	u64 free_bytes;     /* free space of this folder's device */
 	int free_valid;
+	int ps1_free; /* -1 for other devices */
+	int card_type; /* 0 for ordinary folders / unknown media */
 	int args_loaded;    /* launch arguments loaded here, not started yet */
 } fb;
 
@@ -119,6 +122,8 @@ typedef struct
 	int quiet_input;
 	u64 free_bytes;
 	int free_valid;
+	int ps1_free; /* -1 for other devices */
+	int card_type; /* 0 for ordinary folders / unknown media */
 } FbListJob;
 
 static int isDir(const FILEINFO *f)
@@ -306,7 +311,17 @@ static void listRun(void *arg)
 	dashWorkerStatus(j->path, 0, 0);
 	j->n = getDir(j->path, j->files);
 	/* right after the read: for the HDD this asks the partition just mounted */
-	j->free_valid = j->n >= 0 ? filerFreeSpace(j->path, &j->free_bytes) : 0;
+	j->ps1_free = -1;
+	j->card_type = 0;
+	if (j->n >= 0 && (!strncmp(j->path, "mc", 2) || !strncmp(j->path, "vmc", 3))) {
+		VmcInfo card;
+		j->free_valid = filerCardInfo(j->path, &card);
+		if (j->free_valid) {
+			j->free_bytes = (u64)card.free_units * card.unit_bytes;
+			j->card_type = card.type;
+			if (card.type == 1) j->ps1_free = card.free_units;
+		}
+	} else j->free_valid = j->n >= 0 ? filerFreeSpace(j->path, &j->free_bytes) : 0;
 	for (i = 0; i < j->n; i++) {
 		j->files[i].title[0] = '\0';
 		if (j->titles && !isPartitionList(j->path)) {
@@ -349,6 +364,8 @@ static void listDone(void *arg)
 			fbSortFiles(fb.files, fb.n);
 		fb.free_valid = j->free_valid;
 		fb.free_bytes = j->free_bytes;
+		fb.ps1_free = j->ps1_free;
+		fb.card_type = j->card_type;
 		memset(fb.mark, 0, MAX_ENTRY);
 		fb.nmarked = 0;
 		fb.loading = 0;
@@ -431,6 +448,7 @@ static void openDirInternal(const char *dir, const char *select)
 	fb.n = 0;
 	fb.nmarked = 0;
 	fb.free_valid = 0;
+	fb.card_type = 0;
 	fb.sel = fb.top = 0;
 	fb.sel_anim = 0.0f;
 	fb.want_sel[0] = '\0';
@@ -924,11 +942,124 @@ static void opTitleCfg(void)
 	refresh();
 }
 
-/* the image extensions offered for "Mount as vmc0:/vmc1:" */
-static int isVmcImage(const char *name)
+static void opImportSaves(void)
 {
-	return genCmpFileExt(name, "BIN") || genCmpFileExt(name, "VMC") || genCmpFileExt(name, "MC2") ||
-	       genCmpFileExt(name, "PS2");
+	int result;
+	if (!prepareOp()) return;
+	fb.msg[0] = 0;
+	if (filerConfirmExploitModify(fb.dir, NULL) < 0) { opDone(); return; }
+	dashLoadingBegin("Extracting copied saves");
+	result = filerImportClipboard(fb.dir, fb.msg, sizeof(fb.msg));
+	opDone();
+	dashModalMessage(result < 0 ? DI_WARNING : DI_MC, result < 0 ? "Extraction stopped" : "Saves extracted", fb.msg, NULL);
+	refresh();
+}
+
+static FILEINFO *singleSaveTarget(void)
+{
+	int index;
+	return targets(&index, 1) == 1 ? &fb.files[index] : NULL;
+}
+
+static void opExtractSave(void)
+{
+	char source[MAX_PATH], folder[MAX_PATH], title[40];
+	SaveArchive save = {0};
+	uint8_t *data = NULL;
+	int result;
+	FILEINFO *selected = singleSaveTarget();
+	if (!selected || !fullPath(selected, source, sizeof(source)) || !prepareOp()) return;
+	dashLoadingBegin("Reading save archive");
+	result = filerLoadSave(source, &save, &data, fb.msg, sizeof(fb.msg));
+	opDone();
+	if (!result) { dashModalMessage(DI_WARNING, "Archive not read", fb.msg, NULL); return; }
+	snprintf(title, sizeof(title), "Extract PS%d save to", save.ps1 ? 1 : 2);
+	if (!dashPickPath(title, fb.dir, DASH_PICK_FOLDER, NULL, folder, sizeof(folder)) || !prepareOp()) goto done;
+	if (filerConfirmExploitModify(folder, NULL) <= 0) goto done;
+	dashLoadingBegin("Extracting save");
+	result = filerExtractSave(&save, folder, fb.msg, sizeof(fb.msg));
+	opDone();
+	dashModalMessage(result < 0 ? DI_WARNING : DI_MC, result < 0 ? "Save not extracted" : "Save extracted", fb.msg, NULL);
+	refresh();
+done:
+	saveArchiveFree(&save); free(data);
+}
+
+static void opCreateArchive(int kind)
+{
+	static const char *const ps1_formats[] = {"MCS - PS1 save backup", "PSV - PS3 export", "PSX - Action Replay / GameShark"};
+	static const char *const ps2_formats[] = {"PSU - PS2 save backup (EMS/wLE)", "PSV - PS3 export"};
+	char source[MAX_PATH], folder[MAX_PATH], destination[MAX_PATH], name[80];
+	FILEINFO file;
+	DashMenuItem formats[3];
+	const char *save_type = kind == FILER_SAVE_PS1 ? "PS1 save" : "PS2 save";
+	const char *const *labels = kind == FILER_SAVE_PS1 ? ps1_formats : ps2_formats;
+	int count = kind == FILER_SAVE_PS1 ? 3 : 2;
+	uint8_t *data = NULL;
+	size_t length;
+	int choice, format, result;
+	FILEINFO *selected = singleSaveTarget();
+	if (!selected || !fullPath(selected, source, sizeof(source))) return;
+	file = *selected;
+	for (int i = 0; i < count; i++) {
+		formats[i].icon = DI_MC;
+		formats[i].label = labels[i];
+		formats[i].detail = i == 1 ? save_type : NULL;
+		formats[i].disabled = 0;
+	}
+	choice = dashModalMenu("Create archive", file.name, formats, count, 0);
+	if (choice < 0 || !prepareOp()) return;
+	if (kind == FILER_SAVE_PS1)
+		format = choice == 0 ? SAVE_OUTPUT_MCS : choice == 1 ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSX;
+	else
+		format = choice ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSU;
+	dashLoadingBegin("Reading save");
+	result = filerCreateArchive(source, &file, kind, format, &data, &length, name, sizeof(name), fb.msg, sizeof(fb.msg));
+	opDone();
+	if (result < 0) { dashModalMessage(DI_WARNING, "Archive not created", fb.msg, NULL); return; }
+	if (!dashPickPath("Choose archive destination", fb.dir, DASH_PICK_FOLDER, NULL, folder, sizeof(folder)) ||
+	    !dashModalFilename("Archive filename", name, sizeof(name) - 1, folder) || !name[0] ||
+	    snprintf(destination, sizeof(destination), "%s%s", folder, name) >= (int)sizeof(destination) || !prepareOp()) goto done;
+	dashLoadingBegin("Creating archive");
+	result = filerWriteArchive(data, length, destination, fb.msg, sizeof(fb.msg));
+	opDone();
+	dashModalMessage(result < 0 ? DI_WARNING : DI_MC, result < 0 ? "Archive not created" : "Archive created", fb.msg, NULL);
+	refresh();
+done:
+	free(data);
+}
+
+static void opExportPs1(void)
+{
+	static const char *const names[] = {"Raw image...", "Ember - MC1.vmc", "Ember - MC2.vmc", "POPStarter - SLOT0.VMC", "POPStarter - SLOT1.VMC"};
+	static const char *const leaves[] = {"card.mcr", "MC1.vmc", "MC2.vmc", "SLOT0.VMC", "SLOT1.VMC"};
+	char source[MAX_PATH], folder[MAX_PATH], destination[MAX_PATH], name[80];
+	int choice, result;
+	uint8_t *data;
+	if (!prepareOp()) return;
+	if (fb.card_type == 1 && (!strncmp(fb.dir, "vmc", 3) || !strncmp(fb.dir, "mc", 2)))
+		snprintf(source, sizeof(source), "%s", fb.dir);
+	else {
+		FILEINFO *selected = singleSaveTarget();
+		if (!selected || !fullPath(selected, source, sizeof(source))) return;
+	}
+	choice = dashModalChoice("Save card as", names, 5, 0);
+	if (choice < 0) return;
+	dashLoadingBegin("Reading PS1 card");
+	data = filerReadPs1Card(source, fb.msg, sizeof(fb.msg));
+	opDone();
+	if (!data) { dashModalMessage(DI_WARNING, "Card not read", fb.msg, NULL); return; }
+	if (!dashPickPath("Choose memory card destination", fb.dir, DASH_PICK_FOLDER, NULL, folder, sizeof(folder))) goto done;
+	snprintf(name, sizeof(name), "%s", leaves[choice]);
+	if (!choice && !dashModalFilename("Card image filename", name, sizeof(name) - 1, folder)) goto done;
+	if (!name[0] || snprintf(destination, sizeof(destination), "%s%s", folder, name) >= (int)sizeof(destination) || !prepareOp()) goto done;
+	dashLoadingBegin("Saving PS1 card");
+	result = filerSavePs1Card(data, destination, fb.msg, sizeof(fb.msg));
+	opDone();
+	dashModalMessage(result < 0 ? DI_WARNING : DI_MC, result < 0 ? "Card not saved" : "Card saved", fb.msg, NULL);
+	refresh();
+done:
+	free(data);
 }
 
 static void opMountVmc(int slot)
@@ -1267,8 +1398,11 @@ static void actionsMenu(void)
 	FILEINFO *f = (fb.dir[0] && !isMisc(fb.dir) && fb.sel < fb.n) ? &fb.files[fb.sel] : NULL;
 	FILEINFO none;
 	char path[MAX_PATH], en[NUM_MENU];
-	const char *psu_label;
+	char extract_label[32];
+	int save_kind = FILER_SAVE_NONE;
+	FILEINFO *save_file = singleSaveTarget();
 	int in_folder = fb.dir[0] && !isMisc(fb.dir);
+	int ps1_card = fb.card_type == 1;
 	int is_elf = 0, has_target = (fb.nmarked > 0 || f != NULL);
 	DashMenuItem items[44];
 	int ids[44], n = 0, r;
@@ -1278,7 +1412,10 @@ static void actionsMenu(void)
 		F_CUT,
 		F_PASTE,
 		F_PASTE_RENAME,
-		F_PSU,
+		F_CREATE,
+		F_EXTRACT,
+		F_IMPORT,
+		F_EXPORT_PS1,
 		F_DELETE,
 		F_RENAME,
 		F_NEWDIR,
@@ -1311,8 +1448,10 @@ static void actionsMenu(void)
 	strcpy(none.name, "..");
 	memset(en, 0, sizeof(en));
 	if (in_folder)
-		filerMenuEnables(fb.dir, f != NULL ? f : &none, fb.nmarked, en);
-	psu_label = in_folder ? filerPsuPasteLabel(fb.dir) : NULL;
+		filerMenuEnables(fb.dir, f != NULL ? f : &none, fb.nmarked, fb.card_type, en);
+	if (save_file != NULL && in_folder && en[COPY] && prepareOp())
+		save_kind = filerSaveKind(fb.dir, save_file, fb.card_type);
+	filerExtractLabel(save_file != NULL ? save_file->name : "", extract_label, sizeof(extract_label));
 	if (f != NULL && !isDir(f) && fullPath(f, path, sizeof(path)))
 		is_elf = genCmpFileExt(path, "ELF");
 	snprintf(marked, sizeof(marked), "%d selected", fb.nmarked);
@@ -1328,24 +1467,31 @@ static void actionsMenu(void)
 		ADD(DI_PLUS, "Paste here", nclipFiles > 0 ? (browser_cut ? "move" : "copy") : NULL, !en[PASTE], F_PASTE);
 		if (en[PASTE])
 			ADD(DI_PASTE_RENAME, "Paste with new names...", NULL, 0, F_PASTE_RENAME);
-		if (psu_label != NULL && en[PSUPASTE])
-			ADD(DI_MC, psu_label, NULL, 0, F_PSU);
+		if (en[CREATE_ARCHIVE] && (save_kind == FILER_SAVE_PS1 || save_kind == FILER_SAVE_PS2))
+			ADD(DI_MC, "Create archive...", save_kind == FILER_SAVE_PS1 ? "PS1 save" : "PS2 save", 0, F_CREATE);
+		if (en[EXTRACT_SAVE] && (save_kind == FILER_ARCHIVE_PS1 || save_kind == FILER_ARCHIVE_PS2))
+			ADD(DI_MC, extract_label, save_kind == FILER_ARCHIVE_PS1 ? "PS1 save" : "PS2 save", 0, F_EXTRACT);
+		if (en[IMPORT_SAVE])
+			ADD(DI_MC, "Extract copied saves here", "from the clipboard", 0, F_IMPORT);
+		if ((ps1_card && en[EXPORT_PS1]) || (en[COPY] && save_kind == FILER_CARD_PS1))
+			ADD(DI_MC, "Save card as...", "Whole PS1 card", 0, F_EXPORT_PS1);
 		ADD(DI_WARNING, "Delete...", fb.nmarked ? marked : NULL, !has_target || !en[DELETE], F_DELETE);
 		ADD(DI_EDIT, "Rename...", NULL, f == NULL || !en[RENAME], F_RENAME);
-		ADD(DI_FOLDER, "New folder...", NULL, !en[NEWDIR], F_NEWDIR);
+		if (!ps1_card)
+			ADD(DI_FOLDER, "New folder...", NULL, !en[NEWDIR], F_NEWDIR);
 		if (en[NEWICON])
 			ADD(DI_IMAGE, "Create folder icon...", "icon.sys", 0, F_NEWICON);
 		ADD(DI_INFO, "Size", NULL, !has_target || !en[GETSIZE], F_SIZE);
 		if (f != NULL && !isDir(f) && en[OPEN_TEXTEDITOR])
 			ADD(DI_TEXT, "Open in Text Editor", NULL, 0, F_EDIT);
-		if (is_elf) {
+		if (is_elf && !ps1_card) {
 			int args_disabled = isPcCardCfPath(fb.dir) ? 1 : 0;
 			ADD(DI_EDIT, "Start with arguments...", args_disabled ? "Direct launch unsupported" : NULL,
 			    args_disabled, F_ARGS);
 			if (en[TITLE_CFG])
 				ADD(DI_SETTINGS, "Create title.cfg", NULL, 0, F_TITLECFG);
 		}
-		if (f != NULL && !isDir(f) && isVmcImage(f->name) && en[MOUNTVMC0]) {
+		if (f != NULL && !isDir(f) && en[MOUNTVMC0]) {
 			ADD(DI_MC, "Mount as vmc0:", vmcMounted[0] ? "replaces the mounted one" : NULL, 0, F_VMC0);
 			ADD(DI_MC, "Mount as vmc1:", vmcMounted[1] ? "replaces the mounted one" : NULL, !en[MOUNTVMC1], F_VMC1);
 		}
@@ -1382,8 +1528,17 @@ static void actionsMenu(void)
 		case F_PASTE_RENAME:
 			opPaste(PASTE_RENAME);
 			break;
-		case F_PSU:
-			opPaste(PASTE_PSU);
+		case F_CREATE:
+			opCreateArchive(save_kind);
+			break;
+		case F_EXTRACT:
+			opExtractSave();
+			break;
+		case F_IMPORT:
+			opImportSaves();
+			break;
+		case F_EXPORT_PS1:
+			opExportPs1();
 			break;
 		case F_DELETE:
 			opDelete();
@@ -1582,12 +1737,16 @@ static void browserDrawBody(void)
 	               fb.startup_status[0] ? FB_W - 12 : fb_tab_active ? FB_W - 227 : FB_W - 162,
 	               fb.startup_status[0] ? fb.startup_status : fb.dir[0] ? display_path : "Choose a device", DASH_FS_SMALL, DASH_C_TEXT2);
 	if (fb.dir[0] && !fb.startup_status[0]) {
-		char space[24];
+		char space[40];
 
 		space[0] = '\0';
-		if (fb.free_valid)
-			fmtBytes(space, sizeof(space), fb.free_bytes);
-		if (fb.nmarked)
+		if (fb.free_valid) {
+			if (fb.ps1_free >= 0) snprintf(space, sizeof(space), "%d of 15 blocks", fb.ps1_free);
+			else fmtBytes(space, sizeof(space), fb.free_bytes);
+		}
+		if (fb.nmarked && fb.free_valid && fb.ps1_free >= 0)
+			snprintf(info, sizeof(info), "%d selected   %s free", fb.nmarked, space);
+		else if (fb.nmarked)
 			snprintf(info, sizeof(info), "%d of %d selected", fb.nmarked, fb.n);
 		else if (space[0])
 			snprintf(info, sizeof(info), "%d item%s   %s free", fb.n, fb.n == 1 ? "" : "s", space);

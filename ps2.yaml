@@ -112,6 +112,8 @@ targets:
       - iop/vmcman/src/main.c
       - iop/vmcman/src/mcdev.c
       - iop/vmcman/src/mciomanx_backing.c
+      - iop/vmcman/src/vmp_sign.c
+      - src/save_sign.c
       - iop/vmcman/src/mcsio2.c
       - iop/vmcman/src/ps2mc_fio.c
       - iop/vmcman/src/ps1mc_fio.c
@@ -305,6 +307,10 @@ targets:
       - src/gui_texteditor.c
       - src/gui_hdd0_format.c
       - src/psu_functions.c
+      - src/save_archive.c
+      - src/save_sign.c
+      - src/save_lzari.c
+      - src/filer_saves.c
       - src/hdd.c
       - src/hdd_header_injector.c
       - src/hdl_rpc.c

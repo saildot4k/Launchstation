@@ -5,6 +5,7 @@
 #include "dash.h"
 #include "gui_texteditor.h"
 #include "filer_actions.h"
+#include "filer_saves.h"
 #include "filer_copy.h"
 #include "filer_shared.h"
 #include "gui_hdd0_format.h"
@@ -388,11 +389,10 @@ static int classifyPsuAction(const char *destPath)
 /* Which file operations are allowed on `file` in `path` (read-only
  * devices, partition and device lists, the clipboard...). Shared by the
  * classic menu and the dashboard File Browser. */
-void filerMenuEnables(const char *path, const FILEINFO *file, int nmarked, char enable[NUM_MENU])
+void filerMenuEnables(const char *path, const FILEINFO *file, int nmarked, int card_type, char enable[NUM_MENU])
 {
 	int menu_disabled = 0;
 	int write_disabled = 0;
-	int psu_action = classifyPsuAction(path);
 
 	memset(enable, TRUE, NUM_MENU);  //Assume that all menu items are legal by default
 
@@ -450,7 +450,6 @@ void filerMenuEnables(const char *path, const FILEINFO *file, int nmarked, char 
 	if (write_disabled || menu_disabled) {
 		enable[CUT] = FALSE;
 		enable[PASTE] = FALSE;
-		enable[PSUPASTE] = FALSE;
 		enable[DELETE] = FALSE;
 		enable[RENAME] = FALSE;
 		enable[NEWDIR] = FALSE;
@@ -479,32 +478,35 @@ void filerMenuEnables(const char *path, const FILEINFO *file, int nmarked, char 
 		enable[MOUNTVMC1] = FALSE;  //forbid insane VMC mounting
 	}
 
-	if (nclipFiles == 0) {
-		//Nothing in clipboard
-		enable[PASTE] = FALSE;
-		enable[PSUPASTE] = FALSE;
-	} else {
-		//Something in clipboard
-		enable[PSUPASTE] = (enable[PSUPASTE] && (psu_action != PSU_ACTION_NONE));
+	enable[IMPORT_SAVE] = !write_disabled && !menu_disabled && genCanRenamePath(path) && filerCanImportClipboard();
+	enable[EXPORT_PS1] = !menu_disabled &&
+		((!(file->stats.AttrFile & sceMcFileAttrSubdir) && filerIsPs1Image(file->name)) ||
+		 (card_type == 1 && isMcLikePath(path)));
+	enable[CREATE_ARCHIVE] = enable[COPY] && nmarked <= 1;
+	enable[EXTRACT_SAVE] = enable[COPY] && nmarked <= 1;
+	if (nclipFiles == 0) enable[PASTE] = FALSE;
+
+	/* PS1 cards are a flat list of save files, on both physical and VMC media. */
+	if (card_type == 1 && isMcLikePath(path)) {
+		enable[NEWDIR] = FALSE;
+		enable[NEWICON] = FALSE;
+		enable[OPEN_TEXTEDITOR] = FALSE;
+		enable[LAUNCH_ELF_ARGS] = FALSE;
+		enable[TITLE_CFG] = FALSE;
+		enable[TIMEMANIP_CUSTOM] = FALSE;
+		for (int i = 0; i < nclipFiles; i++)
+			if (clipFiles[i].stats.AttrFile & sceMcFileAttrSubdir) enable[PASTE] = FALSE;
 	}
 }
 
-static int menu(const char *path, FILEINFO *file)
+static int menu(const char *path, FILEINFO *file, int card_type, const FILEINFO *save_file)
 {
 	u64 color;
-	char enable[NUM_MENU], tmp[80];
-	const char *psu_action_label;
+	char enable[NUM_MENU], tmp[80], extract_label[32];
+	const char *create_label = "Create archive...";
 	int x, y, i, sel;
 	int event, post_event = 0;
-	int psu_action;
-
-	psu_action = classifyPsuAction(path);
-	if (psu_action == PSU_ACTION_EXTRACT)
-		psu_action_label = LNG(Extract_PSU);
-	else if (psu_action == PSU_ACTION_CREATE)
-		psu_action_label = LNG(Create_PSU);
-	else
-		psu_action_label = LNG(psuAction);
+	int kind = FILER_SAVE_NONE;
 
 	int menu_len = strlen(LNG(Copy)) > strlen(LNG(Cut)) ?
 	                   strlen(LNG(Copy)) :
@@ -516,12 +518,13 @@ static int menu(const char *path, FILEINFO *file)
 	menu_len = strlen(LNG(Get_Size)) > menu_len ? strlen(LNG(Get_Size)) : menu_len;
 	menu_len = strlen(LNG(TextEditor)) > menu_len ? strlen(LNG(TextEditor)) : menu_len;
 	menu_len = strlen(LNG(Launch_With_Args)) > menu_len ? strlen(LNG(Launch_With_Args)) : menu_len;
-	menu_len = strlen(psu_action_label) > menu_len ? strlen(psu_action_label) : menu_len;
+	menu_len = strlen(create_label) > menu_len ? strlen(create_label) : menu_len;
 	menu_len = strlen(LNG(Set_Custom_Date)) > menu_len ? strlen(LNG(Set_Custom_Date)) : menu_len;
 	menu_len = strlen(LNG(title_cfg)) > menu_len ? strlen(LNG(title_cfg)) : menu_len;
 	menu_len = (strlen(LNG(Mount)) + 6) > menu_len ? (strlen(LNG(Mount)) + 6) : menu_len;
 	
 
+	if (menu_len < 25) menu_len = 25; /* Save import/export labels. */
 	int menu_ch_w = menu_len + 1;                                 //Total characters in longest menu string
 	int menu_ch_h = NUM_MENU;                                     //Total number of menu lines
 	int mSprite_Y1 = 64;                                          //Top edge of sprite
@@ -529,7 +532,16 @@ static int menu(const char *path, FILEINFO *file)
 	int mSprite_X1 = mSprite_X2 - (menu_ch_w + 3) * FONT_WIDTH;   //Left edge of sprite
 	int mSprite_Y2 = mSprite_Y1 + (menu_ch_h + 1) * FONT_HEIGHT;  //Bottom edge of sprite
 
-	filerMenuEnables(path, file, nmarks, enable);
+	filerMenuEnables(path, file, nmarks, card_type, enable);
+	if (enable[COPY]) kind = filerSaveKind(path, save_file, card_type);
+	filerExtractLabel(save_file->name, extract_label, sizeof(extract_label));
+	if (genCmpFileExt(save_file->name, "PSV"))
+		snprintf(extract_label, sizeof(extract_label), "Extract PSV (PS%d)...", kind == FILER_ARCHIVE_PS1 ? 1 : 2);
+
+	enable[CREATE_ARCHIVE] &= kind == FILER_SAVE_PS1 || kind == FILER_SAVE_PS2;
+	enable[EXTRACT_SAVE] &= kind == FILER_ARCHIVE_PS1 || kind == FILER_ARCHIVE_PS2;
+	enable[EXPORT_PS1] = (card_type == 1 && isMcLikePath(path)) || (enable[COPY] && kind == FILER_CARD_PS1);
+
 
 	for (sel = 0; sel < NUM_MENU; sel++)  //loop to preselect the first enabled menu entry
 		if (enable[sel] == TRUE)
@@ -580,8 +592,8 @@ static int menu(const char *path, FILEINFO *file)
 					strcpy(tmp, LNG(Cut));
 				else if (i == PASTE)
 					strcpy(tmp, LNG(Paste));
-				else if (i == PSUPASTE)
-					strcpy(tmp, psu_action_label);
+				else if (i == CREATE_ARCHIVE)
+					strcpy(tmp, create_label);
 				else if (i == DELETE)
 					strcpy(tmp, LNG(Delete));
 				else if (i == RENAME)
@@ -600,6 +612,12 @@ static int menu(const char *path, FILEINFO *file)
 					strcpy(tmp, LNG(TextEditor));
 				else if (i == LAUNCH_ELF_ARGS)
 					strcpy(tmp, LNG(Launch_With_Args));
+				else if (i == IMPORT_SAVE)
+					strcpy(tmp, "Extract copied saves here");
+				else if (i == EXTRACT_SAVE)
+					strcpy(tmp, extract_label);
+				else if (i == EXPORT_PS1)
+					strcpy(tmp, "Save card as...");
 				else if (i == TITLE_CFG)
 					strcpy(tmp, LNG(title_cfg));
 				else if (i == TIMEMANIP_CUSTOM)
@@ -1092,11 +1110,99 @@ static void formatBrowserTimestamp(char *dst, size_t dst_size, const PS2TIME *ti
 	snprintf(dst, dst_size, "%s %s", time_text, date_text);
 }
 
+/* Small native chooser used by archive and whole-card export actions. */
+static int saveChoice(const char *title, const char *subtitle, const char *const *items, int count)
+{
+	int selected = 0, event = 1, post_event = 0, width = strlen(title), x, y;
+	int first_row = subtitle ? 3 : 2;
+	if (subtitle && (int)strlen(subtitle) > width) width = strlen(subtitle);
+	for (int i = 0; i < count; i++) if ((int)strlen(items[i]) > width) width = strlen(items[i]);
+	x = (SCREEN_WIDTH - (width + 6) * FONT_WIDTH) / 2;
+	y = (SCREEN_HEIGHT - (count + first_row + 2) * FONT_HEIGHT) / 2;
+	while (1) {
+		waitPadReady(0, 0);
+		if (readpad()) {
+			if (new_pad & PAD_UP) { selected = (selected + count - 1) % count; event = 1; }
+			else if (new_pad & PAD_DOWN) { selected = (selected + 1) % count; event = 1; }
+			else if ((new_pad & PAD_TRIANGLE) || (!swapKeys && (new_pad & PAD_CROSS)) || (swapKeys && (new_pad & PAD_CIRCLE))) return -1;
+			else if ((!swapKeys && (new_pad & PAD_CIRCLE)) || (swapKeys && (new_pad & PAD_CROSS))) return selected;
+		}
+		if (event || post_event) {
+			drawPopSprite(setting->color[COLOR_BACKGR], x, y, x + (width + 6) * FONT_WIDTH, y + (count + first_row + 2) * FONT_HEIGHT);
+			drawFrame(x, y, x + (width + 6) * FONT_WIDTH, y + (count + first_row + 2) * FONT_HEIGHT, setting->color[COLOR_FRAME]);
+			printXY(title, x + 2 * FONT_WIDTH, y + FONT_HEIGHT / 2, setting->color[COLOR_TEXT], TRUE, 0);
+			if (subtitle)
+				printXY(subtitle, x + 2 * FONT_WIDTH, y + FONT_HEIGHT + FONT_HEIGHT / 2, setting->color[COLOR_TEXT], TRUE, 0);
+			for (int i = 0; i < count; i++)
+				printXY(items[i], x + 3 * FONT_WIDTH, y + (i + first_row) * FONT_HEIGHT, setting->color[COLOR_TEXT], TRUE, 0);
+			drawChar(LEFT_CUR, x + FONT_WIDTH, y + (selected + first_row) * FONT_HEIGHT, setting->color[COLOR_TEXT]);
+			drawScr(); post_event = event; event = 0;
+		}
+	}
+}
+
+static void classicSaveAction(const char *folder, const FILEINFO *file, int card_type, int create, char *message, int size)
+{
+	static const char *const ps1_formats[] = {"MCS - PS1 save backup", "PSV - PS3 export", "PSX - Action Replay / GameShark"};
+	static const char *const ps2_formats[] = {"PSU - PS2 save backup (EMS/wLE)", "PSV - PS3 export"};
+	char source[MAX_PATH], destination[MAX_PATH], name[80];
+	uint8_t *data = NULL;
+	size_t length = 0;
+	SaveArchive save = {0};
+	int kind = filerSaveKind(folder, file, card_type), choice, format;
+	message[0] = 0;
+	if (snprintf(source, sizeof(source), "%s%s", folder, file->name) >= (int)sizeof(source)) return;
+	if (create) {
+		choice = saveChoice("Create archive", kind == FILER_SAVE_PS1 ? "PS1 save" : "PS2 save",
+		                    kind == FILER_SAVE_PS1 ? ps1_formats : ps2_formats, kind == FILER_SAVE_PS1 ? 3 : 2);
+		if (choice < 0) return;
+		if (kind == FILER_SAVE_PS1)
+			format = choice == 0 ? SAVE_OUTPUT_MCS : choice == 1 ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSX;
+		else
+			format = choice ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSU;
+		if (filerCreateArchive(source, file, kind, format, &data, &length, name, sizeof(name), message, size) < 0) return;
+	} else if (!filerLoadSave(source, &save, &data, message, size)) return;
+	destination[0] = 0;
+	if (getFilePath(destination, DIR_CNF) >= 0 && destination[0]) {
+		if (create) {
+			if (filenameKeyboard(name, sizeof(name) - 1, destination) > 0 &&
+			    strlen(destination) + strlen(name) < sizeof(destination)) {
+				strcat(destination, name);
+				filerWriteArchive(data, length, destination, message, size);
+			}
+		} else if (filerConfirmExploitModify(destination, NULL) > 0)
+			filerExtractSave(&save, destination, message, size);
+	}
+	saveArchiveFree(&save); free(data);
+}
+
+static void classicExportPs1(const char *folder, const FILEINFO *file, int card_type, char *message, int size)
+{
+	static const char *const choices[] = {"Raw image...", "Ember - MC1.vmc", "Ember - MC2.vmc", "POPStarter - SLOT0.VMC", "POPStarter - SLOT1.VMC"};
+	static const char *const names[] = {"card.mcr", "MC1.vmc", "MC2.vmc", "SLOT0.VMC", "SLOT1.VMC"};
+	char source[MAX_PATH], destination[MAX_PATH], name[80];
+	int choice = saveChoice("Save card as", NULL, choices, 5);
+	if (choice < 0) return;
+	if (card_type == 1 && isMcLikePath(folder)) snprintf(source, sizeof(source), "%s", folder);
+	else if (snprintf(source, sizeof(source), "%s%s", folder, file->name) >= (int)sizeof(source)) return;
+	uint8_t *data = filerReadPs1Card(source, message, size);
+	if (!data) return;
+	destination[0] = 0;
+	snprintf(name, sizeof(name), "%s", names[choice]);
+	if (getFilePath(destination, DIR_CNF) >= 0 && destination[0] &&
+	    (choice || filenameKeyboard(name, sizeof(name) - 1, destination) > 0) &&
+	    strlen(destination) + strlen(name) < sizeof(destination)) {
+		strcat(destination, name);
+		filerSavePs1Card(data, destination, message, size);
+	}
+	free(data);
+}
+
 int getFilePath(char *out, int cnfmode)
 {
 	char path[MAX_PATH], cursorEntry[MAX_PATH],
 	    msg0[MAX_PATH], msg1[MAX_PATH],
-	    tmp[MAX_PATH], tmp1[MAX_PATH], tmp2[MAX_PATH], ext[8], *p;
+	    tmp[MAX_PATH], tmp1[MAX_PATH], ext[8], *p;
 	char device_model[CONSOLE_MODEL_NAME_MAX_LEN + 1];
 	char device_bootrom[CONSOLE_INFO_LINE_MAX_LEN];
 	char device_dvdver[CONSOLE_INFO_LINE_MAX_LEN];
@@ -1105,7 +1211,7 @@ int getFilePath(char *out, int cnfmode)
 	FILEINFO files[MAX_ENTRY];
 	int top = 0, rows;
 	int x, y, y0, y1, list_end_y;
-	int i, j, ret, rv = -1;  //NB: rv is for return value of this function
+	int i, ret, rv = -1;  //NB: rv is for return value of this function
 	int usb_unit;
 	int event, post_event = 0;
 	int font_height;
@@ -1113,6 +1219,7 @@ int getFilePath(char *out, int cnfmode)
 	int use_12h = 0, date_format = 0;
 	int details_column;
 	int device_info_ready = FALSE;
+	int browser_card_type = 0;
 
 	elisa_failed = FALSE;  //set at failure to load font, cleared at each browser entry
 
@@ -1298,7 +1405,10 @@ int getFilePath(char *out, int cnfmode)
 				}
 			} else {  //cnfmode == FALSE
 				if (new_pad & PAD_R1) {
-					ret = menu(path, &files[browser_sel]);
+					int save_sel = browser_sel;
+					if (nmarks == 1) for (int marked = 0; marked < browser_nfiles; marked++)
+						if (marks[marked]) { save_sel = marked; break; }
+					ret = menu(path, &files[browser_sel], browser_card_type, &files[save_sel]);
 					if (ret == COPY || ret == CUT) {
 						if (ret == CUT) {
 							const FILEINFO *protected_file = NULL;
@@ -1429,11 +1539,10 @@ int getFilePath(char *out, int cnfmode)
 							submenu_func_Paste(msg0, path);
 						else
 							browser_pushed = FALSE;
-					} else if (ret == PSUPASTE) {
-						if (filerConfirmExploitModify(path, NULL) > 0)
-							submenu_func_psuPaste(msg0, path);
-						else
-							browser_pushed = FALSE;
+					} else if (ret == CREATE_ARCHIVE || ret == EXTRACT_SAVE) {
+						classicSaveAction(path, &files[save_sel], browser_card_type, ret == CREATE_ARCHIVE, msg0, sizeof(msg0));
+						browser_pushed = FALSE;
+						browser_cd = TRUE;
 					}
 					else if (ret == NEWDIR) {
 						tmp[0] = 0;
@@ -1499,54 +1608,27 @@ int getFilePath(char *out, int cnfmode)
 					DoneIcon:
 						strcpy(tmp, tmp1);  //Dummy code to make 'goto DoneIcon' legal for gcc
 					}                       //ends NEWICON
+					else if (ret == IMPORT_SAVE) {
+						if (filerConfirmExploitModify(path, NULL) > 0)
+							filerImportClipboard(path, msg0, sizeof(msg0));
+						browser_pushed = FALSE;
+						browser_cd = TRUE;
+					}
+					else if (ret == EXPORT_PS1) {
+						classicExportPs1(path, &files[save_sel], browser_card_type, msg0, sizeof(msg0));
+						browser_pushed = FALSE;
+						browser_cd = TRUE;
+					}
 					else if ((ret == MOUNTVMC0) || (ret == MOUNTVMC1)) {
 						i = ret - MOUNTVMC0;
-						sprintf(tmp, "vmc%d:", i);
-						if (vmcMounted[i]) {
-							if ((j = vmc_PartyIndex[i]) >= 0) {
-								vmc_PartyIndex[i] = -1;
-								if (j != vmc_PartyIndex[1 ^ i])
-									Party_vmcIndex[j] = -1;
-							}
-							fileXioUmount(tmp);
-							vmcMounted[i] = 0;
-						}
-						j = genFixPath(path, tmp1);
-						if (j < 0) {
-							sprintf(msg1, "\n'%s vmc%d:' for \"%s\"\nResult=%d",
-							        LNG(Mount), i, path, j);
-							(void)ynDialog(msg1);
-							browser_pushed = FALSE;
-							continue;
-						}
-						strcpy(tmp2, tmp1);
-#if defined(ETH) || defined(UDPFS)
-						if (!strncmp(path, "host:", 5) || !strncmp(path, "udpfs:", 6)) {
-							makeHostPath(tmp2, tmp1);
-						}
-#endif
-						strcat(tmp2, files[browser_sel].name);
-						/* genFixPath may reset the IOP while lazy-loading storage stacks. */
-						x = load_vmcman();
-						if (!x) {
-							x = get_vmcman_last_error();
-							sprintf(msg1, "\n'%s vmc%d:' for \"%s\"\nvmcman not registered\nResult=%d",
-							        LNG(Mount), i, tmp2, x);
-							(void)ynDialog(msg1);
-						} else if ((x = fileXioMount(tmp, tmp2, FIO_MT_RDWR)) >= 0) {
-							if ((j >= 0) && (j < MOUNT_LIMIT)) {
-								vmc_PartyIndex[i] = j;
-								Party_vmcIndex[j] = i;
-							}
-							vmcMounted[i] = 1;
-							snprintf(path, sizeof(path), "%.*s/", (int)sizeof(path) - 2, tmp);
+						if (filerMountVmc(path, &files[browser_sel], i, msg1, sizeof(msg1)) >= 0) {
+							snprintf(path, sizeof(path), "vmc%d:/", i);
 							browser_cd = TRUE;
 							cnfmode = NON_CNF;
 							strcpy(ext, cnfmode_extL[cnfmode]);
 						} else {
-							sprintf(msg1, "\n'%s vmc%d:' for \"%s\"\nResult=%d",
-							        LNG(Mount), i, tmp2, x);
 							(void)ynDialog(msg1);
+							browser_pushed = FALSE;
 						}
 					}  //ends MOUNTVMCx
 					else if (ret == OPEN_TEXTEDITOR) {
@@ -1673,12 +1755,19 @@ int getFilePath(char *out, int cnfmode)
 				browser_nfiles = setFileList(path, ext, files, cnfmode);
 			}
 #endif
+			browser_card_type = 0;
 			if (!cnfmode) {  //Calculate free space (unless configuring)
-				if (!strncmp(path, "mc", 2)) {
-					mcGetInfo(path[2] - '0', 0, &mctype_PSx, &mcfreeSpace, NULL);
-					mcSync(0, NULL, &ret);
-					freeSpace = mcfreeSpace * ((mctype_PSx == 1) ? 8192 : 1024);
-					vfreeSpace = TRUE;
+				mctype_PSx = 0;
+				vfreeSpace = FALSE;
+				if (!strncmp(path, "mc", 2) || !strncmp(path, "vmc", 3)) {
+					VmcInfo card;
+					if (filerCardInfo(path, &card)) {
+						mctype_PSx = card.type;
+						browser_card_type = card.type;
+						mcfreeSpace = card.free_units;
+						freeSpace = (u64)card.free_units * card.unit_bytes;
+						vfreeSpace = TRUE;
+					}
 #ifdef XFROM
 				} else if (!strncmp(path, "xfrom", 5)) {
 					xfromGetInfo(0, 0, &mctype_PSx, &mcfreeSpace, NULL);
@@ -1979,7 +2068,9 @@ int getFilePath(char *out, int cnfmode)
 			}
 			setScrTmp(msg0, msg1);
 			if (vfreeSpace) {
-				if (freeSpace >= 1024 * 1024)
+				if (mctype_PSx == 1)
+					sprintf(tmp, "[%d of 15 blocks free]", mcfreeSpace);
+				else if (freeSpace >= 1024 * 1024)
 					sprintf(tmp, "[%.1fMB %s]", (double)freeSpace / 1024 / 1024, LNG(free));
 				else if (freeSpace >= 1024)
 					sprintf(tmp, "[%.1fKB %s]", (double)freeSpace / 1024, LNG(free));
@@ -2280,8 +2371,8 @@ const char *filerPsuPasteLabel(const char *path)
 	return NULL;
 }
 
-/* Mounts the VMC image `file` in `path` as vmc<slot>: (same steps as the
- * classic menu). 0 = mounted; otherwise `msg` says why not. */
+/* Shared by both browsers. Mount the image as vmc<slot>:; preserve the
+ * previous mount if its pending writes cannot be flushed. */
 int filerMountVmc(const char *path, const FILEINFO *file, int slot, char *msg, int msg_size)
 {
 	char dev[8], dir[MAX_PATH], image[MAX_PATH];
@@ -2290,14 +2381,9 @@ int filerMountVmc(const char *path, const FILEINFO *file, int slot, char *msg, i
 	if (slot < 0 || slot > 1 || path == NULL || file == NULL)
 		return -1;
 	sprintf(dev, "vmc%d:", slot);
-	if (vmcMounted[slot]) {
-		if ((j = vmc_PartyIndex[slot]) >= 0) {
-			vmc_PartyIndex[slot] = -1;
-			if (j != vmc_PartyIndex[1 ^ slot])
-				Party_vmcIndex[j] = -1;
-		}
-		fileXioUmount(dev);
-		vmcMounted[slot] = 0;
+	if (vmcMounted[slot] && (x = filerUnmountVmc(slot)) < 0) {
+		snprintf(msg, msg_size, "The current VMC could not be flushed and unmounted (%d).", x);
+		return x;
 	}
 	/* genFixPath may reset the IOP while lazy-loading storage stacks */
 	j = genFixPath(path, dir);
@@ -2335,7 +2421,7 @@ int filerMountVmc(const char *path, const FILEINFO *file, int slot, char *msg, i
 int filerUnmountVmc(int slot)
 {
 	char dev[8];
-	int j;
+	int j, result;
 
 	if (slot < 0 || slot > 1)
 		return -1;
@@ -2343,12 +2429,14 @@ int filerUnmountVmc(int slot)
 		return 0;
 
 	snprintf(dev, sizeof(dev), "vmc%d:", slot);
+	result = fileXioUmount(dev);
+	if (result < 0)
+		return result;
 	if ((j = vmc_PartyIndex[slot]) >= 0) {
 		vmc_PartyIndex[slot] = -1;
 		if (j != vmc_PartyIndex[1 ^ slot])
 			Party_vmcIndex[j] = -1;
 	}
-	fileXioUmount(dev);
 	vmcMounted[slot] = 0;
 	return 0;
 }
@@ -2405,14 +2493,12 @@ int filerFreeSpace(const char *path, u64 *out)
 {
 	int type = 0, free_units = 0, ret;
 
-	if (!strncmp(path, "mc", 2) && (path[2] == '0' || path[2] == '1')) {
-		mcGetInfo(path[2] - '0', 0, &type, &free_units, NULL);
-		mcSync(0, NULL, &ret);
-		if (ret < -1)
-			return 0;
-		*out = (u64)free_units * ((type == 1) ? 8192 : 1024);
-		return 1;
-	}
+    if (!strncmp(path, "mc", 2) || !strncmp(path, "vmc", 3)) {
+        VmcInfo card;
+        if (!filerCardInfo(path, &card)) return 0;
+        *out = (u64)card.free_units * card.unit_bytes;
+        return 1;
+    }
 #ifdef XFROM
 	if (!strncmp(path, "xfrom", 5)) {
 		xfromGetInfo(0, 0, &type, &free_units, NULL);

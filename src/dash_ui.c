@@ -16,6 +16,7 @@ extern u32 paddata;
 static u64 last_input_ms;
 static u32 held_prev;
 static u32 text_repeat_armed;
+static u32 shoulder_repeat_armed, shoulder_repeat;
 
 //--------------------------------------------------------------
 // Input
@@ -34,6 +35,7 @@ void dashInputPollEx(DashInput *in, int usb_kb_as_pad)
 	u32 back_btn = swapKeys ? PAD_CIRCLE : PAD_CROSS;
 
 	memset(in, 0, sizeof(*in));
+	shoulder_repeat = 0;
 	dashWorkerParkPoint();
 	if (dashIopParked())
 		return; /* the IOP (and padman with it) is being rebooted */
@@ -52,7 +54,13 @@ void dashInputPollEx(DashInput *in, int usb_kb_as_pad)
 	 * from one-press UI actions. A flush requires a fresh press before repeating. */
 	text_repeat_armed &= paddata;
 	text_repeat_armed |= np & paddata & (ok_btn | back_btn);
-	repeat = ret ? new_pad & (text_repeat_armed | ~paddata) : 0;
+	/* Value editors can opt into the same repeat ramp for L1/R1. Global
+	 * tab navigation continues to receive only the first shoulder press. */
+	shoulder_repeat_armed &= paddata;
+	shoulder_repeat_armed |= np & paddata & (PAD_L1 | PAD_R1);
+	repeat = ret ? new_pad & (text_repeat_armed | shoulder_repeat_armed | ~paddata) : 0;
+	if (repeat & PAD_L1) shoulder_repeat |= DASH_IN_L1;
+	if (repeat & PAD_R1) shoulder_repeat |= DASH_IN_R1;
 	if (repeat & ok_btn)
 		in->text_repeat |= DASH_IN_OK;
 	if (repeat & back_btn)
@@ -96,8 +104,13 @@ void dashInputPollEx(DashInput *in, int usb_kb_as_pad)
 		in->pressed |= DASH_IN_R3;
 	in->any = (in->pressed != 0);
 	/* The editor consumes right-stick directions directly from raw_new. */
-	if (in->any || in->text_repeat || (np & (PAD_R3_H0 | PAD_R3_H1 | PAD_R3_V0 | PAD_R3_V1)))
+	if (in->any || in->text_repeat || shoulder_repeat || (np & (PAD_R3_H0 | PAD_R3_H1 | PAD_R3_V0 | PAD_R3_V1)))
 		last_input_ms = Timer();
+}
+
+u32 dashInputShoulderRepeat(void)
+{
+	return shoulder_repeat;
 }
 
 void dashInputFlush(void)
@@ -110,6 +123,7 @@ void dashInputFlush(void)
 	}
 	held_prev = paddata;
 	text_repeat_armed = 0;
+	shoulder_repeat_armed = shoulder_repeat = 0;
 	last_input_ms = Timer();
 }
 

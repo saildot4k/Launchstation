@@ -24,6 +24,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install save-format host test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zlib1g-dev openssl
+
       - name: Test Settings sessions, navigation and theme compatibility
         run: |
           python3 tests/test_display_feedback.py
@@ -39,6 +44,12 @@ jobs:
           python3 tests/test_r3z_file_io.py
           python3 tests/test_rename_devices.py
           python3 tests/test_vmc_rename.py
+          python3 tests/test_save_formats.py
+          python3 tests/test_save_export.py
+          python3 tests/test_save_actions.py
+          python3 tests/test_save_import.py
+          python3 tests/test_ps1_vmc.py
+          python3 tests/test_ps1_memory_cards.py
           python3 tests/test_file_stat_errors.py
           python3 tests/test_copy_pipeline.py
           python3 tests/test_gamesave_titles.py

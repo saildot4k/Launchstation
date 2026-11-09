@@ -84,8 +84,9 @@ static int readpad_noRepeat(void) {
 static u64 last_input_ms;
 static u32 held_prev;
 static u32 text_repeat_armed;
+static u32 shoulder_repeat_armed, shoulder_repeat;
 """
-padcode += function(ui, "void dashInputPollEx(") + function(ui, "void dashInputFlush(")
+padcode += function(ui, "void dashInputPollEx(") + function(ui, "void dashInputFlush(") + function(ui, "u32 dashInputShoulderRepeat(")
 padcode += r"""
 static int repeatTimes(int port,int button,int text_action,int *times) {
     DashInput in;int count=0,presses=0;
@@ -131,6 +132,27 @@ static void checkTextRepeat(void) {
     connected[0]=1;connected[1]=0;keys[0]=keys[1]=0;
     clearPadPressState();held_prev=text_repeat_armed=0;
     puts("PASS: Type/Delete repeat matches every scroll event through delay and acceleration, both mappings/ports, release, failed reads and dialog flushes");
+}
+static void checkShoulderRepeat(void) {
+    int navigation[128],actual[128];DashInput in;
+    for(int port=0;port<2;port++) for(int direction=0;direction<2;direction++) {
+        int count=repeatTimes(port,PAD_DOWN,0,navigation),found=0,presses=0;
+        int pad=direction?PAD_R1:PAD_L1,button=direction?DASH_IN_R1:DASH_IN_L1;
+        clearPadPressState();held_prev=text_repeat_armed=shoulder_repeat_armed=0;
+        keys[port]=pad;
+        for(int ms=0;ms<=3200;ms++) {
+            now_ms=20000+ms;dashInputPollEx(&in,0);
+            presses+=!!(in.pressed&button);
+            if(dashInputShoulderRepeat()&button)actual[found++]=ms;
+        }
+        assert(presses==1 && found==count && !memcmp(actual,navigation,count*sizeof(int)));
+        dashInputFlush();now_ms+=1000;dashInputPollEx(&in,0);
+        assert(!dashInputShoulderRepeat() && !(in.pressed&button));
+        keys[port]=0;dashInputPollEx(&in,0);keys[port]=pad;dashInputPollEx(&in,0);
+        assert(dashInputShoulderRepeat()==(u32)button);
+        keys[port]=0;dashInputPollEx(&in,0);assert(!dashInputShoulderRepeat());
+    }
+    puts("PASS: L1/R1 adjustments use the exact navigation delay/ramp on both ports; tabs stay one press and flush suppresses held shoulders");
 }
 int main(void) {
     DashInput in;
@@ -251,6 +273,7 @@ int main(void) {
         assert(!in.any && !in.raw_new);
     }
     checkTextRepeat();
+    checkShoulderRepeat();
     puts("PASS: failed/disconnected reads, both ports, flush timing, START pass-through/chords/hold suppression, both sticks' direction/repeat/raw bits, right-stick activity, independent D-pad navigation and keyboard");
 }
 """

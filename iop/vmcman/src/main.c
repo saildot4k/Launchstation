@@ -470,7 +470,7 @@ int mcman_detectcard(int port, int slot)
 
 #if defined(BUILDING_VMCMAN)
 	/* VMC media cannot physically change while mounted; avoid fragile re-probes. */
-	if ((mcdi->cardtype == sceMcTypePS2) && (mcdi->cardform == 1))
+	if (((mcdi->cardtype == sceMcTypePS2) || (mcdi->cardtype == sceMcTypePS1)) && (mcdi->cardform == 1))
 		return sceMcResSucceed;
 #endif
 
@@ -524,6 +524,14 @@ int mcman_detectcard(int port, int slot)
 			return sceMcResSucceed;
 		}
 	}
+#elif defined(BUILDING_VMCMAN)
+	if (mcman_iomanx_backing_ps1(port, slot))
+		return mcman_setPS1devinfos(port, slot);
+	r = mcman_probePS2Card2(port, slot);
+	if (r >= -9) {
+		mcdi->cardtype = sceMcTypePS2;
+		return r;
+	}
 #else
 	r = mcman_probePS2Card2(port, slot);
 	if (r >= -9) {
@@ -552,7 +560,7 @@ int McDetectCard2(int port, int slot) // Export #21 XMCMAN only
 
 #if defined(BUILDING_VMCMAN)
 	/* VMC media cannot physically change while mounted; avoid fragile re-probes. */
-	if ((mcdi->cardtype == sceMcTypePS2) && (mcdi->cardform == 1))
+	if (((mcdi->cardtype == sceMcTypePS2) || (mcdi->cardtype == sceMcTypePS1)) && (mcdi->cardform == 1))
 		return sceMcResSucceed;
 #endif
 
@@ -605,6 +613,14 @@ int McDetectCard2(int port, int slot) // Export #21 XMCMAN only
 				return sceMcResDeniedPS1Permit;
 			return sceMcResSucceed;
 		}
+	}
+#elif defined(BUILDING_VMCMAN)
+	if (mcman_iomanx_backing_ps1(port, slot))
+		return mcman_setPS1devinfos(port, slot);
+	r = mcman_probePS2Card(port, slot);
+	if (r >= -9) {
+		mcdi->cardtype = sceMcTypePS2;
+		return r;
 	}
 #else
 	r = mcman_probePS2Card(port, slot);
@@ -3407,6 +3423,9 @@ int McFlushCache(int port, int slot)
 		}
 	}
 
+#if defined(BUILDING_VMCMAN)
+	if (mcman_iomanx_backing_commit(port, slot)) return -50;
+#endif
 	return sceMcResSucceed;
 }
 

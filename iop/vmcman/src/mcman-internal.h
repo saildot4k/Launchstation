@@ -287,6 +287,8 @@ extern int  mcman_initdev(void);
 extern void mcman_deinitdev(void);
 
 #if defined(BUILDING_VMCMAN)
+extern int mcman_iomanx_backing_commit(int port, int slot);
+extern int mcman_iomanx_backing_ps1(int port, int slot);
 extern int mcman_iomanx_backing_mount(int port, int slot, const char *filename);
 extern int mcman_iomanx_backing_umount(int port, int slot);
 extern int mcman_iomanx_backing_getcardspec(int port, int slot, s16 *pagesize, u16 *blocksize, int *cardsize, u8 *flags);

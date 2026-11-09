@@ -791,6 +791,8 @@ typedef struct
 
 void dashInputPoll(DashInput *in);
 void dashInputPollEx(DashInput *in, int usb_kb_as_pad);
+/* Opt-in L1/R1 adjustment repeats, following the pad delay/ramp. */
+u32 dashInputShoulderRepeat(void);
 void dashInputFlush(void);
 u64 dashInputIdleMs(void);
 

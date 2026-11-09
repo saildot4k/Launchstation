@@ -18,7 +18,7 @@ enum {
 	COPY,
 	CUT,
 	PASTE,
-	PSUPASTE,
+	CREATE_ARCHIVE,
 	DELETE,
 	RENAME,
 	NEWDIR,
@@ -30,6 +30,9 @@ enum {
 	LAUNCH_ELF_ARGS,
 	TIMEMANIP_CUSTOM,
 	TITLE_CFG,
+	IMPORT_SAVE,
+	EXTRACT_SAVE,
+	EXPORT_PS1,
 	NUM_MENU
 };
 
@@ -107,7 +110,8 @@ int filerPrepareMemoryCardRead(int port);
 int pollRootMemoryCardDevices(void);
 void discardNextMx4sioRootListing(const char *path);
 int ensurePathDeviceStackReady(const char *path);
-void filerMenuEnables(const char *path, const FILEINFO *file, int nmarked, char enable[NUM_MENU]);
+/* card_type belongs to this listing; menu rendering must not issue card RPCs. */
+void filerMenuEnables(const char *path, const FILEINFO *file, int nmarked, int card_type, char enable[NUM_MENU]);
 int prepareTransferDeviceStacks(const char *src_path, const char *dst_path);
 int copy(char *outPath, const char *inPath, FILEINFO file, int recurses);
 

@@ -39,3 +39,37 @@ For storage, do not equate `Not checked` with physically absent. Lazy drivers st
 - Normal generic ELF reset preferences do not govern Neutrino or Ember's dedicated handoff.
 
 These external programs, user BIOS and commercial games are not bundled. See the [full web documentation](https://nathanneurotic.github.io/Launchstation/) for per-core setup and troubleshooting.
+
+## Save imports and PS1 cards
+
+Select a supported save archive and choose **Extract PSU...**, **Extract PSV...**,
+**Extract MCS...** or its corresponding extension, then pick the destination.
+PSV actions identify whether the archive contains a PS1 or PS2 save. For several
+archives, Copy them and choose **Extract copied saves here** at the destination.
+Select an individual save and use **Create archive...** for **PSU - PS2 save backup (EMS/wLE)** /
+**PSV - PS3 export** on PS2 saves, or **MCS - PS1 save backup** / **PSV - PS3 export** / **PSX - Action Replay / GameShark** on PS1 saves.
+PSV exports include their PS3 signature and suggested encoded filename; PS2
+exports retain attributes, timestamps and icon references. PS2 saves import to
+physical PS2 cards, mounted PS2 VMCs or storage folders. PS1 saves import to
+physical PS1 cards and mounted PS1 VMCs; PS2 cards and storage folders
+receive backup folders. An existing save is preserved until the user backs it
+up and removes it. Malformed input is rejected before writing, and failed
+staged writes are cleaned up.
+
+Physical PS1 cards are supported in either slot (`mc0:/` and `mc1:/`). Saves
+remain flat files: imports never create directories on PS1 media. Folder
+creation/pasting, PS2 icon/date tools, text editing and launch-argument actions
+are disabled while browsing PS1 cards or PS1 VMCs.
+
+Physical PS1 cards and mounted PS1 VMCs show **X of 15 blocks free**. A raw
+card is 128 KiB: sixteen 8 KiB blocks, with one reserved for the directory.
+**Save card as...** offers a custom raw filename or a chosen game folder using Ember's
+`MC1.vmc` / `MC2.vmc` or POPStarter's `SLOT0.VMC` / `SLOT1.VMC`. GME, VGS and
+VMP wrappers can be converted to raw images through this action. Both browsers
+also mount VMP, MCR, VM1, BIN, VMC, GME, VGS, SRM and MCD directly, using
+content and geometry rather than filename case or extension. Wrapped PS1
+files include a header in addition to their 128 KiB card payload; VMP signatures
+and GME directory tables are updated on writes. PS2 MCD, MC2, VMC and other
+raw suffixes work with or without per-page ECC, which is regenerated on writes.
+Physical card export includes active saves; VMC export preserves the complete image.
+See the [save tools guide](https://nathanneurotic.github.io/Launchstation/saves.html).

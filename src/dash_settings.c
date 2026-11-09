@@ -2372,7 +2372,7 @@ static int editClockDateTime(int fields[6])
 	int high[] = {2099, 12, 31, 23, 59, 59};
 	int value[6], sel = 0, i, accepted = 0;
 	float open = 0.0f, sel_anim = 0.0f;
-	const float w = 528.0f, h = 268.0f, bw = 64.0f, gap = 16.0f;
+	const float w = 528.0f, h = 244.0f, bw = 64.0f, gap = 16.0f;
 	const float x = (DASH_VW - w) * 0.5f, y = (DASH_VH - h) * 0.5f;
 	const float bx0 = x + (w - (6 * bw + 5 * gap)) * 0.5f, by = y + 120.0f;
 	DashInput in;
@@ -2405,9 +2405,9 @@ static int editClockDateTime(int fields[6])
 			step = 1;
 		if (in.pressed & DASH_IN_DOWN)
 			step = -1;
-		if (in.pressed & (DASH_IN_R1 | DASH_IN_R2))
+		if ((in.pressed | dashInputShoulderRepeat()) & (DASH_IN_R1 | DASH_IN_R2))
 			step = 10;
-		if (in.pressed & (DASH_IN_L1 | DASH_IN_L2))
+		if ((in.pressed | dashInputShoulderRepeat()) & (DASH_IN_L1 | DASH_IN_L2))
 			step = -10;
 		if (step) {
 			int range = high[sel] - low[sel] + 1;
@@ -2451,18 +2451,14 @@ static int editClockDateTime(int fields[6])
 			}
 		}
 		{
-			float hx = x + 24, hy = y + h - 68;
-
-			hx += dashDrawButton(hx, hy, DI_BTN_LEFT, NULL) + 12;
-			hx += dashDrawButton(hx, hy, DI_BTN_RIGHT, NULL) + 4;
-			hx = dashTextS(hx, hy + 4.5f, "Select field", DASH_FS_SMALL, DASH_C_TEXT2) + 20;
-			hx += dashDrawButton(hx, hy, DI_BTN_UP, NULL) + 12;
-			hx += dashDrawButton(hx, hy, DI_BTN_DOWN, NULL) + 4;
-			dashTextS(hx, hy + 4.5f, "Change", DASH_FS_SMALL, DASH_C_TEXT2);
-		}
-		{
 			float hx = x + 24, hy = y + h - 36;
 
+			hx += dashDrawButton(hx, hy, DI_BTN_LEFT, NULL) + 2;
+			hx += dashDrawButton(hx, hy, DI_BTN_RIGHT, NULL) + 4;
+			hx = dashTextS(hx, hy + 4.5f, "Field", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
+			hx += dashDrawButton(hx, hy, DI_BTN_UP, NULL) + 2;
+			hx += dashDrawButton(hx, hy, DI_BTN_DOWN, NULL) + 4;
+			hx = dashTextS(hx, hy + 4.5f, "Change", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
 			hx += dashDrawButton(hx, hy, -1, "L1") + 2;
 			hx += dashDrawButton(hx, hy, -1, "R1") + 4;
 			hx = dashTextS(hx, hy + 4.5f, "10", DASH_FS_SMALL, DASH_C_TEXT2) + 12;

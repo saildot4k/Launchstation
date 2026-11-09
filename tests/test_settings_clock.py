@@ -47,7 +47,8 @@ code += header[input_start:header.index("};", input_start) + 2] + "\n"
 code += function(clock, "static int manualLeap(") + function(clock, "int dashClockDaysInMonth(")
 code += function(gfx, "float dashApproach(")
 code += r'''
-static int inputs[512], input_count, input_index;
+static int inputs[512], input_count, input_index, shoulder_input;
+static float footer_y;
 static int flushes, ticks, renders, presents, digits, plus, minus, selected, sounds[3];
 static float selected_x, plus_x, minus_x;
 static int shown[6], choice=-1, rtc_valid=1, manual_ok=1;
@@ -57,8 +58,10 @@ static char last_title[80], last_body[200], last_detail[32];
 static void press(int input) { assert(input_count<NITEMS(inputs));inputs[input_count++]=input; }
 static void selectField(int field) { for(int i=0;i<field;i++)press(DASH_IN_RIGHT); }
 static void dashInputPoll(DashInput *in) {
-    assert(input_index<input_count);in->pressed=inputs[input_index++];
+    assert(input_index<input_count);int event=inputs[input_index++];in->pressed=event&0xffff;shoulder_input=(unsigned)event>>16;
 }
+static unsigned dashInputShoulderRepeat(void) { return shoulder_input; }
+static void repeatShoulder(int button) { press(button<<16); }
 static void dashInputFlush(void) { if(!(flushes%2))panel_open=0;flushes++; }
 static void dashSoundPlay(int sound) {
     if(sound==DASH_SND_CONFIRM)sounds[0]++;
@@ -69,7 +72,7 @@ static float dashVisualUpdate(void) { ticks++;return 0.02f; }
 static float dashAnimSpeed(void) { return 1; }
 static float dashEaseOutCubic(float t) { return 1-(1-t)*(1-t)*(1-t); }
 static DashColor dashItemColor(int selected) { return 100+selected; }
-static void dashRenderScene(void) { renders++;digits=plus=minus=0;selected=-1; }
+static void dashRenderScene(void) { renders++;digits=plus=minus=0;selected=-1;footer_y=-1; }
 static void dashModalPanel(float x,float y,float w,float h,float open) {
     assert(x>=40 && x+w<=600 && y>=26 && y+h<=424);
     assert(open>=panel_open);panel_open=open; /* Edits keep the same open panel. */
@@ -96,11 +99,12 @@ static void dashTextFit(float x,float y,float w,const char *text,float size,Dash
 }
 static float dashDrawButton(float x,float y,int icon,const char *key) {
     assert(x>=40 && x+22<=600 && y>=26 && y+22<=424);
+    if(footer_y<0)footer_y=y;else assert(footer_y==y);
     if(icon==-1) { assert(key && (!strcmp(key,"L1") || !strcmp(key,"R1")));return 24; }
     assert(icon==DI_BTN_LEFT || icon==DI_BTN_RIGHT || icon==DI_BTN_UP || icon==DI_BTN_DOWN);return 22;
 }
 static void dashModalHintRow(float x,float y,int ok,const char *apply,int back,const char *cancel) {
-    (void)x;(void)y;assert(ok==1 && back==2 && !strcmp(apply,"Apply") && !strcmp(cancel,"Cancel"));
+    assert(footer_y==y && x+44+16+24+11*7<=600);assert(ok==1 && back==2 && !strcmp(apply,"Apply") && !strcmp(cancel,"Cancel"));
 }
 static int dashOkIcon(void) { return 1; }
 static int dashBackIcon(void) { return 2; }
@@ -199,6 +203,12 @@ int main(void) {
         expected[field]=up?lower[field]:upper[field];selectField(field);
         press(up?DASH_IN_UP:DASH_IN_DOWN);acceptAndCheck(current);
     }
+    /* Repeated shoulders change the field each time, even without a fresh press. */
+    for(int direction=0;direction<2;direction++) {
+        reset();int button=direction?DASH_IN_R1:DASH_IN_L1;
+        press(button);repeatShoulder(button);repeatShoulder(button);
+        expected[0]=direction?2056:2096;acceptAndCheck(current);
+    }
     /* Selection wraps in both directions, including the full four-digit year. */
     reset();press(DASH_IN_LEFT);press(DASH_IN_UP);expected[5]++;acceptAndCheck(current);assert(selected==5);
     reset();selectField(6);press(DASH_IN_UP);expected[0]++;acceptAndCheck(current);assert(selected==0);
@@ -250,7 +260,7 @@ int main(void) {
     reset();choice=1;sync_ok=0;empty_error=1;setPs2Clock();
     assert(!strcmp(last_body,"No reliable Internet time was available."));
 #endif
-    puts("PASS: whole-year clock field, IP-style adjustment cues and shoulder shortcuts, valid-date wrapping, leap years, stable animation, safe cancellation and RTC/Internet dispatch");
+    puts("PASS: single-row clock controls, accelerating shoulder adjustments, whole-year field, valid-date wrapping, leap years, stable animation, safe cancellation and RTC/Internet dispatch");
 }
 '''
 

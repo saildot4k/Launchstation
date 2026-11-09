@@ -361,20 +361,21 @@ int readMC(const char *path, FILEINFO *info, int max)
 	int i, j, port, ret;
 
 	port = path[2] - '0';
-	if (port < 0 || port > 1)
+	if (port < 0 || port > 1 || max <= 0)
 		return 0;
+	if (max > MAX_ENTRY - 2) max = MAX_ENTRY - 2;
 	ret = filerPrepareMemoryCardRead(port);
-	if (mctype_PSx == 2)  //PS2 MC ?
-		time_valid = 1;
+	time_valid = (mctype_PSx == 2);  //PS1 saves have no PS2 timestamps.
 	size_valid = 1;
 	if (ret != sceMcResSucceed)
-		return 0;
+		return ret;
 
 	strcpy(dir, &path[4]);
 	strcat(dir, "*");
 	for (i = 0; i < MC_BROWSER_RETRY_COUNT; i++) {
-		mcGetDir(port, 0, dir, 0, MAX_ENTRY - 2, mcDir);
-		mcSync(0, NULL, &ret);
+		ret = mcGetDir(port, 0, dir, 0, max, mcDir);
+		if (ret < 0) break;
+		if (mcSync(0, NULL, &ret) <= 0) return sceMcResFailDetect;
 		if (ret >= 0)
 			break;
 		if (ret != sceMcResChangedCard)
@@ -384,13 +385,14 @@ int readMC(const char *path, FILEINFO *info, int max)
 		DelayThread(MC_BROWSER_RETRY_DELAY_US);
 	}
 	if (ret < 0)
-		return 0;
+		return ret;
 
-	for (i = j = 0; i < ret; i++) {
+	for (i = j = 0; i < ret && j < max; i++) {
 		if (mcDir[i].AttrFile & sceMcFileAttrSubdir &&
 		    (!strcmp((char *)mcDir[i].EntryName, ".") || !strcmp((char *)mcDir[i].EntryName, "..")))
 			continue;  //Skip pseudopaths "." and ".."
-		strcpy(info[j].name, (char *)mcDir[i].EntryName);
+		memcpy(info[j].name, mcDir[i].EntryName, sizeof(mcDir[i].EntryName));
+		info[j].name[sizeof(mcDir[i].EntryName)] = 0;
 		info[j].stats = mcDir[i];
 		j++;
 	}

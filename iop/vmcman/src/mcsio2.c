@@ -1076,6 +1076,8 @@ int mcman_probePS1Card2(int port, int slot)
 	else if (mcman_sio2outbufs_PS1PDA[1] != 8) {
 		return -14;
 	}
+#elif defined(BUILDING_VMCMAN)
+	return mcman_iomanx_backing_ps1(port, slot) ? sceMcResSucceed : sceMcResNoEntry;
 #else
 	(void)port;
 	(void)slot;
@@ -1152,6 +1154,8 @@ int mcman_probePS1Card(int port, int slot)
 		return sceMcResChangedCard;
 
 	return r;
+#elif defined(BUILDING_VMCMAN)
+	return mcman_iomanx_backing_ps1(port, slot) ? sceMcResSucceed : sceMcResNoEntry;
 #else
 	(void)port;
 	(void)slot;
@@ -1255,6 +1259,8 @@ int McWritePS1PDACard(int port, int slot, int page, void *buf) // Export #30
 
 	if ((mcman_sio2outbufs_PS1PDA[1] != 0) && (mcman_sio2outbufs_PS1PDA[1] != 8))
 		return sceMcResFullDevice;
+#elif defined(BUILDING_VMCMAN)
+	return mcman_iomanx_backing_write(port, slot, page, buf, NULL) ? sceMcResNoEntry : sceMcResSucceed;
 #else
 	(void)port;
 	(void)slot;
@@ -1328,6 +1334,8 @@ int McReadPS1PDACard(int port, int slot, int page, void *buf) // Export #29
 
 	if ((mcman_sio2outbufs_PS1PDA[1] != 0) && (mcman_sio2outbufs_PS1PDA[1] != 8))
 		return sceMcResDeniedPermit;
+#elif defined(BUILDING_VMCMAN)
+	return mcman_iomanx_backing_read(port, slot, page, buf, NULL) ? sceMcResNoEntry : sceMcResSucceed;
 #else
 	(void)port;
 	(void)slot;
