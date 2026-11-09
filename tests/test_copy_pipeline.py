@@ -97,6 +97,7 @@ static struct {int PSU_HugeNames,PSU_DateNames,PSU_NoOverwrite;} config,*setting
 static int PSU_content;
 static int PM_flag[MAX_RECURSE],PM_file[MAX_RECURSE],PasteMode,PasteProgress_f,mctype_PSx;
 static int nclipFiles,browser_cut,browser_pushed,browser_cd;
+static void filerClearArchiveClipboard(void) {}
 static FILEINFO clipFiles[MAX_ENTRY];static char clipPath[MAX_PATH];
 static unsigned clipIopResetGeneration,generation;
 static u64 written_size,PasteTime,clock_ms;

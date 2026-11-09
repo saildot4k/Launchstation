@@ -482,7 +482,9 @@ void filerMenuEnables(const char *path, const FILEINFO *file, int nmarked, int c
 	enable[EXPORT_PS1] = !menu_disabled &&
 		((!(file->stats.AttrFile & sceMcFileAttrSubdir) && filerIsPs1Image(file->name)) ||
 		 (card_type == 1 && isMcLikePath(path)));
-	enable[CREATE_ARCHIVE] = enable[COPY] && nmarked <= 1;
+	enable[CREATE_ARCHIVE] = !write_disabled && !menu_disabled && genCanRenamePath(path) &&
+	                         strncmp(path, "host", 4) && filerArchiveClipboardKind() != FILER_SAVE_NONE &&
+	                         !(card_type == 1 && isMcLikePath(path));
 	enable[EXTRACT_SAVE] = enable[COPY] && nmarked <= 1;
 	if (nclipFiles == 0) enable[PASTE] = FALSE;
 
@@ -538,7 +540,6 @@ static int menu(const char *path, FILEINFO *file, int card_type, const FILEINFO 
 	if (genCmpFileExt(save_file->name, "PSV"))
 		snprintf(extract_label, sizeof(extract_label), "Extract PSV (PS%d)...", kind == FILER_ARCHIVE_PS1 ? 1 : 2);
 
-	enable[CREATE_ARCHIVE] &= kind == FILER_SAVE_PS1 || kind == FILER_SAVE_PS2;
 	enable[EXTRACT_SAVE] &= kind == FILER_ARCHIVE_PS1 || kind == FILER_ARCHIVE_PS2;
 	enable[EXPORT_PS1] = (card_type == 1 && isMcLikePath(path)) || (enable[COPY] && kind == FILER_CARD_PS1);
 
@@ -1141,39 +1142,45 @@ static int saveChoice(const char *title, const char *subtitle, const char *const
 	}
 }
 
-static void classicSaveAction(const char *folder, const FILEINFO *file, int card_type, int create, char *message, int size)
+static void classicExtractSave(const char *folder, const FILEINFO *file, char *message, int size)
+{
+	char source[MAX_PATH], destination[MAX_PATH];
+	uint8_t *data = NULL;
+	SaveArchive save = {0};
+	message[0] = 0;
+	if (snprintf(source, sizeof(source), "%s%s", folder, file->name) >= (int)sizeof(source) ||
+	    !filerLoadSave(source, &save, &data, message, size)) return;
+	destination[0] = 0;
+	if (getFilePath(destination, DIR_CNF) >= 0 && destination[0] &&
+	    filerConfirmExploitModify(destination, NULL) > 0)
+		filerExtractSave(&save, destination, message, size);
+	saveArchiveFree(&save); free(data);
+}
+
+static void classicCreateArchive(const char *folder, char *message, int size)
 {
 	static const char *const ps1_formats[] = {"MCS - PS1 save backup", "PSV - PS3 export", "PSX - Action Replay / GameShark"};
 	static const char *const ps2_formats[] = {"PSU - PS2 save backup (EMS/wLE)", "PSV - PS3 export"};
-	char source[MAX_PATH], destination[MAX_PATH], name[80];
+	char destination[MAX_PATH], name[80];
 	uint8_t *data = NULL;
 	size_t length = 0;
-	SaveArchive save = {0};
-	int kind = filerSaveKind(folder, file, card_type), choice, format;
+	int kind = filerArchiveClipboardKind(), choice, format;
 	message[0] = 0;
-	if (snprintf(source, sizeof(source), "%s%s", folder, file->name) >= (int)sizeof(source)) return;
-	if (create) {
-		choice = saveChoice("Create archive", kind == FILER_SAVE_PS1 ? "PS1 save" : "PS2 save",
-		                    kind == FILER_SAVE_PS1 ? ps1_formats : ps2_formats, kind == FILER_SAVE_PS1 ? 3 : 2);
-		if (choice < 0) return;
-		if (kind == FILER_SAVE_PS1)
-			format = choice == 0 ? SAVE_OUTPUT_MCS : choice == 1 ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSX;
-		else
-			format = choice ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSU;
-		if (filerCreateArchive(source, file, kind, format, &data, &length, name, sizeof(name), message, size) < 0) return;
-	} else if (!filerLoadSave(source, &save, &data, message, size)) return;
-	destination[0] = 0;
-	if (getFilePath(destination, DIR_CNF) >= 0 && destination[0]) {
-		if (create) {
-			if (filenameKeyboard(name, sizeof(name) - 1, destination) > 0 &&
-			    strlen(destination) + strlen(name) < sizeof(destination)) {
-				strcat(destination, name);
-				filerWriteArchive(data, length, destination, message, size);
-			}
-		} else if (filerConfirmExploitModify(destination, NULL) > 0)
-			filerExtractSave(&save, destination, message, size);
+	if (kind != FILER_SAVE_PS1 && kind != FILER_SAVE_PS2) return;
+	choice = saveChoice("Create archive", kind == FILER_SAVE_PS1 ? "PS1 save" : "PS2 save",
+	                    kind == FILER_SAVE_PS1 ? ps1_formats : ps2_formats, kind == FILER_SAVE_PS1 ? 3 : 2);
+	if (choice < 0) return;
+	format = kind == FILER_SAVE_PS1 ? (choice == 0 ? SAVE_OUTPUT_MCS : choice == 1 ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSX) :
+	                                (choice ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSU);
+	if (filerCreateClipboardArchive(format, &data, &length, name, sizeof(name), message, size) < 0) return;
+	if (filenameKeyboard(name, sizeof(name) - 1, folder) > 0 && name[0] &&
+	    snprintf(destination, sizeof(destination), "%s%s", folder, name) < (int)sizeof(destination) &&
+	    filerConfirmExploitModify(folder, NULL) > 0) {
+		int result = filerWriteArchive(data, length, destination, message, size);
+		free(data); data = NULL;
+		if (result > 0) filerFinishArchiveClipboard(destination, message, size);
 	}
-	saveArchiveFree(&save); free(data);
+	free(data);
 }
 
 static void classicExportPs1(const char *folder, const FILEINFO *file, int card_type, char *message, int size)
@@ -1239,6 +1246,7 @@ int getFilePath(char *out, int cnfmode)
 
 	unmountAll();  //unmount all uLE-used mountpoints
 
+	filerClearArchiveClipboard();
 	clipPath[0] = 0;
 	nclipFiles = 0;
 	browser_cut = 0;
@@ -1455,6 +1463,7 @@ int getFilePath(char *out, int cnfmode)
 							browser_cut = TRUE;
 						else
 							browser_cut = FALSE;
+						filerCaptureArchiveClipboard(browser_card_type, msg0, sizeof(msg0));
 					}  //ends COPY and CUT
 					else if (ret == DELETE) {
 						if (nmarks == 0) {  //dlanor: using title was inappropriate here (filesystem op)
@@ -1540,7 +1549,10 @@ int getFilePath(char *out, int cnfmode)
 						else
 							browser_pushed = FALSE;
 					} else if (ret == CREATE_ARCHIVE || ret == EXTRACT_SAVE) {
-						classicSaveAction(path, &files[save_sel], browser_card_type, ret == CREATE_ARCHIVE, msg0, sizeof(msg0));
+						if (ret == CREATE_ARCHIVE)
+							classicCreateArchive(path, msg0, sizeof(msg0));
+						else
+							classicExtractSave(path, &files[save_sel], msg0, sizeof(msg0));
 						browser_pushed = FALSE;
 						browser_cd = TRUE;
 					}
@@ -2225,8 +2237,10 @@ static void subfunc_Paste(char *mess, char *path)
 	/* Pasting back into the source directory is a successful no-op.
 	 * Do not reach the move-source deletion loop or claim a device failure. */
 	if (!strcmp(path, clipPath)) {
-		if (browser_cut)
+		if (browser_cut) {
 			nclipFiles = 0;
+			filerClearArchiveClipboard();
+		}
 		browser_cd = TRUE;
 		return;
 	}
@@ -2298,8 +2312,10 @@ finished:
 		filerCopyDiagFormat(mess, MAX_PATH, ret);
 		browser_pushed = FALSE;
 	} else {
-		if (browser_cut)
+		if (browser_cut) {
 			nclipFiles = 0;
+			filerClearArchiveClipboard();
+		}
 		markMx4sioDestinationAfterWrite(path);
 	}
 	browser_cd = TRUE;

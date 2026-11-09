@@ -17,6 +17,17 @@ int filerExtractSave(const SaveArchive *save, const char *destination, char *mes
 int filerCreateArchive(const char *source, const FILEINFO *file, int kind, int format,
 					   uint8_t **data, size_t *length, char *name, int name_size, char *message, int size);
 int filerWriteArchive(const uint8_t *data, size_t length, const char *destination, char *message, int size);
+/* Capture one copied/cut PS1 save or flat folder while its source is accessible.
+ * Folders with subdirectories are ineligible. The snapshot survives destination
+ * browsing and IOP stack changes; selection alone never enables Create archive. */
+void filerClearArchiveClipboard(void);
+int filerCaptureArchiveClipboard(int card_type, char *message, int size);
+int filerArchiveClipboardKind(void);
+int filerCreateClipboardArchive(int format, uint8_t **data, size_t *length,
+                               char *name, int name_size, char *message, int size);
+/* Call only after publishing the archive. Cut removes an unchanged source;
+ * 0 means the archive exists but the source was retained, 1 means success. */
+int filerFinishArchiveClipboard(const char *destination, char *message, int size);
 
 /* Serialized device calls; invoke from the browser's listing worker or after
  * prepareOp(), never during a concurrent fileXio operation. */

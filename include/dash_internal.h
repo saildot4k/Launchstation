@@ -1054,6 +1054,11 @@ int dashOpenTextEditor(const char *file); /* 0 = the user backed out before it o
 void dashAppActions(DashApp *app);
 void dashRescanLibrary(int interactive);
 int dashClockDaysInMonth(int year, int month);
+struct MenuClockSettings;
+void dashClockManualLimits(int minimum[6], int maximum[6]);
+void dashClockManualLimitsForSettings(int minimum[6], int maximum[6], const struct MenuClockSettings *settings);
+int dashClockSetManualWithSettings(const int fields[6], const struct MenuClockSettings *settings,
+                                   char *result, int result_size);
 int dashClockSetManual(int year, int month, int day, int hour, int minute, int second,
                        char *result, int result_size);
 int dashClockSyncInternet(char *result, int result_size);

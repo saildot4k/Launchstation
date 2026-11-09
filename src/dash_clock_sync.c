@@ -405,77 +405,116 @@ static s64 manualSerialSeconds(int year, int month, int day, int hour, int minut
 
 	for (y = 2000; y < year; y++)
 		days += manualLeap(y) ? 366 : 365;
+	for (y = year; y < 2000; y++)
+		days -= manualLeap(y) ? 366 : 365;
 	for (m = 1; m < month; m++)
 		days += dashClockDaysInMonth(year, m);
 	days += day - 1;
 	return days * 86400 + hour * 3600 + minute * 60 + second;
 }
 
-int dashClockSetManual(int year, int month, int day, int hour, int minute, int second,
-                       char *result, int result_size)
+void dashClockManualLimitsForSettings(int minimum[6], int maximum[6], const MenuClockSettings *settings)
 {
-	sceCdCLOCK set, check;
-	int raw_y = year, raw_m = month, raw_d = day;
-	int raw_h = hour, raw_min = minute, raw_s = second;
-	int chk_y, chk_m, chk_d, chk_h, chk_min, chk_s;
+	static const int rtc_min[] = {2000, 1, 1, 0, 0, 0};
+	static const int rtc_max[] = {2099, 12, 31, 23, 59, 59};
+	memcpy(minimum, rtc_min, sizeof(rtc_min));
+	memcpy(maximum, rtc_max, sizeof(rtc_max));
+	menuTitleConvertTimestampForSettings(minimum, settings, 1);
+	menuTitleConvertTimestampForSettings(maximum, settings, 1);
+}
+
+void dashClockManualLimits(int minimum[6], int maximum[6])
+{
+	MenuClockSettings settings;
+	menuTitleGetClockSettings(&settings);
+	dashClockManualLimitsForSettings(minimum, maximum, &settings);
+}
+
+static int setManualClock(const int fields[6], const MenuClockSettings *settings, int save_settings,
+                          char *result, int result_size)
+{
+	sceCdCLOCK set, check, original;
+	int raw[6], shown[6], have_original = 0, saved, restored;
 	s64 want, got, diff;
-
-	if (result != NULL && result_size > 0)
-		result[0] = '\0';
-	if (year < 2000 || year > 2099 || month < 1 || month > 12 ||
-	    day < 1 || day > dashClockDaysInMonth(year, month) ||
-	    hour < 0 || hour > 23 || minute < 0 || minute > 59 ||
-	    second < 0 || second > 59) {
-		if (result) snprintf(result, result_size, "Use YYYY-MM-DD HH:MM:SS with a valid date and 24-hour time.");
+	if (result != NULL && result_size > 0) result[0] = '\0';
+	memcpy(raw, fields, sizeof(raw));
+	if (raw[0] < 1999 || raw[0] > 2100 ||
+	    !menuTitleConvertTimestampForSettings(raw, settings, 0) || raw[0] < 2000 || raw[0] > 2099) {
+		if (result) snprintf(result, result_size, "The entered date/time is invalid or outside the PS2 clock range for this time zone and DST setting.");
 		return 0;
 	}
-
-	if (!menuTitleConvertTimestampFromLocalTime(&raw_y, &raw_m, &raw_d, &raw_h, &raw_min, &raw_s)) {
-		if (result) snprintf(result, result_size, "Could not convert the entered local time to the PS2 RTC base.");
-		return 0;
+	if (save_settings) {
+		memset(&original, 0, sizeof(original));
+		have_original = sceCdReadClock(&original) && !original.stat;
 	}
-
 	memset(&set, 0, sizeof(set));
-	set.second = manualToBcd(raw_s);
-	set.minute = manualToBcd(raw_min);
-	set.hour = manualToBcd(raw_h);
-	set.day = manualToBcd(raw_d);
-	set.month = manualToBcd(raw_m);
-	set.year = manualToBcd(raw_y % 100);
+	set.second = manualToBcd(raw[5]);
+	set.minute = manualToBcd(raw[4]);
+	set.hour = manualToBcd(raw[3]);
+	set.day = manualToBcd(raw[2]);
+	set.month = manualToBcd(raw[1]);
+	set.year = manualToBcd(raw[0] % 100);
 	if (!sceCdWriteClock(&set)) {
 		if (result) snprintf(result, result_size, "The PS2 RTC write failed.");
 		return 0;
 	}
-
 	memset(&check, 0, sizeof(check));
 	if (!sceCdReadClock(&check) || check.stat) {
 		if (result) snprintf(result, result_size, "The PS2 RTC could not be read back for verification.");
 		return 0;
 	}
-	chk_y = 2000 + manualFromBcd(check.year);
-	chk_m = manualFromBcd(check.month & 0x7f);
-	chk_d = manualFromBcd(check.day);
-	chk_h = manualFromBcd(check.hour);
-	chk_min = manualFromBcd(check.minute);
-	chk_s = manualFromBcd(check.second);
-	if (!menuTitleConvertTimestampToLocalTime(&chk_y, &chk_m, &chk_d, &chk_h, &chk_min, &chk_s)) {
+	shown[0] = 2000 + manualFromBcd(check.year);
+	shown[1] = manualFromBcd(check.month & 0x7f);
+	shown[2] = manualFromBcd(check.day);
+	shown[3] = manualFromBcd(check.hour);
+	shown[4] = manualFromBcd(check.minute);
+	shown[5] = manualFromBcd(check.second);
+	if (!menuTitleConvertTimestampForSettings(shown, settings, 1)) {
 		if (result) snprintf(result, result_size, "The PS2 RTC read-back value was invalid.");
 		return 0;
 	}
-
-	want = manualSerialSeconds(year, month, day, hour, minute, second);
-	got = manualSerialSeconds(chk_y, chk_m, chk_d, chk_h, chk_min, chk_s);
+	want = manualSerialSeconds(fields[0], fields[1], fields[2], fields[3], fields[4], fields[5]);
+	got = manualSerialSeconds(shown[0], shown[1], shown[2], shown[3], shown[4], shown[5]);
 	diff = got - want;
-	if (diff < 0)
-		diff = -diff;
+	if (diff < 0) diff = -diff;
 	if (diff > 2) {
 		if (result) snprintf(result, result_size, "The PS2 RTC write did not verify.");
 		return 0;
 	}
-
+	if (save_settings && (saved = menuTitleSaveClockSettings(settings)) != 1) {
+		restored = have_original && sceCdWriteClock(&original) && sceCdReadClock(&check) && !check.stat;
+		if (restored) {
+			/* Ignore the status/reserved byte, but verify the six BCD fields. */
+			restored = check.year == original.year && check.month == original.month && check.day == original.day &&
+			           check.hour == original.hour && check.minute == original.minute &&
+			           abs(manualFromBcd(check.second) - manualFromBcd(original.second)) <= 2;
+		}
+		if (saved < 0) menuTitleLoadSavedClockSettings();
+		menuTitleUpdateAsync(1);
+		if (result) snprintf(result, result_size, "%s %s",
+		                     saved < 0 ? "NVRAM save/restore could not verify; check system preferences." : "Clock preferences could not be saved; original preferences retained.",
+		                     restored ? "Previous RTC restored." : "RTC restoration could not verify.");
+		return 0;
+	}
 	menuTitleUpdateAsync(1);
-	if (result) snprintf(result, result_size, "PS2 system clock set and verified.");
+	if (result) snprintf(result, result_size, save_settings ? "PS2 clock verified; time zone, DST and hour format saved to NVRAM." : "PS2 system clock set and verified.");
 	return 1;
+}
+
+int dashClockSetManualWithSettings(const int fields[6], const MenuClockSettings *settings,
+                                   char *result, int result_size)
+{
+	return setManualClock(fields, settings, 1, result, result_size);
+}
+
+int dashClockSetManual(int year, int month, int day, int hour, int minute, int second,
+                       char *result, int result_size)
+{
+	int fields[] = {year, month, day, hour, minute, second};
+	MenuClockSettings settings;
+	menuTitleLoadSavedClockSettings();
+	menuTitleGetClockSettings(&settings);
+	return setManualClock(fields, &settings, 0, result, result_size);
 }
 //--------------------------------------------------------------
 //End of file: dash_clock_sync.c

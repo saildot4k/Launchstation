@@ -41,6 +41,9 @@ static MenuTitleClockState title_clock = {
 static MenuTitleTempState title_temp = {0};
 static int osd_local_offset_cached = 0;
 static int osd_local_offset_minutes = MENU_TITLE_PS2_RTC_BASE_OFFSET_MINUTES;
+static int saved_clock_settings_valid;
+static int saved_clock_use12, saved_clock_datefmt, saved_clock_offset;
+static int saved_clock_timezone, saved_clock_dst;
 
 static int bcdToInt(u8 value)
 {
@@ -200,32 +203,155 @@ static int decodeTimezoneOffsetMinutes(int raw_offset)
 	return value;
 }
 
-static void readOsdClockFormats(int *use_12h, int *date_format, int *local_offset_minutes)
+/* Configuration set 1: two 15-byte blocks (PS1, then PS2). Use the
+ * MECHACON configuration service so it owns the model-specific NVRAM layout
+ * and checksums. Layout: ps2homebrew/OSD-Initialization-Libraries OSDInit.h. */
+static int clockConfigAccess(int writing, u8 data[32])
+{
+	u32 status;
+	int attempt, opened = 0, closed = 0, ok;
+	for (attempt = 0; attempt < 3; attempt++) {
+		status = 0xffffffff;
+		if (sceCdOpenConfig(1, writing, 2, &status) && !(status & 0x81)) {
+			opened = 1;
+			break;
+		}
+		DelayThread(1000);
+	}
+	if (!opened) return 0;
+	status = 0xffffffff;
+	if (writing)
+		ok = sceCdWriteConfig(data, &status) && !(status & 0x89);
+	else
+		ok = sceCdReadConfig(data, &status) && !(status & 0x81);
+	for (attempt = 0; attempt < 3; attempt++) {
+		status = 0xffffffff;
+		if (sceCdCloseConfig(&status) && !(status & 0x81)) {
+			closed = 1;
+			break;
+		}
+		DelayThread(1000);
+	}
+	return ok && closed;
+}
+
+static int decodeClockSettings(const u8 data[32], MenuClockSettings *settings)
+{
+	int offset = decodeTimezoneOffsetMinutes(data[18] | ((data[17] & 7) << 8));
+	int format = (data[17] >> 5) & 3;
+	if (!(data[17] & 0x80) || offset < -720 || offset > 840 || format > 2) return 0;
+	settings->timezone_minutes = offset;
+	settings->daylight_saving = !!(data[17] & 8);
+	settings->use_12h = !!(data[17] & 0x10);
+	settings->date_format = format;
+	return 1;
+}
+
+static void rememberClockSettings(const MenuClockSettings *settings)
+{
+	saved_clock_timezone = settings->timezone_minutes;
+	saved_clock_dst = settings->daylight_saving;
+	saved_clock_use12 = settings->use_12h;
+	saved_clock_datefmt = settings->date_format;
+	saved_clock_offset = settings->timezone_minutes + settings->daylight_saving * 60;
+	saved_clock_settings_valid = 1;
+	osd_local_offset_cached = 0;
+	title_clock.initialized = title_clock.valid = 0;
+}
+
+int menuTitleLoadSavedClockSettings(void)
+{
+	u8 data[32] __attribute__((aligned(64))) = {0};
+	MenuClockSettings settings;
+	int loaded = clockConfigAccess(0, data) && decodeClockSettings(data, &settings);
+	if (loaded) rememberClockSettings(&settings);
+	/* Retain a previously read saved value across a transient NVRAM error. */
+	osd_local_offset_cached = 0;
+	title_clock.initialized = title_clock.valid = 0;
+	return loaded;
+}
+
+void menuTitleGetClockSettings(MenuClockSettings *settings)
 {
 	ConfigParam config;
 	Config2Param config2;
-	int daylight_saving = 0;
-
-	*use_12h = 0;
-	*date_format = 0;
-	*local_offset_minutes = MENU_TITLE_PS2_RTC_BASE_OFFSET_MINUTES;
-
+	if (saved_clock_settings_valid) {
+		settings->timezone_minutes = saved_clock_timezone;
+		settings->daylight_saving = saved_clock_dst;
+		settings->use_12h = saved_clock_use12;
+		settings->date_format = saved_clock_datefmt;
+		return;
+	}
+	memset(settings, 0, sizeof(*settings));
+	settings->timezone_minutes = MENU_TITLE_PS2_RTC_BASE_OFFSET_MINUTES;
 	memset(&config, 0, sizeof(config));
 	GetOsdConfigParam(&config);
-	if (config.version == 0)
-		return;
-
-	*local_offset_minutes = decodeTimezoneOffsetMinutes(config.timezoneOffset);
+	if (config.version == 0) return; /* Unpatched early Japanese kernel. */
+	settings->timezone_minutes = decodeTimezoneOffsetMinutes(config.timezoneOffset);
+	if (settings->timezone_minutes < -720 || settings->timezone_minutes > 840)
+		settings->timezone_minutes = MENU_TITLE_PS2_RTC_BASE_OFFSET_MINUTES;
 	memset(&config2, 0, sizeof(config2));
 	GetOsdConfigParam2(&config2, sizeof(config2), 0);
-	*use_12h = (config2.timeFormat != 0);
-	*date_format = config2.dateFormat;
-	daylight_saving = (config2.daylightSaving != 0);
+	settings->use_12h = !!config2.timeFormat;
+	settings->daylight_saving = !!config2.daylightSaving;
+	settings->date_format = config2.dateFormat <= 2 ? config2.dateFormat : 0;
+}
 
-	if (*date_format < 0 || *date_format > 2)
-		*date_format = 0;
-	if (daylight_saving)
-		*local_offset_minutes += 60;
+int menuTitleSaveClockSettings(const MenuClockSettings *settings)
+{
+	u8 original[32] __attribute__((aligned(64))) = {0};
+	u8 changed[32] __attribute__((aligned(64)));
+	u8 check[32] __attribute__((aligned(64))) = {0};
+	MenuClockSettings decoded;
+	ConfigParam config;
+	Config2Param config2;
+	int offset, write_ok;
+	if (settings == NULL || settings->timezone_minutes < -720 || settings->timezone_minutes > 840 ||
+	    (settings->daylight_saving != 0 && settings->daylight_saving != 1) ||
+	    (settings->use_12h != 0 && settings->use_12h != 1)) return 0;
+	if (!clockConfigAccess(0, original) || !decodeClockSettings(original, &decoded)) return 0;
+	memcpy(changed, original, sizeof(changed));
+	offset = settings->timezone_minutes & 0x7ff;
+	/* Preserve date format, initialization, location ID, and every other OSD/PS1
+	 * preference. Numeric offsets work independently of BIOS city-name lists. */
+	changed[17] = (original[17] & 0xe0) | (offset >> 8) |
+	              (settings->daylight_saving << 3) | (settings->use_12h << 4);
+	changed[18] = offset & 0xff;
+	if (memcmp(original, changed, 30)) {
+		write_ok = clockConfigAccess(1, changed);
+		if (!clockConfigAccess(0, check) || !write_ok || memcmp(changed, check, 30)) {
+			/* A reported write error may still have modified NVRAM. Restore and
+			 * verify all original bytes before reporting an ordinary failure. */
+			if (!clockConfigAccess(1, original) || !clockConfigAccess(0, check) || memcmp(original, check, 30))
+				return -1;
+			return 0;
+		}
+	}
+	decodeClockSettings(changed, &decoded);
+	rememberClockSettings(&decoded);
+	/* Keep the live kernel in agreement, guarding unsupported early syscalls. */
+	memset(&config, 0, sizeof(config));
+	GetOsdConfigParam(&config);
+	if (config.version != 0) {
+		memset(&config2, 0, sizeof(config2));
+		GetOsdConfigParam2(&config2, sizeof(config2), 0);
+		config.timezoneOffset = offset;
+		config2.daylightSaving = decoded.daylight_saving;
+		config2.timeFormat = decoded.use_12h;
+		SetOsdConfigParam(&config);
+		SetOsdConfigParam2(&config2, sizeof(config2), 0);
+	}
+	return 1;
+}
+
+static void readOsdClockFormats(int *use_12h, int *date_format, int *local_offset_minutes)
+{
+	MenuClockSettings settings;
+	menuTitleGetClockSettings(&settings);
+	*use_12h = settings.use_12h;
+	*date_format = settings.date_format;
+	*local_offset_minutes = saved_clock_settings_valid ? saved_clock_offset :
+	                        settings.timezone_minutes + settings.daylight_saving * 60;
 }
 
 static int isValidTimestamp(int year, int month, int day, int hour, int minute, int second)
@@ -280,6 +406,16 @@ static int convertTimestampMinutes(int *year, int *month, int *day, int *hour, i
 	*minute = timestamp.minute;
 	*second = timestamp.second;
 	return 1;
+}
+
+int menuTitleConvertTimestampForSettings(int fields[6], const MenuClockSettings *settings, int to_local)
+{
+	int delta;
+	if (fields == NULL || settings == NULL || settings->timezone_minutes < -720 || settings->timezone_minutes > 840 ||
+	    (settings->daylight_saving != 0 && settings->daylight_saving != 1)) return 0;
+	delta = settings->timezone_minutes + settings->daylight_saving * 60 - MENU_TITLE_PS2_RTC_BASE_OFFSET_MINUTES;
+	return convertTimestampMinutes(&fields[0], &fields[1], &fields[2], &fields[3], &fields[4], &fields[5],
+	                               to_local ? delta : -delta);
 }
 
 int menuTitleConvertTimestampToLocalTime(int *year, int *month, int *day, int *hour, int *minute, int *second)
