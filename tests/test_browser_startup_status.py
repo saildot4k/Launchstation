@@ -47,12 +47,12 @@ typedef struct { const char *name; } DashDevice;
 static const DashColor DASH_C_ACCENT={0},DASH_C_TEXT={0},DASH_C_TEXT2={0},DASH_C_TEXT3={0};
 static struct {
     char dir[256],startup_status[64];
-    int free_valid,nmarked,n;
+    int free_valid,nmarked,n,ps1_free;
     u64 free_bytes;
-} fb;
+} fb={.ps1_free=-1};
 static int fb_tab_active,quiet,worker,overlays,tab_frames,modal_frames,presents,ticks,flushes,reports;
 static int metadata,prepare_result,prepare_calls,start_result;
-static char caption[256];
+static char caption[256],metadata_text[128];
 static u64 now_ms;
 static u64 Timer(void) { return now_ms; }
 static int isStartupDriverStatusQuiet(void) { return quiet; }
@@ -84,7 +84,8 @@ static void dashTextScroll(float x,float y,float w,const char *text,float scale,
     snprintf(caption,sizeof(caption),"%s",text);
 }
 static void dashTextRight(float x,float y,const char *text,float scale,DashColor c) {
-    (void)x;(void)y;(void)text;(void)scale;(void)c;metadata++;
+    (void)x;(void)y;(void)scale;(void)c;metadata++;
+    snprintf(metadata_text,sizeof(metadata_text),"%s",text);
 }
 '''
 # Execute the real path-panel drawing block, including its available width and
@@ -174,6 +175,10 @@ int main(void) {
     dashLoadingFrame("BOOT.ELF",5,10);assert(overlays==2);
     dashLoadingEnd();assert(!loading_active && !loading_view);
     assert(presents==ticks); /* one visual tick and present per rendered frame */
+    strcpy(fb.dir,"vmc0:/");fb.free_valid=1;fb.n=2;fb.ps1_free=7;
+    drawPathBar();assert(strstr(metadata_text,"7 of 15 blocks free"));
+    fb.nmarked=1;drawPathBar();assert(strstr(metadata_text,"1 selected")&&strstr(metadata_text,"7 of 15 blocks free"));
+    fb.nmarked=0;fb.ps1_free=-1;drawPathBar();assert(strstr(metadata_text,"1 MB free")&&!strstr(metadata_text,"blocks"));
     puts("PASS: inline browser startup titles; path/root restoration, canceled/failed scopes, worker isolation and normal file-operation popups");
 }
 '''
