@@ -140,16 +140,22 @@ static void removeStage(const char *stage, const SaveArchive *s, int folder)
 	}
 }
 
-int filerLoadSave(const char *source, SaveArchive *save, uint8_t **data, char *message, int size)
+static int loadSaveSnapshot(const char *source, SaveArchive *save, uint8_t **data, size_t *length,
+                            char *message, int size)
 {
-    size_t length;
-    *data = readSource(source, &length);
+    *data = readSource(source, length);
     if (!*data) { snprintf(message, size, "Could not read save: %s", source); return 0; }
-    if (!saveArchiveParse(save, *data, length, source)) {
+    if (!saveArchiveParse(save, *data, *length, source)) {
         free(*data); *data = NULL;
         snprintf(message, size, "Invalid, truncated or unsupported save: %s", source); return 0;
     }
     return 1;
+}
+
+int filerLoadSave(const char *source, SaveArchive *save, uint8_t **data, char *message, int size)
+{
+    size_t length;
+    return loadSaveSnapshot(source, save, data, &length, message, size);
 }
 
 int filerImportSave(const char *source, const char *destination, char *message, int size)
@@ -218,7 +224,7 @@ done:
 
 int filerCanImportClipboard(void)
 {
-	if (nclipFiles <= 0 || browser_cut) return 0;
+	if (nclipFiles <= 0) return 0;
 	for (int i = 0; i < nclipFiles; i++) {
 		u64 bytes = ((u64)clipFiles[i].stats.Reserve2 << 32) | clipFiles[i].stats.FileSizeByte;
 		int raw_candidate = bytes > 0 && bytes <= 15 * PS1_BLOCK_SIZE && bytes % PS1_BLOCK_SIZE == 0 &&
@@ -229,27 +235,84 @@ int filerCanImportClipboard(void)
 	return 1;
 }
 
+/* Describe the clipboard without opening a file or changing device stacks. */
+void filerClipboardExtractLabel(char *label, int size)
+{
+	const char *dot = nclipFiles > 0 ? strrchr(clipFiles[0].name, '.') : NULL;
+	int same = dot && strlen(dot + 1) == 3;
+	for (int i = 1; same && i < nclipFiles; i++) {
+		const char *other = strrchr(clipFiles[i].name, '.');
+		if (!other || strlen(other + 1) != 3) { same = 0; break; }
+		for (int j = 1; j <= 3; j++)
+			if (toupper((unsigned char)dot[j]) != toupper((unsigned char)other[j])) same = 0;
+	}
+	if (same) filerExtractLabel(clipFiles[0].name, label, size);
+	else snprintf(label, size, "Extract saves...");
+}
+
+/* Restore compatible source/destination drivers before verifying a Cut
+ * source. Delete only an unchanged archive after successful publication. */
+static int finishExtractCut(const char *destination, const char *source, const uint8_t *snapshot, size_t length, const FILEINFO *file)
+{
+	uint8_t *current;
+	size_t current_length;
+	int same;
+	char message[160];
+	if (filerPrepareClipboardTransfer(destination, message, sizeof(message)) < 0) return 0;
+	current = readSource(source, &current_length);
+	if (!current) return 0;
+	same = current_length == length && !memcmp(current, snapshot, length);
+	free(current);
+	return same && clipIopResetGeneration == getIopResetGeneration() &&
+	       filerConfirmExploitDelete(clipPath, file) >= 0 && delete(clipPath, file) >= 0;
+}
+
 int filerImportClipboard(const char *destination, char *message, int size)
 {
 	char source[MAX_PATH];
-	int count = 0;
-	if (!filerCanImportClipboard()) return -1;
-	if (clipIopResetGeneration != getIopResetGeneration()) {
-		snprintf(message, size, "The device stack changed. Copy the saves again."); return -1;
+	int count = 0, kept = 0, cut = browser_cut;
+	if (!filerCanImportClipboard()) {
+		snprintf(message, size, "Copy or cut save archives first."); return -1;
 	}
-	for (int i = 0; i < nclipFiles; i++) {
-		if (snprintf(source, sizeof(source), "%s%s", clipPath, clipFiles[i].name) >= (int)sizeof(source) ||
-		    filerImportSave(source, destination, message, size) < 0) {
+	for (int i = 0; i < nclipFiles;) {
+		SaveArchive save = {0};
+		uint8_t *snapshot = NULL;
+		size_t length = 0;
+		int result = -1;
+		if (filerPrepareClipboardTransfer(destination, message, size) < 0) {
+			/* Keep the source and destination readiness diagnostic. */
+		} else if (snprintf(source, sizeof(source), "%s%s", clipPath, clipFiles[i].name) >= (int)sizeof(source))
+			snprintf(message, size, "The copied archive path is too long.");
+		else if (loadSaveSnapshot(source, &save, &snapshot, &length, message, size))
+			result = filerExtractSave(&save, destination, message, size);
+		saveArchiveFree(&save);
+		if (result < 0) {
+			free(snapshot);
 			if (count) {
 				char reason[192]; snprintf(reason, sizeof(reason), "%s", message);
-				snprintf(message, size, "%d imported; stopped: %s", count, reason);
+				snprintf(message, size, "%d extracted; stopped: %s", count, reason);
 			}
 			return -1;
 		}
 		count++;
+		if (cut && finishExtractCut(destination, source, snapshot, length, &clipFiles[i])) {
+			memmove(&clipFiles[i], &clipFiles[i + 1], (nclipFiles - i - 1) * sizeof(clipFiles[0]));
+			nclipFiles--;
+		} else {
+			if (cut) kept++;
+			i++;
+		}
+		free(snapshot);
 	}
-	snprintf(message, size, "Imported %d save%s", count, count == 1 ? "" : "s");
-	return count;
+	if (cut && !nclipFiles) {
+		browser_cut = 0; clipPath[0] = 0;
+		filerClearArchiveClipboard();
+	}
+	if (kept)
+		snprintf(message, size, "Extracted %d save%s; %d source archive%s kept because removal could not be verified.",
+		         count, count == 1 ? "" : "s", kept, kept == 1 ? "" : "s");
+	else snprintf(message, size, "Extracted %d save%s", count, count == 1 ? "" : "s");
+	return kept ? 0 : count;
 }
 
 unsigned char *filerReadPs1Card(const char *source, char *message, int size)
@@ -483,14 +546,13 @@ fail:
 	return result;
 }
 
-/* Keep a self-contained, lossless MCS/PSU snapshot rather than a live device
- * path: opening the destination can retire the source's IOP driver or VMC. */
+/* Copy/Cut stores metadata only. Canonical save data is temporary work for
+ * an explicitly requested archive operation and its post-write Cut check. */
 static uint8_t *archive_clip_data;
 static size_t archive_clip_length;
-static int archive_clip_kind;
+static int archive_clip_kind, archive_clip_card_type, archive_clip_probed;
 static FILEINFO archive_clip_file;
 static char archive_clip_folder[MAX_PATH];
-static unsigned int archive_clip_generation;
 
 void filerClearArchiveClipboard(void)
 {
@@ -498,16 +560,29 @@ void filerClearArchiveClipboard(void)
 	archive_clip_data = NULL;
 	archive_clip_length = 0;
 	archive_clip_kind = FILER_SAVE_NONE;
-	archive_clip_folder[0] = 0;
+	archive_clip_probed = 0;
+}
+
+static int archiveClipboardMatches(void)
+{
+	return nclipFiles == 1 && !strcmp(clipPath, archive_clip_folder) &&
+	       !strcmp(clipFiles[0].name, archive_clip_file.name) &&
+	       !memcmp(&clipFiles[0].stats, &archive_clip_file.stats, sizeof(archive_clip_file.stats));
 }
 
 int filerArchiveClipboardKind(void)
 {
-	if (!archive_clip_data || nclipFiles != 1 || strcmp(clipPath, archive_clip_folder) ||
-	    strcmp(clipFiles[0].name, archive_clip_file.name) ||
-	    memcmp(&clipFiles[0].stats, &archive_clip_file.stats, sizeof(archive_clip_file.stats)))
-		return FILER_SAVE_NONE;
-	return archive_clip_kind;
+	return archiveClipboardMatches() ? archive_clip_kind : FILER_SAVE_NONE;
+}
+
+void filerRememberArchiveClipboard(int card_type)
+{
+	filerClearArchiveClipboard();
+	archive_clip_folder[0] = 0;
+	if (nclipFiles != 1) return;
+	archive_clip_file = clipFiles[0];
+	snprintf(archive_clip_folder, sizeof(archive_clip_folder), "%s", clipPath);
+	archive_clip_card_type = card_type;
 }
 
 /* A folder is eligible only after checking its complete immediate listing.
@@ -531,46 +606,59 @@ static int flatArchiveFolder(const char *source)
 	return flat ? regular : 0;
 }
 
-int filerCaptureArchiveClipboard(int card_type, char *message, int size)
+int filerProbeArchiveClipboard(const char *destination)
 {
-	char source[MAX_PATH], name[80];
-	int kind, files;
-	filerClearArchiveClipboard();
-	if (nclipFiles != 1 || !clipFiles[0].name[0] || !strcmp(clipFiles[0].name, ".") ||
-	    !strcmp(clipFiles[0].name, "..") ||
-	    snprintf(source, sizeof(source), "%s%s", clipPath, clipFiles[0].name) >= (int)sizeof(source)) return 0;
-	kind = filerSaveKind(clipPath, &clipFiles[0], card_type);
+	char source[MAX_PATH], message[160];
+	VmcInfo card;
+	int kind, files, type = archive_clip_card_type;
+	u64 bytes;
+	if (!archiveClipboardMatches() || !saveWritable(destination) || !clipFiles[0].name[0] ||
+	    !strcmp(clipFiles[0].name, ".") || !strcmp(clipFiles[0].name, "..")) return FILER_SAVE_NONE;
+	if (archive_clip_probed) return archive_clip_kind;
+	bytes = ((u64)clipFiles[0].stats.Reserve2 << 32) | clipFiles[0].stats.FileSizeByte;
+	if (!(clipFiles[0].stats.AttrFile & sceMcFileAttrSubdir) && type != 1 &&
+	    !(bytes && bytes <= 15 * PS1_BLOCK_SIZE && !(bytes % PS1_BLOCK_SIZE) && strlen(clipFiles[0].name) <= 20))
+		return FILER_SAVE_NONE;
+	if (snprintf(source, sizeof(source), "%s%s", clipPath, clipFiles[0].name) >= (int)sizeof(source) ||
+	    filerPrepareClipboardTransfer(destination, message, sizeof(message)) < 0) return FILER_SAVE_NONE;
+	if (!strncmp(clipPath, "mc", 2) || !strncmp(clipPath, "vmc", 3)) {
+		if (!filerCardInfo(clipPath, &card)) return FILER_SAVE_NONE;
+		type = card.type;
+	}
+	kind = filerSaveKind(clipPath, &clipFiles[0], type);
 	if (clipFiles[0].stats.AttrFile & sceMcFileAttrSubdir) {
 		files = flatArchiveFolder(source);
-		if (!files) return 0;
-		/* PSU can back up a flat folder without PS2 icon metadata. A PS1
-		 * backup with extra files must preserve those too, including for Cut. */
-		if (kind == FILER_SAVE_NONE || (kind == FILER_SAVE_PS1 && files != 1)) kind = FILER_SAVE_PS2;
+		if (!files) kind = FILER_SAVE_NONE;
+		else if (kind == FILER_SAVE_NONE || (kind == FILER_SAVE_PS1 && files != 1)) kind = FILER_SAVE_PS2;
 	}
-	if (kind != FILER_SAVE_PS1 && kind != FILER_SAVE_PS2) return 0;
-	if (filerCreateArchive(source, &clipFiles[0], kind, kind == FILER_SAVE_PS1 ? SAVE_OUTPUT_MCS : SAVE_OUTPUT_PSU,
-	                       &archive_clip_data, &archive_clip_length, name, sizeof(name), message, size) < 0) {
-		filerClearArchiveClipboard();
-		snprintf(message, size, "Copied, but the save could not be captured for Create archive. Copy it again to retry.");
-		return -1;
-	}
-	archive_clip_file = clipFiles[0];
-	snprintf(archive_clip_folder, sizeof(archive_clip_folder), "%s", clipPath);
-	archive_clip_generation = getIopResetGeneration();
-	archive_clip_kind = kind;
-	return 1;
+	archive_clip_kind = kind == FILER_SAVE_PS1 || kind == FILER_SAVE_PS2 ? kind : FILER_SAVE_NONE;
+	archive_clip_probed = 1;
+	return archive_clip_kind;
 }
 
-int filerCreateClipboardArchive(int format, uint8_t **data, size_t *length,
+int filerCreateClipboardArchive(const char *destination, int format, uint8_t **data, size_t *length,
                                char *name, int name_size, char *message, int size)
 {
 	SaveArchive save = {0};
-	int result = -1;
+	char source[MAX_PATH], temporary_name[80];
+	int result = -1, kind;
 	*data = NULL; *length = 0;
-	if (!filerArchiveClipboardKind()) {
-		snprintf(message, size, "Copy or cut one complete PS1 or PS2 save first.");
+	if (!archiveClipboardMatches()) {
+		snprintf(message, size, "Copy or cut one complete PS1 save or flat folder first.");
 		return -1;
 	}
+	if (filerPrepareClipboardTransfer(destination, message, size) < 0) return -1;
+	/* Refresh eligibility after restoring drivers; cached menu metadata is not
+	 * authority to archive a folder which acquired subdirectories meanwhile. */
+	filerClearArchiveClipboard();
+	kind = filerProbeArchiveClipboard(destination);
+	if (!kind || snprintf(source, sizeof(source), "%s%s", clipPath, clipFiles[0].name) >= (int)sizeof(source)) {
+		snprintf(message, size, "Choose one complete PS1 save or a folder with files and no subdirectories.");
+		return -1;
+	}
+	if (filerCreateArchive(source, &clipFiles[0], kind, kind == FILER_SAVE_PS1 ? SAVE_OUTPUT_MCS : SAVE_OUTPUT_PSU,
+	                       &archive_clip_data, &archive_clip_length, temporary_name, sizeof(temporary_name), message, size) < 0)
+		return -1;
 	if (saveArchiveParse(&save, archive_clip_data, archive_clip_length,
 	                     archive_clip_kind == FILER_SAVE_PS1 ? "clipboard.mcs" : "clipboard.psu") &&
 	    saveArchiveBuild(&save, format, data, length) && saveArchiveFilename(&save, format, name, name_size))
@@ -581,6 +669,7 @@ int filerCreateClipboardArchive(int format, uint8_t **data, size_t *length,
 		         "PSV needs a flat PS2 save with icon.sys and its referenced icons." : "Could not create this save archive.");
 	}
 	saveArchiveFree(&save);
+	if (result < 0) filerClearArchiveClipboard();
 	return result;
 }
 
@@ -589,18 +678,16 @@ int filerFinishArchiveClipboard(const char *destination, char *message, int size
 	char source[MAX_PATH], name[80], detail[160];
 	uint8_t *current = NULL;
 	size_t length = 0;
-	int loaded, same;
-	if (!browser_cut) return 1;
-	if (!filerArchiveClipboardKind() ||
+	int same;
+	unsigned int generation;
+	if (!browser_cut) { filerClearArchiveClipboard(); return 1; }
+	if (!filerArchiveClipboardKind() || !archive_clip_data ||
 	    snprintf(source, sizeof(source), "%s%s", archive_clip_folder, archive_clip_file.name) >= (int)sizeof(source)) goto kept;
 	/* Do not delete an output created inside the original PS2 save folder. */
 	length = strlen(source);
 	if (!strncmp(destination, source, length) && destination[length] == '/') goto kept;
-	if (!strncmp(archive_clip_folder, "vmc", 3)) {
-		int slot = archive_clip_folder[3] - '0';
-		loaded = slot >= 0 && slot < 2 && vmcMounted[slot];
-	} else loaded = isPathDeviceStackLoaded(archive_clip_folder);
-	if (!loaded || archive_clip_generation != getIopResetGeneration()) goto kept;
+	if (filerPrepareClipboardTransfer(destination, detail, sizeof(detail)) < 0) goto kept;
+	generation = getIopResetGeneration();
 	/* A card may have been removed or a VMC replaced while browsing. Only
 	 * remove a source whose complete data/metadata still match the snapshot. */
 	if (filerCreateArchive(source, &archive_clip_file, archive_clip_kind,
@@ -608,7 +695,7 @@ int filerFinishArchiveClipboard(const char *destination, char *message, int size
 	                       &current, &length, name, sizeof(name), detail, sizeof(detail)) < 0) goto kept;
 	same = length == archive_clip_length && !memcmp(current, archive_clip_data, length);
 	free(current); current = NULL;
-	if (!same || archive_clip_generation != getIopResetGeneration() ||
+	if (!same || generation != getIopResetGeneration() ||
 	    filerConfirmExploitDelete(archive_clip_folder, &archive_clip_file) < 0 ||
 	    delete(archive_clip_folder, &archive_clip_file) < 0) goto kept;
 	nclipFiles = 0; browser_cut = 0; clipPath[0] = 0;
@@ -616,6 +703,7 @@ int filerFinishArchiveClipboard(const char *destination, char *message, int size
 	return 1;
 kept:
 	free(current);
+	filerClearArchiveClipboard();
 	snprintf(message, size, "Archive created; source save kept because it could not be safely removed.");
 	return 0;
 }

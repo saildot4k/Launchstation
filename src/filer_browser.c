@@ -235,6 +235,24 @@ static int waitForClipboardSourceDevice(void)
 	return -1;
 }
 
+int filerPrepareClipboardTransfer(const char *destination, char *message, int size)
+{
+	int result = prepareTransferDeviceStacks(clipPath, destination);
+	if (result == TRANSFER_STACK_INCOMPATIBLE) {
+		snprintf(message, size, "Incompatible drivers to perform action");
+		return result;
+	}
+	if (result < 0) {
+		snprintf(message, size, "Could not start the source and destination devices.");
+		return result;
+	}
+	if (waitForClipboardSourceDevice() < 0) {
+		snprintf(message, size, "The clipboard source device is unavailable. Reconnect it or mount its VMC again.");
+		return -1;
+	}
+	return TRANSFER_STACK_READY;
+}
+
 /* Display USB aliases consistently without modifying a path used for I/O.
  * Returns 1 for USB/MASS aliases, 0 for other device paths. No probing. */
 int filerFormatUsbPathForDisplay(const char *path, char *out, int size)
@@ -485,7 +503,6 @@ void filerMenuEnables(const char *path, const FILEINFO *file, int nmarked, int c
 	enable[CREATE_ARCHIVE] = !write_disabled && !menu_disabled && genCanRenamePath(path) &&
 	                         strncmp(path, "host", 4) && filerArchiveClipboardKind() != FILER_SAVE_NONE &&
 	                         !(card_type == 1 && isMcLikePath(path));
-	enable[EXTRACT_SAVE] = enable[COPY] && nmarked <= 1;
 	if (nclipFiles == 0) enable[PASTE] = FALSE;
 
 	/* PS1 cards are a flat list of save files, on both physical and VMC media. */
@@ -534,13 +551,11 @@ static int menu(const char *path, FILEINFO *file, int card_type, const FILEINFO 
 	int mSprite_X1 = mSprite_X2 - (menu_ch_w + 3) * FONT_WIDTH;   //Left edge of sprite
 	int mSprite_Y2 = mSprite_Y1 + (menu_ch_h + 1) * FONT_HEIGHT;  //Bottom edge of sprite
 
+	if (nclipFiles == 1 && !(card_type == 1 && isMcLikePath(path)))
+		filerProbeArchiveClipboard(path);
 	filerMenuEnables(path, file, nmarks, card_type, enable);
 	if (enable[COPY]) kind = filerSaveKind(path, save_file, card_type);
-	filerExtractLabel(save_file->name, extract_label, sizeof(extract_label));
-	if (genCmpFileExt(save_file->name, "PSV"))
-		snprintf(extract_label, sizeof(extract_label), "Extract PSV (PS%d)...", kind == FILER_ARCHIVE_PS1 ? 1 : 2);
-
-	enable[EXTRACT_SAVE] &= kind == FILER_ARCHIVE_PS1 || kind == FILER_ARCHIVE_PS2;
+	filerClipboardExtractLabel(extract_label, sizeof(extract_label));
 	enable[EXPORT_PS1] = (card_type == 1 && isMcLikePath(path)) || (enable[COPY] && kind == FILER_CARD_PS1);
 
 
@@ -614,8 +629,6 @@ static int menu(const char *path, FILEINFO *file, int card_type, const FILEINFO 
 				else if (i == LAUNCH_ELF_ARGS)
 					strcpy(tmp, LNG(Launch_With_Args));
 				else if (i == IMPORT_SAVE)
-					strcpy(tmp, "Extract copied saves here");
-				else if (i == EXTRACT_SAVE)
 					strcpy(tmp, extract_label);
 				else if (i == EXPORT_PS1)
 					strcpy(tmp, "Save card as...");
@@ -1142,19 +1155,12 @@ static int saveChoice(const char *title, const char *subtitle, const char *const
 	}
 }
 
-static void classicExtractSave(const char *folder, const FILEINFO *file, char *message, int size)
+static void classicImportSaves(const char *folder, char *message, int size)
 {
-	char source[MAX_PATH], destination[MAX_PATH];
-	uint8_t *data = NULL;
-	SaveArchive save = {0};
+	if (!filerCanImportClipboard()) return;
 	message[0] = 0;
-	if (snprintf(source, sizeof(source), "%s%s", folder, file->name) >= (int)sizeof(source) ||
-	    !filerLoadSave(source, &save, &data, message, size)) return;
-	destination[0] = 0;
-	if (getFilePath(destination, DIR_CNF) >= 0 && destination[0] &&
-	    filerConfirmExploitModify(destination, NULL) > 0)
-		filerExtractSave(&save, destination, message, size);
-	saveArchiveFree(&save); free(data);
+	if (filerConfirmExploitModify(folder, NULL) > 0)
+		filerImportClipboard(folder, message, size);
 }
 
 static void classicCreateArchive(const char *folder, char *message, int size)
@@ -1172,7 +1178,7 @@ static void classicCreateArchive(const char *folder, char *message, int size)
 	if (choice < 0) return;
 	format = kind == FILER_SAVE_PS1 ? (choice == 0 ? SAVE_OUTPUT_MCS : choice == 1 ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSX) :
 	                                (choice ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSU);
-	if (filerCreateClipboardArchive(format, &data, &length, name, sizeof(name), message, size) < 0) return;
+	if (filerCreateClipboardArchive(folder, format, &data, &length, name, sizeof(name), message, size) < 0) return;
 	if (filenameKeyboard(name, sizeof(name) - 1, folder) > 0 && name[0] &&
 	    snprintf(destination, sizeof(destination), "%s%s", folder, name) < (int)sizeof(destination) &&
 	    filerConfirmExploitModify(folder, NULL) > 0) {
@@ -1181,6 +1187,7 @@ static void classicCreateArchive(const char *folder, char *message, int size)
 		if (result > 0) filerFinishArchiveClipboard(destination, message, size);
 	}
 	free(data);
+	filerClearArchiveClipboard();
 }
 
 static void classicExportPs1(const char *folder, const FILEINFO *file, int card_type, char *message, int size)
@@ -1463,7 +1470,7 @@ int getFilePath(char *out, int cnfmode)
 							browser_cut = TRUE;
 						else
 							browser_cut = FALSE;
-						filerCaptureArchiveClipboard(browser_card_type, msg0, sizeof(msg0));
+						filerRememberArchiveClipboard(browser_card_type);
 					}  //ends COPY and CUT
 					else if (ret == DELETE) {
 						if (nmarks == 0) {  //dlanor: using title was inappropriate here (filesystem op)
@@ -1548,11 +1555,8 @@ int getFilePath(char *out, int cnfmode)
 							submenu_func_Paste(msg0, path);
 						else
 							browser_pushed = FALSE;
-					} else if (ret == CREATE_ARCHIVE || ret == EXTRACT_SAVE) {
-						if (ret == CREATE_ARCHIVE)
-							classicCreateArchive(path, msg0, sizeof(msg0));
-						else
-							classicExtractSave(path, &files[save_sel], msg0, sizeof(msg0));
+					} else if (ret == CREATE_ARCHIVE) {
+						classicCreateArchive(path, msg0, sizeof(msg0));
 						browser_pushed = FALSE;
 						browser_cd = TRUE;
 					}
@@ -1621,8 +1625,7 @@ int getFilePath(char *out, int cnfmode)
 						strcpy(tmp, tmp1);  //Dummy code to make 'goto DoneIcon' legal for gcc
 					}                       //ends NEWICON
 					else if (ret == IMPORT_SAVE) {
-						if (filerConfirmExploitModify(path, NULL) > 0)
-							filerImportClipboard(path, msg0, sizeof(msg0));
+						classicImportSaves(path, msg0, sizeof(msg0));
 						browser_pushed = FALSE;
 						browser_cd = TRUE;
 					}

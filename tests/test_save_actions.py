@@ -38,7 +38,7 @@ typedef struct {char name[256];struct {unsigned AttrFile;}stats;} FILEINFO;
 typedef struct {int icon;const char *label,*detail;int disabled;} DashMenuItem;
 static struct {int sel,n,card_type,nmarked;char mark[2];char dir[MAX_PATH],msg[MAX_PATH];FILEINFO files[2];}fb;
 static int choice,pick_ok,prompt_ok,prepare_ok,read_ok,kind,expected_ps1;
-static int nclipFiles,browser_cut,cached_kind,finish_calls,write_ok;
+static int nclipFiles,browser_cut,cached_kind,finish_calls,write_ok,preparations;
 static FILEINFO clipFiles[2];static char clipPath[MAX_PATH];
 static unsigned clipIopResetGeneration;
 static int reads,switches,writes,extracts,prompts,loading,allocated,freed_saves,messages,refreshes,expected_format;
@@ -46,7 +46,7 @@ static char observed_source[MAX_PATH],observed_destination[MAX_PATH],first_choic
 static void *allocate(void){allocated++;return malloc(16);}
 static void release(void *p){if(p){assert(allocated>0);allocated--;free(p);}}
 #define free release
-static int prepareOp(void){return prepare_ok;}
+static int prepareOp(void){preparations++;return prepare_ok;}
 static void opDone(void){loading=0;}
 static void refresh(void){refreshes++;}
 static void dashLoadingBegin(const char *title){assert(title&&!loading);loading=1;}
@@ -89,23 +89,26 @@ static void dashStrCopy(char *out,const char *in,int size){snprintf(out,size,"%s
 static void dashToast(int type,const char *message){(void)type;assert(message);}
 static int filerIsExploitProtectedPath(const char *folder,const FILEINFO *file){(void)folder;(void)file;return 0;}
 static int filerArchiveClipboardKind(void){return nclipFiles==1?cached_kind:FILER_SAVE_NONE;}
-static void source(const char *path){assert(!switches&&reads==0);reads++;strcpy(observed_source,path);}
-static int filerLoadSave(const char *path,SaveArchive *save,uint8_t **data,char *message,int size){
- (void)message;(void)size;source(path);if(!read_ok)return 0;*data=allocate();save->ps1=expected_ps1;return 1;
+static void source(const char *path){assert(reads==0);reads++;strcpy(observed_source,path);}
+static int filerCanImportClipboard(void){return nclipFiles>0;}
+static int filerImportClipboard(const char *destination,char *message,int size){
+ assert(nclipFiles==1&&switches==1&&!strcmp(destination,"usb1:/output/"));extracts++;
+ assert(strlen(clipPath)+strlen(clipFiles[0].name)<sizeof(observed_source));strcpy(observed_source,clipPath);strcat(observed_source,clipFiles[0].name);
+ strcpy(observed_destination,destination);snprintf(message,size,"Extracted save");
+ if(!read_ok||!write_ok)return -1;
+ if(browser_cut){nclipFiles=0;browser_cut=0;}return 1;
 }
-static void saveArchiveFreeSpy(SaveArchive *save){freed_saves++;memset(save,0,sizeof(*save));}
-#define saveArchiveFree saveArchiveFreeSpy
-static int filerExtractSave(const SaveArchive *save,const char *destination,char *message,int size){
- assert(save->ps1==expected_ps1&&allocated==1&&switches==1);extracts++;snprintf(message,size,"Extracted save");strcpy(observed_destination,destination);return 1;
+static void filerClearArchiveClipboard(void){cached_kind=FILER_SAVE_NONE;}
+static void filerRememberArchiveClipboard(int card_type){
+ assert(card_type==fb.card_type&&!reads&&!loading&&!preparations);cached_kind=FILER_SAVE_NONE;
 }
-static int filerCaptureArchiveClipboard(int card_type,char *message,int size){
- (void)message;(void)size;assert(card_type==fb.card_type);cached_kind=FILER_SAVE_NONE;
- if(nclipFiles!=1)return 0;
- char path[MAX_PATH];assert(strlen(clipPath)+strlen(clipFiles[0].name)<sizeof(path));strcpy(path,clipPath);strcat(path,clipFiles[0].name);
- source(path);cached_kind=kind;return 1;
+static int filerProbeArchiveClipboard(const char *destination){
+ assert(!strcmp(destination,"usb1:/output/")&&!reads);cached_kind=kind;return kind;
 }
-static int filerCreateClipboardArchive(int format,uint8_t **data,size_t *length,char *name,int name_size,char *message,int size){
- (void)message;(void)size;assert(filerArchiveClipboardKind()==kind&&format==expected_format&&reads==1&&switches==1);if(!read_ok)return -1;
+static int filerCreateClipboardArchive(const char *destination,int format,uint8_t **data,size_t *length,char *name,int name_size,char *message,int size){
+ (void)message;(void)size;assert(!strcmp(destination,"usb1:/output/")&&filerArchiveClipboardKind()==kind&&format==expected_format&&!reads&&switches==1);
+ char path[MAX_PATH];assert(strlen(clipPath)+strlen(clipFiles[0].name)<sizeof(path));strcpy(path,clipPath);strcat(path,clipFiles[0].name);source(path);
+ if(!read_ok)return -1;
  *data=allocate();*length=16;snprintf(name,name_size,"SAVE.%s",format==SAVE_OUTPUT_PSV?"PSV":format==SAVE_OUTPUT_PSU?"psu":format==SAVE_OUTPUT_PSX?"psx":"mcs");return 1;
 }
 static int filerFinishArchiveClipboard(const char *destination,char *message,int size){
@@ -120,9 +123,9 @@ static unsigned char *filerReadPs1Card(const char *path,char *message,int size){
 static int filerSavePs1Card(const uint8_t *data,const char *destination,char *message,int size){return filerWriteArchive(data,16,destination,message,size);}
 '''
 code+=function(dash,'static int targets(')+function(dash,'static FILEINFO *singleSaveTarget(void)')
-for signature in ['static void opCopy(int cut)','static void opExtractSave(void)','static void opCreateArchive(int kind)','static void opExportPs1(void)']:
+for signature in ['static void opCopy(int cut)','static void opImportSaves(void)','static void opCreateArchive(int kind)','static void opExportPs1(void)']:
     code+=function(dash,signature)
-for signature in ['static void classicExtractSave(','static void classicCreateArchive(','static void classicExportPs1(']:
+for signature in ['static void classicImportSaves(','static void classicCreateArchive(','static void classicExportPs1(']:
     code+=function(classic,signature)
 code+=r'''
 static void reset(int ps1){
@@ -130,12 +133,13 @@ static void reset(int ps1){
  strcpy(fb.dir,ps1?"mc0:/":"vmc1:/");strcpy(fb.files[0].name,"SAVE");
  fb.files[0].stats.AttrFile=ps1?0:sceMcFileAttrSubdir;kind=ps1?FILER_SAVE_PS1:FILER_SAVE_PS2;expected_ps1=ps1;
  choice=0;pick_ok=prompt_ok=prepare_ok=read_ok=write_ok=1;reads=switches=writes=extracts=prompts=loading=freed_saves=messages=refreshes=0;
- nclipFiles=browser_cut=cached_kind=finish_calls=0;
+ nclipFiles=browser_cut=cached_kind=finish_calls=preparations=0;
  first_choice[0]=observed_source[0]=observed_destination[0]=0;
 }
 static void copySave(int cut){
- opCopy(cut);assert(reads==1&&nclipFiles==1&&cached_kind==kind);
+ opCopy(cut);assert(!reads&&!preparations&&!loading&&nclipFiles==1&&!cached_kind);
  strcpy(fb.dir,"usb1:/output/");fb.n=0;fb.sel=0;switches=1;
+ assert(filerProbeArchiveClipboard(fb.dir)==kind&&!reads);
 }
 int main(void){
  for(int ps1=0;ps1<2;ps1++)for(int format=0;format<(ps1?3:2);format++)for(int native=0;native<2;native++) {
@@ -145,11 +149,13 @@ int main(void){
   assert(!strcmp(first_choice,ps1?"MCS - PS1 save backup":"PSU - PS2 save backup (EMS/wLE)"));
   assert(!strcmp(observed_destination,format==2?"usb1:/output/SAVE.psx":format==1?"usb1:/output/SAVE.PSV":ps1?"usb1:/output/SAVE.mcs":"usb1:/output/SAVE.psu"));
  }
- for(int native=0;native<2;native++)for(int ps1=0;ps1<2;ps1++) {
-  reset(ps1);strcpy(fb.files[0].name,"archive.PSV");fb.files[0].stats.AttrFile=0;
-  if(native)classicExtractSave(fb.dir,&fb.files[0],fb.msg,sizeof(fb.msg));else opExtractSave();
-  assert(reads==1&&switches==1&&extracts==1&&freed_saves==1&&!allocated&&!loading);
-  assert(!strcmp(observed_destination,"usb1:/output/"));
+ for(int native=0;native<2;native++)for(int cut=0;cut<2;cut++)for(int fail=0;fail<2;fail++) {
+  reset(0);strcpy(clipPath,"usb0:/archives/");strcpy(clipFiles[0].name,"archive.PSV");nclipFiles=1;browser_cut=cut;
+  strcpy(fb.dir,"usb1:/output/");fb.n=0;fb.sel=0;switches=1;read_ok=!fail;
+  if(native)classicImportSaves(fb.dir,fb.msg,sizeof(fb.msg));else opImportSaves();
+  assert(extracts==1&&!reads&&switches==1&&!prompts&&!allocated&&!loading);
+  assert(!strcmp(observed_source,"usb0:/archives/archive.PSV")&&!strcmp(observed_destination,"usb1:/output/"));
+  assert(nclipFiles==((!fail&&cut)?0:1));
  }
  for(int native=0;native<2;native++)for(int selected=0;selected<5;selected++) {
   reset(1);choice=selected;
@@ -168,9 +174,8 @@ int main(void){
  expected_format=SAVE_OUTPUT_MCS;copySave(0);opCreateArchive(FILER_SAVE_PS1);
  assert(!strcmp(observed_source,"mc0:/SAVE")&&!allocated);
  reset(1);opCreateArchive(FILER_SAVE_PS1);assert(!reads&&!writes&&!finish_calls);
- reset(1);pick_ok=0;opExtractSave();assert(!extracts&&!allocated&&freed_saves==1);
- reset(1);read_ok=0;opExtractSave();assert(!switches&&!allocated&&!loading);
- puts("PASS: both browsers' clipboard PS1/PS2 archiving in empty destinations, direct extraction, card exports, canceled/failed writes retain Cut sources");
+ reset(1);opImportSaves();classicImportSaves(fb.dir,fb.msg,sizeof(fb.msg));assert(!extracts&&!switches&&!allocated&&!loading);
+ puts("PASS: both browsers' metadata-only Copy/Cut without file I/O or driver waits, on-demand PS1/PS2 archiving, clipboard-only extraction without a destination picker, card exports, canceled/failed writes retain Cut sources");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='save-actions-') as temp:

@@ -340,6 +340,9 @@ int filerPrepareMemoryCardRead(int port)
 	 * against slot 2 if the foreground handoff failed or was skipped. */
 	if (port == 1 && !isPathDeviceStackLoaded("mc1:/"))
 		return sceMcResFailDetect;
+	ret = ensureMemoryCardRpcReady();
+	if (ret < 0)
+		return ret;
 	ret = waitMemoryCardReadyForBrowse(port);
 	if (ret != sceMcResSucceed)
 		return ret;
@@ -1311,6 +1314,10 @@ int pollRootMemoryCardDevices(void)
 	if (isFtpServerRunning())
 		return FALSE;
 #endif
+	/* Failed initialization is retried by explicit card access, never by
+	 * background polling. Keep the last-known presence state meanwhile. */
+	if (!isMemoryCardRpcReady())
+		return FALSE;
 	if (Timer() < root_mc_next_poll_time)
 		return FALSE;
 	/* Polling must never reset MX4SIO or send mc1 requests through its

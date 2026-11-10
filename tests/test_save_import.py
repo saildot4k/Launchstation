@@ -47,8 +47,10 @@ int genCmpFileExt(const char*,const char*);int genCanRenamePath(const char*);int
 int fileXioDevctl(const char*,int,void*,unsigned,void*,unsigned);int fileXioGetStat(const char*,iox_stat_t*);int fileXioChStat(const char*,iox_stat_t*,unsigned);
 int mcGetDir(int,int,const char*,int,int,sceMcTblGetDir*);int mcSetFileInfo(int,int,const char*,sceMcTblGetDir*,int);
 int prepareTransferDeviceStacks(const char*,const char*);unsigned getIopResetGeneration(void);int getDir(const char*,FILEINFO*);
+int filerPrepareClipboardTransfer(const char*,char*,int);
 int isPathDeviceStackLoaded(const char*);int filerConfirmExploitDelete(const char*,const FILEINFO*);
 int delete(const char*,const FILEINFO*);
+void filerExtractLabel(const char*,char*,int);void filerClearArchiveClipboard(void);
 #endif
 '''
 code = r'''
@@ -60,12 +62,14 @@ int vmcMounted[2]={1,1},nclipFiles,browser_cut;
 unsigned clipIopResetGeneration=1;FILEINFO clipFiles[MAX_ENTRY];char clipPath[MAX_PATH];
 static int card_type=1,free_units=15,fail_after=-1,fail_close,fail_rename,handles,physical_mkdirs;
 static unsigned generation=1;
-static int source_loaded=1,delete_calls,delete_failure;
+static int source_loaded=1,delete_calls,delete_failure,extract_hook;
+static int open_calls,dir_calls,prepare_calls,incompatible,restore_ok=1;
+static char changed_archive[MAX_PATH];
 int filerPrepareMemoryCardRead(int port){(void)port;return 0;}
 int mcGetInfo(int port,int slot,int *type,int *units,int *format){(void)port;(void)slot;*type=card_type;*units=free_units;if(format)*format=1;return 0;}
 int mcSync(int x,void *y,int *result){(void)x;(void)y;if(result)*result=0;return 1;}
 int genFixPath(const char *in,char *out){strcpy(out,in);return 0;}
-int genOpen(const char *p,int flags){int f=open(p,flags,0600);if(f>=0)handles++;return f;}
+int genOpen(const char *p,int flags){open_calls++;int f=open(p,flags,0600);if(f>=0)handles++;return f;}
 s64 genLseek(int f,s64 offset,int how){return lseek(f,offset,how);}
 int genRead(int f,void *p,int n){return read(f,p,n>17?17:n);}
 int genWrite(int f,void *p,int n){if(fail_after==0)return -EIO;if(fail_after>0)fail_after--;return write(f,p,n>13?13:n);}
@@ -77,7 +81,15 @@ int genRemove(char *p){return unlink(p);}
 int genRmdir(char *p){return rmdir(p);}
 int genCmpFileExt(const char *p,const char *ext){const char *dot=strrchr(p,'.');return dot&&!strcasecmp(dot+1,ext);}
 int genCanRenamePath(const char *p){(void)p;return 1;}
-int genRenameNoReplace(const char *from,const char *to){if(fail_rename)return -EIO;if(!access(to,F_OK))return -EEXIST;return rename(from,to);}
+int genRenameNoReplace(const char *from,const char *to){
+ if(fail_rename)return -EIO;
+ if(!access(to,F_OK))return -EEXIST;
+ int result=rename(from,to);
+ if(!result&&extract_hook==1){int fd=open(changed_archive,O_RDWR);assert(fd>=0);uint8_t b;assert(pread(fd,&b,1,256)==1);b^=1;assert(pwrite(fd,&b,1,256)==1);close(fd);}
+ if(!result&&extract_hook==2)generation++;
+ if(!result&&extract_hook==3){source_loaded=0;restore_ok=0;}
+ return result;
+}
 int fileXioDevctl(const char *p,int cmd,void *arg,unsigned arglen,void *buf,unsigned buflen){
  (void)p;(void)arg;(void)arglen;(void)buflen;if(cmd!=VMCCTL_GET_INFO)return -EINVAL;
  VmcInfo *info=buf;info->type=card_type;info->free_units=free_units;info->unit_bytes=card_type==1?8192:1024;return 0;
@@ -86,7 +98,16 @@ int fileXioGetStat(const char *p,iox_stat_t *out){struct stat s;int r=stat(p,&s)
 int fileXioChStat(const char *p,iox_stat_t *out,unsigned flags){(void)p;assert(flags==0xFEED&&out->private_0);return 0;}
 int mcGetDir(int p,int s,const char *path,int flags,int count,sceMcTblGetDir *info){(void)p;(void)s;(void)path;(void)flags;(void)count;(void)info;return 0;}
 int mcSetFileInfo(int p,int s,const char *path,sceMcTblGetDir *info,int flags){(void)p;(void)s;(void)path;(void)info;(void)flags;return 0;}
-int prepareTransferDeviceStacks(const char *a,const char *b){(void)a;(void)b;return 0;}
+int prepareTransferDeviceStacks(const char *a,const char *b){(void)a;(void)b;prepare_calls++;return incompatible?-2:0;}
+int filerPrepareClipboardTransfer(const char *destination,char *message,int size){
+ int result=prepareTransferDeviceStacks(clipPath,destination);
+ if(result<0){snprintf(message,size,"Incompatible drivers to perform action");return result;}
+ if(!restore_ok || (!strncmp(clipPath,"vmc",3)&&!vmcMounted[clipPath[3]-'0'])){
+  snprintf(message,size,"The clipboard source device is unavailable.");return -1;
+ }
+ if(!source_loaded){source_loaded=1;generation++;}
+ clipIopResetGeneration=generation;return 0;
+}
 unsigned getIopResetGeneration(void){return generation;}
 int isPathDeviceStackLoaded(const char *path){(void)path;return source_loaded;}
 int filerConfirmExploitDelete(const char *path,const FILEINFO *file){(void)path;(void)file;return 1;}
@@ -103,7 +124,7 @@ int delete(const char *parent,const FILEINFO *file){
  return unlink(path);
 }
 int getDir(const char *p,FILEINFO *f){
- DIR *dir=opendir(p);if(!dir)return -EIO;struct dirent *e;int count=0;
+ dir_calls++;DIR *dir=opendir(p);if(!dir)return -EIO;struct dirent *e;int count=0;
  while(count<MAX_ENTRY-2 && (e=readdir(dir))){
   if(!strcmp(e->d_name,".")||!strcmp(e->d_name,".."))continue;
   memset(&f[count],0,sizeof(f[count]));strcpy(f[count].name,e->d_name);
@@ -115,6 +136,12 @@ int getDir(const char *p,FILEINFO *f){
  closedir(dir);return count;
 }
 #include "PRODUCTION_SAVES"
+static int rememberAndProbe(int type){
+ int opened=open_calls,listed=dir_calls,prepared=prepare_calls;
+ filerRememberArchiveClipboard(type);
+ assert(opened==open_calls&&listed==dir_calls&&prepared==prepare_calls&&!archive_clip_data);
+ return filerProbeArchiveClipboard("storage/")!=FILER_SAVE_NONE;
+}
 static void put(const char *name,const void *p,size_t n){FILE *f=fopen(name,"wb");assert(f&&fwrite(p,1,n,f)==n);fclose(f);}
 static void no_temps(const char *p){DIR *dir=opendir(p);assert(dir);struct dirent *e;while((e=readdir(dir)))assert(strncmp(e->d_name,"LSI",3));closedir(dir);assert(!handles);}
 int main(int argc,char **argv){
@@ -202,7 +229,7 @@ int main(int argc,char **argv){
   saveArchiveFree(&parsed);free(snapshot);free(archive);
   strcpy(selected.name,"PS2SAVE");selected.stats.AttrFile=0x8427;
  }
- // Copy snapshots survive removal of the source, IOP resets and retired VMCs.
+ // Copy/Cut stores metadata only; archive creation restores source drivers on demand.
  save[128]='S';
  const char *cards[]={"mc0:/","mc1:/","vmc0:/","vmc1:/"};
  for(int slot=0;slot<4;slot++) {
@@ -212,36 +239,32 @@ int main(int argc,char **argv){
   memset(clipFiles,0,sizeof(clipFiles));strcpy(clipPath,cards[slot]);strcpy(clipFiles[0].name,"CLIP-SAVE");
   clipFiles[0].stats.AttrFile=0x9017;clipFiles[0].stats.FileSizeByte=8192;
   nclipFiles=1;browser_cut=0;card_type=1;
-  assert(filerCaptureArchiveClipboard(1,message,sizeof(message))==1&&filerArchiveClipboardKind()==FILER_SAVE_PS1);
-  assert(!unlink(source));generation++;vmcMounted[slot%2]=0;
+  int opened=open_calls,listed=dir_calls,prepared=prepare_calls;
+  filerRememberArchiveClipboard(1);
+  assert(opened==open_calls&&listed==dir_calls&&prepared==prepare_calls&&!archive_clip_data);
+  source_loaded=0;generation++;
   for(int format=SAVE_OUTPUT_PSV;format<=SAVE_OUTPUT_PSX;format++) {
-   assert(filerCreateClipboardArchive(format,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+   assert(filerCreateClipboardArchive("storage/",format,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1&&source_loaded);
    SaveArchive parsed;assert(saveArchiveParse(&parsed,archive,archive_size,archive_name)&&parsed.ps1&&parsed.count==1);
    assert(!strcmp(parsed.files[0].name,"CLIP-SAVE")&&!memcmp(parsed.files[0].data,save+128,8192));saveArchiveFree(&parsed);
    snprintf(destination,sizeof(destination),"storage/COPY%d-%d.arc",slot,format);
    assert(filerWriteArchive(archive,archive_size,destination,message,sizeof(message))==1);free(archive);
-   assert(filerFinishArchiveClipboard(destination,message,sizeof(message))==1&&nclipFiles==1);
+   assert(filerFinishArchiveClipboard(destination,message,sizeof(message))==1&&nclipFiles==1&&!archive_clip_data);
   }
-  // Cut checks happen only after a committed archive, and preserve changed,
-  // unavailable or undeletable sources. A successful Cut consumes the clipboard.
-  vmcMounted[slot%2]=1;put(source,save+128,8192);browser_cut=1;
-  assert(filerCaptureArchiveClipboard(1,message,sizeof(message))==1);
-  assert(filerCreateClipboardArchive(SAVE_OUTPUT_MCS,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+  // An unavailable/unmounted source cannot be recreated from an eager Copy snapshot.
+  assert(!unlink(source));
+  assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_MCS,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&!archive);
+  put(source,save+128,8192);
+  if(slot>=2){vmcMounted[slot%2]=0;assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_MCS,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0);vmcMounted[slot%2]=1;}
+  // Cut removes unchanged data only after successful publication, even after a legitimate driver restore.
+  browser_cut=1;
+  assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_MCS,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
   snprintf(destination,sizeof(destination),"storage/CUT%d.mcs",slot);
-  fail_after=0;assert(filerWriteArchive(archive,archive_size,destination,message,sizeof(message))<0);
-  assert(!access(source,F_OK)&&nclipFiles==1);fail_after=-1;
+  fail_after=0;assert(filerWriteArchive(archive,archive_size,destination,message,sizeof(message))<0&&!access(source,F_OK));fail_after=-1;
   assert(filerWriteArchive(archive,archive_size,destination,message,sizeof(message))==1);free(archive);
-  unsigned before_generation=generation;generation++;
-  assert(!filerFinishArchiveClipboard(destination,message,sizeof(message))&&!access(source,F_OK));generation=before_generation;
-  if(slot<2){source_loaded=0;assert(!filerFinishArchiveClipboard(destination,message,sizeof(message)));source_loaded=1;}
-  else {vmcMounted[slot%2]=0;assert(!filerFinishArchiveClipboard(destination,message,sizeof(message)));vmcMounted[slot%2]=1;}
-  save[131]^=1;put(source,save+128,8192);
-  assert(!filerFinishArchiveClipboard(destination,message,sizeof(message))&&!access(source,F_OK)&&nclipFiles==1);
-  save[131]^=1;put(source,save+128,8192);delete_failure=1;
-  assert(!filerFinishArchiveClipboard(destination,message,sizeof(message))&&!access(source,F_OK));delete_failure=0;
-  int before_deletes=delete_calls;
-  assert(filerFinishArchiveClipboard(destination,message,sizeof(message))==1&&access(source,F_OK)<0);
-  assert(delete_calls==before_deletes+1&&!nclipFiles&&!browser_cut&&!filerArchiveClipboardKind());
+  source_loaded=0;generation++;int before_deletes=delete_calls;
+  assert(filerFinishArchiveClipboard(destination,message,sizeof(message))==1&&source_loaded&&access(source,F_OK)<0);
+  assert(delete_calls==before_deletes+1&&!nclipFiles&&!browser_cut&&!archive_clip_data);
  }
  // Eligibility comes from a copied/cut item; a generic flat folder needs no icon.sys.
  card_type=0;nclipFiles=1;browser_cut=0;strcpy(clipPath,"storage/");
@@ -249,25 +272,27 @@ int main(int argc,char **argv){
  clipFiles[0].stats.AttrFile=0x8427;
  assert(!mkdir("storage/FLAT",0700));put("storage/FLAT/data",save,32);
  assert(filerSaveKind(clipPath,&clipFiles[0],0)==FILER_SAVE_NONE);
- assert(filerCaptureArchiveClipboard(0,message,sizeof(message))==1&&filerArchiveClipboardKind()==FILER_SAVE_PS2);
- assert(filerCreateClipboardArchive(SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+ assert(rememberAndProbe(0)==1&&filerArchiveClipboardKind()==FILER_SAVE_PS2);
+ assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
  SaveArchive flat;assert(saveArchiveParse(&flat,archive,archive_size,archive_name));
  assert(!flat.ps1&&flat.count==1&&!strcmp(flat.folder.name,"FLAT")&&!strcmp(flat.files[0].name,"data"));
  assert(flat.files[0].size==32&&!memcmp(flat.files[0].data,save,32));saveArchiveFree(&flat);
  assert(filerWriteArchive(archive,archive_size,"storage/flat.psu",message,sizeof(message))==1);free(archive);
- assert(filerCreateClipboardArchive(SAVE_OUTPUT_PSV,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&!archive&&strstr(message,"icon.sys"));
- // A subdirectory added after Copy keeps a Cut source safe after publishing its snapshot.
+ assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSV,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&!archive&&strstr(message,"icon.sys"));
+ assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);free(archive);
+ // A subdirectory added after an archive read keeps the Cut source safe.
  browser_cut=1;assert(!mkdir("storage/FLAT/subdir",0700));
  assert(!filerFinishArchiveClipboard("storage/flat.psu",message,sizeof(message))&&!access("storage/FLAT/data",F_OK));
  assert(!rmdir("storage/FLAT/subdir"));
+ assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);free(archive);
  assert(filerFinishArchiveClipboard("storage/flat.psu",message,sizeof(message))==1&&access("storage/FLAT",F_OK)<0);
  // A PS1 backup wrapper with extra files uses PSU so Cut cannot discard those files.
  browser_cut=0;nclipFiles=1;strcpy(clipPath,"storage/");strcpy(clipFiles[0].name,"PS1EXTRA");
  assert(!mkdir("storage/PS1EXTRA",0700));put("storage/PS1EXTRA/PS1EXTRA",save+128,8192);
  put("storage/PS1EXTRA/extra",save,32);
  assert(filerSaveKind(clipPath,&clipFiles[0],0)==FILER_SAVE_PS1);
- assert(filerCaptureArchiveClipboard(0,message,sizeof(message))==1&&filerArchiveClipboardKind()==FILER_SAVE_PS2);
- assert(filerCreateClipboardArchive(SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+ assert(rememberAndProbe(0)==1&&filerArchiveClipboardKind()==FILER_SAVE_PS2);
+ assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
  assert(saveArchiveParse(&flat,archive,archive_size,archive_name)&&flat.count==2&&!flat.ps1);
  saveArchiveFree(&flat);free(archive);
  // Nested folders are ineligible both with and without PS2 save icon metadata.
@@ -276,7 +301,7 @@ int main(int argc,char **argv){
   const char *nested=with_icon?"storage/PS2SAVE/subdir":"storage/NESTED/subdir";
   if(!with_icon)assert(!mkdir("storage/NESTED",0700));
   assert(!mkdir(nested,0700));
-  assert(!filerCaptureArchiveClipboard(0,message,sizeof(message))&&!filerArchiveClipboardKind());
+  assert(!rememberAndProbe(0)&&!filerArchiveClipboardKind());
   assert(nclipFiles==1);assert(!rmdir(nested));
   if(!with_icon)assert(!rmdir("storage/NESTED"));
  }
@@ -284,30 +309,30 @@ int main(int argc,char **argv){
  assert(!mkdir("storage/CAPPED",0700));strcpy(clipFiles[0].name,"CAPPED");
  for(int i=0;i<MAX_ENTRY-2;i++) {char path[80];snprintf(path,sizeof(path),"storage/CAPPED/file%02d",i);put(path,save,1);}
  assert(!mkdir("storage/CAPPED/hidden-subdir",0700));
- assert(!filerCaptureArchiveClipboard(0,message,sizeof(message))&&!filerArchiveClipboardKind());
+ assert(!rememberAndProbe(0)&&!filerArchiveClipboardKind());
  // Ordinary files and a selection with no clipboard are never archive sources.
  strcpy(clipFiles[0].name,"plain.bin");clipFiles[0].stats.AttrFile=0x8497;clipFiles[0].stats.FileSizeByte=32;
- put("storage/plain.bin",save,32);assert(!filerCaptureArchiveClipboard(0,message,sizeof(message))&&!filerArchiveClipboardKind());
- nclipFiles=0;assert(!filerCaptureArchiveClipboard(0,message,sizeof(message))&&!filerArchiveClipboardKind());
+ put("storage/plain.bin",save,32);assert(!rememberAndProbe(0)&&!filerArchiveClipboardKind());
+ nclipFiles=0;assert(!rememberAndProbe(0)&&!filerArchiveClipboardKind());
  // PS2 clipboard snapshots preserve all files and work with both output formats.
  card_type=2;nclipFiles=1;browser_cut=0;strcpy(clipPath,"storage/");
  memset(&clipFiles[0],0,sizeof(clipFiles[0]));strcpy(clipFiles[0].name,"PS2SAVE");clipFiles[0].stats.AttrFile=0x8427;
- assert(filerCaptureArchiveClipboard(0,message,sizeof(message))==1&&filerArchiveClipboardKind()==FILER_SAVE_PS2);
+ assert(rememberAndProbe(0)==1&&filerArchiveClipboardKind()==FILER_SAVE_PS2);
  for(int format=SAVE_OUTPUT_PSU;format<=SAVE_OUTPUT_PSV;format++) {
-  assert(filerCreateClipboardArchive(format,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+  assert(filerCreateClipboardArchive("storage/",format,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
   SaveArchive parsed;assert(saveArchiveParse(&parsed,archive,archive_size,archive_name)&&!parsed.ps1&&parsed.count==4);
   assert(!strcmp(parsed.folder.name,"PS2SAVE"));saveArchiveFree(&parsed);free(archive);
  }
  browser_cut=1;
- assert(filerCreateClipboardArchive(SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+ assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
  assert(filerWriteArchive(archive,archive_size,"storage/PS2SAVE/nested.psu",message,sizeof(message))==1);free(archive);
  assert(!filerFinishArchiveClipboard("storage/PS2SAVE/nested.psu",message,sizeof(message))&&!access("storage/PS2SAVE/icon.sys",F_OK));
  unlink("storage/PS2SAVE/nested.psu");
- assert(filerCreateClipboardArchive(SAVE_OUTPUT_PSV,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+ assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSV,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
  assert(filerWriteArchive(archive,archive_size,"storage/clipboard-ps2.PSV",message,sizeof(message))==1);free(archive);
  assert(filerFinishArchiveClipboard("storage/clipboard-ps2.PSV",message,sizeof(message))==1&&access("storage/PS2SAVE",F_OK)<0&&!nclipFiles);
- nclipFiles=2;assert(!filerCaptureArchiveClipboard(0,message,sizeof(message))&&!filerArchiveClipboardKind());
- assert(filerCreateClipboardArchive(SAVE_OUTPUT_MCS,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&!archive);
+ nclipFiles=2;assert(!rememberAndProbe(0)&&!filerArchiveClipboardKind());
+ assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_MCS,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&!archive);
  filerClearArchiveClipboard();
  char label[40];filerExtractLabel("file.pSv",label,sizeof(label));assert(!strcmp(label,"Extract PSV..."));
  selected.stats.AttrFile=0x8497;strcpy(selected.name,"input.mcs");
@@ -318,9 +343,80 @@ int main(int argc,char **argv){
  memset(clipFiles,0,sizeof(clipFiles));browser_cut=0;
  nclipFiles=1;strcpy(clipFiles[0].name,"BASLUS-RAW");clipFiles[0].stats.FileSizeByte=8192;
  assert(filerCanImportClipboard());clipFiles[0].stats.FileSizeByte=8191;assert(!filerCanImportClipboard());
- nclipFiles=1;strcpy(clipFiles[0].name,"input.mcs");clipPath[0]=0;generation=2;
- assert(filerImportClipboard("storage/",message,sizeof(message))<0&&strstr(message,"stack changed"));
- assert(!handles);puts("PASS: real save import/export, direct extraction, MCS/PSU/PSV creation, source snapshots, flat-folder clipboard eligibility without icon.sys, nested/capped folder rejection, empty files, both physical PS1 slots without mkdir, short I/O, card types, space preflight and failed-write/rename cleanup");
+ // Clipboard extraction labels follow the copied extension, case-insensitively.
+ browser_cut=1;strcpy(clipFiles[0].name,"a.pSv");nclipFiles=1;
+ filerClipboardExtractLabel(label,sizeof(label));assert(!strcmp(label,"Extract PSV..."));assert(filerCanImportClipboard());
+ nclipFiles=2;strcpy(clipFiles[1].name,"b.PSV");
+ filerClipboardExtractLabel(label,sizeof(label));assert(!strcmp(label,"Extract PSV..."));
+ strcpy(clipFiles[1].name,"b.mcs");filerClipboardExtractLabel(label,sizeof(label));assert(!strcmp(label,"Extract saves..."));
+ nclipFiles=0;filerClipboardExtractLabel(label,sizeof(label));assert(!strcmp(label,"Extract saves..."));
+ assert(!filerCanImportClipboard());
+ // Copy and Cut both extract directly into the supplied folder, with no picker.
+ size_t fixture_size;uint8_t *fixture=readSource("input.mcs",&fixture_size);assert(fixture);
+ assert(!mkdir("storage/archives",0700));
+ for(int cut=0;cut<2;cut++) {
+  char out[80];snprintf(out,sizeof(out),"storage/extracted-%d/",cut);assert(!mkdir(out,0700));
+  put("storage/archives/one.mcs",fixture,fixture_size);
+  memset(clipFiles,0,sizeof(clipFiles));strcpy(clipPath,"storage/archives/");strcpy(clipFiles[0].name,"one.mcs");
+  clipFiles[0].stats.FileSizeByte=fixture_size;nclipFiles=1;browser_cut=cut;clipIopResetGeneration=generation;
+  assert(filerImportClipboard(out,message,sizeof(message))==1);
+  char target[120];snprintf(target,sizeof(target),"%sBASLUS-TEST/BASLUS-TEST",out);assert(!access(target,F_OK));
+  assert((access("storage/archives/one.mcs",F_OK)<0)==cut);
+  assert(nclipFiles==(cut?0:1)&&!browser_cut);
+ }
+ // Failures before publish keep a Cut source; changes/unavailable stacks after publish also keep it.
+ for(int failure=0;failure<6;failure++) {
+  char out[80];snprintf(out,sizeof(out),"storage/extract-failure-%d/",failure);assert(!mkdir(out,0700));
+  put("storage/archives/one.mcs",fixture,fixture_size);strcpy(changed_archive,"storage/archives/one.mcs");
+  strcpy(clipPath,"storage/archives/");strcpy(clipFiles[0].name,"one.mcs");
+  nclipFiles=1;browser_cut=1;clipIopResetGeneration=generation;source_loaded=1;
+  if(failure==0)fail_after=0;
+  if(failure==1)fail_rename=1;
+  if(failure==2)delete_failure=1;
+  if(failure>=3)extract_hook=failure-2;
+  int before=delete_calls;int result=filerImportClipboard(out,message,sizeof(message));
+  if(failure==4)assert(result==1&&access(changed_archive,F_OK)<0&&!nclipFiles&&!browser_cut);
+  else assert(result==(failure<2?-1:0)&&!access(changed_archive,F_OK)&&nclipFiles==1&&browser_cut);
+  assert(delete_calls==before+(failure==2||failure==4));
+  if(failure>=2&&failure!=4)assert(strstr(message,"source archive kept"));
+  fail_after=-1;fail_rename=delete_failure=extract_hook=0;source_loaded=restore_ok=1;
+ }
+ // Mixed PS1/PS2 batches use one action and keep iteration correct as Cut entries are consumed.
+ size_t psu_size;uint8_t *psu_fixture=readSource("storage/flat.psu",&psu_size);assert(psu_fixture);
+ for(int cut=0;cut<2;cut++) {
+  char out[80],target[120];snprintf(out,sizeof(out),"storage/extract-batch-%d/",cut);assert(!mkdir(out,0700));
+  put("storage/archives/first.mcs",fixture,fixture_size);put("storage/archives/second.psu",psu_fixture,psu_size);
+  memset(clipFiles,0,sizeof(clipFiles));strcpy(clipPath,"storage/archives/");
+  strcpy(clipFiles[0].name,"first.mcs");strcpy(clipFiles[1].name,"second.psu");
+  nclipFiles=2;browser_cut=cut;clipIopResetGeneration=generation;
+  assert(filerImportClipboard(out,message,sizeof(message))==2);
+  snprintf(target,sizeof(target),"%sBASLUS-TEST/BASLUS-TEST",out);assert(!access(target,F_OK));
+  snprintf(target,sizeof(target),"%sFLAT/data",out);assert(!access(target,F_OK));
+  assert((access("storage/archives/first.mcs",F_OK)<0)==cut&&(access("storage/archives/second.psu",F_OK)<0)==cut);
+  assert(nclipFiles==(cut?0:2)&&!browser_cut);
+ }
+ free(psu_fixture);
+ // Partial Cut batches consume only completed sources and retain unprocessed entries.
+ assert(!mkdir("storage/extract-partial",0700));
+ put("storage/archives/first.mcs",fixture,fixture_size);put("storage/archives/broken.mcs","bad",3);
+ strcpy(clipPath,"storage/archives/");memset(clipFiles,0,sizeof(clipFiles));
+ strcpy(clipFiles[0].name,"first.mcs");strcpy(clipFiles[1].name,"broken.mcs");
+ nclipFiles=2;browser_cut=1;clipIopResetGeneration=generation;
+ assert(filerImportClipboard("storage/extract-partial/",message,sizeof(message))<0);
+ assert(strstr(message,"1 extracted; stopped")&&nclipFiles==1&&!strcmp(clipFiles[0].name,"broken.mcs"));
+ assert(access("storage/archives/first.mcs",F_OK)<0&&!access("storage/archives/broken.mcs",F_OK));
+ free(fixture);browser_cut=0;
+ nclipFiles=1;strcpy(clipFiles[0].name,"input.mcs");clipPath[0]=0;generation++;
+ strcpy(clipPath,"storage/archives/");strcpy(clipFiles[0].name,"broken.mcs");restore_ok=0;
+ assert(filerImportClipboard("storage/",message,sizeof(message))<0&&strstr(message,"unavailable"));restore_ok=1;
+ // Incompatible pairs fail before any source reads or output writes.
+ browser_cut=1;nclipFiles=1;strcpy(clipFiles[0].name,"broken.mcs");incompatible=1;
+ int before_open=open_calls;
+ assert(filerImportClipboard("storage/",message,sizeof(message))<0&&strstr(message,"Incompatible drivers")&&open_calls==before_open);
+ strcpy(clipFiles[0].name,"FLAT");clipFiles[0].stats.AttrFile=sceMcFileAttrSubdir;filerRememberArchiveClipboard(0);
+ assert(filerCreateClipboardArchive("mx4sio:/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&strstr(message,"Incompatible drivers")&&open_calls==before_open);
+ incompatible=0;
+ assert(!handles);puts("PASS: real save import/export, direct extraction, MCS/PSU/PSV creation, clipboard extension labels, Copy/Cut extraction and partial batches, metadata-only Copy/Cut and on-demand source restoration, flat-folder clipboard eligibility without icon.sys, nested/capped folder rejection, empty files, both physical PS1 slots without mkdir, short I/O, card types, space preflight and failed-write/rename cleanup");
 }
 '''.replace('PRODUCTION_SAVES', str(root / 'src/filer_saves.c'))
 

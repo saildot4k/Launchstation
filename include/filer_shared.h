@@ -31,7 +31,6 @@ enum {
 	TIMEMANIP_CUSTOM,
 	TITLE_CFG,
 	IMPORT_SAVE,
-	EXTRACT_SAVE,
 	EXPORT_PS1,
 	NUM_MENU
 };
@@ -113,6 +112,8 @@ int ensurePathDeviceStackReady(const char *path);
 /* card_type belongs to this listing; menu rendering must not issue card RPCs. */
 void filerMenuEnables(const char *path, const FILEINFO *file, int nmarked, int card_type, char enable[NUM_MENU]);
 int prepareTransferDeviceStacks(const char *src_path, const char *dst_path);
+/* Uses the same R3Z source readiness/remount checks as Paste, after workers drain. */
+int filerPrepareClipboardTransfer(const char *destination, char *message, int size);
 int copy(char *outPath, const char *inPath, FILEINFO file, int recurses);
 
 #endif

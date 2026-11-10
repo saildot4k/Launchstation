@@ -756,7 +756,7 @@ static void opCopy(int cut)
 	static int idx[MAX_ENTRY];
 	int n = targets(idx, MAX_ENTRY), i;
 
-	if (n == 0 || !prepareOp())
+	if (n == 0)
 		return;
 	if (cut) {
 		for (i = 0; i < n; i++)
@@ -770,14 +770,10 @@ static void opCopy(int cut)
 	nclipFiles = n;
 	browser_cut = cut;
 	clipIopResetGeneration = getIopResetGeneration();
-	dashLoadingBegin("Copying to clipboard");
-	i = filerCaptureArchiveClipboard(fb.card_type, fb.msg, sizeof(fb.msg));
-	opDone();
+	filerRememberArchiveClipboard(fb.card_type);
 	memset(fb.mark, 0, MAX_ENTRY);
 	fb.nmarked = 0;
-	if (i < 0)
-		dashToast(DASH_TOAST_WARN, fb.msg);
-	else {
+	{
 		char msg[64];
 		snprintf(msg, sizeof(msg), "%d item%s ready to %s", n, n == 1 ? "" : "s", cut ? "move" : "paste");
 		dashToast(DASH_TOAST_INFO, msg);
@@ -950,13 +946,13 @@ static void opTitleCfg(void)
 static void opImportSaves(void)
 {
 	int result;
-	if (!prepareOp()) return;
+	if (!filerCanImportClipboard() || !prepareOp()) return;
 	fb.msg[0] = 0;
 	if (filerConfirmExploitModify(fb.dir, NULL) < 0) { opDone(); return; }
-	dashLoadingBegin("Extracting copied saves");
+	dashLoadingBegin("Extracting saves");
 	result = filerImportClipboard(fb.dir, fb.msg, sizeof(fb.msg));
 	opDone();
-	dashModalMessage(result < 0 ? DI_WARNING : DI_MC, result < 0 ? "Extraction stopped" : "Saves extracted", fb.msg, NULL);
+	dashModalMessage(result <= 0 ? DI_WARNING : DI_MC, result < 0 ? "Extraction stopped" : "Saves extracted", fb.msg, NULL);
 	refresh();
 }
 
@@ -964,30 +960,6 @@ static FILEINFO *singleSaveTarget(void)
 {
 	int index;
 	return targets(&index, 1) == 1 ? &fb.files[index] : NULL;
-}
-
-static void opExtractSave(void)
-{
-	char source[MAX_PATH], folder[MAX_PATH], title[40];
-	SaveArchive save = {0};
-	uint8_t *data = NULL;
-	int result;
-	FILEINFO *selected = singleSaveTarget();
-	if (!selected || !fullPath(selected, source, sizeof(source)) || !prepareOp()) return;
-	dashLoadingBegin("Reading save archive");
-	result = filerLoadSave(source, &save, &data, fb.msg, sizeof(fb.msg));
-	opDone();
-	if (!result) { dashModalMessage(DI_WARNING, "Archive not read", fb.msg, NULL); return; }
-	snprintf(title, sizeof(title), "Extract PS%d save to", save.ps1 ? 1 : 2);
-	if (!dashPickPath(title, fb.dir, DASH_PICK_FOLDER, NULL, folder, sizeof(folder)) || !prepareOp()) goto done;
-	if (filerConfirmExploitModify(folder, NULL) <= 0) goto done;
-	dashLoadingBegin("Extracting save");
-	result = filerExtractSave(&save, folder, fb.msg, sizeof(fb.msg));
-	opDone();
-	dashModalMessage(result < 0 ? DI_WARNING : DI_MC, result < 0 ? "Save not extracted" : "Save extracted", fb.msg, NULL);
-	refresh();
-done:
-	saveArchiveFree(&save); free(data);
 }
 
 static void opCreateArchive(int kind)
@@ -1016,7 +988,7 @@ static void opCreateArchive(int kind)
 	else
 		format = choice ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSU;
 	dashLoadingBegin("Preparing archive");
-	result = filerCreateClipboardArchive(format, &data, &length, name, sizeof(name), fb.msg, sizeof(fb.msg));
+	result = filerCreateClipboardArchive(fb.dir, format, &data, &length, name, sizeof(name), fb.msg, sizeof(fb.msg));
 	opDone();
 	if (result < 0) { dashModalMessage(DI_WARNING, "Archive not created", fb.msg, NULL); return; }
 	if (!dashModalFilename("Archive filename", name, sizeof(name) - 1, fb.dir) || !name[0] ||
@@ -1031,6 +1003,7 @@ static void opCreateArchive(int kind)
 	refresh();
 done:
 	free(data);
+	filerClearArchiveClipboard();
 }
 
 static void opExportPs1(void)
@@ -1417,7 +1390,6 @@ static void actionsMenu(void)
 		F_PASTE,
 		F_PASTE_RENAME,
 		F_CREATE,
-		F_EXTRACT,
 		F_IMPORT,
 		F_EXPORT_PS1,
 		F_DELETE,
@@ -1451,11 +1423,13 @@ static void actionsMenu(void)
 	memset(&none, 0, sizeof(none));
 	strcpy(none.name, "..");
 	memset(en, 0, sizeof(en));
+	if (in_folder && nclipFiles == 1 && !ps1_card && prepareOp())
+		archive_kind = filerProbeArchiveClipboard(fb.dir);
 	if (in_folder)
 		filerMenuEnables(fb.dir, f != NULL ? f : &none, fb.nmarked, fb.card_type, en);
 	if (save_file != NULL && in_folder && en[COPY] && prepareOp())
 		save_kind = filerSaveKind(fb.dir, save_file, fb.card_type);
-	filerExtractLabel(save_file != NULL ? save_file->name : "", extract_label, sizeof(extract_label));
+	filerClipboardExtractLabel(extract_label, sizeof(extract_label));
 	if (f != NULL && !isDir(f) && fullPath(f, path, sizeof(path)))
 		is_elf = genCmpFileExt(path, "ELF");
 	snprintf(marked, sizeof(marked), "%d selected", fb.nmarked);
@@ -1473,10 +1447,8 @@ static void actionsMenu(void)
 			ADD(DI_PASTE_RENAME, "Paste with new names...", NULL, 0, F_PASTE_RENAME);
 		if (en[CREATE_ARCHIVE])
 			ADD(DI_MC, "Create archive...", archive_kind == FILER_SAVE_PS1 ? "PS1 save from clipboard" : "PS2 save from clipboard", 0, F_CREATE);
-		if (en[EXTRACT_SAVE] && (save_kind == FILER_ARCHIVE_PS1 || save_kind == FILER_ARCHIVE_PS2))
-			ADD(DI_MC, extract_label, save_kind == FILER_ARCHIVE_PS1 ? "PS1 save" : "PS2 save", 0, F_EXTRACT);
 		if (en[IMPORT_SAVE])
-			ADD(DI_MC, "Extract copied saves here", "from the clipboard", 0, F_IMPORT);
+			ADD(DI_MC, extract_label, browser_cut ? "Move saves from clipboard into this folder" : "Extract clipboard into this folder", 0, F_IMPORT);
 		if ((ps1_card && en[EXPORT_PS1]) || (en[COPY] && save_kind == FILER_CARD_PS1))
 			ADD(DI_MC, "Save card as...", "Whole PS1 card", 0, F_EXPORT_PS1);
 		ADD(DI_WARNING, "Delete...", fb.nmarked ? marked : NULL, !has_target || !en[DELETE], F_DELETE);
@@ -1534,9 +1506,6 @@ static void actionsMenu(void)
 			break;
 		case F_CREATE:
 			opCreateArchive(archive_kind);
-			break;
-		case F_EXTRACT:
-			opExtractSave();
 			break;
 		case F_IMPORT:
 			opImportSaves();

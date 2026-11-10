@@ -2394,6 +2394,10 @@ static int editClockDateTime(int fields[6], MenuClockSettings *settings)
 	float open = 0.0f, sx = 0.0f, sy = 0.0f, sw = 0.0f;
 	const float w = 528.0f, h = 324.0f;
 	const float x = (DASH_VW - w) * 0.5f, y = (DASH_VH - h) * 0.5f;
+	/* Reserve the seven-field layout even when AM/PM is hidden. */
+	const float bw = 56.0f, gap = 8.0f;
+	const float bx0 = x + (w - (7 * bw + 6 * gap)) * 0.5f;
+	const float by = y + 88, preferences_y = y + 186;
 	DashInput in;
 
 	memcpy(value, fields, sizeof(value));
@@ -2403,8 +2407,6 @@ static int editClockDateTime(int fields[6], MenuClockSettings *settings)
 	while (1) {
 		int step = 0, shoulders;
 		float dt, oe, target_x, target_y, target_w;
-		int count;
-		float bw, gap, bx0, by = y + 112;
 
 		dashInputPoll(&in);
 		if (in.pressed & (DASH_IN_BACK | DASH_IN_MENU)) break;
@@ -2448,12 +2450,8 @@ static int editClockDateTime(int fields[6], MenuClockSettings *settings)
 			dashSoundPlay(DASH_SND_CURSOR);
 		}
 		if (in.pressed & DASH_IN_OK) { accepted = 1; break; }
-		count = choice.use_12h ? 7 : 6;
-		bw = choice.use_12h ? 56 : 64;
-		gap = choice.use_12h ? 8 : 16;
-		bx0 = x + (w - (count * bw + (count - 1) * gap)) * 0.5f;
 		target_x = sel < 7 ? bx0 + sel * (bw + gap) : x + 24 + (sel - 7) * 164;
-		target_y = sel < 7 ? by : y + 214;
+		target_y = sel < 7 ? by : preferences_y;
 		target_w = sel < 7 ? bw : 152;
 		if (!sw) { sx = target_x; sy = target_y; sw = target_w; }
 		dt = dashVisualUpdate();
@@ -2475,11 +2473,11 @@ static int editClockDateTime(int fields[6], MenuClockSettings *settings)
 		for (i = 0; i < 10; i++) {
 			char text[20];
 			float bx = i < 7 ? bx0 + i * (bw + gap) : x + 24 + (i - 7) * 164;
-			float row_y = i < 7 ? by : y + 214;
+			float row_y = i < 7 ? by : preferences_y;
 			float box_w = i < 7 ? bw : 152;
 			int number;
 			if (i == 6 && !choice.use_12h) continue;
-			dashTextCenter(bx + box_w * 0.5f, row_y - 46, labels[i], DASH_FS_CAPTION, DASH_C_TEXT3);
+			dashTextCenter(bx + box_w * 0.5f, row_y + 50, labels[i], DASH_FS_CAPTION, DASH_C_TEXT3);
 			if (i != sel) dashPanel(bx, row_y, box_w, 44, 10, DC(255, 255, 255, 16));
 			if (i < 6) {
 				number = value[i];
@@ -2498,7 +2496,8 @@ static int editClockDateTime(int fields[6], MenuClockSettings *settings)
 			if (i < 5) dashTextCenter(bx + bw + gap * 0.5f, row_y + 10, i < 2 ? "-" : i == 2 ? "" : ":", DASH_FS_LABEL, DASH_C_TEXT2);
 			if (i == sel) {
 				dashTextCenter(bx + box_w * 0.5f, row_y - 20, "+", DASH_FS_BODY, DASH_C_ACCENT);
-				dashTextCenter(bx + box_w * 0.5f, row_y + 48, "-", DASH_FS_BODY, DASH_C_ACCENT);
+				/* Leave ten pixels after the 12 px field label before the minus cue. */
+				dashTextCenter(bx + box_w * 0.5f, row_y + 72, "-", DASH_FS_BODY, DASH_C_ACCENT);
 			}
 		}
 		{
