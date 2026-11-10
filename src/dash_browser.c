@@ -984,7 +984,17 @@ static void opCreateArchive(int kind)
 	uint8_t *data = NULL;
 	size_t length;
 	int choice, format, result;
-	if ((kind != FILER_SAVE_PS1 && kind != FILER_SAVE_PS2) || kind != filerArchiveClipboardKind()) return;
+	if ((kind != FILER_SAVE_PS1 && kind != FILER_SAVE_PS2) || kind != filerArchiveClipboardKind() || !prepareOp()) return;
+	dashLoadingBegin("Checking copied save");
+	kind = filerProbeArchiveClipboard(fb.dir);
+	opDone();
+	if (kind != FILER_SAVE_PS1 && kind != FILER_SAVE_PS2) {
+		dashModalMessage(DI_WARNING, "Archive not created", "Choose one complete PS1 save or a folder with files and no subdirectories.", NULL);
+		return;
+	}
+	save_type = kind == FILER_SAVE_PS1 ? "PS1 save" : "PS2 save";
+	labels = kind == FILER_SAVE_PS1 ? ps1_formats : ps2_formats;
+	count = kind == FILER_SAVE_PS1 ? 3 : 2;
 	for (int i = 0; i < count; i++) {
 		formats[i].icon = DI_MC;
 		formats[i].label = labels[i];
@@ -1435,12 +1445,10 @@ static void actionsMenu(void)
 	memset(&none, 0, sizeof(none));
 	strcpy(none.name, "..");
 	memset(en, 0, sizeof(en));
-	if (in_folder && nclipFiles == 1 && !ps1_card && prepareOp())
-		archive_kind = filerProbeArchiveClipboard(fb.dir);
 	if (in_folder)
 		filerMenuEnables(fb.dir, f != NULL ? f : &none, fb.nmarked, fb.card_type, en);
-	if (save_file != NULL && in_folder && en[COPY] && prepareOp())
-		save_kind = filerSaveKind(fb.dir, save_file, fb.card_type);
+	if (save_file != NULL && in_folder && en[COPY] && filerPs1CardCandidate(save_file))
+		save_kind = FILER_CARD_PS1;
 	filerClipboardExtractLabel(extract_label, sizeof(extract_label));
 	if (f != NULL && !isDir(f) && fullPath(f, path, sizeof(path)))
 		is_elf = genCmpFileExt(path, "ELF");
@@ -1458,7 +1466,7 @@ static void actionsMenu(void)
 		if (en[PASTE])
 			ADD(DI_PASTE_RENAME, "Paste with new names...", NULL, 0, F_PASTE_RENAME);
 		if (en[CREATE_ARCHIVE])
-			ADD(DI_MC, "Create archive...", archive_kind == FILER_SAVE_PS1 ? "PS1 save from clipboard" : "PS2 save from clipboard", 0, F_CREATE);
+			ADD(DI_MC, "Create archive...", "Save from clipboard", 0, F_CREATE);
 		if (en[IMPORT_SAVE])
 			ADD(DI_MC, extract_label, browser_cut ? "Move saves from clipboard into this folder" : "Extract clipboard into this folder", 0, F_IMPORT);
 		if ((ps1_card && en[EXPORT_PS1]) || (en[COPY] && save_kind == FILER_CARD_PS1))
@@ -1650,7 +1658,7 @@ static void clipboardSummary(char *out, int size)
 	if (nclipFiles <= 0)
 		out[0] = '\0';
 	else if (nclipFiles > 1)
-		snprintf(out, size, "Assortment in %s", clipPath);
+		snprintf(out, size, "%d in %s", nclipFiles, clipPath);
 	else {
 		size_t len = strlen(clipPath);
 		const char *separator = len && clipPath[len - 1] != '/' && clipPath[len - 1] != ':' ? "/" : "";

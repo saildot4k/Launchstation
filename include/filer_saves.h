@@ -9,7 +9,7 @@ enum {
 	FILER_SAVE_NONE, FILER_SAVE_PS1, FILER_SAVE_PS2,
 	FILER_ARCHIVE_PS1, FILER_ARCHIVE_PS2, FILER_CARD_PS1
 };
-/* Inspect once when opening an action menu, never during frame rendering. */
+/* Serialized content inspection, only for an explicitly requested save action. */
 int filerSaveKind(const char *folder, const FILEINFO *file, int card_type);
 void filerExtractLabel(const char *name, char *label, int size);
 void filerClipboardExtractLabel(char *label, int size);
@@ -22,8 +22,9 @@ int filerWriteArchive(const uint8_t *data, size_t length, int format, const char
 /* Copy/Cut records listing metadata only: no directory probes or save reads. */
 void filerClearArchiveClipboard(void);
 void filerRememberArchiveClipboard(int card_type);
-/* Serialized menu eligibility probe: headers/listing only, never complete save data. */
+/* Resolve clipboard candidates after Create archive is chosen, before format selection. */
 int filerProbeArchiveClipboard(const char *destination);
+/* Metadata-only candidate, or a cached result from the explicit content check. */
 int filerArchiveClipboardKind(void);
 int filerCreateClipboardArchive(const char *destination, int format, uint8_t **data, size_t *length,
                                char *name, int name_size, char *message, int size);
@@ -40,6 +41,8 @@ int filerImportSave(const char *source, const char *destination, char *message, 
 int filerImportClipboard(const char *destination, char *message, int size);
 int filerCanImportClipboard(void);
 int filerIsPs1Image(const char *name);
+/* Listing metadata only; the card is validated when its action is chosen. */
+int filerPs1CardCandidate(const FILEINFO *file);
 unsigned char *filerReadPs1Card(const char *source, char *message, int size);
 int filerSavePs1Card(const unsigned char *data, const char *destination, char *message, int size);
 int filerExportPs1Card(const char *source, const char *destination, char *message, int size);

@@ -17,6 +17,18 @@ def function(source, signature):
         end+=1
     return source[start:end]+'\n'
 
+# Options must not start drivers, wait on the worker, read save headers or
+# enumerate the copied folder. Content checks belong to the explicit action.
+for source, signature in [(dash, 'static void actionsMenu(void)'), (classic, 'static int menu(')]:
+    body = function(source, signature)
+    if source is dash:
+        body = body[:body.index('r = dashModalMenu(')]
+    else:
+        body = body[:body.index('for (sel = 0;')]
+    assert 'filerProbeArchiveClipboard(' not in body
+    assert 'filerSaveKind(' not in body
+    assert 'prepareOp(' not in body
+
 code=r'''
 #include "save_archive.h"
 #include <assert.h>
@@ -153,6 +165,16 @@ int main(void){
   assert(!strcmp(observed_destination,format==2?"usb1:/output/SAVE.psx":format==1?"usb1:/output/SAVE.PSV":ps1?"usb1:/output/SAVE.mcs":"usb1:/output/SAVE.psu"));
  }
  for(int native=0;native<2;native++) {
+  /* A copied PS1 backup folder can initially look like a generic PS2 folder.
+   * Resolve it before choosing the offered archive formats. */
+  reset(1);copySave(0);cached_kind=FILER_SAVE_PS2;expected_format=SAVE_OUTPUT_MCS;
+  if(native)classicCreateArchive(fb.dir,fb.msg,sizeof(fb.msg));else opCreateArchive(FILER_SAVE_PS2);
+  assert(writes==1&&finish_calls==1&&!allocated&&!prompts);
+  reset(1);copySave(1);kind=FILER_SAVE_NONE;
+  if(native)classicCreateArchive(fb.dir,fb.msg,sizeof(fb.msg));else opCreateArchive(FILER_SAVE_PS1);
+  assert(!writes&&!reads&&!finish_calls&&nclipFiles==1&&browser_cut&&!allocated&&!loading);
+ }
+ for(int native=0;native<2;native++) {
   reset(0);copySave(1);expected_format=SAVE_OUTPUT_PSU;write_ok=2;
   if(native)classicCreateArchive(fb.dir,fb.msg,sizeof(fb.msg));else opCreateArchive(kind);
   assert(writes==1&&!finish_calls&&nclipFiles==1&&browser_cut&&!prompts&&!allocated&&!loading);
@@ -183,7 +205,7 @@ int main(void){
  assert(!strcmp(observed_source,"mc0:/SAVE")&&!allocated);
  reset(1);opCreateArchive(FILER_SAVE_PS1);assert(!reads&&!writes&&!finish_calls);
  reset(1);opImportSaves();classicImportSaves(fb.dir,fb.msg,sizeof(fb.msg));assert(!extracts&&!switches&&!allocated&&!loading);
- puts("PASS: both browsers' metadata-only Copy/Cut without file I/O or driver waits, on-demand PS1/PS2 archiving with automatic filenames and no keyboard, clipboard-only extraction without a destination picker, card exports, canceled/failed writes retain Cut sources");
+ puts("PASS: both browsers' metadata-only Copy/Cut and Options without file I/O or driver waits, folder validation before format selection, on-demand PS1/PS2 archiving with automatic filenames and no keyboard, clipboard-only extraction without a destination picker, card exports, canceled/failed writes retain Cut sources");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='save-actions-') as temp:

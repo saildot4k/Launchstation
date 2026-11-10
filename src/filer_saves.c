@@ -26,6 +26,14 @@ int filerCardInfo(const char *path, VmcInfo *info)
 	return info->type == 1 || info->type == 2;
 }
 
+int filerPs1CardCandidate(const FILEINFO *file)
+{
+	u64 bytes;
+	if (!file || (file->stats.AttrFile & sceMcFileAttrSubdir) || !filerIsPs1Image(file->name)) return 0;
+	bytes = ((u64)file->stats.Reserve2 << 32) | file->stats.FileSizeByte;
+	return bytes == 131072 || bytes == 131136 || bytes == 131200 || bytes == 134976;
+}
+
 int filerIsPs1Image(const char *name)
 {
 	return genCmpFileExt(name, "VMC") || genCmpFileExt(name, "BIN") || genCmpFileExt(name, "MCR") ||
@@ -71,8 +79,8 @@ static int exists(const char *path)
 
 static int saveWritable(const char *path)
 {
-	/* These transactions publish with a sibling rename. HOST has no such
-	 * operation; reject it before creating any temporary file. */
+	/* Keep the existing save-action destination policy. Archive writes do
+	 * not depend on the device actually implementing native rename. */
 	return genCanRenamePath(path) && strncmp(path, "host", 4);
 }
 
@@ -85,17 +93,29 @@ static int uniquePath(const char *parent, char *out, size_t size, const char *su
 	return 0;
 }
 
-static int writeFile(const char *path, const uint8_t *data, size_t size)
+/* R3Z writes the requested destination directly. Do not require native
+ * rename support just to create an archive or extract a save. */
+static int writeFileResult(const char *path, const uint8_t *data, size_t size, int *opened)
 {
 	size_t done = 0;
-	int n, fd = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC);
-	if (fd < 0) return 0;
+	int n, result = 0, closed, fd;
+	if (opened) *opened = 0;
+	fd = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC);
+	if (fd < 0) return fd;
+	if (opened) *opened = 1;
 	while (done < size) {
-		n = genWrite(fd, (void *)(data + done), size - done > 65536 ? 65536 : (int)(size - done));
-		if (n <= 0) { genClose(fd); return 0; }
+		int count = size - done > 65536 ? 65536 : (int)(size - done);
+		n = genWrite(fd, (void *)(data + done), count);
+		if (n <= 0 || n > count) { result = n < 0 ? n : -EIO; break; }
 		done += n;
 	}
-	return genClose(fd) >= 0;
+	closed = genClose(fd);
+	return result < 0 ? result : closed < 0 ? closed : 0;
+}
+
+static int writeFile(const char *path, const uint8_t *data, size_t size)
+{
+	return writeFileResult(path, data, size, NULL) >= 0;
 }
 
 static int metadata(const char *path, const SaveArchiveEntry *e, int folder)
@@ -172,54 +192,64 @@ int filerImportSave(const char *source, const char *destination, char *message, 
 
 int filerExtractSave(const SaveArchive *s, const char *destination, char *message, int size)
 {
-    VmcInfo card;
-    char parent[MAX_PATH], target[MAX_PATH], stage[MAX_PATH], path[MAX_PATH];
-    int is_card, folder = 0, result = -1, staged = 0;
+	VmcInfo card;
+	char parent[MAX_PATH], target[MAX_PATH], path[MAX_PATH];
+	int is_card, folder = 0, result = -1, created = 0, error = -EIO;
+	const char *action = "open the destination";
 	if (!saveWritable(destination) || prepareTransferDeviceStacks(destination, destination) < 0 || genFixPath(destination, parent) < 0) goto fail;
 	is_card = !strncmp(destination, "mc", 2) || !strncmp(destination, "vmc", 3);
 	if (is_card && !filerCardInfo(destination, &card)) goto fail;
 	if (is_card && card.type == 1 && !s->ps1) {
 		snprintf(message, size, "A PS2 save needs a PS2 card or a storage folder."); goto done;
 	}
-	if (!parent[0] || parent[strlen(parent) - 1] != '/' || !genCanRenamePath(parent)) goto fail;
+	/* genFixPath may turn a storage root into dev: without a slash. */
+	size_t used = strlen(parent);
+	if (!used) goto fail;
+	if (parent[used - 1] != '/') {
+		if (used + 1 >= sizeof(parent)) goto fail;
+		strcat(parent, "/");
+	}
 	folder = !(s->ps1 && is_card && card.type == 1);
 	const char *name = s->ps1 ? s->files[0].name : s->folder.name;
 	if (snprintf(target, sizeof(target), "%s%s", parent, name) >= (int)sizeof(target)) goto fail;
-	/* Keep existing saves intact. Importing under a different name would make
-	 * most games unable to find them, so report the conflict explicitly. */
+	/* Save names are game identifiers. Keep existing saves intact. */
 	if (exists(target)) {
 		snprintf(message, size, "Save already exists: %s. Back it up and remove it before importing.", name); goto done;
 	}
 	if (is_card) {
 		u64 needed = 0;
 		for (unsigned i = 0; i < s->count; i++) needed += (s->files[i].size + card.unit_bytes - 1) / card.unit_bytes;
-		if (folder) needed += s->count + 3; /* directory entries and directory growth */
+		if (folder) needed += s->count + 3;
 		if (needed > (u64)card.free_units) { snprintf(message, size, "Not enough free space for this save."); goto done; }
 	}
-	if (!uniquePath(parent, stage, sizeof(stage), "TMP")) goto fail;
-	if (folder && genMkdir(stage, 0x8427) < 0) goto fail;
-	staged = 1;
+	if (folder) {
+		action = "create the save folder";
+		if ((error = genMkdir(target, 0x8427)) < 0) goto fail;
+		created = 1;
+	}
 	for (unsigned i = 0; i < s->count; i++) {
 		if (folder) {
-			if (snprintf(path, sizeof(path), "%s/%s", stage, s->files[i].name) >= (int)sizeof(path)) goto fail;
-		} else snprintf(path, sizeof(path), "%s", stage);
-		if (!writeFile(path, s->files[i].data, s->files[i].size)) goto fail;
-		if (!s->ps1 && !metadata(path, &s->files[i], 0)) goto fail;
+			if (snprintf(path, sizeof(path), "%s/%s", target, s->files[i].name) >= (int)sizeof(path)) { error = -ENAMETOOLONG; goto fail; }
+		} else snprintf(path, sizeof(path), "%s", target);
+		action = "write a save file";
+		if ((error = writeFileResult(path, s->files[i].data, s->files[i].size, folder ? NULL : &created)) < 0) goto fail;
+		action = "restore save metadata";
+		if (!s->ps1 && !metadata(path, &s->files[i], 0)) { error = -EIO; goto fail; }
 	}
 	if (folder) {
 		SaveArchiveEntry folder_info = s->folder;
 		if (s->ps1) folder_info.mode = 0x9027;
-		if (!metadata(stage, &folder_info, 1)) goto fail;
+		action = "restore folder metadata";
+		if (!metadata(target, &folder_info, 1)) { error = -EIO; goto fail; }
 	}
-	if (genRenameNoReplace(stage, target) < 0) goto fail;
-	staged = 0;
+	created = 0;
 	result = 1;
 	snprintf(message, size, "Extracted %s", name);
 	goto done;
 fail:
-	snprintf(message, size, "Could not extract save. Choose writable storage or a compatible memory card.");
+	snprintf(message, size, "Could not %s (%d): %s", action, error, destination);
 done:
-	if (staged) removeStage(stage, s, folder);
+	if (created) removeStage(target, s, folder);
 	return result;
 }
 
@@ -520,21 +550,18 @@ done:
 
 int filerWriteArchive(const uint8_t *data, size_t length, int format, const char *destination, char *message, int size)
 {
-	char output[MAX_PATH], parent[MAX_PATH], stage[MAX_PATH], backup[MAX_PATH];
+	char output[MAX_PATH];
 	VmcInfo card;
-	int staged = 0, result = -1;
+	int opened = 0, replace, result;
 	if (!data || !length || length > SAVE_ARCHIVE_LIMIT || !saveWritable(destination) ||
-	    prepareTransferDeviceStacks(destination, destination) < 0 || genFixPath(destination, output) < 0) goto fail;
+	    prepareTransferDeviceStacks(destination, destination) < 0 || genFixPath(destination, output) < 0) {
+		snprintf(message, size, "Could not open the archive destination: %s", destination); return -1;
+	}
 	if ((!strncmp(destination, "mc", 2) || !strncmp(destination, "vmc", 3)) &&
 	    (!filerCardInfo(destination, &card) || card.type == 1)) {
 		snprintf(message, size, "Choose storage or a PS2 card for archive files."); return -1;
 	}
-	snprintf(parent, sizeof(parent), "%s", output);
-	char *leaf = strrchr(parent, '/');
-	if (!leaf || !leaf[1]) goto fail;
-	leaf[1] = 0;
-	if (!genCanRenamePath(parent)) goto fail;
-	int replace = exists(output);
+	replace = exists(output);
 	if (replace) {
 		if (format != SAVE_OUTPUT_PSU) {
 			snprintf(message, size, "Archive already exists. Rename it or choose another folder."); return -1;
@@ -542,36 +569,17 @@ int filerWriteArchive(const uint8_t *data, size_t length, int format, const char
 		if (setting->PSU_NoOverwrite) {
 			snprintf(message, size, "PSU archive already exists; skipped because never overwrite is enabled."); return 0;
 		}
-		int fd = genDopen(output);
-		if (fd >= 0) {
-			genDclose(fd);
-			snprintf(message, size, "A folder already uses this archive name. Choose another folder."); return -1;
-		}
 	}
-	if (!uniquePath(parent, stage, sizeof(stage), "ARC")) goto fail;
-	staged = 1;
-	if (!writeFile(stage, data, length)) goto fail;
-	/* Keep the old PSU until the complete replacement is ready. All devices
-	 * use sibling renames; a failed publish restores the original filename. */
-	if (replace && (!uniquePath(parent, backup, sizeof(backup), "BAK") ||
-	                genRenameNoReplace(output, backup) < 0)) goto fail;
-	if (genRenameNoReplace(stage, output) < 0) {
-		if (replace && genRenameNoReplace(backup, output) < 0) {
-			genRemove(stage);
-			snprintf(message, size, "Could not replace PSU archive. Previous archive kept at %s", backup);
-			return -1;
-		}
-		goto fail;
+	result = writeFileResult(output, data, length, &opened);
+	if (result < 0) {
+		/* Remove an incomplete new export. As with R3Z's ordinary overwrite,
+		 * an existing PSU may already have been truncated; retain it for inspection. */
+		if (opened && !replace) genRemove(output);
+		snprintf(message, size, "Could not write archive (%d): %s", result, destination);
+		return -1;
 	}
-	staged = 0; result = 1;
-	if (replace && genRemove(backup) < 0)
-		snprintf(message, size, "Archive created; previous archive kept at %s", backup);
-	else snprintf(message, size, "Archive created: %s", destination);
-	return result;
-fail:
-	if (staged) genRemove(stage);
-	snprintf(message, size, "Could not create archive. Check the destination and free space.");
-	return result;
+	snprintf(message, size, "Archive created: %s", destination);
+	return 1;
 }
 
 /* Copy/Cut stores metadata only. Canonical save data is temporary work for
@@ -600,7 +608,18 @@ static int archiveClipboardMatches(void)
 
 int filerArchiveClipboardKind(void)
 {
-	return archiveClipboardMatches() ? archive_clip_kind : FILER_SAVE_NONE;
+	const FILEINFO *file = &archive_clip_file;
+	u64 bytes = ((u64)file->stats.Reserve2 << 32) | file->stats.FileSizeByte;
+	if (!archiveClipboardMatches() || !file->name[0] || !strcmp(file->name, ".") || !strcmp(file->name, ".."))
+		return FILER_SAVE_NONE;
+	if (archive_clip_probed) return archive_clip_kind;
+	/* Opening Options uses listing metadata only. Resolve a candidate's
+	 * contents and folder flatness after the user chooses Create archive. */
+	if (file->stats.AttrFile & sceMcFileAttrSubdir)
+		return archive_clip_card_type == 2 && (file->stats.AttrFile & 0x1000) ? FILER_SAVE_PS1 : FILER_SAVE_PS2;
+	if (archive_clip_card_type == 1 || (bytes && bytes <= 15 * PS1_BLOCK_SIZE &&
+	    !(bytes % PS1_BLOCK_SIZE) && strlen(file->name) <= 20)) return FILER_SAVE_PS1;
+	return FILER_SAVE_NONE;
 }
 
 void filerRememberArchiveClipboard(int card_type)

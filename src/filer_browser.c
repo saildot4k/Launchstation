@@ -551,10 +551,8 @@ static int menu(const char *path, FILEINFO *file, int card_type, const FILEINFO 
 	int mSprite_X1 = mSprite_X2 - (menu_ch_w + 3) * FONT_WIDTH;   //Left edge of sprite
 	int mSprite_Y2 = mSprite_Y1 + (menu_ch_h + 1) * FONT_HEIGHT;  //Bottom edge of sprite
 
-	if (nclipFiles == 1 && !(card_type == 1 && isMcLikePath(path)))
-		filerProbeArchiveClipboard(path);
 	filerMenuEnables(path, file, nmarks, card_type, enable);
-	if (enable[COPY]) kind = filerSaveKind(path, save_file, card_type);
+	if (enable[COPY] && filerPs1CardCandidate(save_file)) kind = FILER_CARD_PS1;
 	filerClipboardExtractLabel(extract_label, sizeof(extract_label));
 	enable[EXPORT_PS1] = (card_type == 1 && isMcLikePath(path)) || (enable[COPY] && kind == FILER_CARD_PS1);
 
@@ -1173,6 +1171,11 @@ static void classicCreateArchive(const char *folder, char *message, int size)
 	int kind = filerArchiveClipboardKind(), choice, format;
 	message[0] = 0;
 	if (kind != FILER_SAVE_PS1 && kind != FILER_SAVE_PS2) return;
+	kind = filerProbeArchiveClipboard(folder);
+	if (kind != FILER_SAVE_PS1 && kind != FILER_SAVE_PS2) {
+		snprintf(message, size, "Choose one complete PS1 save or a folder with files and no subdirectories.");
+		return;
+	}
 	choice = saveChoice("Create archive", kind == FILER_SAVE_PS1 ? "PS1 save" : "PS2 save",
 	                    kind == FILER_SAVE_PS1 ? ps1_formats : ps2_formats, kind == FILER_SAVE_PS1 ? 3 : 2);
 	if (choice < 0) return;
