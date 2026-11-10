@@ -343,12 +343,23 @@ static void selectName(const char *name)
 		}
 }
 
+static void openDir(const char *dir, const char *select);
+
 static void listDone(void *arg)
 {
 	FbListJob *j = (FbListJob *)arg;
 	int i, o = 0;
 
 	if (!j->abandoned && j->gen == fb.gen && fb.files != NULL) {
+		if (j->n < 0 && (!strncmp(j->path, "mc0:", 4) || !strncmp(j->path, "mc1:", 4))) {
+			char card[8];
+			snprintf(card, sizeof(card), "mc%c:/", j->path[2]);
+			free(j->files);
+			free(j);
+			openDir("", card);
+			dashToast(DASH_TOAST_WARN, "Memory card could not be read. Try opening it again.");
+			return;
+		}
 		for (i = 0; i < j->n && o < MAX_ENTRY; i++) {
 			FILEINFO *f = &j->files[i];
 			if (f->name[0] == '\0' || !strcmp(f->name, ".") || !strcmp(f->name, ".."))
@@ -411,8 +422,6 @@ static void listMisc(void)
 		fb.n++;
 	}
 }
-
-static void openDir(const char *dir, const char *select);
 
 static void openDirInternal(const char *dir, const char *select)
 {
@@ -621,8 +630,9 @@ static void activate(void)
 		if (fb.sel >= fb.ndevs)
 			return;
 		d = &fb.devs[fb.sel];
-		if (d->icon == DI_MC && d->state == DASH_DEV_ABSENT) {
-			dashToast(DASH_TOAST_INFO, "Insert a memory card into this slot");
+		if (d->icon == DI_MC) {
+			dashStrCopy(path, d->browse, sizeof(path));
+			openDir(path, NULL); /* recheck the actual card, even after cached absence */
 			return;
 		}
 		if (d->icon == DI_DISC && d->state != DASH_DEV_READY) {
@@ -966,7 +976,7 @@ static void opCreateArchive(int kind)
 {
 	static const char *const ps1_formats[] = {"MCS - PS1 save backup", "PSV - PS3 export", "PSX - Action Replay / GameShark"};
 	static const char *const ps2_formats[] = {"PSU - PS2 save backup (EMS/wLE)", "PSV - PS3 export"};
-	char destination[MAX_PATH], name[80];
+	char destination[MAX_PATH], name[MAX_NAME];
 	DashMenuItem formats[3];
 	const char *save_type = kind == FILER_SAVE_PS1 ? "PS1 save" : "PS2 save";
 	const char *const *labels = kind == FILER_SAVE_PS1 ? ps1_formats : ps2_formats;
@@ -991,15 +1001,17 @@ static void opCreateArchive(int kind)
 	result = filerCreateClipboardArchive(fb.dir, format, &data, &length, name, sizeof(name), fb.msg, sizeof(fb.msg));
 	opDone();
 	if (result < 0) { dashModalMessage(DI_WARNING, "Archive not created", fb.msg, NULL); return; }
-	if (!dashModalFilename("Archive filename", name, sizeof(name) - 1, fb.dir) || !name[0] ||
+	if (!name[0] ||
 	    snprintf(destination, sizeof(destination), "%s%s", fb.dir, name) >= (int)sizeof(destination) ||
 	    !prepareOp() || filerConfirmExploitModify(fb.dir, NULL) <= 0) goto done;
 	dashLoadingBegin("Creating archive");
-	result = filerWriteArchive(data, length, destination, fb.msg, sizeof(fb.msg));
+	result = filerWriteArchive(data, length, format, destination, fb.msg, sizeof(fb.msg));
 	free(data); data = NULL;
-	if (result > 0) result = filerFinishArchiveClipboard(destination, fb.msg, sizeof(fb.msg));
+	int published = result > 0;
+	if (published) result = filerFinishArchiveClipboard(destination, fb.msg, sizeof(fb.msg));
 	opDone();
-	dashModalMessage(result <= 0 ? DI_WARNING : DI_MC, result < 0 ? "Archive not created" : "Archive created", fb.msg, NULL);
+	dashModalMessage(result <= 0 ? DI_WARNING : DI_MC, published ? "Archive created" :
+	                 result < 0 ? "Archive not created" : "Archive skipped", fb.msg, NULL);
 	refresh();
 done:
 	free(data);
@@ -1878,7 +1890,8 @@ static int browserOpenState(const char *start_dir, const char *select)
 	}
 	memset(fb.mark, 0, MAX_ENTRY);
 	if (start_dir != NULL && start_dir[0] &&
-	    (isMisc(start_dir) || (strchr(start_dir, ':') && dashDevicePathReady(start_dir))))
+	    (isMisc(start_dir) || (strchr(start_dir, ':') &&
+	     (!strncmp(start_dir, "mc0:", 4) || !strncmp(start_dir, "mc1:", 4) || dashDevicePathReady(start_dir)))))
 		openDir(start_dir, select);
 	else
 		openDir("", select);
@@ -1903,6 +1916,8 @@ static void browserProcessInput(const DashInput *in, int *running)
 	int total, prev;
 	if (fb.files == NULL)
 		return;
+	if (!fb.dir[0])
+		dashDevicesRefreshMemoryCards(fb.devs, fb.ndevs);
 	total = fb.dir[0] ? fb.n : fb.ndevs;
 	prev = fb.sel;
 	if (!fb.loading) {

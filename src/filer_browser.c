@@ -1167,7 +1167,7 @@ static void classicCreateArchive(const char *folder, char *message, int size)
 {
 	static const char *const ps1_formats[] = {"MCS - PS1 save backup", "PSV - PS3 export", "PSX - Action Replay / GameShark"};
 	static const char *const ps2_formats[] = {"PSU - PS2 save backup (EMS/wLE)", "PSV - PS3 export"};
-	char destination[MAX_PATH], name[80];
+	char destination[MAX_PATH], name[MAX_NAME];
 	uint8_t *data = NULL;
 	size_t length = 0;
 	int kind = filerArchiveClipboardKind(), choice, format;
@@ -1179,10 +1179,10 @@ static void classicCreateArchive(const char *folder, char *message, int size)
 	format = kind == FILER_SAVE_PS1 ? (choice == 0 ? SAVE_OUTPUT_MCS : choice == 1 ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSX) :
 	                                (choice ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSU);
 	if (filerCreateClipboardArchive(folder, format, &data, &length, name, sizeof(name), message, size) < 0) return;
-	if (filenameKeyboard(name, sizeof(name) - 1, folder) > 0 && name[0] &&
+	if (name[0] &&
 	    snprintf(destination, sizeof(destination), "%s%s", folder, name) < (int)sizeof(destination) &&
 	    filerConfirmExploitModify(folder, NULL) > 0) {
-		int result = filerWriteArchive(data, length, destination, message, size);
+		int result = filerWriteArchive(data, length, format, destination, message, size);
 		free(data); data = NULL;
 		if (result > 0) filerFinishArchiveClipboard(destination, message, size);
 	}

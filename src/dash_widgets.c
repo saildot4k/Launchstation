@@ -863,6 +863,8 @@ static void pickListRun(void *arg)
 	j->n = getDir(j->path, j->files);
 }
 
+static void pickOpen(const char *dir);
+
 static void pickListDone(void *arg)
 {
 	PickListJob *j = (PickListJob *)arg;
@@ -870,6 +872,13 @@ static void pickListDone(void *arg)
 
 	if (pk.active && j->gen == pk.gen && pk.entries != NULL) {
 		pk.n = 0;
+		if (j->n < 0 && (!strncmp(j->path, "mc0:", 4) || !strncmp(j->path, "mc1:", 4))) {
+			free(j->files);
+			free(j);
+			pickOpen("");
+			dashToast(DASH_TOAST_WARN, "Memory card could not be read. Try opening it again.");
+			return;
+		}
 		for (i = 0; i < j->n && pk.n < PICK_MAX; i++) {
 			FILEINFO *f = &j->files[i];
 			int is_dir = (f->stats.AttrFile & sceMcFileAttrSubdir) != 0;
@@ -1046,7 +1055,8 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 	pk.active = 1;
 	pk.mode = mode;
 	pk.ext = ext;
-	pickOpen((start_dir != NULL && strchr(start_dir, ':') != NULL && dashDevicePathReady(start_dir)) ? start_dir : "");
+	pickOpen((start_dir != NULL && strchr(start_dir, ':') != NULL &&
+	          (!strncmp(start_dir, "mc0:", 4) || !strncmp(start_dir, "mc1:", 4) || dashDevicePathReady(start_dir))) ? start_dir : "");
 	dashInputFlush();
 
 	while (1) {
@@ -1067,6 +1077,7 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 		}
 		/* rows: [Use this folder] [Up] entries... ; device list: devices */
 		if (pk.dir[0] == '\0') {
+			dashDevicesRefreshMemoryCards(pk.devs, pk.ndevs);
 			n_rows = pk.ndevs;
 			first_entry = 0;
 		} else {
@@ -1148,7 +1159,7 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 			dashSoundPlay(DASH_SND_CONFIRM);
 			if (pk.dir[0] == '\0') {
 				DashDevice *d = &pk.devs[sel];
-				if (d->state == DASH_DEV_READY || (d->icon == DI_MC && d->state == DASH_DEV_BUSY))
+				if (d->state == DASH_DEV_READY || d->icon == DI_MC)
 					pickOpen(d->browse);
 				else if (d->state == DASH_DEV_PROBE || d->state == DASH_DEV_ABSENT) {
 					if (d->icon == DI_MC || d->icon == DI_DISC)

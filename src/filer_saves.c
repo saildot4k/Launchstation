@@ -1,6 +1,7 @@
 #include "filer_saves.h"
 #include "filer_shared.h"
 #include "filer_actions.h"
+#include "filer_copy.h"
 #include "save_archive.h"
 #include "init.h"
 #include <ctype.h>
@@ -517,9 +518,9 @@ done:
 	return result;
 }
 
-int filerWriteArchive(const uint8_t *data, size_t length, const char *destination, char *message, int size)
+int filerWriteArchive(const uint8_t *data, size_t length, int format, const char *destination, char *message, int size)
 {
-	char output[MAX_PATH], parent[MAX_PATH], stage[MAX_PATH];
+	char output[MAX_PATH], parent[MAX_PATH], stage[MAX_PATH], backup[MAX_PATH];
 	VmcInfo card;
 	int staged = 0, result = -1;
 	if (!data || !length || length > SAVE_ARCHIVE_LIMIT || !saveWritable(destination) ||
@@ -533,12 +534,39 @@ int filerWriteArchive(const uint8_t *data, size_t length, const char *destinatio
 	if (!leaf || !leaf[1]) goto fail;
 	leaf[1] = 0;
 	if (!genCanRenamePath(parent)) goto fail;
-	if (exists(output)) { snprintf(message, size, "Archive already exists. Choose another filename or folder."); return -1; }
+	int replace = exists(output);
+	if (replace) {
+		if (format != SAVE_OUTPUT_PSU) {
+			snprintf(message, size, "Archive already exists. Rename it or choose another folder."); return -1;
+		}
+		if (setting->PSU_NoOverwrite) {
+			snprintf(message, size, "PSU archive already exists; skipped because never overwrite is enabled."); return 0;
+		}
+		int fd = genDopen(output);
+		if (fd >= 0) {
+			genDclose(fd);
+			snprintf(message, size, "A folder already uses this archive name. Choose another folder."); return -1;
+		}
+	}
 	if (!uniquePath(parent, stage, sizeof(stage), "ARC")) goto fail;
 	staged = 1;
-	if (!writeFile(stage, data, length) || genRenameNoReplace(stage, output) < 0) goto fail;
+	if (!writeFile(stage, data, length)) goto fail;
+	/* Keep the old PSU until the complete replacement is ready. All devices
+	 * use sibling renames; a failed publish restores the original filename. */
+	if (replace && (!uniquePath(parent, backup, sizeof(backup), "BAK") ||
+	                genRenameNoReplace(output, backup) < 0)) goto fail;
+	if (genRenameNoReplace(stage, output) < 0) {
+		if (replace && genRenameNoReplace(backup, output) < 0) {
+			genRemove(stage);
+			snprintf(message, size, "Could not replace PSU archive. Previous archive kept at %s", backup);
+			return -1;
+		}
+		goto fail;
+	}
 	staged = 0; result = 1;
-	snprintf(message, size, "Archive created: %s", destination);
+	if (replace && genRemove(backup) < 0)
+		snprintf(message, size, "Archive created; previous archive kept at %s", backup);
+	else snprintf(message, size, "Archive created: %s", destination);
 	return result;
 fail:
 	if (staged) genRemove(stage);
@@ -636,6 +664,43 @@ int filerProbeArchiveClipboard(const char *destination)
 	return archive_clip_kind;
 }
 
+/* Apply the existing PSU backup policy only to the final output name.
+ * Canonical clipboard snapshots and their Cut comparisons stay independent
+ * of naming preferences. Reuse R3Z's title conversion and device name limits. */
+static int clipboardArchiveFilename(const SaveArchive *save, int format, const char *source,
+                                    const char *destination, char *out, int size)
+{
+	char parent[MAX_PATH], path[MAX_PATH], name[MAX_NAME], title[66] = {0};
+	unsigned char sjis[66];
+	const uint8_t *date = save->folder.modified;
+	int count;
+	if (format != SAVE_OUTPUT_PSU) return saveArchiveFilename(save, format, out, size);
+	if (setting->PSU_HugeNames || fileShowTitles()) {
+		snprintf(parent, sizeof(parent), "%s", source);
+		char *leaf = strrchr(parent, '/');
+		if (leaf) {
+			leaf[1] = 0;
+			if (filerGetGameTitle(parent, &clipFiles[0], sjis) == 0 && sjis[0]) transcpy_sjis(title, sjis);
+		}
+	}
+	if (title[0] && setting->PSU_HugeNames)
+		count = snprintf(name, sizeof(name), "%s_%s", save->folder.name, title);
+	else count = snprintf(name, sizeof(name), "%s", title[0] ? title : save->folder.name);
+	if (count < 0 || count >= (int)sizeof(name)) return 0;
+	for (int i = 0; name[i]; i++) if (strchr("\"\\/:*?<>|", name[i])) name[i] = '_';
+	if (setting->PSU_DateNames) {
+		count += snprintf(name + count, sizeof(name) - count, "_%04d-%02d-%02d_%02d-%02d-%02d",
+		                  date[6] | (date[7] << 8), date[5], date[4], date[3], date[2], date[1]);
+		if (count >= (int)sizeof(name)) return 0;
+	}
+	if (snprintf(path, sizeof(path), "%s%s", destination, name) >= (int)sizeof(path)) return 0;
+	genLimObjName(path, 4);
+	if (strlen(path) + 4 >= sizeof(path)) return 0;
+	strcat(path, ".psu");
+	const char *leaf = strrchr(path, '/');
+	return leaf && snprintf(out, size, "%s", leaf + 1) < size;
+}
+
 int filerCreateClipboardArchive(const char *destination, int format, uint8_t **data, size_t *length,
                                char *name, int name_size, char *message, int size)
 {
@@ -661,7 +726,8 @@ int filerCreateClipboardArchive(const char *destination, int format, uint8_t **d
 		return -1;
 	if (saveArchiveParse(&save, archive_clip_data, archive_clip_length,
 	                     archive_clip_kind == FILER_SAVE_PS1 ? "clipboard.mcs" : "clipboard.psu") &&
-	    saveArchiveBuild(&save, format, data, length) && saveArchiveFilename(&save, format, name, name_size))
+	    saveArchiveBuild(&save, format, data, length) &&
+	    clipboardArchiveFilename(&save, format, source, destination, name, name_size))
 		result = 1;
 	if (result < 0) {
 		free(*data); *data = NULL; *length = 0;

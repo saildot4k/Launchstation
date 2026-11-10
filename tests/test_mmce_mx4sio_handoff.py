@@ -32,6 +32,7 @@ code = r'''
 #define MX4SIO 1
 #define TRUE 1
 #define FALSE 0
+#define sceMcResSucceed 0
 #define DPRINTF(...) ((void)0)
 #define STORAGE_STACK_DEFAULT 0
 #define STORAGE_STACK_MMCE 1
@@ -51,6 +52,9 @@ static int events[16],nevents,pending_mc;
 enum {EV_RESET=1,EV_MMCE,EV_MX4SIO,EV_READ};
 static void event(int e) { assert(nevents<16);events[nevents++]=e; }
 static void filerRootMcPollIdle(void) { pending_mc=0; }
+static int isMemoryCardRpcReady(void) { return 1; }
+static int filerRootMcPresent(int p,void *t,void *f) { (void)p;(void)t;(void)f;return 1; }
+static int filerPrepareMemoryCardRead(int p) { (void)p;return 0; }
 static void ensureCoreIoStackReady(void) { core_ready=1; }
 static void showLoadingModulesMsg(const char *name) { assert(name); }
 static void resetRuntimeDeviceState(int show) {

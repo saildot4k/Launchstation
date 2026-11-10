@@ -633,9 +633,9 @@ void setPartyList(void)
 	setPartyListForDevice("hdd0:");
 }
 
-/* Does reading `path` still need drivers or the HDD partition list? Both
- * must be set up on the UI thread (filerPrepareDirRead) before getDir()
- * runs on the dashboard's background worker. */
+/* Prepare drivers, HDD partitions, and unresolved/reinserted physical cards
+ * on the UI thread before getDir() runs on the dashboard's worker. Unknown
+ * or cached-absent cards need a fresh handshake before browsing. */
 int filerDirReadNeedsPrep(const char *path)
 {
 	char dev[6];
@@ -644,6 +644,9 @@ int filerDirReadNeedsPrep(const char *path)
 	if (path == NULL || path[0] == '\0' || !strncmp(path, "vmc", 3))
 		return FALSE;
 	if (!isPathDeviceStackLoaded(path))
+		return TRUE;
+	if ((!strncmp(path, "mc0:", 4) || !strncmp(path, "mc1:", 4)) &&
+	    (!isMemoryCardRpcReady() || filerRootMcPresent(path[2] - '0', NULL, NULL) <= 0))
 		return TRUE;
 	if (!strncmp(path, "hdd", 3) && getHddDeviceFromPath(path, dev) >= 0 &&
 	    (unit = getHddUnitFromDevice(dev)) >= 0 && hddNparties[unit] == 0)
@@ -661,6 +664,8 @@ int filerPrepareDirRead(const char *path)
 		return TRUE;
 	if (!ensurePathDeviceStackReady(path))
 		return FALSE;
+	if (!strncmp(path, "mc0:", 4) || !strncmp(path, "mc1:", 4))
+		return filerPrepareMemoryCardRead(path[2] - '0') == sceMcResSucceed;
 	if (!strncmp(path, "hdd", 3) && getHddDeviceFromPath(path, dev) >= 0 &&
 	    (unit = getHddUnitFromDevice(dev)) >= 0 && hddNparties[unit] == 0)
 		setPartyListForDevice(dev);

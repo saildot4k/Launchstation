@@ -17,7 +17,8 @@ int filerLoadSave(const char *source, SaveArchive *save, uint8_t **data, char *m
 int filerExtractSave(const SaveArchive *save, const char *destination, char *message, int size);
 int filerCreateArchive(const char *source, const FILEINFO *file, int kind, int format,
 					   uint8_t **data, size_t *length, char *name, int name_size, char *message, int size);
-int filerWriteArchive(const uint8_t *data, size_t length, const char *destination, char *message, int size);
+/* 1 publishes, 0 skips an existing PSU under never-overwrite, -1 fails. */
+int filerWriteArchive(const uint8_t *data, size_t length, int format, const char *destination, char *message, int size);
 /* Copy/Cut records listing metadata only: no directory probes or save reads. */
 void filerClearArchiveClipboard(void);
 void filerRememberArchiveClipboard(int card_type);

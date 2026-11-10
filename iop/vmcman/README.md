@@ -1,7 +1,7 @@
-# wLaunchELF VMCMAN
+# Launchstation memory card drivers
 
 This directory vendors the PS2SDK `mcman`/`vmcman` source used to build the
-embedded `vmcman.irx` module for wLaunchELF.
+embedded physical `mcman.irx` and virtual `vmcman.irx` modules.
 
 Base snapshot:
 
@@ -55,3 +55,20 @@ after flushing pending writes. Unsupported requests and short buffers fail.
 
 Host coverage: `tests/test_ps1_vmc.py`, `tests/test_save_formats.py` and
 `tests/test_save_import.py`. Physical PS2/card/storage testing is still required.
+
+## Physical PS1 card rediscovery
+
+The same vendored sources also build the physical `mcman` driver, without
+`BUILDING_VMCMAN`. Both PS2BUILD (`mcman_physical:mcman`) and the legacy
+Makefile embed that local module instead of the SDK's precompiled `mcman`.
+The existing MCSERV, SIO2MAN, SIO2 1.2 import interface, and module-loading
+order are retained.
+
+A PS1 card can remain powered and return its already-accessed status after an
+IOP reset discards the driver's geometry and directory cache. Full detection
+now reads the header and directory again when that information is unknown or
+belongs to a PS2 card. The fast detection path uses the same recovery when
+needed. An already-accessed card needs no insertion-acknowledgement write; the
+existing header/directory validation and new-card acknowledgement are retained. A known
+unformatted PS1 card continues to report unformatted, and failed reads remain
+errors. Recovery and cache invalidation apply only to the requested slot.

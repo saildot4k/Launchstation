@@ -750,6 +750,8 @@ const char *dashDeviceDisplayMount(const DashDevice *d, char *buf, int size);
 /* Browser device rows: mount and description in two left-aligned columns. */
 void dashDrawDeviceRow(const DashDevice *d, float x, float y, float w, int selected);
 int dashDevicesList(DashDevice *out, int max);
+/* Refresh physical card rows from cached detection, without device I/O. */
+void dashDevicesRefreshMemoryCards(DashDevice *devices, int count);
 /* Starts a device's drivers (UI thread, loading overlay); `cb` is called
  * with ok = device usable. -1 = the user backed out of the wait. */
 typedef void (*DashProbeDone)(const char *mount, int ok, void *user);

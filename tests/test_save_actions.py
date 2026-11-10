@@ -25,6 +25,7 @@ code=r'''
 #include <stdlib.h>
 #include <string.h>
 #define MAX_PATH 1025
+#define MAX_NAME 256
 #define MAX_ENTRY 2
 #define DASH_TOAST_INFO 1
 #define DASH_TOAST_WARN 2
@@ -37,7 +38,7 @@ enum { FILER_SAVE_NONE,FILER_SAVE_PS1,FILER_SAVE_PS2,FILER_ARCHIVE_PS1,FILER_ARC
 typedef struct {char name[256];struct {unsigned AttrFile;}stats;} FILEINFO;
 typedef struct {int icon;const char *label,*detail;int disabled;} DashMenuItem;
 static struct {int sel,n,card_type,nmarked;char mark[2];char dir[MAX_PATH],msg[MAX_PATH];FILEINFO files[2];}fb;
-static int choice,pick_ok,prompt_ok,prepare_ok,read_ok,kind,expected_ps1;
+static int choice,pick_ok,prompt_ok,modify_ok,prepare_ok,read_ok,kind,expected_ps1;
 static int nclipFiles,browser_cut,cached_kind,finish_calls,write_ok,preparations;
 static FILEINFO clipFiles[2];static char clipPath[MAX_PATH];
 static unsigned clipIopResetGeneration;
@@ -82,7 +83,7 @@ static int dashPickPath(const char *title,const char *start,int mode,const char 
 static int getFilePath(char *out,int mode){assert(mode==DIR_CNF);return dashPickPath("Destination",fb.dir,DASH_PICK_FOLDER,NULL,out,MAX_PATH)?0:-1;}
 static int dashModalFilename(const char *title,char *name,int capacity,const char *folder){assert(title&&name[0]&&capacity>=31&&switches&&!strcmp(folder,"usb1:/output/"));prompts++;return prompt_ok;}
 static int filenameKeyboard(char *name,int capacity,const char *folder){return dashModalFilename("Filename",name,capacity,folder);}
-static int filerConfirmExploitModify(const char *path,const FILEINFO *file){assert(!strcmp(path,"usb1:/output/")&&!file);return 1;}
+static int filerConfirmExploitModify(const char *path,const FILEINFO *file){assert(!strcmp(path,"usb1:/output/")&&!file);return modify_ok;}
 static int isMcLikePath(const char *path){return !strncmp(path,"mc",2)||!strncmp(path,"vmc",3);}
 static unsigned getIopResetGeneration(void){return 1;}
 static void dashStrCopy(char *out,const char *in,int size){snprintf(out,size,"%s",in);}
@@ -116,11 +117,12 @@ static int filerFinishArchiveClipboard(const char *destination,char *message,int
  if(browser_cut)nclipFiles=0;
  return 1;
 }
-static int filerWriteArchive(const uint8_t *data,size_t length,const char *destination,char *message,int size){
- assert(data&&length==16&&allocated==1&&reads==1&&switches==1);writes++;strcpy(observed_destination,destination);snprintf(message,size,"Archive created");return write_ok?1:-1;
+static int filerWriteArchive(const uint8_t *data,size_t length,int format,const char *destination,char *message,int size){
+ (void)format;
+ assert(data&&length==16&&allocated==1&&reads==1&&switches==1);writes++;strcpy(observed_destination,destination);snprintf(message,size,"Archive created");return write_ok==2?0:write_ok?1:-1;
 }
 static unsigned char *filerReadPs1Card(const char *path,char *message,int size){(void)message;(void)size;source(path);return read_ok?allocate():NULL;}
-static int filerSavePs1Card(const uint8_t *data,const char *destination,char *message,int size){return filerWriteArchive(data,16,destination,message,size);}
+static int filerSavePs1Card(const uint8_t *data,const char *destination,char *message,int size){return filerWriteArchive(data,16,SAVE_OUTPUT_MCS,destination,message,size);}
 '''
 code+=function(dash,'static int targets(')+function(dash,'static FILEINFO *singleSaveTarget(void)')
 for signature in ['static void opCopy(int cut)','static void opImportSaves(void)','static void opCreateArchive(int kind)','static void opExportPs1(void)']:
@@ -132,7 +134,7 @@ static void reset(int ps1){
  assert(!allocated);memset(&fb,0,sizeof(fb));fb.n=1;fb.card_type=ps1?1:2;
  strcpy(fb.dir,ps1?"mc0:/":"vmc1:/");strcpy(fb.files[0].name,"SAVE");
  fb.files[0].stats.AttrFile=ps1?0:sceMcFileAttrSubdir;kind=ps1?FILER_SAVE_PS1:FILER_SAVE_PS2;expected_ps1=ps1;
- choice=0;pick_ok=prompt_ok=prepare_ok=read_ok=write_ok=1;reads=switches=writes=extracts=prompts=loading=freed_saves=messages=refreshes=0;
+ choice=0;pick_ok=prompt_ok=modify_ok=prepare_ok=read_ok=write_ok=1;reads=switches=writes=extracts=prompts=loading=freed_saves=messages=refreshes=0;
  nclipFiles=browser_cut=cached_kind=finish_calls=preparations=0;
  first_choice[0]=observed_source[0]=observed_destination[0]=0;
 }
@@ -144,10 +146,16 @@ static void copySave(int cut){
 int main(void){
  for(int ps1=0;ps1<2;ps1++)for(int format=0;format<(ps1?3:2);format++)for(int native=0;native<2;native++) {
   reset(ps1);copySave(format&1);choice=format;expected_format=format==2?SAVE_OUTPUT_PSX:format==1?SAVE_OUTPUT_PSV:ps1?SAVE_OUTPUT_MCS:SAVE_OUTPUT_PSU;
+  prompt_ok=0; /* Archive creation must not invoke either filename keyboard. */
   if(native)classicCreateArchive(fb.dir,fb.msg,sizeof(fb.msg));else opCreateArchive(kind);
-  assert(reads==1&&switches==1&&writes==1&&prompts==1&&finish_calls==1&&!allocated&&!loading);
+  assert(reads==1&&switches==1&&writes==1&&!prompts&&finish_calls==1&&!allocated&&!loading);
   assert(!strcmp(first_choice,ps1?"MCS - PS1 save backup":"PSU - PS2 save backup (EMS/wLE)"));
   assert(!strcmp(observed_destination,format==2?"usb1:/output/SAVE.psx":format==1?"usb1:/output/SAVE.PSV":ps1?"usb1:/output/SAVE.mcs":"usb1:/output/SAVE.psu"));
+ }
+ for(int native=0;native<2;native++) {
+  reset(0);copySave(1);expected_format=SAVE_OUTPUT_PSU;write_ok=2;
+  if(native)classicCreateArchive(fb.dir,fb.msg,sizeof(fb.msg));else opCreateArchive(kind);
+  assert(writes==1&&!finish_calls&&nclipFiles==1&&browser_cut&&!prompts&&!allocated&&!loading);
  }
  for(int native=0;native<2;native++)for(int cut=0;cut<2;cut++)for(int fail=0;fail<2;fail++) {
   reset(0);strcpy(clipPath,"usb0:/archives/");strcpy(clipFiles[0].name,"archive.PSV");nclipFiles=1;browser_cut=cut;
@@ -166,7 +174,7 @@ int main(void){
  }
  for(int native=0;native<2;native++)for(int failure=0;failure<4;failure++) {
   reset(1);copySave(1);expected_format=SAVE_OUTPUT_MCS;
-  if(failure==0)choice=-1;else if(failure==1)read_ok=0;else if(failure==2)prompt_ok=0;else write_ok=0;
+  if(failure==0)choice=-1;else if(failure==1)read_ok=0;else if(failure==2)modify_ok=0;else write_ok=0;
   if(native)classicCreateArchive(fb.dir,fb.msg,sizeof(fb.msg));else opCreateArchive(kind);
   assert(writes==(failure==3)&&!finish_calls&&!allocated&&!loading&&nclipFiles==1);
  }
@@ -175,7 +183,7 @@ int main(void){
  assert(!strcmp(observed_source,"mc0:/SAVE")&&!allocated);
  reset(1);opCreateArchive(FILER_SAVE_PS1);assert(!reads&&!writes&&!finish_calls);
  reset(1);opImportSaves();classicImportSaves(fb.dir,fb.msg,sizeof(fb.msg));assert(!extracts&&!switches&&!allocated&&!loading);
- puts("PASS: both browsers' metadata-only Copy/Cut without file I/O or driver waits, on-demand PS1/PS2 archiving, clipboard-only extraction without a destination picker, card exports, canceled/failed writes retain Cut sources");
+ puts("PASS: both browsers' metadata-only Copy/Cut without file I/O or driver waits, on-demand PS1/PS2 archiving with automatic filenames and no keyboard, clipboard-only extraction without a destination picker, card exports, canceled/failed writes retain Cut sources");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='save-actions-') as temp:

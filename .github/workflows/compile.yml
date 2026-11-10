@@ -50,6 +50,7 @@ jobs:
           python3 tests/test_save_import.py
           python3 tests/test_ps1_vmc.py
           python3 tests/test_ps1_memory_cards.py
+          python3 tests/test_ps1_card_rediscovery.py
           python3 tests/test_file_stat_errors.py
           python3 tests/test_copy_pipeline.py
           python3 tests/test_gamesave_titles.py
