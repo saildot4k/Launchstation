@@ -1,11 +1,12 @@
 """Exercise real settings serialization and file readback, including removed keys."""
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-source = (root / "src/dash_store.c").read_text()
+source = Path(os.environ.get("DASH_STORE_SOURCE", root / "src/dash_store.c")).read_text()
 header = (root / "include/dash_internal.h").read_text()
 
 
@@ -55,6 +56,23 @@ static char *hidden_apps[DASH_MAX_APPS];
 static int nhidden;
 enum { SAVE_SETTINGS, SAVE_LISTS };
 static int save_dirty[2];
+static char LoadedConfigPath[MAX_PATH],LaunchElfDir[MAX_PATH],LaunchElfBootDir[MAX_PATH],store_dir[MAX_PATH];
+static int store_initialized,store_loaded,boot_safe_mode;
+static struct {char CNF_Path[MAX_PATH];} location_setting,*setting=&location_setting;
+static struct {char path[MAX_PATH],text[256];} location_files[16];
+static int location_count,location_reads;
+static char location_requests[16][MAX_PATH];
+static void dashThemeStoreBegin(void) {}
+static void dashThemeStoreEnd(void) {}
+static char *dashLoadTextFile(const char *path,int max_size,int *length){
+    assert(location_reads<16);snprintf(location_requests[location_reads++],MAX_PATH,"%s",path);
+    for(int i=0;i<location_count;i++)if(!strcmp(path,location_files[i].path)) {
+        *length=(int)strlen(location_files[i].text);assert(*length<max_size);
+        char *text=malloc((size_t)*length+1);assert(text);memcpy(text,location_files[i].text,(size_t)*length+1);return text;
+    }
+    return NULL;
+}
+
 typedef int (*DashKvCallback)(const char *, char *, void *);
 #define stricmp case_compare
 static int stricmp(const char *a, const char *b) {
@@ -88,6 +106,50 @@ for signature in ("static int listFind(", "int dashStoreSaveLists(", "void dashS
                   "int dashStoreIsHidden(", "static int setHidden(", "int dashStoreSetHidden(",
                   "static int listsKv(", "static char *buildLists("):
     code += function(signature)
+
+# Execute production folder selection and startup parsing, including conflicting locations.
+for line in source.splitlines():
+    if line.startswith("#define DASH_STORE_MAX_DIRS "):
+        code += line + "\n"
+start = source.index("static const char *const default_scan[]")
+code += source[start:source.index("};", start)+2] + "\n"
+for signature in ("static int isWritableDevice(", "static void dirOf(", "static void selectStoreDir(",
+                  "static void addCandidateDir(", "static int candidateMcPort(",
+                  "static int candidateDirs(", "const char *dashStoreDir(",
+                  "int dashStoreBuildPath(", "void dashStoreDefaults(",
+                  "void dashStoreInit(", "int dashStoreLoaded("):
+    if signature in source:
+        code += function(signature)
+code += r'''
+static void resetLocations(const char *loaded,const char *active,const char *boot){
+    strcpy(LoadedConfigPath,loaded);strcpy(LaunchElfDir,active);strcpy(LaunchElfBootDir,boot);
+    store_initialized=store_loaded=boot_safe_mode=location_count=location_reads=0;setting->CNF_Path[0]=0;
+}
+static void addLocationFile(const char *dir,const char *name,const char *text){
+    assert(location_count<16);int i=location_count++;
+    assert(snprintf(location_files[i].path,MAX_PATH,"%s%s",dir,name)<MAX_PATH);
+    assert(strlen(text)<sizeof(location_files[i].text));strcpy(location_files[i].text,text);
+}
+static void addBundle(const char *dir,int volume){
+    char text[128];snprintf(text,sizeof(text),"Dash_SoundVolume = %d\n",volume);
+    addLocationFile(dir,"DASHBOARD.CNF",text);
+    snprintf(text,sizeof(text),"Favorite = usb0:/APPS/V%d.ELF\n",volume);addLocationFile(dir,"DASHAPPS.CNF",text);
+}
+static void expectLocation(const char *dir,int volume,int loaded){
+    dashStoreInit();assert(!strcmp(dashStoreDir(),dir)&&dashCfg.sound_vol==volume&&persisted.sound_vol==volume&&dashStoreLoaded()==loaded);
+    /* Only one attempt for each startup dashboard file, always in the selected folder. */
+    assert(location_reads==2);
+    char requested[MAX_PATH];assert(snprintf(requested,sizeof(requested),"%sDASHBOARD.CNF",dir)<(int)sizeof(requested));
+    assert(!strcmp(location_requests[0],requested));
+    assert(snprintf(requested,sizeof(requested),"%sDASHAPPS.CNF",dir)<(int)sizeof(requested));
+    assert(!strcmp(location_requests[1],requested));
+    const char *files[]={"DASHBOARD.CNF","DASHAPPS.CNF","DASHLIB.CNF","NEUT-SLUS_123.45-A.CNF"};
+    for(unsigned i=0;i<sizeof(files)/sizeof(files[0]);i++) {
+        char path[MAX_PATH],expected[MAX_PATH];assert(!dashStoreBuildPath(path,sizeof(path),files[i]));
+        assert(snprintf(expected,sizeof(expected),"%s%s",dir,files[i])<(int)sizeof(expected));assert(!strcmp(path,expected));
+    }
+}
+'''
 code += r'''
 int main(void) {
     /* Old settings are ignored; saving removes them and keeps supported values. */
@@ -206,6 +268,64 @@ int main(void) {
         if(scenario==7)open_error=2;
         assert((dashWriteFile("DASHBOARD.CNF",data,sizeof(data)-1)==0)==(scenario==0));
     }
+    /* Every dashboard file uses the loaded LAUNCHELF.CNF folder, even with other copies nearby. */
+    resetLocations("usb0:/Launchstation/LAUNCHELF.CNF","mmce0:/Other/","usb0:/Launchstation/");
+    addBundle("usb0:/Launchstation/",11);addBundle("mmce0:/Other/",22);addBundle("mc0:/SYS-CONF/",33);
+    expectLocation("usb0:/Launchstation/",11,1);assert(dashLists.nfav==1&&!strcmp(dashLists.fav[0],"usb0:/APPS/V11.ELF"));
+    int first_reads=location_reads;strcpy(LoadedConfigPath,"mc1:/Elsewhere/LAUNCHELF.CNF");dashStoreInit();
+    assert(location_reads==first_reads&&!strcmp(dashStoreDir(),"usb0:/Launchstation/"));
+    /* The explicit override wins over the folder that supplied the startup main config. */
+    resetLocations("usb0:/Launchstation/LAUNCHELF.CNF","mmce0:/Override/","usb0:/Launchstation/");
+    strcpy(setting->CNF_Path,"mmce0:/Override");
+    addBundle("usb0:/Launchstation/",11);addBundle("mmce0:/Override/",22);addBundle("mc0:/SYS-CONF/",33);
+    expectLocation("mmce0:/Override/",22,1);assert(dashLists.nfav==1&&!strcmp(dashLists.fav[0],"usb0:/APPS/V22.ELF"));
+    /* Missing settings use defaults in the same folder; app lists there still load independently. */
+    resetLocations("mc1:/SYS-CONF/LAUNCHELF.CNF","mc1:/SYS-CONF/","usb1:/APPS/Launchstation/");
+    addBundle("usb1:/APPS/Launchstation/",44);addBundle("mc0:/SYS-CONF/",55);
+    addLocationFile("mc1:/SYS-CONF/","DASHAPPS.CNF","Favorite = mc1:/APPS/LOCAL.ELF\n");
+    expectLocation("mc1:/SYS-CONF/",80,0);assert(dashLists.nfav==1&&!strcmp(dashLists.fav[0],"mc1:/APPS/LOCAL.ELF"));
+    /* An unavailable override must not search the loaded, startup or other card folders. */
+    resetLocations("usb0:/Launchstation/LAUNCHELF.CNF","usb0:/Launchstation/","usb0:/Launchstation/");
+    strcpy(setting->CNF_Path,"mmce1:/Unavailable/");addBundle("usb0:/Launchstation/",11);addBundle("mc0:/SYS-CONF/",33);
+    expectLocation("mmce1:/Unavailable/",80,0);assert(!dashLists.nfav);
+    /* Even missing files on a loaded MC config do not cause a search farther down. */
+    resetLocations("mc1:/BOOT/LAUNCHELF.CNF","mc1:/BOOT/","usb0:/Launchstation/");
+    addBundle("mc0:/SYS-CONF/",10);addBundle("mc1:/SYS-CONF/",20);expectLocation("mc1:/BOOT/",80,0);
+    /* Read-only and network folders remain the selected source, without silent relocation. */
+    resetLocations("cdfs:/APPS/LAUNCHELF.CNF","mc0:/SYS-CONF/","cdfs:/APPS/");
+    addBundle("cdfs:/APPS/",99);addBundle("mc1:/SYS-CONF/",88);expectLocation("cdfs:/APPS/",99,1);
+    resetLocations("host:/Config/LAUNCHELF.CNF","host:/Config/","host:/APPS/");
+    addBundle("host:/Config/",42);addBundle("mc0:/SYS-CONF/",66);expectLocation("host:/Config/",42,1);
+
+    resetLocations("host:APPS\\LAUNCHELF.CNF","host:/","host:/");
+    addBundle("host:APPS\\",42);expectLocation("host:APPS\\",42,1);
+    /* A missing app-list file never loads a list from a different dashboard copy. */
+    resetLocations("usb0:/Launchstation/LAUNCHELF.CNF","mc1:/Other/","usb0:/Launchstation/");
+    addLocationFile("usb0:/Launchstation/","DASHBOARD.CNF","Dash_SoundVolume = 12\n");addBundle("mc1:/Other/",66);
+    expectLocation("usb0:/Launchstation/",12,1);assert(!dashLists.nfav);
+    /* With no main config, reuse the startup config directory without doing a location search. */
+    resetLocations("","usb0:/Launchstation/","usb0:/Launchstation/");addBundle("mc1:/SYS-CONF/",77);
+    expectLocation("usb0:/Launchstation/",80,0);
+    resetLocations("","mc0:/SYS-CONF/","cdfs:/APPS/");addBundle("mc1:/SYS-CONF/",77);
+    expectLocation("mc0:/SYS-CONF/",80,0);
+    resetLocations("","","usb1:/APPS/");expectLocation("usb1:/APPS/",80,0);
+    resetLocations("","","");expectLocation("mc0:/SYS-CONF/",80,0);
+    /* APA paths are used only when explicitly selected, never as an automatic fallback. */
+    resetLocations("usb0:/Config/LAUNCHELF.CNF","hdd1:/__sysconf/FMCB/","mmce1:/APPS/");
+    expectLocation("usb0:/Config/",80,0);
+    strcpy(setting->CNF_Path,"hdd1:/__sysconf/FMCB/");store_initialized=0;location_reads=0;
+    addBundle("hdd1:/__sysconf/FMCB/",42);expectLocation("hdd1:/__sysconf/FMCB/",42,1);
+    /* Folder selection depends on the main-config path, not a writable-device whitelist. */
+    const char *devices[]={"mc0:/BOOT/","mc1:/BOOT/","mass2:/APPS/","usb1:/APPS/","mmce0:/APPS/","mmce1:/APPS/","mx4sio:/APPS/","ata0:/APPS/","hdd0:/__sysconf/FMCB/","hdd1:/+Launchstation/","cf0:/APPS/","vmc0:/Config/"};
+    for(unsigned i=0;i<sizeof(devices)/sizeof(devices[0]);i++) {
+        char main_config[MAX_PATH];snprintf(main_config,sizeof(main_config),"%sLAUNCHELF.CNF",devices[i]);
+        resetLocations(main_config,devices[i],devices[i]);addBundle(devices[i],42);expectLocation(devices[i],42,1);
+    }
+    resetLocations("mass2:LAUNCHELF.CNF","mass2:/","mass2:/");addBundle("mass2:/",42);expectLocation("mass2:/",42,1);
+    /* SELECT recovery keeps the chosen folder, skips settings and does not migrate files. */
+    resetLocations("mc1:/SYS-CONF/LAUNCHELF.CNF","mc1:/SYS-CONF/","usb0:/Launchstation/");
+    addBundle("mc1:/SYS-CONF/",11);boot_safe_mode=1;expectLocation("mc1:/SYS-CONF/",80,0);
+    puts("PASS: one dashboard folder, explicit override priority, no fallback probes on missing files, independent app-list loading, stable save/cache/profile paths, startup defaults and recovery mode");
     puts("PASS: removed settings ignored/omitted, MMCE backup/IGR keys discarded, settings round trips, game images skip history saves, disabled recents, hidden app reload/capacity, stable filter IDs and file failures");
 }
 '''
@@ -213,6 +333,7 @@ with tempfile.TemporaryDirectory(prefix="settings-persistence-") as folder:
     path = Path(folder)
     (path / "settings.c").write_text(code)
     exe = path / "settings"
+    flags = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if os.environ.get("SANITIZE") else []
     subprocess.run([shutil.which("gcc") or shutil.which("cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
-                    str(path / "settings.c"), "-o", str(exe)], check=True)
+                    *flags, str(path / "settings.c"), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], cwd=path, check=True, timeout=10)

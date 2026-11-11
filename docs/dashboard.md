@@ -393,9 +393,18 @@ running is looked up later, when that device is opened.
 
 ## Files written by the dashboard
 
-Next to LAUNCHELF.CNF when it was loaded from a writable device, otherwise
-in `mc0:/SYS-CONF/`: `DASHBOARD.CNF` (settings, scan folders),
-`DASHAPPS.CNF` (favorites, pins, recents), `DASHLIB.CNF` (library cache).
+Dashboard configuration uses one folder chosen at startup: `CNF_Path` when
+set, otherwise the folder containing the loaded `LAUNCHELF.CNF`.
+`DASHBOARD.CNF`, `DASHAPPS.CNF` (favorites, pins, recents), `DASHLIB.CNF`
+(library cache) and per-game Neutrino profiles all use that folder.
+
+Missing files use defaults without searching CWD, either memory card or
+another device. App lists in the selected folder still load independently
+when `DASHBOARD.CNF` is absent. If no main configuration was loaded, use
+the startup configuration directory already selected by the R3Z boot code.
+Existing files are not migrated, and writes to an unavailable/read-only
+folder are not silently redirected elsewhere. The R3Z startup searches for
+`LAUNCHELF.CNF` and `IPCONFIG.DAT` are retained.
 The active theme is part of DASHBOARD.CNF (`Theme_*` keys); saved themes
 go to `THEMES/<name>/theme.cfg`, only when you choose
 *Export theme to folder* — in the ELF's own folder when writable, else the
