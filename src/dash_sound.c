@@ -319,8 +319,8 @@ void dashSoundPlay(int id)
 		soundPlayFailed(id, 0, "audio service unavailable");
 		return;
 	}
-	if (dashIopParked()) {
-		soundPlayFailed(id, 0, "IOP parked for a worker job");
+	if (DashIoBusy()) {
+		soundPlayFailed(id, 0, "IOP busy");
 		return;
 	}
 	if (samples[id].buffer == NULL) {

@@ -19,6 +19,8 @@ int DashIsEnabled(void);
 
 /* Non-zero while DashRun() is on the call stack (guards re-entry). */
 int DashIsActive(void);
+/* Hardware probes defer while IO is owned or a GS frame is being drawn. */
+int DashIoBusy(void);
 int DashFtpServer(void);
 /* Route Configure to Settings when the dashboard owns the screen. */
 int DashOpenSettings(void);

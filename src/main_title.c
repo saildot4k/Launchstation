@@ -1,5 +1,6 @@
 #include "launchelf.h"
 #include "main_title.h"
+#include "dash.h"
 
 #include <osd_config.h>
 
@@ -521,6 +522,7 @@ static int seedClockFromPs2(u64 tick_ms, int care_time, int care_date)
 	sceCdCLOCK clock_data;
 	int local_offset_minutes;
 
+	if (DashIoBusy()) return 0; /* Defer RTC/config RPC; cached time still ticks on EE. */
 	memset(&clock_data, 0, sizeof(clock_data));
 	if (sceCdReadClock(&clock_data) == 0 || clock_data.stat != 0) {
 		title_clock.initialized = 1;
@@ -612,6 +614,8 @@ static int queryTemperatureCelsius(char *temp_buf, size_t temp_buf_size)
 static int updateTemp(u64 tick_ms, int force)
 {
 	char old_temp[sizeof(title_temp.text)];
+
+	if (DashIoBusy()) return 0; /* Never probe a client during a wait/reset frame. */
 
 	if (!force && title_temp.checked && !title_temp.supported)
 		return 0;

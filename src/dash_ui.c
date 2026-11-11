@@ -1250,6 +1250,19 @@ void dashLoadingBegin(const char *title)
 	loadingDraw();
 }
 
+/* Called only at a cooperative wait point on the GS owner thread. No
+ * input, audio, job completion or device polling belongs in this frame. */
+void dashLoadingRedraw(void)
+{
+	if (loading_active)
+		loadingDraw();
+	else {
+		dashVisualUpdate();
+		dashRenderScene();
+		dashGfxPresent();
+	}
+}
+
 void dashLoadingSetCancel(int cancelable)
 {
 	loading_cancel = cancelable;

@@ -42,6 +42,7 @@ static float g_ox, g_oy;
 static float g_sy = 1.0f;
 static int g_blend = -1;
 static int gfx_ready;
+static int frame_active;
 static int gfx_screen_gen = -1;
 
 static GSTEXTURE tex_corner;  /* filled AA quarter disc, center at (32,32) */
@@ -366,6 +367,7 @@ void dashGfxInit(void)
 
 void dashGfxShutdown(void)
 {
+	frame_active = 1;
 	/* Textures stay resident in EE RAM for the life of the program; only the
 	 * VRAM side is dropped (the next bind re-uploads). */
 	dashTexRelease(&tex_corner);
@@ -389,8 +391,14 @@ int dashGfxCheckScreenChange(void)
 	return 1;
 }
 
+int dashGfxCanYield(void)
+{
+	return gfx_ready && !frame_active;
+}
+
 void dashGfxBeginFrame(void)
 {
+	frame_active = 1;
 	alpha_top = 0;
 	off_top = 0;
 	g_alpha = 1.0f;
@@ -446,12 +454,16 @@ void dashGfxPresent(void)
 		gsKit_sync_flip(gsGlobal);
 	gsKit_queue_exec(gsGlobal);
 	gsKit_TexManager_nextFrame(gsGlobal);
-	/* completions are applied between frames, never mid-draw */
-	dashWorkerPump();
+	frame_active = 0;
+	/* A foreground RPC/codec caller still owns its buffers and client lock.
+	 * Wait frames must not apply callbacks or start another file job. */
+	if (!dashIoBusy())
+		dashWorkerPump();
 }
 
 void dashGfxRestoreLegacyState(void)
 {
+	frame_active = 1; /* wait frames resume after the next dashboard present */
 	/* The classic screens draw opaque, untextured sprites with alpha 0. */
 	dashSpriteBatchEnd();
 	gsGlobal->PrimAlphaEnable = GS_SETTING_OFF;

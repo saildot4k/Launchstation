@@ -14,6 +14,7 @@ start=source.index('static void loadingDraw(')
 render_source=source[start:source.index('void dashLoadingBegin(',start)]
 globals_source=source[source.index('static int loading_active;'):source.index('DashLoadingView dashLoadingSetView(')]
 label_gap=next(line for line in source.splitlines() if line.startswith('#define STACKED_LABEL_GAP '))
+redraw=source[source.index('void dashLoadingRedraw('):source.index('void dashLoadingSetCancel(')]
 code=label_gap+'\n'+r'''
 #include <assert.h>
 #include <stdint.h>
@@ -75,7 +76,7 @@ static void dashGfxPopAlpha(void){}
 static void dashGfxPresent(void){draws++;}
 static void dashLoadingBegin(const char *s){loading_active=1;snprintf(loading_title,sizeof(loading_title),"%s",s);}
 static void dashLoadingEnd(void){loading_active=0;}
-'''+stats_type+'\n'+render_source+source[a:b]+r'''
+'''+stats_type+'\n'+render_source+redraw+source[a:b]+r'''
 int main(void){
  loading_active=1;
  assert(DashFileProgress("Pasting file","BOOT.ELF",8ULL<<30,8ULL<<30));
@@ -162,7 +163,13 @@ int main(void){
  tick+=20;DashFileTransferProgress("Creating archive","BASLUS-SAVE.psu",4096,8192,&stats);
  assert(!strcmp(loading_title,"Creating archive 2 of 3")&&loading_done==5000&&panel_h==210);
  assert(!strcmp(loading_copied,"4 KB")&&!strcmp(loading_transfer[2],"8 KB"));
+ int before_redraw=draws;
+ tick+=16;dashLoadingRedraw();
+ assert(draws==before_redraw+1 && loading_done==5000 && loading_total==10000);
+ assert(!strcmp(loading_title,"Creating archive 2 of 3") && !strcmp(loading_status,"BASLUS-SAVE.psu"));
+ assert(!strcmp(loading_copied,"4 KB") && !strcmp(loading_transfer[2],"8 KB"));
  DashFileOperationEnd();assert(!loading_active);
+ before_redraw=draws;dashLoadingRedraw();assert(draws==before_redraw+1 && !loading_active);
  loading_active=1;worker=1;DashFileOperationEnd();assert(loading_active);worker=0;
  int stage_draws=draws;worker=1;assert(!DashFileOperationStatus("Opening archive","unsafe",1,2)&&draws==stage_draws);worker=0;
  active=0;assert(!DashFileOperationStatus("Extracting save","classic",1,2)&&draws==stage_draws);active=1;

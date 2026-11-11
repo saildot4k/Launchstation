@@ -82,6 +82,8 @@ static int sceCdCloseConfig(u32 *status){
 }
 static u64 tick = 100;
 static sceCdCLOCK rtc, written;
+static int io_busy;
+static int DashIoBusy(void) {return io_busy;}
 static int rtc_reads, rtc_writes, read_ok = 1, write_ok = 1, read_stat, second_delta;
 static u64 Timer(void) { return tick; }
 static int sceCdReadClock(sceCdCLOCK *out) {
@@ -152,10 +154,12 @@ int main(void) {
     /* RTC is in JST; the displayed local date crosses a leap-day boundary. */
     rtc = (sceCdCLOCK){.year=0x28, .month=0x03, .day=0x01,
                        .hour=0x16, .minute=0x59, .second=0x59};
-    assert(menuTitleUpdateAsync(0) && rtc_reads == 1);
+    io_busy=1;assert(!menuTitleUpdateAsync(0) && !rtc_reads && !title_clock.initialized);
+    io_busy=0;assert(menuTitleUpdateAsync(0) && rtc_reads == 1);
     assert(title_clock.year == 2028 && title_clock.month == 2 && title_clock.day == 29);
     assert(!strcmp(title_clock.time_text, "23:59:59"));
-    tick=1100; assert(menuTitleUpdateAsync(0) && rtc_reads == 1);
+    io_busy=1;tick=1100; assert(menuTitleUpdateAsync(0) && rtc_reads == 1);
+    io_busy=0;
     assert(title_clock.month == 3 && title_clock.day == 1 && title_clock.hour == 0);
     assert(!strcmp(title_clock.time_text, "00:00:00"));
     tick=1150; assert(!menuTitleUpdateAsync(0) && rtc_reads == 1);

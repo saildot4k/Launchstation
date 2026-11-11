@@ -48,7 +48,9 @@ static Setting config={3,-2};
 static Setting *setting=&config;
 static volatile uint32_t csr=8;
 static volatile uint32_t *GS_CSR=&csr;
-static int gsScreenGeneration, gfx_screen_gen, gfx_ready, bound_generation;
+static int gsScreenGeneration, gfx_screen_gen, gfx_ready, bound_generation, frame_active;
+static int foreground_wait;
+static int dashIoBusy(void) {return foreground_wait;}
 static int begin_count,glow_count,check_count,init_count,offset_count;
 static int shown_count,shown_base,shown_width,shown_psm,active_count;
 static int queue_count,tex_frames,pump_count,sprite_count,park_count;
@@ -90,11 +92,19 @@ static void gsKit_TexManager_nextFrame(GSGLOBAL *ptr) { assert(ptr==gsGlobal);te
 static void dashWorkerPump(void) { pump_count++; }
 '''
 code+=fn("void dashGfxInit(void)")
+code+=fn("int dashGfxCanYield(void)")
 code+=fn("static void waitVsyncSharing(void)")
 code+=fn("static void flipVsyncSharing(void)")
 code+=fn("void dashGfxPresent(void)")
 code+=r'''
 int main(void) {
+    assert(!dashGfxCanYield());
+    gfx_ready=1;assert(dashGfxCanYield());
+    foreground_wait=1;frame_active=1;assert(!dashGfxCanYield());dashGfxPresent();
+    assert(dashGfxCanYield());gfx_ready=0;
+    assert(!frame_active && !pump_count);
+    foreground_wait=0;
+    queue_count=tex_frames=sprite_count=park_count=sync_count=0;
     g.DoubleBuffering=GS_SETTING_OFF;
     dashGfxInit();
     assert(g.DoubleBuffering==GS_SETTING_ON);
