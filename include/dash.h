@@ -26,16 +26,16 @@ int DashOpenSettings(void);
 /* Publish the next blocking storage operation before entering its RPC.
  * Worker callers only update status; UI callers draw an existing overlay. */
 void DashStorageProbeStatus(const char *status);
-/* Transfer values come from the copy engine's R3Z 4.80 calculations.
- * Speeds are bytes/second; negative speed/time means no estimate yet.
- * Remaining time covers this file; written total/average cover the paste batch. */
+/* Speeds are bytes/second; negative speed/time means no estimate yet.
+ * Remaining time covers this file. Copy uses the R3Z paste-batch average;
+ * archive actions measure the current read/write and count processed bytes. */
 typedef struct
 {
 	u64 written_total;
 	int current_speed;
 	int average_speed;
 	int remaining_seconds;
-	u64 file_index; /* One-based payload file across folders/PSU entries. */
+	u64 file_index; /* One-based file or save within this operation. */
 	u64 file_count;
 } DashTransferStats;
 
@@ -44,6 +44,9 @@ int DashFileProgress(const char *action, const char *name, u64 remaining, u64 to
 /* NULL stats shows byte-counted progress without transfer speed/ETA. */
 int DashFileTransferProgress(const char *action, const char *name, u64 remaining, u64 total,
                              const DashTransferStats *stats);
+/* Named stage before byte counts are known; index/count refer to batch items. */
+int DashFileOperationStatus(const char *action, const char *name, u64 index, u64 count);
+void DashFileOperationEnd(void);
 void DashFileDeleteProgress(const char *name);
 
 /* Finish dashboard-owned IO/audio before a child ELF that deliberately

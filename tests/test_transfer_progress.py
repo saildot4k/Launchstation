@@ -74,6 +74,7 @@ static void modalHintRow(float x,float y,int a,const char *s,int b,const char *t
 static void dashGfxPopAlpha(void){}
 static void dashGfxPresent(void){draws++;}
 static void dashLoadingBegin(const char *s){loading_active=1;snprintf(loading_title,sizeof(loading_title),"%s",s);}
+static void dashLoadingEnd(void){loading_active=0;}
 '''+stats_type+'\n'+render_source+source[a:b]+r'''
 int main(void){
  loading_active=1;
@@ -147,6 +148,24 @@ int main(void){
  DashFileTransferProgress("Pasting file","BIG.ELF",10,100,&stats);
  loading_active=0;tick+=20;DashFileTransferProgress("Pasting file","SECOND.ELF",100,100,&stats);
  assert(loading_active&&loading_done==0&&loading_fraction==0);
+ /* Archive stages share the paste overlay, counting completed saves until bytes are known. */
+ loading_fraction=1;tick+=20;
+ assert(DashFileOperationStatus("Preparing archive","BASLUS-SAVE",2,3));
+ assert(!strcmp(loading_title,"Preparing archive 2 of 3")&&!strcmp(loading_status,"BASLUS-SAVE"));
+ assert(!loading_copied[0]&&!loading_transfer[0][0]&&loading_done==1&&loading_total==3);
+ assert(loading_fraction>0.33f&&loading_fraction<0.34f&&panel_w==420&&panel_h==128&&bars==2);
+ assert(DashFileOperationStatus("Reading archive","BATCH-B.psu",2,3));
+ stats.file_index=2;stats.file_count=3;
+ DashFileTransferProgress("Reading archive","BATCH-B.psu",8192,8192,&stats);
+ assert(loading_done==0&&loading_fraction==0); /* Stage and byte title/name can be identical. */
+ stats.file_index=2;stats.file_count=3;stats.average_speed=1024;stats.remaining_seconds=4;
+ tick+=20;DashFileTransferProgress("Creating archive","BASLUS-SAVE.psu",4096,8192,&stats);
+ assert(!strcmp(loading_title,"Creating archive 2 of 3")&&loading_done==5000&&panel_h==210);
+ assert(!strcmp(loading_copied,"4 KB")&&!strcmp(loading_transfer[2],"8 KB"));
+ DashFileOperationEnd();assert(!loading_active);
+ loading_active=1;worker=1;DashFileOperationEnd();assert(loading_active);worker=0;
+ int stage_draws=draws;worker=1;assert(!DashFileOperationStatus("Opening archive","unsafe",1,2)&&draws==stage_draws);worker=0;
+ active=0;assert(!DashFileOperationStatus("Extracting save","classic",1,2)&&draws==stage_draws);active=1;
  int old=draws;worker=1;assert(!DashFileProgress("Pasting file","unsafe",0,0));
  DashFileDeleteProgress("unsafe");assert(draws==old);worker=0;
  active=0;assert(!DashFileProgress("Pasting file","classic",0,0));active=1;

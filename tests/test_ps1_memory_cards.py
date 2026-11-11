@@ -56,7 +56,7 @@ static int mcSync(int mode,void *ignored,int *result){(void)ignored;assert(!mode
 static int waitMemoryCardReadyForBrowse(int port){(void)port;return 0;}
 static void DelayThread(int delay){(void)delay;}
 '''+function(filer, 'int readMC(')+shared[enum_start:enum_end]+r'''
-static int nclipFiles,archive_kind;static FILEINFO clipFiles[MAX_ENTRY];
+static int nclipFiles,archive_kind,import_eligible=1;static FILEINFO clipFiles[MAX_ENTRY];
 #define FILER_SAVE_NONE 0
 static int filerArchiveClipboardKind(void){return nclipFiles>0?archive_kind:FILER_SAVE_NONE;}
 enum {PSU_ACTION_NONE,PSU_ACTION_CREATE,PSU_ACTION_EXTRACT};
@@ -70,7 +70,7 @@ static int genCmpFileExt(const char *p,const char *ext){const char *dot=strrchr(
 static int canOpenInTextEditor(const char *p,const FILEINFO *f){(void)p;(void)f;return 1;}
 static int genCanRenamePath(const char *p){(void)p;return 1;}
 static int filerIsExploitProtectedPath(const char *p,const FILEINFO *f){(void)p;(void)f;return 0;}
-static int filerCanImportClipboard(void){return nclipFiles>0;}
+static int filerCanImportClipboard(void){return nclipFiles>0&&import_eligible;}
 static int filerIsPs1Image(const char *p){(void)p;return 0;}
 '''+function(browser, 'static int isMcLikePath(')+function(browser, 'void filerMenuEnables(')+r'''
 #define MOUNT_LIMIT 4
@@ -133,6 +133,13 @@ int main(void){
   nclipFiles=copied;archive_kind=2;
   filerMenuEnables("usb0:/",&save,0,0,enabled);assert(enabled[CREATE_ARCHIVE]==(copied>0));
  }
+ /* A copied native PS1 save offers Paste/Create archive, without Extract. */
+ nclipFiles=1;archive_kind=1;import_eligible=0;clipFiles[0].stats.AttrFile=0;
+ filerMenuEnables("usb0:/",&save,0,0,enabled);
+ assert(enabled[PASTE]&&enabled[CREATE_ARCHIVE]&&!enabled[IMPORT_SAVE]);
+ filerMenuEnables("mc0:/",&save,0,1,enabled);
+ assert(enabled[PASTE]&&!enabled[CREATE_ARCHIVE]&&!enabled[IMPORT_SAVE]);
+ import_eligible=1;
  archive_kind=0;nclipFiles=1;
  char message[160];FILEINFO image={0};
  for(int slot=0;slot<2;slot++) {

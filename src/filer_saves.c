@@ -2,9 +2,99 @@
 #include "filer_shared.h"
 #include "filer_actions.h"
 #include "filer_copy.h"
+#include "dash.h"
 #include "save_archive.h"
 #include "init.h"
 #include <ctype.h>
+
+static int clipboardIsPs1Card(void);
+
+/* Archive actions run on the UI thread after transfer preflight. Reuse the
+ * paste popup, publishing only measured bytes from the existing I/O loops.
+ * Listing probes and Copy/Cut never enable this context. */
+static struct {
+	int active, verifying, classic_drawn;
+	const char *action;
+	char item[MAX_NAME];
+	u64 index, count, started, bytes, file_done, last_draw;
+} save_progress;
+
+static void saveProgressBegin(int count)
+{
+	memset(&save_progress, 0, sizeof(save_progress));
+	save_progress.active = 1;
+	save_progress.count = count;
+}
+
+static void saveProgressEnd(void)
+{
+	if (save_progress.classic_drawn) nonDialog(NULL);
+	if (save_progress.active) DashFileOperationEnd();
+	memset(&save_progress, 0, sizeof(save_progress));
+}
+
+static void saveProgressStage(const char *action, const char *name)
+{
+	char text[384];
+	if (!save_progress.active) return;
+	save_progress.action = action;
+	if (DashFileOperationStatus(action, name, save_progress.index, save_progress.count) || DashIsActive()) return;
+	if (save_progress.classic_drawn) nonDialog(NULL);
+	snprintf(text, sizeof(text), "%s %llu of %llu\n%.255s", action,
+	         (unsigned long long)save_progress.index, (unsigned long long)save_progress.count, name);
+	nonDialog(text); drawMsg(name);
+	save_progress.classic_drawn = 1;
+	save_progress.last_draw = Timer();
+}
+
+static void saveProgressItem(int index, const char *name, const char *action)
+{
+	save_progress.index = index;
+	save_progress.verifying = 0;
+	snprintf(save_progress.item, sizeof(save_progress.item), "%s", name);
+	saveProgressStage(action, name);
+}
+
+static void saveProgressBytes(const char *path, size_t done, size_t total)
+{
+	DashTransferStats stats = {0};
+	char name[128], text[512], speed_text[40], time_text[40];
+	const char *leaf;
+	u64 now, elapsed, speed;
+	if (!save_progress.active) return;
+	now = Timer(); elapsed = now >= save_progress.started ? now - save_progress.started : 0;
+	if (done >= save_progress.file_done) save_progress.bytes += done - save_progress.file_done;
+	save_progress.file_done = done;
+	speed = elapsed ? (u64)done * 1000 / elapsed : 0;
+	stats.current_speed = stats.average_speed = elapsed ? (speed > 0x7fffffffULL ? 0x7fffffff : (int)speed) : -1;
+	stats.remaining_seconds = done == total ? 0 : speed ? (int)((total - done) / speed) : -1;
+	stats.written_total = save_progress.bytes;
+	stats.file_index = save_progress.index; stats.file_count = save_progress.count;
+	leaf = strrchr(path, '/'); leaf = leaf ? leaf + 1 : path;
+	if (strcmp(leaf, save_progress.item))
+		snprintf(name, sizeof(name), "%.64s / %.59s", save_progress.item, leaf);
+	else snprintf(name, sizeof(name), "%s", leaf);
+	if (DashFileTransferProgress(save_progress.action, name, total - done, total, &stats) || DashIsActive()) return;
+	if (done != total && now - save_progress.last_draw < 30) return;
+	if (save_progress.classic_drawn) nonDialog(NULL);
+	if (stats.average_speed < 0) snprintf(speed_text, sizeof(speed_text), "Unknown");
+	else snprintf(speed_text, sizeof(speed_text), "%d B/s", stats.average_speed);
+	if (stats.remaining_seconds < 0) snprintf(time_text, sizeof(time_text), "Unknown");
+	else snprintf(time_text, sizeof(time_text), "%d sec", stats.remaining_seconds);
+	snprintf(text, sizeof(text), "%s %llu of %llu\n%s\n%llu / %llu bytes (%d%%)\nAverage speed: %s\nRemaining time: %s",
+	         save_progress.action, (unsigned long long)save_progress.index, (unsigned long long)save_progress.count, name,
+	         (unsigned long long)done, (unsigned long long)total, total ? (int)((u64)done * 100 / total) : 100,
+	         speed_text, time_text);
+	nonDialog(text); drawMsg(name);
+	save_progress.classic_drawn = 1; save_progress.last_draw = now;
+}
+
+static void saveProgressFile(const char *path, size_t size)
+{
+	if (!save_progress.active) return;
+	save_progress.started = Timer(); save_progress.file_done = 0;
+	if (size) saveProgressBytes(path, 0, size);
+}
 
 int filerCardInfo(const char *path, VmcInfo *info)
 {
@@ -56,12 +146,16 @@ static uint8_t *readSource(const char *path, size_t *size)
 	if (length < 0 || length > SAVE_ARCHIVE_LIMIT || genLseek(fd, 0, SEEK_SET) < 0) { genClose(fd); return NULL; }
 	data = malloc(length ? (size_t)length : 1);
 	if (!data) { genClose(fd); return NULL; }
+	saveProgressFile(path, length);
 	while (done < (size_t)length) {
-		n = genRead(fd, data + done, (length - done > 65536) ? 65536 : (int)(length - done));
-		if (n <= 0) { free(data); genClose(fd); return NULL; }
+		int count = (length - done > 65536) ? 65536 : (int)(length - done);
+		n = genRead(fd, data + done, count);
+		if (n <= 0 || n > count) { free(data); genClose(fd); return NULL; }
 		done += n;
+		if (done < (size_t)length) saveProgressBytes(path, done, length);
 	}
 	if (genClose(fd) < 0) { free(data); return NULL; }
+	saveProgressBytes(path, done, length);
 	*size = done;
 	return data;
 }
@@ -103,13 +197,16 @@ static int writeFileResult(const char *path, const uint8_t *data, size_t size, i
 	fd = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC);
 	if (fd < 0) return fd;
 	if (opened) *opened = 1;
+	saveProgressFile(path, size);
 	while (done < size) {
 		int count = size - done > 65536 ? 65536 : (int)(size - done);
 		n = genWrite(fd, (void *)(data + done), count);
 		if (n <= 0 || n > count) { result = n < 0 ? n : -EIO; break; }
 		done += n;
+		if (done < size) saveProgressBytes(path, done, size);
 	}
 	closed = genClose(fd);
+	if (result >= 0 && closed >= 0) saveProgressBytes(path, done, size);
 	return result < 0 ? result : closed < 0 ? closed : 0;
 }
 
@@ -166,6 +263,7 @@ static int loadSaveSnapshot(const char *source, SaveArchive *save, uint8_t **dat
 {
     *data = readSource(source, length);
     if (!*data) { snprintf(message, size, "Could not read save: %s", source); return 0; }
+	saveProgressStage("Opening archive", save_progress.item);
     if (!saveArchiveParse(save, *data, *length, source)) {
         free(*data); *data = NULL;
         snprintf(message, size, "Invalid, truncated or unsupported save: %s", source); return 0;
@@ -196,6 +294,7 @@ int filerExtractSave(const SaveArchive *s, const char *destination, char *messag
 	char parent[MAX_PATH], target[MAX_PATH], path[MAX_PATH];
 	int is_card, folder = 0, result = -1, created = 0, error = -EIO;
 	const char *action = "open the destination";
+	saveProgressStage("Preparing destination", save_progress.item);
 	if (!saveWritable(destination) || prepareTransferDeviceStacks(destination, destination) < 0 || genFixPath(destination, parent) < 0) goto fail;
 	is_card = !strncmp(destination, "mc", 2) || !strncmp(destination, "vmc", 3);
 	if (is_card && !filerCardInfo(destination, &card)) goto fail;
@@ -227,6 +326,7 @@ int filerExtractSave(const SaveArchive *s, const char *destination, char *messag
 		if ((error = genMkdir(target, 0x8427)) < 0) goto fail;
 		created = 1;
 	}
+	saveProgressStage("Extracting save", name);
 	for (unsigned i = 0; i < s->count; i++) {
 		if (folder) {
 			if (snprintf(path, sizeof(path), "%s/%s", target, s->files[i].name) >= (int)sizeof(path)) { error = -ENAMETOOLONG; goto fail; }
@@ -255,13 +355,12 @@ done:
 
 int filerCanImportClipboard(void)
 {
-	if (nclipFiles <= 0) return 0;
+	/* Native PS1 saves are already files: Paste transfers them, and Create
+	 * archive exports them. Only recognized save containers need Extract. */
+	if (nclipFiles <= 0 || clipboardIsPs1Card()) return 0;
 	for (int i = 0; i < nclipFiles; i++) {
-		u64 bytes = ((u64)clipFiles[i].stats.Reserve2 << 32) | clipFiles[i].stats.FileSizeByte;
-		int raw_candidate = bytes > 0 && bytes <= 15 * PS1_BLOCK_SIZE && bytes % PS1_BLOCK_SIZE == 0 &&
-		                    strlen(clipFiles[i].name) <= 20;
 		if ((clipFiles[i].stats.AttrFile & sceMcFileAttrSubdir) ||
-		    (!saveArchiveSupported(clipFiles[i].name) && !raw_candidate)) return 0;
+		    !saveArchiveSupported(clipFiles[i].name)) return 0;
 	}
 	return 1;
 }
@@ -290,6 +389,7 @@ static int finishExtractCut(const char *destination, const char *source, const u
 	int same;
 	char message[160];
 	if (filerPrepareClipboardTransfer(destination, message, sizeof(message)) < 0) return 0;
+	saveProgressStage("Verifying source", file->name);
 	current = readSource(source, &current_length);
 	if (!current) return 0;
 	same = current_length == length && !memcmp(current, snapshot, length);
@@ -301,15 +401,17 @@ static int finishExtractCut(const char *destination, const char *source, const u
 int filerImportClipboard(const char *destination, char *message, int size)
 {
 	char source[MAX_PATH];
-	int count = 0, kept = 0, cut = browser_cut;
+	int count = 0, kept = 0, cut = browser_cut, total = nclipFiles;
 	if (!filerCanImportClipboard()) {
 		snprintf(message, size, "Copy or cut save archives first."); return -1;
 	}
+	saveProgressBegin(total);
 	for (int i = 0; i < nclipFiles;) {
 		SaveArchive save = {0};
 		uint8_t *snapshot = NULL;
 		size_t length = 0;
 		int result = -1;
+		saveProgressItem(count + 1, clipFiles[i].name, "Reading archive");
 		if (filerPrepareClipboardTransfer(destination, message, size) < 0) {
 			/* Keep the source and destination readiness diagnostic. */
 		} else if (snprintf(source, sizeof(source), "%s%s", clipPath, clipFiles[i].name) >= (int)sizeof(source))
@@ -323,7 +425,7 @@ int filerImportClipboard(const char *destination, char *message, int size)
 				char reason[192]; snprintf(reason, sizeof(reason), "%s", message);
 				snprintf(message, size, "%d extracted; stopped: %s", count, reason);
 			}
-			return -1;
+			saveProgressEnd(); return -1;
 		}
 		count++;
 		if (cut && finishExtractCut(destination, source, snapshot, length, &clipFiles[i])) {
@@ -343,6 +445,7 @@ int filerImportClipboard(const char *destination, char *message, int size)
 		snprintf(message, size, "Extracted %d save%s; %d source archive%s kept because removal could not be verified.",
 		         count, count == 1 ? "" : "s", kept, kept == 1 ? "" : "s");
 	else snprintf(message, size, "Extracted %d save%s", count, count == 1 ? "" : "s");
+	saveProgressEnd();
 	return kept ? 0 : count;
 }
 
@@ -536,6 +639,7 @@ int filerCreateArchive(const char *source, const FILEINFO *file, int kind, int f
 			memcpy(e->created, &files[i].stats._Create, 8); memcpy(e->modified, &files[i].stats._Modify, 8);
 		}
 	} else goto done;
+	saveProgressStage(save_progress.verifying ? "Verifying source" : "Preparing archive", file->name);
 	if (!saveArchiveBuild(&save, format, data, length) || !saveArchiveFilename(&save, format, name, name_size)) {
 		free(*data); *data = NULL; *length = 0; goto done;
 	}
@@ -590,6 +694,14 @@ static int archive_clip_kind, archive_clip_card_type, archive_clip_probed;
 static int archive_clip_count, archive_clip_index;
 static FILEINFO archive_clip_file;
 static char archive_clip_folder[MAX_PATH];
+
+/* The listing's captured card type avoids probing the source in Options.
+ * A native save can contain a dot and resemble an archive filename. */
+static int clipboardIsPs1Card(void)
+{
+	return archive_clip_card_type == 1 && !strcmp(clipPath, archive_clip_folder) &&
+	       (!strncmp(clipPath, "mc", 2) || !strncmp(clipPath, "vmc", 3));
+}
 
 void filerClearArchiveClipboard(void)
 {
@@ -794,6 +906,8 @@ int filerFinishArchiveClipboard(const char *destination, char *message, int size
 	if (!strncmp(destination, source, length) && destination[length] == '/') goto kept;
 	if (filerPrepareClipboardTransfer(destination, detail, sizeof(detail)) < 0) goto kept;
 	generation = getIopResetGeneration();
+	if (save_progress.active) save_progress.verifying = 1;
+	saveProgressStage("Verifying source", archive_clip_file.name);
 	/* A card may have been removed or a VMC replaced while browsing. Only
 	 * remove a source whose complete data/metadata still match the snapshot. */
 	if (filerCreateArchive(source, &archive_clip_file, archive_clip_kind,
@@ -838,12 +952,14 @@ int filerCreateClipboardArchives(const char *destination, int format, char *mess
 	 * previous Cut item's only backup (including case-insensitive devices). */
 	created = calloc(total, sizeof(*created));
 	if (!created) { snprintf(message, size, "Not enough memory to create archives."); return -1; }
+	saveProgressBegin(total);
 	for (int i = 0; i < nclipFiles;) {
 		uint8_t *data = NULL;
 		size_t length = 0;
 		int result, before = nclipFiles;
 		filerClearArchiveClipboard();
 		archive_clip_index = i; archive_clip_file = clipFiles[i];
+		saveProgressItem(count + skipped + 1, clipFiles[i].name, "Reading save");
 		if (filerCreateClipboardArchive(destination, format, &data, &length, name, sizeof(name), message, size) < 0)
 			goto fail;
 		if (!name[0] || snprintf(output, sizeof(output), "%s%s", destination, name) >= (int)sizeof(output)) {
@@ -853,6 +969,7 @@ int filerCreateClipboardArchives(const char *destination, int format, char *mess
 			free(data);
 			snprintf(message, size, "Two saves produce the same archive name: %s", name); goto fail;
 		}
+		saveProgressStage("Creating archive", name);
 		result = filerWriteArchive(data, length, format, output, message, size);
 		free(data);
 		if (result < 0) goto fail;
@@ -863,7 +980,7 @@ int filerCreateClipboardArchives(const char *destination, int format, char *mess
 		}
 		if (nclipFiles == before) i++;
 	}
-	free(created); filerClearArchiveClipboard();
+	saveProgressEnd(); free(created); filerClearArchiveClipboard();
 	if (total == 1 && !skipped && !kept) snprintf(message, size, "Archive created: %s", output);
 	else snprintf(message, size, "%d archive%s created; %d skipped; %d source save%s kept.",
 	              count, count == 1 ? "" : "s", skipped, cut ? skipped + kept : total,
@@ -873,6 +990,6 @@ fail:
 	snprintf(detail, sizeof(detail), "%s", message);
 	snprintf(message, size, "%d archive%s created; stopped at %s: %s", count, count == 1 ? "" : "s",
 	         archive_clip_file.name, detail);
-	free(created); filerClearArchiveClipboard();
+	saveProgressEnd(); free(created); filerClearArchiveClipboard();
 	return -1;
 }

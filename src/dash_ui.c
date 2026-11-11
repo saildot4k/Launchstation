@@ -1350,7 +1350,7 @@ int DashFileTransferProgress(const char *action, const char *name, u64 remaining
 		dashStrCopy(title, action, sizeof(title));
 	if (begin) dashLoadingBegin(title);
 	loadingTransferDetails(stats);
-	if (strncmp(loading_status, name ? name : "", sizeof(loading_status) - 1) ||
+	if (!loading_copied[0] || strncmp(loading_status, name ? name : "", sizeof(loading_status) - 1) ||
 	    strncmp(loading_title, title, sizeof(loading_title) - 1))
 		loading_fraction = 0.0f;
 	dashStrCopy(loading_title, title, sizeof(loading_title));
@@ -1369,6 +1369,32 @@ int DashFileTransferProgress(const char *action, const char *name, u64 remaining
 int DashFileProgress(const char *action, const char *name, u64 remaining, u64 total)
 {
 	return DashFileTransferProgress(action, name, remaining, total, NULL);
+}
+
+int DashFileOperationStatus(const char *action, const char *name, u64 index, u64 count)
+{
+	char title[sizeof(loading_title)];
+	if (!DashIsActive() || dashWorkerOnThread()) return 0;
+	if (index && count)
+		snprintf(title, sizeof(title), "%s %llu of %llu", action,
+		         (unsigned long long)index, (unsigned long long)count);
+	else
+		dashStrCopy(title, action, sizeof(title));
+	if (!loading_active) dashLoadingBegin(title);
+	dashStrCopy(loading_title, title, sizeof(loading_title));
+	loading_copied[0] = loading_transfer[0][0] = '\0';
+	dashStrCopy(loading_status, name ? name : "", sizeof(loading_status));
+	/* The stage bar counts completed saves, not an unknown byte length. */
+	loading_total = count <= 0x7fffffffULL ? (int)count : 0;
+	loading_done = loading_total && index && index <= count ? (int)index - 1 : 0;
+	loading_fraction = loading_total ? loading_done / (float)loading_total : 0.0f;
+	loadingDraw(); /* Present the stage before its blocking device/codec work. */
+	return 1;
+}
+
+void DashFileOperationEnd(void)
+{
+	if (DashIsActive() && !dashWorkerOnThread()) dashLoadingEnd();
 }
 
 void DashFileDeleteProgress(const char *name)

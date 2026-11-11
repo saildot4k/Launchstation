@@ -43,6 +43,19 @@ extern int vmcMounted[2], nclipFiles, browser_cut;
 extern unsigned clipIopResetGeneration;
 extern FILEINFO clipFiles[MAX_ENTRY];extern char clipPath[MAX_PATH];
 enum { FILER_SAVE_NONE, FILER_SAVE_PS1, FILER_SAVE_PS2, FILER_ARCHIVE_PS1, FILER_ARCHIVE_PS2, FILER_CARD_PS1, FILER_SAVE_MIXED };
+typedef struct
+{
+	u64 written_total;
+	int current_speed;
+	int average_speed;
+	int remaining_seconds;
+	u64 file_index; /* One-based file or save within this operation. */
+	u64 file_count;
+} DashTransferStats;
+u64 Timer(void);int DashIsActive(void);
+int DashFileTransferProgress(const char*,const char*,u64,u64,const DashTransferStats*);
+int DashFileOperationStatus(const char*,const char*,u64,u64);
+void DashFileOperationEnd(void);void nonDialog(char*);void drawMsg(const char*);
 int filerCardInfo(const char *,VmcInfo *);
 int filerExtractSave(const SaveArchive *, const char *, char *, int);
 int filerPrepareMemoryCardRead(int);int mcGetInfo(int,int,int*,int*,int*);int mcSync(int,void*,int*);
@@ -159,12 +172,49 @@ int getDir(const char *p,FILEINFO *f){
  }
  closedir(dir);return count;
 }
+
+static int progress_events,phase_events,progress_partial,progress_complete,classic_events,classic_closes;
+static int dashboard_active=1;static u64 progress_tick;
+static int progress_ends;
+static unsigned seen_stages;static u64 seen_ordinals;
+static char last_progress_action[80],last_progress_name[128];
+u64 Timer(void){progress_tick+=7;return progress_tick;}
+int DashIsActive(void){return dashboard_active;}
+int DashFileOperationStatus(const char *action,const char *name,u64 index,u64 count){
+ assert(action&&name&&name[0]&&index>=1&&index<=count&&count<=MAX_ENTRY);
+ if(!dashboard_active)return 0;
+ phase_events++;snprintf(last_progress_action,sizeof(last_progress_action),"%s",action);
+ snprintf(last_progress_name,sizeof(last_progress_name),"%s",name);
+ if(!strcmp(action,"Reading save"))seen_stages|=1;
+ if(!strcmp(action,"Preparing archive"))seen_stages|=2;
+ if(!strcmp(action,"Creating archive"))seen_stages|=4;
+ if(!strcmp(action,"Reading archive"))seen_stages|=8;
+ if(!strcmp(action,"Opening archive"))seen_stages|=16;
+ if(!strcmp(action,"Extracting save"))seen_stages|=32;
+ if(!strcmp(action,"Verifying source"))seen_stages|=64;
+ seen_ordinals|=1ULL<<index;
+ return 1;
+}
+int DashFileTransferProgress(const char *action,const char *name,u64 remaining,u64 total,const DashTransferStats *stats){
+ assert(action&&name&&name[0]&&remaining<=total&&stats&&stats->file_index>=1&&stats->file_index<=stats->file_count);
+ assert(stats->average_speed>=-1&&stats->remaining_seconds>=-1);
+ if(!dashboard_active)return 0;
+ progress_events++;snprintf(last_progress_action,sizeof(last_progress_action),"%s",action);
+ snprintf(last_progress_name,sizeof(last_progress_name),"%s",name);
+ seen_ordinals|=1ULL<<stats->file_index;
+ if(remaining&&remaining<total)progress_partial++;
+ if(!remaining){assert(!handles);progress_complete++;assert(stats->remaining_seconds==0);}
+ return 1;
+}
+void DashFileOperationEnd(void){if(dashboard_active){assert(!handles);progress_ends++;}}
+void nonDialog(char *text){if(text){assert(text[0]);classic_events++;}else classic_closes++;}
+void drawMsg(const char *text){assert(text);}
 #include "PRODUCTION_SAVES"
 static int rememberAndProbe(int type){
- int opened=open_calls,listed=dir_calls,prepared=prepare_calls;
+ int opened=open_calls,listed=dir_calls,prepared=prepare_calls,progress=progress_events,phases=phase_events;
  filerRememberArchiveClipboard(type);
  filerArchiveClipboardKind();
- assert(opened==open_calls&&listed==dir_calls&&prepared==prepare_calls&&!archive_clip_data);
+ assert(opened==open_calls&&listed==dir_calls&&prepared==prepare_calls&&!archive_clip_data&&progress==progress_events&&phases==phase_events);
  return filerProbeArchiveClipboard("storage/")!=FILER_SAVE_NONE;
 }
 static void put(const char *name,const void *p,size_t n){FILE *f=fopen(name,"wb");assert(f&&fwrite(p,1,n,f)==n);fclose(f);}
@@ -564,7 +614,26 @@ int main(int argc,char **argv){
  assert(filerExtractSave(&parsed,"host:/",message,sizeof(message))<0);saveArchiveFree(&parsed);free(snapshot);assert(!handles);
  memset(clipFiles,0,sizeof(clipFiles));browser_cut=0;
  nclipFiles=1;strcpy(clipFiles[0].name,"BASLUS-RAW");clipFiles[0].stats.FileSizeByte=8192;
- assert(filerCanImportClipboard());clipFiles[0].stats.FileSizeByte=8191;assert(!filerCanImportClipboard());
+ assert(!filerCanImportClipboard());clipFiles[0].stats.FileSizeByte=8191;assert(!filerCanImportClipboard());
+ // Native saves, including archive-looking names on either PS1 card type, are already extracted.
+ for(int slot=0;slot<4;slot++)for(int cut=0;cut<2;cut++) {
+  strcpy(clipPath,cards[slot]);nclipFiles=1;browser_cut=cut;
+  memset(clipFiles,0,sizeof(clipFiles));strcpy(clipFiles[0].name,"SAVE.PSV");clipFiles[0].stats.FileSizeByte=8192;
+  filerRememberArchiveClipboard(1);
+  int opened=open_calls,listed=dir_calls,prepared=prepare_calls,progress=progress_events;
+  assert(!filerCanImportClipboard()&&filerArchiveClipboardKind()==FILER_SAVE_PS1);
+  assert(filerImportClipboard("storage/",message,sizeof(message))<0&&strstr(message,"save archives"));
+  assert(nclipFiles==1&&browser_cut==cut&&open_calls==opened&&dir_calls==listed&&prepare_calls==prepared&&progress_events==progress);
+ }
+ // Eligibility uses a recognized extension, independently of block-aligned file size.
+ strcpy(clipPath,"storage/");browser_cut=0;nclipFiles=1;
+ memset(clipFiles,0,sizeof(clipFiles));strcpy(clipFiles[0].name,"save.pSu");clipFiles[0].stats.FileSizeByte=8192;
+ filerRememberArchiveClipboard(0);assert(filerCanImportClipboard());
+ strcpy(clipFiles[0].name,"raw.bin");assert(!filerCanImportClipboard());
+ strcpy(clipFiles[0].name,"a.psv");strcpy(clipFiles[1].name,"BASLUS-RAW");clipFiles[1].stats.FileSizeByte=8192;nclipFiles=2;
+ assert(!filerCanImportClipboard());strcpy(clipFiles[1].name,"b.mcs");assert(filerCanImportClipboard());
+ clipFiles[1].stats.AttrFile=sceMcFileAttrSubdir;assert(!filerCanImportClipboard());
+ memset(clipFiles,0,sizeof(clipFiles));
  // Clipboard extraction labels follow the copied extension, case-insensitively.
  browser_cut=1;strcpy(clipFiles[0].name,"a.pSv");nclipFiles=1;
  filerClipboardExtractLabel(label,sizeof(label));assert(!strcmp(label,"Extract PSV..."));assert(filerCanImportClipboard());
@@ -638,13 +707,48 @@ int main(int argc,char **argv){
  strcpy(clipFiles[0].name,"FLAT");clipFiles[0].stats.AttrFile=sceMcFileAttrSubdir;filerRememberArchiveClipboard(0);
  assert(filerCreateClipboardArchive("mx4sio:/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&strstr(message,"Incompatible drivers")&&open_calls==before_open);
  incompatible=0;
- assert(!handles);puts("PASS: real save import/export, direct extraction, MCS/PSU/PSV creation, PSU title/date/overwrite settings, direct PSU/PSV/MCS/PSX creation and extraction across seven device paths without rename, single/multiple Copy/Cut archive creation, partial retries, skips, retained sources, duplicate names and mixed PSV batches, clipboard extension labels, Copy/Cut extraction and partial batches, metadata-only Copy/Cut and on-demand source restoration, flat-folder clipboard eligibility without icon.sys, nested/capped folder rejection, empty files, both physical PS1 slots without mkdir, short I/O, card types, space preflight and failed-write/close cleanup");
+
+ // Actual archive actions drive the shared paste popup from measured I/O, with stable batch ordinals.
+ startArchiveBatch("storage/progress-source/",3,1);
+ for(int i=0;i<3;i++)makeArchiveBatchItem(clipPath,i,0,0);
+ assert(!mkdir("storage/progress-created",0700));
+ int before_progress=progress_events,before_phases=phase_events,before_partial=progress_partial,before_complete=progress_complete;
+ seen_stages=0;seen_ordinals=0;filerRememberArchiveClipboard(0);
+ assert(filerArchiveClipboardKind()==FILER_SAVE_PS2&&progress_events==before_progress&&phase_events==before_phases);
+ assert(filerCreateClipboardArchives("storage/progress-created/",SAVE_OUTPUT_PSU,message,sizeof(message))==3);
+ assert(!save_progress.active&&!save_progress.action&&!save_progress.classic_drawn&&progress_ends>0);
+ assert(progress_events>before_progress&&phase_events>before_phases&&progress_partial>before_partial&&progress_complete>before_complete);
+ assert((seen_stages&71)==71&&seen_ordinals==14&&!nclipFiles); // read/prepare/create/verify, items 1..3.
+ // Extraction reports archive reads, parsing, actual output file bytes and Cut verification.
+ memset(clipFiles,0,sizeof(clipFiles));strcpy(clipPath,"storage/progress-created/");nclipFiles=3;browser_cut=1;
+ for(int i=0;i<3;i++)snprintf(clipFiles[i].name,sizeof(clipFiles[i].name),"BATCH-%c.psu",'A'+i);
+ assert(!mkdir("storage/progress-extracted",0700));seen_stages=0;seen_ordinals=0;before_progress=progress_events;
+ assert(filerImportClipboard("storage/progress-extracted/",message,sizeof(message))==3);
+ assert(!save_progress.active&&!save_progress.action&&progress_events>before_progress);
+ assert((seen_stages&120)==120&&seen_ordinals==14&&!nclipFiles);
+ // A failed close never publishes 100%, and its overlay context cannot leak into later operations.
+ for(int failure=0;failure<2;failure++) {
+  saveProgressBegin(1);saveProgressItem(1,"failure.psu","Creating archive");before_complete=progress_complete;
+  if(failure)fail_close=1;else fail_after=1;
+  assert(filerWriteArchive(save,sizeof(save),SAVE_OUTPUT_PSU,"storage/progress-failure.psu",message,sizeof(message))<0);
+  assert(progress_complete==before_complete&&access("storage/progress-failure.psu",F_OK)<0);
+  fail_close=0;fail_after=-1;saveProgressEnd();
+  assert(!save_progress.active&&!save_progress.action);
+ }
+ // Classic mode keeps its normal paste-style progress text; it never opens a dashboard popup.
+ startArchiveBatch("storage/progress-classic/",1,0);makeArchiveBatchItem(clipPath,0,0,0);
+ assert(!mkdir("storage/progress-classic-out",0700));filerRememberArchiveClipboard(0);
+ dashboard_active=0;before_progress=progress_events;before_phases=phase_events;
+ assert(filerCreateClipboardArchives("storage/progress-classic-out/",SAVE_OUTPUT_PSU,message,sizeof(message))==1);
+ assert(classic_events>0&&classic_closes>0&&progress_events==before_progress&&phase_events==before_phases&&!save_progress.active);
+ dashboard_active=1;
+ assert(!handles);puts("PASS: real save import/export, direct extraction, MCS/PSU/PSV creation, PSU title/date/overwrite settings, direct PSU/PSV/MCS/PSX creation and extraction across seven device paths without rename, single/multiple Copy/Cut archive creation, partial retries, skips, retained sources, duplicate names and mixed PSV batches, archive-only extraction eligibility (including PS1 card saves with archive-like names), clipboard extension labels, Copy/Cut extraction and partial batches, measured read/write progress, batch ordinals, close-failure completion guards and classic popup fallback, metadata-only Copy/Cut and on-demand source restoration, flat-folder clipboard eligibility without icon.sys, nested/capped folder rejection, empty files, both physical PS1 slots without mkdir, short I/O, card types, space preflight and failed-write/close cleanup");
 }
 '''.replace('PRODUCTION_SAVES', os.environ.get('SAVE_TEST_SOURCE', str(root / 'src/filer_saves.c'))).replace('PRODUCTION_NAME_LIMITS', name_limits)
 
 with tempfile.TemporaryDirectory(prefix='save-import-') as folder:
     folder = Path(folder)
-    for header in ('filer_saves.h', 'filer_shared.h', 'filer_actions.h', 'filer_copy.h', 'init.h'):
+    for header in ('filer_saves.h', 'filer_shared.h', 'filer_actions.h', 'filer_copy.h', 'init.h', 'dash.h'):
         (folder / header).write_text(stub)
     (folder / 'test.c').write_text(code)
     exe = folder / 'test'
