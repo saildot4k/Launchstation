@@ -976,56 +976,42 @@ static void opCreateArchive(int kind)
 {
 	static const char *const ps1_formats[] = {"MCS - PS1 save backup", "PSV - PS3 export", "PSX - Action Replay / GameShark"};
 	static const char *const ps2_formats[] = {"PSU - PS2 save backup (EMS/wLE)", "PSV - PS3 export"};
-	char destination[MAX_PATH], name[MAX_NAME];
+	static const char *const mixed_formats[] = {"PSV - PS3 export"};
 	DashMenuItem formats[3];
-	const char *save_type = kind == FILER_SAVE_PS1 ? "PS1 save" : "PS2 save";
-	const char *const *labels = kind == FILER_SAVE_PS1 ? ps1_formats : ps2_formats;
-	int count = kind == FILER_SAVE_PS1 ? 3 : 2;
-	uint8_t *data = NULL;
-	size_t length;
-	int choice, format, result;
-	if ((kind != FILER_SAVE_PS1 && kind != FILER_SAVE_PS2) || kind != filerArchiveClipboardKind() || !prepareOp()) return;
-	dashLoadingBegin("Checking copied save");
+	const char *const *labels;
+	const char *save_type;
+	char subtitle[48];
+	int count, choice, format, result, total = nclipFiles;
+	if (!kind || kind != filerArchiveClipboardKind() || !prepareOp()) return;
+	dashLoadingBegin(total > 1 ? "Checking copied saves" : "Checking copied save");
 	kind = filerProbeArchiveClipboard(fb.dir);
 	opDone();
-	if (kind != FILER_SAVE_PS1 && kind != FILER_SAVE_PS2) {
-		dashModalMessage(DI_WARNING, "Archive not created", "Choose one complete PS1 save or a folder with files and no subdirectories.", NULL);
+	if (!kind) {
+		dashModalMessage(DI_WARNING, "Archive not created", "Choose complete PS1 saves or folders with files and no subdirectories.", NULL);
 		return;
 	}
-	save_type = kind == FILER_SAVE_PS1 ? "PS1 save" : "PS2 save";
-	labels = kind == FILER_SAVE_PS1 ? ps1_formats : ps2_formats;
-	count = kind == FILER_SAVE_PS1 ? 3 : 2;
+	save_type = kind == FILER_SAVE_PS1 ? "PS1 save" : kind == FILER_SAVE_PS2 ? "PS2 save" : "PS1 and PS2 saves";
+	labels = kind == FILER_SAVE_PS1 ? ps1_formats : kind == FILER_SAVE_PS2 ? ps2_formats : mixed_formats;
+	count = kind == FILER_SAVE_PS1 ? 3 : kind == FILER_SAVE_PS2 ? 2 : 1;
 	for (int i = 0; i < count; i++) {
 		formats[i].icon = DI_MC;
 		formats[i].label = labels[i];
-		formats[i].detail = i == 1 ? save_type : NULL;
+		formats[i].detail = i == 1 || kind == FILER_SAVE_MIXED ? save_type : NULL;
 		formats[i].disabled = 0;
 	}
-	choice = dashModalMenu("Create archive", clipFiles[0].name, formats, count, 0);
-	if (choice < 0 || !prepareOp()) return;
+	if (total > 1) snprintf(subtitle, sizeof(subtitle), "%d saves - one archive per save", total);
+	choice = dashModalMenu("Create archive", total > 1 ? subtitle : clipFiles[0].name, formats, count, 0);
+	if (choice < 0 || !prepareOp() || filerConfirmExploitModify(fb.dir, NULL) <= 0) return;
 	if (kind == FILER_SAVE_PS1)
 		format = choice == 0 ? SAVE_OUTPUT_MCS : choice == 1 ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSX;
 	else
-		format = choice ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSU;
-	dashLoadingBegin("Preparing archive");
-	result = filerCreateClipboardArchive(fb.dir, format, &data, &length, name, sizeof(name), fb.msg, sizeof(fb.msg));
+		format = kind == FILER_SAVE_MIXED || choice ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSU;
+	dashLoadingBegin(total > 1 ? "Creating archives" : "Creating archive");
+	result = filerCreateClipboardArchives(fb.dir, format, fb.msg, sizeof(fb.msg));
 	opDone();
-	if (result < 0) { dashModalMessage(DI_WARNING, "Archive not created", fb.msg, NULL); return; }
-	if (!name[0] ||
-	    snprintf(destination, sizeof(destination), "%s%s", fb.dir, name) >= (int)sizeof(destination) ||
-	    !prepareOp() || filerConfirmExploitModify(fb.dir, NULL) <= 0) goto done;
-	dashLoadingBegin("Creating archive");
-	result = filerWriteArchive(data, length, format, destination, fb.msg, sizeof(fb.msg));
-	free(data); data = NULL;
-	int published = result > 0;
-	if (published) result = filerFinishArchiveClipboard(destination, fb.msg, sizeof(fb.msg));
-	opDone();
-	dashModalMessage(result <= 0 ? DI_WARNING : DI_MC, published ? "Archive created" :
-	                 result < 0 ? "Archive not created" : "Archive skipped", fb.msg, NULL);
+	dashModalMessage(result <= 0 ? DI_WARNING : DI_MC,
+	                 result < 0 ? "Archive creation stopped" : total > 1 || !result ? "Archive results" : "Archive created", fb.msg, NULL);
 	refresh();
-done:
-	free(data);
-	filerClearArchiveClipboard();
 }
 
 static void opExportPs1(void)
@@ -1466,7 +1452,7 @@ static void actionsMenu(void)
 		if (en[PASTE])
 			ADD(DI_PASTE_RENAME, "Paste with new names...", NULL, 0, F_PASTE_RENAME);
 		if (en[CREATE_ARCHIVE])
-			ADD(DI_MC, "Create archive...", "Save from clipboard", 0, F_CREATE);
+			ADD(DI_MC, "Create archive...", nclipFiles > 1 ? "One archive per copied save" : "Save from clipboard", 0, F_CREATE);
 		if (en[IMPORT_SAVE])
 			ADD(DI_MC, extract_label, browser_cut ? "Move saves from clipboard into this folder" : "Extract clipboard into this folder", 0, F_IMPORT);
 		if ((ps1_card && en[EXPORT_PS1]) || (en[COPY] && save_kind == FILER_CARD_PS1))

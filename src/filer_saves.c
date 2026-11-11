@@ -587,6 +587,7 @@ int filerWriteArchive(const uint8_t *data, size_t length, int format, const char
 static uint8_t *archive_clip_data;
 static size_t archive_clip_length;
 static int archive_clip_kind, archive_clip_card_type, archive_clip_probed;
+static int archive_clip_count, archive_clip_index;
 static FILEINFO archive_clip_file;
 static char archive_clip_folder[MAX_PATH];
 
@@ -601,18 +602,17 @@ void filerClearArchiveClipboard(void)
 
 static int archiveClipboardMatches(void)
 {
-	return nclipFiles == 1 && !strcmp(clipPath, archive_clip_folder) &&
-	       !strcmp(clipFiles[0].name, archive_clip_file.name) &&
-	       !memcmp(&clipFiles[0].stats, &archive_clip_file.stats, sizeof(archive_clip_file.stats));
+	return nclipFiles > 0 && nclipFiles == archive_clip_count && archive_clip_index < nclipFiles &&
+	       !strcmp(clipPath, archive_clip_folder) &&
+	       !strcmp(clipFiles[archive_clip_index].name, archive_clip_file.name) &&
+	       !memcmp(&clipFiles[archive_clip_index].stats, &archive_clip_file.stats, sizeof(archive_clip_file.stats));
 }
 
-int filerArchiveClipboardKind(void)
+static int archiveCandidate(const FILEINFO *file)
 {
-	const FILEINFO *file = &archive_clip_file;
 	u64 bytes = ((u64)file->stats.Reserve2 << 32) | file->stats.FileSizeByte;
-	if (!archiveClipboardMatches() || !file->name[0] || !strcmp(file->name, ".") || !strcmp(file->name, ".."))
+	if (!file->name[0] || !strcmp(file->name, ".") || !strcmp(file->name, ".."))
 		return FILER_SAVE_NONE;
-	if (archive_clip_probed) return archive_clip_kind;
 	/* Opening Options uses listing metadata only. Resolve a candidate's
 	 * contents and folder flatness after the user chooses Create archive. */
 	if (file->stats.AttrFile & sceMcFileAttrSubdir)
@@ -622,11 +622,26 @@ int filerArchiveClipboardKind(void)
 	return FILER_SAVE_NONE;
 }
 
+int filerArchiveClipboardKind(void)
+{
+	int kind = FILER_SAVE_NONE;
+	if (!archiveClipboardMatches()) return FILER_SAVE_NONE;
+	if (nclipFiles == 1 && archive_clip_probed) return archive_clip_kind;
+	for (int i = 0; i < nclipFiles; i++) {
+		int candidate = archiveCandidate(&clipFiles[i]);
+		if (!candidate) return FILER_SAVE_NONE;
+		kind = !kind || kind == candidate ? candidate : FILER_SAVE_MIXED;
+	}
+	return kind;
+}
+
 void filerRememberArchiveClipboard(int card_type)
 {
 	filerClearArchiveClipboard();
 	archive_clip_folder[0] = 0;
-	if (nclipFiles != 1) return;
+	archive_clip_count = 0; archive_clip_index = 0;
+	if (nclipFiles <= 0 || nclipFiles > MAX_ENTRY) return;
+	archive_clip_count = nclipFiles;
 	archive_clip_file = clipFiles[0];
 	snprintf(archive_clip_folder, sizeof(archive_clip_folder), "%s", clipPath);
 	archive_clip_card_type = card_type;
@@ -653,34 +668,39 @@ static int flatArchiveFolder(const char *source)
 	return flat ? regular : 0;
 }
 
-int filerProbeArchiveClipboard(const char *destination)
+static int probeArchiveItem(const FILEINFO *file)
 {
-	char source[MAX_PATH], message[160];
+	char source[MAX_PATH];
 	VmcInfo card;
 	int kind, files, type = archive_clip_card_type;
-	u64 bytes;
-	if (!archiveClipboardMatches() || !saveWritable(destination) || !clipFiles[0].name[0] ||
-	    !strcmp(clipFiles[0].name, ".") || !strcmp(clipFiles[0].name, "..")) return FILER_SAVE_NONE;
-	if (archive_clip_probed) return archive_clip_kind;
-	bytes = ((u64)clipFiles[0].stats.Reserve2 << 32) | clipFiles[0].stats.FileSizeByte;
-	if (!(clipFiles[0].stats.AttrFile & sceMcFileAttrSubdir) && type != 1 &&
-	    !(bytes && bytes <= 15 * PS1_BLOCK_SIZE && !(bytes % PS1_BLOCK_SIZE) && strlen(clipFiles[0].name) <= 20))
-		return FILER_SAVE_NONE;
-	if (snprintf(source, sizeof(source), "%s%s", clipPath, clipFiles[0].name) >= (int)sizeof(source) ||
-	    filerPrepareClipboardTransfer(destination, message, sizeof(message)) < 0) return FILER_SAVE_NONE;
+	if (!archiveCandidate(file) ||
+	    snprintf(source, sizeof(source), "%s%s", clipPath, file->name) >= (int)sizeof(source)) return FILER_SAVE_NONE;
 	if (!strncmp(clipPath, "mc", 2) || !strncmp(clipPath, "vmc", 3)) {
 		if (!filerCardInfo(clipPath, &card)) return FILER_SAVE_NONE;
 		type = card.type;
 	}
-	kind = filerSaveKind(clipPath, &clipFiles[0], type);
-	if (clipFiles[0].stats.AttrFile & sceMcFileAttrSubdir) {
+	kind = filerSaveKind(clipPath, file, type);
+	if (file->stats.AttrFile & sceMcFileAttrSubdir) {
 		files = flatArchiveFolder(source);
 		if (!files) kind = FILER_SAVE_NONE;
 		else if (kind == FILER_SAVE_NONE || (kind == FILER_SAVE_PS1 && files != 1)) kind = FILER_SAVE_PS2;
 	}
-	archive_clip_kind = kind == FILER_SAVE_PS1 || kind == FILER_SAVE_PS2 ? kind : FILER_SAVE_NONE;
-	archive_clip_probed = 1;
-	return archive_clip_kind;
+	return kind == FILER_SAVE_PS1 || kind == FILER_SAVE_PS2 ? kind : FILER_SAVE_NONE;
+}
+
+int filerProbeArchiveClipboard(const char *destination)
+{
+	char message[160];
+	int kind = FILER_SAVE_NONE;
+	if (!archiveClipboardMatches() || !saveWritable(destination) ||
+	    filerPrepareClipboardTransfer(destination, message, sizeof(message)) < 0) return FILER_SAVE_NONE;
+	for (int i = 0; i < nclipFiles; i++) {
+		int candidate = probeArchiveItem(&clipFiles[i]);
+		if (!candidate) { kind = FILER_SAVE_NONE; break; }
+		kind = !kind || kind == candidate ? candidate : FILER_SAVE_MIXED;
+	}
+	if (nclipFiles == 1) { archive_clip_kind = kind; archive_clip_probed = 1; }
+	return kind;
 }
 
 /* Apply the existing PSU backup policy only to the final output name.
@@ -699,7 +719,7 @@ static int clipboardArchiveFilename(const SaveArchive *save, int format, const c
 		char *leaf = strrchr(parent, '/');
 		if (leaf) {
 			leaf[1] = 0;
-			if (filerGetGameTitle(parent, &clipFiles[0], sjis) == 0 && sjis[0]) transcpy_sjis(title, sjis);
+			if (filerGetGameTitle(parent, &archive_clip_file, sjis) == 0 && sjis[0]) transcpy_sjis(title, sjis);
 		}
 	}
 	if (title[0] && setting->PSU_HugeNames)
@@ -728,19 +748,20 @@ int filerCreateClipboardArchive(const char *destination, int format, uint8_t **d
 	int result = -1, kind;
 	*data = NULL; *length = 0;
 	if (!archiveClipboardMatches()) {
-		snprintf(message, size, "Copy or cut one complete PS1 save or flat folder first.");
+		snprintf(message, size, "Copy or cut complete PS1 saves or flat folders first.");
 		return -1;
 	}
 	if (filerPrepareClipboardTransfer(destination, message, size) < 0) return -1;
 	/* Refresh eligibility after restoring drivers; cached menu metadata is not
 	 * authority to archive a folder which acquired subdirectories meanwhile. */
 	filerClearArchiveClipboard();
-	kind = filerProbeArchiveClipboard(destination);
-	if (!kind || snprintf(source, sizeof(source), "%s%s", clipPath, clipFiles[0].name) >= (int)sizeof(source)) {
-		snprintf(message, size, "Choose one complete PS1 save or a folder with files and no subdirectories.");
+	kind = archive_clip_kind = probeArchiveItem(&archive_clip_file);
+	archive_clip_probed = 1;
+	if (!kind || snprintf(source, sizeof(source), "%s%s", clipPath, archive_clip_file.name) >= (int)sizeof(source)) {
+		snprintf(message, size, "Choose complete PS1 saves or folders with files and no subdirectories.");
 		return -1;
 	}
-	if (filerCreateArchive(source, &clipFiles[0], kind, kind == FILER_SAVE_PS1 ? SAVE_OUTPUT_MCS : SAVE_OUTPUT_PSU,
+	if (filerCreateArchive(source, &archive_clip_file, kind, kind == FILER_SAVE_PS1 ? SAVE_OUTPUT_MCS : SAVE_OUTPUT_PSU,
 	                       &archive_clip_data, &archive_clip_length, temporary_name, sizeof(temporary_name), message, size) < 0)
 		return -1;
 	if (saveArchiveParse(&save, archive_clip_data, archive_clip_length,
@@ -766,7 +787,7 @@ int filerFinishArchiveClipboard(const char *destination, char *message, int size
 	int same;
 	unsigned int generation;
 	if (!browser_cut) { filerClearArchiveClipboard(); return 1; }
-	if (!filerArchiveClipboardKind() || !archive_clip_data ||
+	if (!archiveClipboardMatches() || !archive_clip_kind || !archive_clip_data ||
 	    snprintf(source, sizeof(source), "%s%s", archive_clip_folder, archive_clip_file.name) >= (int)sizeof(source)) goto kept;
 	/* Do not delete an output created inside the original PS2 save folder. */
 	length = strlen(source);
@@ -783,7 +804,12 @@ int filerFinishArchiveClipboard(const char *destination, char *message, int size
 	if (!same || generation != getIopResetGeneration() ||
 	    filerConfirmExploitDelete(archive_clip_folder, &archive_clip_file) < 0 ||
 	    delete(archive_clip_folder, &archive_clip_file) < 0) goto kept;
-	nclipFiles = 0; browser_cut = 0; clipPath[0] = 0;
+	memmove(&clipFiles[archive_clip_index], &clipFiles[archive_clip_index + 1],
+	        (nclipFiles - archive_clip_index - 1) * sizeof(clipFiles[0]));
+	archive_clip_count = --nclipFiles;
+	archive_clip_index = 0;
+	if (!nclipFiles) { browser_cut = 0; clipPath[0] = 0; }
+	else archive_clip_file = clipFiles[0];
 	filerClearArchiveClipboard();
 	return 1;
 kept:
@@ -791,4 +817,62 @@ kept:
 	filerClearArchiveClipboard();
 	snprintf(message, size, "Archive created; source save kept because it could not be safely removed.");
 	return 0;
+}
+
+static int sameArchiveName(const char *left, const char *right)
+{
+	while (*left && toupper((unsigned char)*left) == toupper((unsigned char)*right)) { left++; right++; }
+	return *left == *right;
+}
+
+int filerCreateClipboardArchives(const char *destination, int format, char *message, int size)
+{
+	char output[MAX_PATH], name[MAX_NAME], detail[MAX_PATH];
+	char (*created)[MAX_NAME];
+	int count = 0, skipped = 0, kept = 0, total = nclipFiles, cut = browser_cut;
+	if (!archiveClipboardMatches() || !total) {
+		snprintf(message, size, "Copy or cut complete PS1 saves or flat folders first."); return -1;
+	}
+	/* Retain only output names across items, never an entire batch of saves.
+	 * Detect duplicate generated names before an overwrite could discard a
+	 * previous Cut item's only backup (including case-insensitive devices). */
+	created = calloc(total, sizeof(*created));
+	if (!created) { snprintf(message, size, "Not enough memory to create archives."); return -1; }
+	for (int i = 0; i < nclipFiles;) {
+		uint8_t *data = NULL;
+		size_t length = 0;
+		int result, before = nclipFiles;
+		filerClearArchiveClipboard();
+		archive_clip_index = i; archive_clip_file = clipFiles[i];
+		if (filerCreateClipboardArchive(destination, format, &data, &length, name, sizeof(name), message, size) < 0)
+			goto fail;
+		if (!name[0] || snprintf(output, sizeof(output), "%s%s", destination, name) >= (int)sizeof(output)) {
+			free(data); snprintf(message, size, "The archive destination path is too long."); goto fail;
+		}
+		for (int j = 0; j < count; j++) if (sameArchiveName(name, created[j])) {
+			free(data);
+			snprintf(message, size, "Two saves produce the same archive name: %s", name); goto fail;
+		}
+		result = filerWriteArchive(data, length, format, output, message, size);
+		free(data);
+		if (result < 0) goto fail;
+		if (!result) skipped++;
+		else {
+			snprintf(created[count++], MAX_NAME, "%s", name);
+			if (!filerFinishArchiveClipboard(output, message, size) && cut) kept++;
+		}
+		if (nclipFiles == before) i++;
+	}
+	free(created); filerClearArchiveClipboard();
+	if (total == 1 && !skipped && !kept) snprintf(message, size, "Archive created: %s", output);
+	else snprintf(message, size, "%d archive%s created; %d skipped; %d source save%s kept.",
+	              count, count == 1 ? "" : "s", skipped, cut ? skipped + kept : total,
+	              (cut ? skipped + kept : total) == 1 ? "" : "s");
+	return skipped || kept ? 0 : count;
+fail:
+	snprintf(detail, sizeof(detail), "%s", message);
+	snprintf(message, size, "%d archive%s created; stopped at %s: %s", count, count == 1 ? "" : "s",
+	         archive_clip_file.name, detail);
+	free(created); filerClearArchiveClipboard();
+	return -1;
 }

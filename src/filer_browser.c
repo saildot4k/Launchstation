@@ -1165,32 +1165,28 @@ static void classicCreateArchive(const char *folder, char *message, int size)
 {
 	static const char *const ps1_formats[] = {"MCS - PS1 save backup", "PSV - PS3 export", "PSX - Action Replay / GameShark"};
 	static const char *const ps2_formats[] = {"PSU - PS2 save backup (EMS/wLE)", "PSV - PS3 export"};
-	char destination[MAX_PATH], name[MAX_NAME];
-	uint8_t *data = NULL;
-	size_t length = 0;
-	int kind = filerArchiveClipboardKind(), choice, format;
+	static const char *const mixed_formats[] = {"PSV - PS3 export"};
+	char subtitle[80];
+	int kind = filerArchiveClipboardKind(), choice, format, count;
+	const char *save_type;
+	const char *const *labels;
 	message[0] = 0;
-	if (kind != FILER_SAVE_PS1 && kind != FILER_SAVE_PS2) return;
+	if (!kind) return;
 	kind = filerProbeArchiveClipboard(folder);
-	if (kind != FILER_SAVE_PS1 && kind != FILER_SAVE_PS2) {
-		snprintf(message, size, "Choose one complete PS1 save or a folder with files and no subdirectories.");
+	if (!kind) {
+		snprintf(message, size, "Choose complete PS1 saves or folders with files and no subdirectories.");
 		return;
 	}
-	choice = saveChoice("Create archive", kind == FILER_SAVE_PS1 ? "PS1 save" : "PS2 save",
-	                    kind == FILER_SAVE_PS1 ? ps1_formats : ps2_formats, kind == FILER_SAVE_PS1 ? 3 : 2);
+	save_type = kind == FILER_SAVE_PS1 ? "PS1 save" : kind == FILER_SAVE_PS2 ? "PS2 save" : "PS1 and PS2 saves";
+	labels = kind == FILER_SAVE_PS1 ? ps1_formats : kind == FILER_SAVE_PS2 ? ps2_formats : mixed_formats;
+	count = kind == FILER_SAVE_PS1 ? 3 : kind == FILER_SAVE_PS2 ? 2 : 1;
+	if (nclipFiles > 1) snprintf(subtitle, sizeof(subtitle), "%d saves - one archive per save", nclipFiles);
+	choice = saveChoice("Create archive", nclipFiles > 1 ? subtitle : save_type, labels, count);
 	if (choice < 0) return;
 	format = kind == FILER_SAVE_PS1 ? (choice == 0 ? SAVE_OUTPUT_MCS : choice == 1 ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSX) :
-	                                (choice ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSU);
-	if (filerCreateClipboardArchive(folder, format, &data, &length, name, sizeof(name), message, size) < 0) return;
-	if (name[0] &&
-	    snprintf(destination, sizeof(destination), "%s%s", folder, name) < (int)sizeof(destination) &&
-	    filerConfirmExploitModify(folder, NULL) > 0) {
-		int result = filerWriteArchive(data, length, format, destination, message, size);
-		free(data); data = NULL;
-		if (result > 0) filerFinishArchiveClipboard(destination, message, size);
-	}
-	free(data);
-	filerClearArchiveClipboard();
+	                                (kind == FILER_SAVE_MIXED || choice ? SAVE_OUTPUT_PSV : SAVE_OUTPUT_PSU);
+	if (filerConfirmExploitModify(folder, NULL) > 0)
+		filerCreateClipboardArchives(folder, format, message, size);
 }
 
 static void classicExportPs1(const char *folder, const FILEINFO *file, int card_type, char *message, int size)

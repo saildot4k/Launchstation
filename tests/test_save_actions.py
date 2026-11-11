@@ -46,12 +46,12 @@ code=r'''
 #define DIR_CNF 1
 #define DI_WARNING 1
 #define DI_MC 2
-enum { FILER_SAVE_NONE,FILER_SAVE_PS1,FILER_SAVE_PS2,FILER_ARCHIVE_PS1,FILER_ARCHIVE_PS2,FILER_CARD_PS1 };
+enum { FILER_SAVE_NONE,FILER_SAVE_PS1,FILER_SAVE_PS2,FILER_ARCHIVE_PS1,FILER_ARCHIVE_PS2,FILER_CARD_PS1,FILER_SAVE_MIXED };
 typedef struct {char name[256];struct {unsigned AttrFile;}stats;} FILEINFO;
 typedef struct {int icon;const char *label,*detail;int disabled;} DashMenuItem;
 static struct {int sel,n,card_type,nmarked;char mark[2];char dir[MAX_PATH],msg[MAX_PATH];FILEINFO files[2];}fb;
 static int choice,pick_ok,prompt_ok,modify_ok,prepare_ok,read_ok,kind,expected_ps1;
-static int nclipFiles,browser_cut,cached_kind,finish_calls,write_ok,preparations;
+static int nclipFiles,browser_cut,cached_kind,finish_calls,write_ok,preparations,test_archive_index,batch_calls;
 static FILEINFO clipFiles[2];static char clipPath[MAX_PATH];
 static unsigned clipIopResetGeneration;
 static int reads,switches,writes,extracts,prompts,loading,allocated,freed_saves,messages,refreshes,expected_format;
@@ -66,24 +66,24 @@ static void dashLoadingBegin(const char *title){assert(title&&!loading);loading=
 static void dashModalMessage(int icon,const char *title,const char *body,const char *detail){(void)icon;(void)detail;assert(title&&body&&!loading);messages++;}
 static int fullPath(const FILEINFO *f,char *out,int size){return snprintf(out,size,"%s%s%s",fb.dir,f->name,f->stats.AttrFile&sceMcFileAttrSubdir?"/":"")<size;}
 static int dashModalChoice(const char *title,const char *const *items,int count,int initial){
- assert(title&&!initial&&(count==2||count==3||count==5));
+ assert(title&&!initial&&(count==1||count==2||count==3||count==5));
  if(!strcmp(title,"Create archive")) {
-  assert(count==(kind==FILER_SAVE_PS1?3:2));
-  assert(!strcmp(items[1],"PSV - PS3 export"));
+  assert(count==(kind==FILER_SAVE_PS1?3:kind==FILER_SAVE_PS2?2:1));
+  assert(!strcmp(items[count==1?0:1],"PSV - PS3 export"));
   if(count==3)assert(!strcmp(items[2],"PSX - Action Replay / GameShark"));
  }
  strcpy(first_choice,items[0]);return choice;
 }
 static int saveChoice(const char *title,const char *subtitle,const char *const *items,int count){
- if(!strcmp(title,"Create archive"))assert(subtitle&&!strcmp(subtitle,kind==FILER_SAVE_PS1?"PS1 save":"PS2 save"));
+ if(!strcmp(title,"Create archive"))assert(subtitle&&!strcmp(subtitle,nclipFiles>1?"2 saves - one archive per save":kind==FILER_SAVE_PS1?"PS1 save":"PS2 save"));
  else assert(!subtitle);
  return dashModalChoice(title,items,count,0);
 }
 static int dashModalMenu(const char *title,const char *subtitle,const DashMenuItem *items,int count,int initial){
- const char *labels[3];assert(!strcmp(title,"Create archive")&&subtitle&&!strcmp(subtitle,clipFiles[0].name));
+ const char *labels[3];assert(!strcmp(title,"Create archive")&&subtitle&&!strcmp(subtitle,nclipFiles>1?"2 saves - one archive per save":clipFiles[0].name));
  for(int i=0;i<count;i++) {
   assert(items[i].icon==DI_MC&&!items[i].disabled);labels[i]=items[i].label;
-  if(i==1)assert(items[i].detail&&!strcmp(items[i].detail,kind==FILER_SAVE_PS1?"PS1 save":"PS2 save"));
+  if(i==1||kind==FILER_SAVE_MIXED)assert(items[i].detail&&!strcmp(items[i].detail,kind==FILER_SAVE_PS1?"PS1 save":kind==FILER_SAVE_PS2?"PS2 save":"PS1 and PS2 saves"));
   else assert(!items[i].detail);
  }
  return dashModalChoice(title,labels,count,initial);
@@ -101,8 +101,8 @@ static unsigned getIopResetGeneration(void){return 1;}
 static void dashStrCopy(char *out,const char *in,int size){snprintf(out,size,"%s",in);}
 static void dashToast(int type,const char *message){(void)type;assert(message);}
 static int filerIsExploitProtectedPath(const char *folder,const FILEINFO *file){(void)folder;(void)file;return 0;}
-static int filerArchiveClipboardKind(void){return nclipFiles==1?cached_kind:FILER_SAVE_NONE;}
-static void source(const char *path){assert(reads==0);reads++;strcpy(observed_source,path);}
+static int filerArchiveClipboardKind(void){return nclipFiles>0?cached_kind:FILER_SAVE_NONE;}
+static void source(const char *path){reads++;strcpy(observed_source,path);}
 static int filerCanImportClipboard(void){return nclipFiles>0;}
 static int filerImportClipboard(const char *destination,char *message,int size){
  assert(nclipFiles==1&&switches==1&&!strcmp(destination,"usb1:/output/"));extracts++;
@@ -119,19 +119,33 @@ static int filerProbeArchiveClipboard(const char *destination){
  assert(!strcmp(destination,"usb1:/output/")&&!reads);cached_kind=kind;return kind;
 }
 static int filerCreateClipboardArchive(const char *destination,int format,uint8_t **data,size_t *length,char *name,int name_size,char *message,int size){
- (void)message;(void)size;assert(!strcmp(destination,"usb1:/output/")&&filerArchiveClipboardKind()==kind&&format==expected_format&&!reads&&switches==1);
- char path[MAX_PATH];assert(strlen(clipPath)+strlen(clipFiles[0].name)<sizeof(path));strcpy(path,clipPath);strcat(path,clipFiles[0].name);source(path);
+ (void)message;(void)size;assert(!strcmp(destination,"usb1:/output/")&&filerArchiveClipboardKind()==kind&&format==expected_format&&reads==writes&&switches==1);
+ char path[MAX_PATH];assert(strlen(clipPath)+strlen(clipFiles[0].name)<sizeof(path));strcpy(path,clipPath);strcat(path,clipFiles[test_archive_index].name);source(path);
  if(!read_ok)return -1;
  *data=allocate();*length=16;snprintf(name,name_size,"SAVE.%s",format==SAVE_OUTPUT_PSV?"PSV":format==SAVE_OUTPUT_PSU?"psu":format==SAVE_OUTPUT_PSX?"psx":"mcs");return 1;
 }
 static int filerFinishArchiveClipboard(const char *destination,char *message,int size){
- (void)destination;(void)message;(void)size;assert(writes==1&&!allocated&&write_ok);finish_calls++;
- if(browser_cut)nclipFiles=0;
+ (void)destination;(void)message;(void)size;assert(writes==finish_calls+1&&!allocated&&write_ok);finish_calls++;
+ if(browser_cut){memmove(&clipFiles[test_archive_index],&clipFiles[test_archive_index+1],(nclipFiles-test_archive_index-1)*sizeof(clipFiles[0]));nclipFiles--;}
  return 1;
 }
 static int filerWriteArchive(const uint8_t *data,size_t length,int format,const char *destination,char *message,int size){
  (void)format;
- assert(data&&length==16&&allocated==1&&reads==1&&switches==1);writes++;strcpy(observed_destination,destination);snprintf(message,size,"Archive created");return write_ok==2?0:write_ok?1:-1;
+ assert(data&&length==16&&allocated==1&&reads==writes+1&&switches==1);writes++;strcpy(observed_destination,destination);snprintf(message,size,"Archive created");return write_ok==2?0:write_ok?1:-1;
+}
+
+static int filerCreateClipboardArchives(const char *destination,int format,char *message,int size){
+ batch_calls++;
+ for(test_archive_index=0;test_archive_index<nclipFiles;){
+  int before=nclipFiles;uint8_t *data=NULL;size_t length=0;char name[MAX_NAME],output[MAX_PATH];
+  if(filerCreateClipboardArchive(destination,format,&data,&length,name,sizeof(name),message,size)<0)return -1;
+  assert(snprintf(output,sizeof(output),"%s%s",destination,name)<(int)sizeof(output));
+  int result=filerWriteArchive(data,length,format,output,message,size);free(data);
+  if(result<0)return -1;
+  if(result>0)filerFinishArchiveClipboard(output,message,size);
+  if(nclipFiles==before)test_archive_index++;
+ }
+ filerClearArchiveClipboard();return writes;
 }
 static unsigned char *filerReadPs1Card(const char *path,char *message,int size){(void)message;(void)size;source(path);return read_ok?allocate():NULL;}
 static int filerSavePs1Card(const uint8_t *data,const char *destination,char *message,int size){return filerWriteArchive(data,16,SAVE_OUTPUT_MCS,destination,message,size);}
@@ -147,7 +161,7 @@ static void reset(int ps1){
  strcpy(fb.dir,ps1?"mc0:/":"vmc1:/");strcpy(fb.files[0].name,"SAVE");
  fb.files[0].stats.AttrFile=ps1?0:sceMcFileAttrSubdir;kind=ps1?FILER_SAVE_PS1:FILER_SAVE_PS2;expected_ps1=ps1;
  choice=0;pick_ok=prompt_ok=modify_ok=prepare_ok=read_ok=write_ok=1;reads=switches=writes=extracts=prompts=loading=freed_saves=messages=refreshes=0;
- nclipFiles=browser_cut=cached_kind=finish_calls=preparations=0;
+ nclipFiles=browser_cut=cached_kind=finish_calls=preparations=test_archive_index=batch_calls=0;
  first_choice[0]=observed_source[0]=observed_destination[0]=0;
 }
 static void copySave(int cut){
@@ -203,9 +217,21 @@ int main(void){
  reset(1);fb.n=2;fb.sel=1;strcpy(fb.files[1].name,"OTHER");fb.nmarked=1;fb.mark[0]=1;
  expected_format=SAVE_OUTPUT_MCS;copySave(0);opCreateArchive(FILER_SAVE_PS1);
  assert(!strcmp(observed_source,"mc0:/SAVE")&&!allocated);
+
+ for(int native=0;native<2;native++)for(int save_type=0;save_type<3;save_type++)for(int cut=0;cut<2;cut++) {
+  reset(save_type==0);fb.n=2;fb.nmarked=2;fb.mark[0]=fb.mark[1]=1;
+  fb.files[1]=fb.files[0];strcpy(fb.files[1].name,"OTHER");
+  opCopy(cut);assert(nclipFiles==2&&!reads&&!preparations&&!loading);
+  strcpy(fb.dir,"usb1:/output/");fb.n=fb.nmarked=0;switches=1;
+  kind=save_type==0?FILER_SAVE_PS1:save_type==1?FILER_SAVE_PS2:FILER_SAVE_MIXED;cached_kind=kind;
+  choice=save_type==2?0:1;expected_format=SAVE_OUTPUT_PSV;
+  if(native)classicCreateArchive(fb.dir,fb.msg,sizeof(fb.msg));else opCreateArchive(kind);
+  assert(batch_calls==1&&reads==2&&writes==2&&finish_calls==2&&!allocated&&!prompts&&!loading);
+  assert(nclipFiles==(cut?0:2));
+ }
  reset(1);opCreateArchive(FILER_SAVE_PS1);assert(!reads&&!writes&&!finish_calls);
  reset(1);opImportSaves();classicImportSaves(fb.dir,fb.msg,sizeof(fb.msg));assert(!extracts&&!switches&&!allocated&&!loading);
- puts("PASS: both browsers' metadata-only Copy/Cut and Options without file I/O or driver waits, folder validation before format selection, on-demand PS1/PS2 archiving with automatic filenames and no keyboard, clipboard-only extraction without a destination picker, card exports, canceled/failed writes retain Cut sources");
+ puts("PASS: both browsers' metadata-only Copy/Cut and Options without file I/O or driver waits, folder validation before format selection, single/batch PS1/PS2 archive actions and common mixed PSV format, automatic filenames and no keyboard, clipboard-only extraction without a destination picker, card exports, canceled/failed writes retain Cut sources");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='save-actions-') as temp:

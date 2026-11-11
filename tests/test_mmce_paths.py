@@ -50,7 +50,7 @@ assert 'Mount as vmc0:' in browser and 'Mount as vmc1:' in browser
 assert 'opCreateArchive(archive_kind);' in browser
 assert 'opImportSaves();' in browser
 assert 'opExtractSave' not in browser
-assert 'filerCreateClipboardArchive(fb.dir, format,' in browser
+assert 'filerCreateClipboardArchives(fb.dir, format,' in browser
 
 code = r'''
 #include <assert.h>

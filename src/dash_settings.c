@@ -2436,10 +2436,14 @@ static int editClockDateTime(int fields[6], MenuClockSettings *settings)
 			} else if (sel == 6) {
 				value[3] = (value[3] + 12) % 24;
 			} else if (sel == 7) {
-				/* Quarter-hour offsets include current half/quarter-hour zones. */
-				int next = ((choice.timezone_minutes + 720) / 15 + step) % 105;
-				if (next < 0) next += 105;
-				choice.timezone_minutes = next * 15 - 720;
+				/* Offer whole-hour offsets. Preserve a saved fractional offset
+				 * until this field is edited, then move in the chosen direction. */
+				int offset = choice.timezone_minutes + 720;
+				int next = offset / 60;
+				if (step < 0 && offset % 60) next++;
+				next = (next + step) % 27;
+				if (next < 0) next += 27;
+				choice.timezone_minutes = next * 60 - 720;
 			} else if (sel == 8) {
 				choice.daylight_saving = !choice.daylight_saving;
 			} else {

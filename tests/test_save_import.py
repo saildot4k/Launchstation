@@ -42,7 +42,7 @@ char *transcpy_sjis(char*,const unsigned char*);void genLimObjName(char*,int);
 extern int vmcMounted[2], nclipFiles, browser_cut;
 extern unsigned clipIopResetGeneration;
 extern FILEINFO clipFiles[MAX_ENTRY];extern char clipPath[MAX_PATH];
-enum { FILER_SAVE_NONE, FILER_SAVE_PS1, FILER_SAVE_PS2, FILER_ARCHIVE_PS1, FILER_ARCHIVE_PS2, FILER_CARD_PS1 };
+enum { FILER_SAVE_NONE, FILER_SAVE_PS1, FILER_SAVE_PS2, FILER_ARCHIVE_PS1, FILER_ARCHIVE_PS2, FILER_CARD_PS1, FILER_SAVE_MIXED };
 int filerCardInfo(const char *,VmcInfo *);
 int filerExtractSave(const SaveArchive *, const char *, char *, int);
 int filerPrepareMemoryCardRead(int);int mcGetInfo(int,int,int*,int*,int*);int mcSync(int,void*,int*);
@@ -68,10 +68,11 @@ code = r'''
 #include <strings.h>
 int vmcMounted[2]={1,1},nclipFiles,browser_cut;
 static SETTING config;SETTING *setting=&config;
-static int show_titles;static const char *game_title="";
+static int show_titles,batch_titles;static const char *game_title="";
 int fileShowTitles(void){return show_titles;}
 int filerGetGameTitle(const char *path,const FILEINFO *file,unsigned char *out){
- assert(!strcmp(path,"storage/")&&!strcmp(file->name,"PS2SAVE"));
+ assert(path[0]&&path[strlen(path)-1]=='/'&&file->name[0]);
+ if(batch_titles){snprintf((char*)out,66,"Title %.59s",file->name);return 0;}
  strcpy((char*)out,game_title);return game_title[0]?0:-1;
 }
 char *transcpy_sjis(char *out,const unsigned char *in){return strcpy(out,(const char*)in);}
@@ -79,7 +80,7 @@ PRODUCTION_NAME_LIMITS
 unsigned clipIopResetGeneration=1;FILEINFO clipFiles[MAX_ENTRY];char clipPath[MAX_PATH];
 static int card_type=1,free_units=15,fail_after=-1,fail_close,fail_rename,handles,physical_mkdirs;
 static unsigned generation=1;
-static int rename_calls;
+static int rename_calls,fail_after_archive;
 static int write_handles[1024];
 static int source_loaded=1,delete_calls,delete_failure,extract_hook;
 static int open_calls,dir_calls,prepare_calls,incompatible,restore_ok=1;
@@ -97,6 +98,7 @@ int genClose(int f){
  if(wrote && !result && extract_hook==1){int fd=open(changed_archive,O_RDWR);assert(fd>=0);uint8_t b;assert(pread(fd,&b,1,256)==1);b^=1;assert(pwrite(fd,&b,1,256)==1);close(fd);}
  if(wrote && !result && extract_hook==2)generation++;
  if(wrote && !result && extract_hook==3){source_loaded=0;restore_ok=0;}
+ if(wrote&&!result&&fail_after_archive>0&&!--fail_after_archive)fail_after=0;
  return fail_close?-EIO:result;
 }
 int genDopen(char *p){return genOpen(p,O_RDONLY|O_DIRECTORY);}
@@ -167,6 +169,31 @@ static int rememberAndProbe(int type){
 }
 static void put(const char *name,const void *p,size_t n){FILE *f=fopen(name,"wb");assert(f&&fwrite(p,1,n,f)==n);fclose(f);}
 static void no_temps(const char *p){DIR *dir=opendir(p);assert(dir);struct dirent *e;while((e=readdir(dir)))assert(strncmp(e->d_name,"LSI",3));closedir(dir);assert(!handles);}
+
+static void startArchiveBatch(const char *parent,int count,int cut){
+ assert(!mkdir(parent,0700));filerClearArchiveClipboard();memset(clipFiles,0,sizeof(clipFiles));
+ strcpy(clipPath,parent);nclipFiles=count;browser_cut=cut;card_type=0;show_titles=0;game_title="";
+ memset(&config,0,sizeof(config));
+}
+static void makeArchiveBatchItem(const char *parent,int index,int ps1,int wrapped){
+ char source[MAX_PATH],path[MAX_PATH];FILEINFO *file=&clipFiles[index];
+ snprintf(file->name,sizeof(file->name),"BATCH-%c",'A'+index);
+ assert(snprintf(source,sizeof(source),"%s%s",parent,file->name)<(int)sizeof(source));
+ file->stats.AttrFile=ps1&&!wrapped?0x9017:0x8427;file->stats.FileSizeByte=ps1&&!wrapped?8192:0;
+ const uint8_t date[8]={0,56,34,12,(uint8_t)(index+1),11,0xea,7};
+ memcpy(&file->stats._Create,date,8);memcpy(&file->stats._Modify,date,8);
+ if(!ps1||wrapped)assert(!mkdir(source,0700));
+ if(ps1){
+  uint8_t data[8192]={0};memcpy(data,"SC",2);data[8]=index+1;
+  if(wrapped){assert(snprintf(path,sizeof(path),"%s/%s",source,file->name)<(int)sizeof(path));put(path,data,sizeof(data));}
+  else put(source,data,sizeof(data));
+ }else{
+  uint8_t iconsys[964]={0},icon[257]={0},data[123]={0};memcpy(iconsys,"PS2D",4);strcpy((char*)iconsys+260,"icon.icn");data[0]=index+1;
+  assert(snprintf(path,sizeof(path),"%s/icon.sys",source)<(int)sizeof(path));put(path,iconsys,sizeof(iconsys));
+  assert(snprintf(path,sizeof(path),"%s/icon.icn",source)<(int)sizeof(path));put(path,icon,sizeof(icon));
+  assert(snprintf(path,sizeof(path),"%s/data",source)<(int)sizeof(path));put(path,data,sizeof(data));
+ }
+}
 int main(int argc,char **argv){
  assert(argc==2&&!chdir(argv[1]));mkdir("vmc0:",0700);mkdir("storage",0700);
  unsigned char save[8320]={0};save[0]=0x51;memcpy(save+10,"BASLUS-TEST",11);memcpy(save+128,"SC",2);put("input.mcs",save,sizeof(save));
@@ -429,6 +456,106 @@ int main(int argc,char **argv){
  nclipFiles=2;assert(!rememberAndProbe(0)&&!filerArchiveClipboardKind());
  assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_MCS,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&!archive);
  filerClearArchiveClipboard();
+ // Each clipboard entry produces its own archive, with bounded per-save memory.
+ int batch_case=0;
+ for(int ps1=0;ps1<2;ps1++)for(int wrapped=0;wrapped<=(ps1?1:0);wrapped++)for(int f=0;f<(ps1?3:2);f++)for(int cut=0;cut<2;cut++) {
+  char source[100],out[100],path[MAX_PATH];
+  snprintf(source,sizeof(source),"storage/batch-source-%d/",batch_case);
+  snprintf(out,sizeof(out),"mmce0:/batch-out-%d/",batch_case++);assert(!mkdir(out,0700));
+  startArchiveBatch(source,3,cut);
+  for(int i=0;i<3;i++)makeArchiveBatchItem(source,i,ps1,wrapped);
+  int opened=open_calls,listed=dir_calls,prepared=prepare_calls;
+  filerRememberArchiveClipboard(ps1&&!wrapped?1:0);
+  assert(filerArchiveClipboardKind()==(ps1&&!wrapped?FILER_SAVE_PS1:FILER_SAVE_PS2));
+  assert(opened==open_calls&&listed==dir_calls&&prepared==prepare_calls&&!archive_clip_data);
+  source_loaded=0;generation++;
+  assert(filerProbeArchiveClipboard(out)==(ps1?FILER_SAVE_PS1:FILER_SAVE_PS2)&&source_loaded);
+  int ps1_formats[]={SAVE_OUTPUT_MCS,SAVE_OUTPUT_PSV,SAVE_OUTPUT_PSX};
+  int format=ps1?ps1_formats[f]:f;
+  fail_rename=1;int renamed=rename_calls;
+  assert(filerCreateClipboardArchives(out,format,message,sizeof(message))==3);
+  assert(rename_calls==renamed&&nclipFiles==(cut?0:3)&&!browser_cut&&!archive_clip_data);fail_rename=0;
+  for(int i=0;i<3;i++) {
+   snprintf(path,sizeof(path),"%sBATCH-%c.%s",out,'A'+i,format==SAVE_OUTPUT_PSU?"psu":format==SAVE_OUTPUT_PSV?"PSV":format==SAVE_OUTPUT_MCS?"mcs":"psx");
+   SaveArchive parsed;uint8_t *snapshot;assert(filerLoadSave(path,&parsed,&snapshot,message,sizeof(message)));
+   assert(parsed.ps1==ps1&&parsed.count==(unsigned)(ps1?1:3));
+   int found=0;for(unsigned j=0;j<parsed.count;j++)if(ps1||!strcmp(parsed.files[j].name,"data")){
+    assert(parsed.files[j].data[ps1?8:0]==i+1);found++;
+   }
+   assert(found==1);saveArchiveFree(&parsed);free(snapshot);
+   snprintf(path,sizeof(path),"%sBATCH-%c",source,'A'+i);assert((access(path,F_OK)<0)==cut);
+  }
+ }
+
+ // PSU title/date policies use each save's metadata, including subsequent items.
+ startArchiveBatch("storage/batch-names/",3,0);
+ for(int i=0;i<3;i++)makeArchiveBatchItem(clipPath,i,0,0);
+ assert(!mkdir("storage/batch-names-out",0700));show_titles=batch_titles=1;config.PSU_HugeNames=config.PSU_DateNames=1;
+ filerRememberArchiveClipboard(0);assert(filerCreateClipboardArchives("storage/batch-names-out/",SAVE_OUTPUT_PSU,message,sizeof(message))==3);
+ for(int i=0;i<3;i++) {
+  char path[200];snprintf(path,sizeof(path),"storage/batch-names-out/BATCH-%c_Title BATCH-%c_2026-11-%02d_12-34-56.psu",'A'+i,'A'+i,i+1);
+  assert(!access(path,F_OK));
+ }
+ batch_titles=0;
+ // Never-overwrite skips only its matching PSU and preserves that Cut item.
+ startArchiveBatch("storage/batch-skipped/",3,1);
+ for(int i=0;i<3;i++)makeArchiveBatchItem(clipPath,i,0,0);
+ assert(!mkdir("storage/batch-skipped-out",0700));put("storage/batch-skipped-out/BATCH-B.psu","old PSU",8);
+ config.PSU_NoOverwrite=1;filerRememberArchiveClipboard(0);
+ assert(filerCreateClipboardArchives("storage/batch-skipped-out/",SAVE_OUTPUT_PSU,message,sizeof(message))==0);
+ assert(strstr(message,"2 archives created; 1 skipped")&&nclipFiles==1&&browser_cut&&!strcmp(clipFiles[0].name,"BATCH-B"));
+ assert(!access("storage/batch-skipped/BATCH-B/data",F_OK)&&access("storage/batch-skipped/BATCH-A",F_OK)<0&&access("storage/batch-skipped/BATCH-C",F_OK)<0);
+ size_t old_size;uint8_t *old_data=readSource("storage/batch-skipped-out/BATCH-B.psu",&old_size);assert(old_data&&old_size==8&&!memcmp(old_data,"old PSU",8));free(old_data);
+ // A failure partway through consumes only completed Cuts; retry starts at the failed item.
+ for(int write_failure=0;write_failure<2;write_failure++) {
+  char source[100],out[100],target[150];
+  snprintf(source,sizeof(source),"storage/batch-partial-%d/",write_failure);
+  snprintf(out,sizeof(out),"storage/batch-partial-out-%d/",write_failure);assert(!mkdir(out,0700));
+  startArchiveBatch(source,3,1);for(int i=0;i<3;i++)makeArchiveBatchItem(source,i,0,0);
+  snprintf(target,sizeof(target),"%sBATCH-B.PSV",out);
+  if(!write_failure)put(target,"existing PSV",13);else fail_after_archive=1;
+  filerRememberArchiveClipboard(0);assert(filerCreateClipboardArchives(out,SAVE_OUTPUT_PSV,message,sizeof(message))<0);
+  assert(strstr(message,"1 archive created; stopped at BATCH-B")&&nclipFiles==2&&browser_cut);
+  assert(!strcmp(clipFiles[0].name,"BATCH-B")&&!strcmp(clipFiles[1].name,"BATCH-C"));
+  snprintf(source,sizeof(source),"storage/batch-partial-%d/BATCH-A",write_failure);assert(access(source,F_OK)<0);
+  if(write_failure)assert(access(target,F_OK)<0);else assert(!unlink(target));
+  fail_after=-1;fail_after_archive=0;
+  assert(filerArchiveClipboardKind()==FILER_SAVE_PS2);
+  assert(filerCreateClipboardArchives(out,SAVE_OUTPUT_PSV,message,sizeof(message))==2&&!nclipFiles&&!browser_cut);
+ }
+ // Unverified Cut removal of an earlier item must not skip subsequent entries.
+ startArchiveBatch("storage/batch-kept/",3,1);
+ for(int i=0;i<3;i++)makeArchiveBatchItem(clipPath,i,1,0);
+ assert(!mkdir("storage/batch-kept-out",0700));strcpy(changed_archive,"storage/batch-kept/BATCH-A");extract_hook=1;
+ filerRememberArchiveClipboard(1);assert(filerCreateClipboardArchives("storage/batch-kept-out/",SAVE_OUTPUT_MCS,message,sizeof(message))==0);
+ assert(strstr(message,"3 archives created; 0 skipped; 1 source save kept")&&nclipFiles==1&&browser_cut&&!strcmp(clipFiles[0].name,"BATCH-A"));
+ assert(!access(changed_archive,F_OK)&&access("storage/batch-kept/BATCH-B",F_OK)<0&&access("storage/batch-kept/BATCH-C",F_OK)<0);extract_hook=0;
+ // A batch naming collision must preserve the first archive and the later Cut sources.
+ startArchiveBatch("storage/batch-collision/",3,1);
+ for(int i=0;i<3;i++)makeArchiveBatchItem(clipPath,i,0,0);
+ assert(!mkdir("storage/batch-collision-out",0700));show_titles=1;game_title="Same Title";
+ filerRememberArchiveClipboard(0);assert(filerCreateClipboardArchives("storage/batch-collision-out/",SAVE_OUTPUT_PSU,message,sizeof(message))<0);
+ assert(strstr(message,"same archive name")&&nclipFiles==2&&!strcmp(clipFiles[0].name,"BATCH-B"));
+ SaveArchive first_batch;uint8_t *first_data;assert(filerLoadSave("storage/batch-collision-out/Same Title.psu",&first_batch,&first_data,message,sizeof(message)));
+ assert(!strcmp(first_batch.folder.name,"BATCH-A"));saveArchiveFree(&first_batch);free(first_data);show_titles=0;game_title="";
+
+ // Case-only differences also collide on FAT storage and must not lose a Cut save.
+ startArchiveBatch("storage/batch-case-collision/",2,1);
+ for(int i=0;i<2;i++)makeArchiveBatchItem(clipPath,i,1,0);
+ assert(!rename("storage/batch-case-collision/BATCH-B","storage/batch-case-collision/batch-a"));strcpy(clipFiles[1].name,"batch-a");
+ assert(!mkdir("storage/batch-case-collision-out",0700));filerRememberArchiveClipboard(1);
+ assert(filerCreateClipboardArchives("storage/batch-case-collision-out/",SAVE_OUTPUT_MCS,message,sizeof(message))<0);
+ assert(nclipFiles==1&&!strcmp(clipFiles[0].name,"batch-a")&&!access("storage/batch-case-collision/batch-a",F_OK));
+ assert(!access("storage/batch-case-collision-out/BATCH-A.mcs",F_OK)&&access("storage/batch-case-collision-out/batch-a.mcs",F_OK)<0);
+ // Mixed PS1/PS2 saves share PSV, and nested folders are rejected before the format menu.
+ startArchiveBatch("storage/batch-mixed/",2,0);
+ makeArchiveBatchItem(clipPath,0,1,1);makeArchiveBatchItem(clipPath,1,0,0);
+ assert(!mkdir("storage/batch-mixed-out",0700));filerRememberArchiveClipboard(0);
+ assert(filerProbeArchiveClipboard("storage/batch-mixed-out/")==FILER_SAVE_MIXED);
+ assert(filerCreateClipboardArchives("storage/batch-mixed-out/",SAVE_OUTPUT_PSV,message,sizeof(message))==2&&nclipFiles==2);
+ assert(!mkdir("storage/batch-mixed/BATCH-B/nested",0700));
+ assert(!filerProbeArchiveClipboard("storage/batch-mixed-out/"));
+ filerClearArchiveClipboard();browser_cut=0;
  char label[40];filerExtractLabel("file.pSv",label,sizeof(label));assert(!strcmp(label,"Extract PSV..."));
  selected.stats.AttrFile=0x8497;strcpy(selected.name,"input.mcs");
  assert(filerSaveKind("",&selected,0)==FILER_ARCHIVE_PS1);
@@ -511,7 +638,7 @@ int main(int argc,char **argv){
  strcpy(clipFiles[0].name,"FLAT");clipFiles[0].stats.AttrFile=sceMcFileAttrSubdir;filerRememberArchiveClipboard(0);
  assert(filerCreateClipboardArchive("mx4sio:/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&strstr(message,"Incompatible drivers")&&open_calls==before_open);
  incompatible=0;
- assert(!handles);puts("PASS: real save import/export, direct extraction, MCS/PSU/PSV creation, PSU title/date/overwrite settings, direct PSU/PSV/MCS/PSX creation and extraction across seven device paths without rename, clipboard extension labels, Copy/Cut extraction and partial batches, metadata-only Copy/Cut and on-demand source restoration, flat-folder clipboard eligibility without icon.sys, nested/capped folder rejection, empty files, both physical PS1 slots without mkdir, short I/O, card types, space preflight and failed-write/close cleanup");
+ assert(!handles);puts("PASS: real save import/export, direct extraction, MCS/PSU/PSV creation, PSU title/date/overwrite settings, direct PSU/PSV/MCS/PSX creation and extraction across seven device paths without rename, single/multiple Copy/Cut archive creation, partial retries, skips, retained sources, duplicate names and mixed PSV batches, clipboard extension labels, Copy/Cut extraction and partial batches, metadata-only Copy/Cut and on-demand source restoration, flat-folder clipboard eligibility without icon.sys, nested/capped folder rejection, empty files, both physical PS1 slots without mkdir, short I/O, card types, space preflight and failed-write/close cleanup");
 }
 '''.replace('PRODUCTION_SAVES', os.environ.get('SAVE_TEST_SOURCE', str(root / 'src/filer_saves.c'))).replace('PRODUCTION_NAME_LIMITS', name_limits)
 

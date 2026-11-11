@@ -63,7 +63,7 @@ void Show_About_uLE(void)
 			clrScr(setting->color[COLOR_BACKGR]);
 			sprintf(TextRow, "About Launchstation %s  %s", ULE_VERSION, ULE_VERDATE);
 			PrintPos(01, hpos, TextRow, COLOR_SELECT);
-			sprintf(TextRow, " commit: %s", GIT_HASH);
+			sprintf(TextRow, " commit: %.7s", GIT_HASH);
 			PrintPos(02, hpos, TextRow, COLOR_TEXT);
 			PrintPos(03, hpos, "Maintained by NathanNeurotic/Ripto/Saildot4K", COLOR_TEXT);
 			PrintPos(-1, hpos, "Direct base: wLaunchELF_R3Z", COLOR_TEXT);

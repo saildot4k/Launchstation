@@ -70,10 +70,10 @@ static void dashClockManualLimitsForSettings(int lo[6],int hi[6],const MenuClock
  assert(settings->timezone_minutes>=-720 && settings->timezone_minutes<=840);limits_calls++;
  if(dynamic_limits) {
      /* Script independently supplied endpoint changes, to check the UI reclamps immediately. */
-     assert(settings->timezone_minutes==-480 || settings->timezone_minutes==-465);
-     int lo_case[]={1999,12,31,7+settings->daylight_saving,settings->timezone_minutes==-465?15:0,0};
-     int hi_case[]={2099,12,31,(settings->timezone_minutes==-465?7:6)+settings->daylight_saving,
-                    settings->timezone_minutes==-465?14:59,59};
+     assert(settings->timezone_minutes==-480 || settings->timezone_minutes==-420);
+     int zone_hours=(settings->timezone_minutes+480)/60;
+     int lo_case[]={1999,12,31,7+zone_hours+settings->daylight_saving,0,0};
+     int hi_case[]={2099,12,31,6+zone_hours+settings->daylight_saving,59,59};
      memcpy(minimum,lo_case,sizeof(minimum));memcpy(maximum,hi_case,sizeof(maximum));
  }
  memcpy(lo,minimum,sizeof(minimum));memcpy(hi,maximum,sizeof(maximum));
@@ -325,11 +325,11 @@ int main(void) {
     /* Preferences can be staged and cancelled, including toggles from repeated shoulders. */
     for(int control=7;control<=9;control++) {
         reset();selectControl(control);press(DASH_IN_UP);
-        if(control==7)expected_preferences.timezone_minutes=-465;
+        if(control==7)expected_preferences.timezone_minutes=-420;
         if(control==8)expected_preferences.daylight_saving=1;
         if(control==9)expected_preferences.use_12h=1;
         acceptAndCheck(current);assert(selected==control);
-        if(control==7)assert(!strcmp(shown_zone,"-07:45"));
+        if(control==7)assert(!strcmp(shown_zone,"-07:00"));
         if(control==8)assert(!strcmp(shown_dst,"On (+1h)"));
         reset();selectControl(control);repeatShoulder(DASH_IN_R1);press(DASH_IN_BACK);
         assert(!editClockDateTime(current,&preferences));
@@ -339,11 +339,11 @@ int main(void) {
     for(int control=7;control<=8;control++) {
         reset();dynamic_limits=1;memcpy(current,west_min,sizeof(current));memcpy(expected,west_min,sizeof(expected));
         selectControl(control);press(DASH_IN_UP);
-        if(control==7){expected_preferences.timezone_minutes=-465;expected[4]=15;}
+        if(control==7){expected_preferences.timezone_minutes=-420;expected[3]=8;}
         else {expected_preferences.daylight_saving=1;expected[3]=8;}
         acceptAndCheck(current);assert(limits_calls==2);
     }
-    /* Time-zone endpoints wrap; quarter-hour regions and 24-hour mode are selectable. */
+    /* Hourly time-zone endpoints wrap; 24-hour mode is still selectable. */
     reset();preferences.timezone_minutes=840;expected_preferences.timezone_minutes=-720;
     selectControl(7);press(DASH_IN_UP);acceptAndCheck(current);
     reset();preferences.timezone_minutes=-720;expected_preferences.timezone_minutes=840;
@@ -351,6 +351,31 @@ int main(void) {
     reset();preferences.use_12h=1;expected_preferences.use_12h=0;
     current[3]=expected[3]=23;selectControl(9);press(DASH_IN_UP);acceptAndCheck(current);
     assert(shown[3]==23 && !meridiem);
+
+    /* Loading, accepting or cancelling never silently rounds an existing fractional zone. */
+    const int saved_zones[]={345,-210,825,-705};
+    for(unsigned i=0;i<NITEMS(saved_zones);i++) {
+        reset();preferences.timezone_minutes=expected_preferences.timezone_minutes=saved_zones[i];
+        press(0);acceptAndCheck(current);
+        reset();preferences.timezone_minutes=expected_preferences.timezone_minutes=saved_zones[i];
+        selectControl(7);press(DASH_IN_UP);press(DASH_IN_BACK);
+        assert(!editClockDateTime(current,&preferences));
+        assert(!memcmp(&preferences,&expected_preferences,sizeof(preferences)));
+    }
+    /* The first edit reaches the next whole hour in either direction, across zero too. */
+    const int zones[][3]={{345,360,300},{-210,-180,-240},{825,840,780},{-705,-660,-720},{0,60,-60},{15,60,0},{-15,0,-60}};
+    for(unsigned i=0;i<NITEMS(zones);i++)for(int direction=0;direction<2;direction++) {
+        reset();preferences.timezone_minutes=zones[i][0];expected_preferences.timezone_minutes=zones[i][direction+1];
+        selectControl(7);press(direction?DASH_IN_DOWN:DASH_IN_UP);acceptAndCheck(current);
+        assert(preferences.timezone_minutes%60==0);
+    }
+    /* Shoulder presses/repeats retain ten hourly steps and endpoint wrapping. */
+    reset();preferences.timezone_minutes=345;expected_preferences.timezone_minutes=-720;
+    selectControl(7);press(DASH_IN_R1);acceptAndCheck(current);
+    reset();preferences.timezone_minutes=345;expected_preferences.timezone_minutes=-240;
+    selectControl(7);repeatShoulder(DASH_IN_L1);acceptAndCheck(current);
+    reset();expected_preferences.timezone_minutes=-300;
+    selectControl(7);press(DASH_IN_R1);repeatShoulder(DASH_IN_R1);repeatShoulder(DASH_IN_R1);acceptAndCheck(current);
     /* Integration: chooser cancellation does no RTC work; editor cancellation never writes. */
     reset();setPs2Clock();assert(menus==1 && !field_reads && !manual_writes && !messages);
     reset();choice=0;allow_wait=0;setPs2Clock();assert(!field_reads && !manual_writes && !flushes);
@@ -380,7 +405,7 @@ int main(void) {
     reset();choice=1;sync_ok=0;empty_error=1;setPs2Clock();
     assert(!strcmp(last_body,"No reliable Internet time was available."));
 #endif
-    puts("PASS: centered single-row clock controls, 12/24-hour and AM/PM editing, staged time-zone/DST preferences, accelerating shoulders, whole-year field, valid-date wrapping, leap years, stable animation, safe cancellation and RTC/Internet dispatch");
+    puts("PASS: centered single-row clock controls, 12/24-hour and AM/PM editing, hourly time-zone steps with fractional saved-offset preservation, staged DST preferences, accelerating shoulders, whole-year field, valid-date wrapping, leap years, stable animation, safe cancellation and RTC/Internet dispatch");
 }
 '''
 

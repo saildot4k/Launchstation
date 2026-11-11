@@ -7,7 +7,7 @@
 
 enum {
 	FILER_SAVE_NONE, FILER_SAVE_PS1, FILER_SAVE_PS2,
-	FILER_ARCHIVE_PS1, FILER_ARCHIVE_PS2, FILER_CARD_PS1
+	FILER_ARCHIVE_PS1, FILER_ARCHIVE_PS2, FILER_CARD_PS1, FILER_SAVE_MIXED
 };
 /* Serialized content inspection, only for an explicitly requested save action. */
 int filerSaveKind(const char *folder, const FILEINFO *file, int card_type);
@@ -28,9 +28,13 @@ int filerProbeArchiveClipboard(const char *destination);
 int filerArchiveClipboardKind(void);
 int filerCreateClipboardArchive(const char *destination, int format, uint8_t **data, size_t *length,
                                char *name, int name_size, char *message, int size);
-/* Call only after publishing the archive. Cut removes an unchanged source;
+/* Call only after publishing the current item. Cut removes that unchanged source;
  * 0 means the archive exists but the source was retained, 1 means success. */
 int filerFinishArchiveClipboard(const char *destination, char *message, int size);
+/* One archive per clipboard item, processed in order. Completed Cut items
+ * leave the clipboard; skipped, failed and unprocessed sources remain.
+ * Returns the created count, 0 for skips/retained Cut sources, or -1 on failure. */
+int filerCreateClipboardArchives(const char *destination, int format, char *message, int size);
 
 /* Serialized device calls; invoke from the browser's listing worker or after
  * prepareOp(), never during a concurrent fileXio operation. */

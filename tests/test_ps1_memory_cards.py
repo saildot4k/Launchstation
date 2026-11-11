@@ -58,7 +58,7 @@ static void DelayThread(int delay){(void)delay;}
 '''+function(filer, 'int readMC(')+shared[enum_start:enum_end]+r'''
 static int nclipFiles,archive_kind;static FILEINFO clipFiles[MAX_ENTRY];
 #define FILER_SAVE_NONE 0
-static int filerArchiveClipboardKind(void){return nclipFiles==1?archive_kind:FILER_SAVE_NONE;}
+static int filerArchiveClipboardKind(void){return nclipFiles>0?archive_kind:FILER_SAVE_NONE;}
 enum {PSU_ACTION_NONE,PSU_ACTION_CREATE,PSU_ACTION_EXTRACT};
 static int classifyPsuAction(const char *p){(void)p;return PSU_ACTION_EXTRACT;}
 static int isPcCardCfPath(const char *p){(void)p;return 0;}
@@ -128,10 +128,10 @@ int main(void){
  filerMenuEnables("cdfs:/",&save,0,0,enabled);assert(!enabled[CREATE_ARCHIVE]);
  filerMenuEnables("hdd0:/",&save,0,0,enabled);assert(!enabled[CREATE_ARCHIVE]);
  filerMenuEnables("",&save,0,0,enabled);assert(!enabled[CREATE_ARCHIVE]);
- /* The selected save/folder never enables archiving without one captured clipboard source. */
+ /* The selected save/folder never enables archiving without captured clipboard sources. */
  for(int copied=0;copied<3;copied++) {
   nclipFiles=copied;archive_kind=2;
-  filerMenuEnables("usb0:/",&save,0,0,enabled);assert(enabled[CREATE_ARCHIVE]==(copied==1));
+  filerMenuEnables("usb0:/",&save,0,0,enabled);assert(enabled[CREATE_ARCHIVE]==(copied>0));
  }
  archive_kind=0;nclipFiles=1;
  char message[160];FILEINFO image={0};
