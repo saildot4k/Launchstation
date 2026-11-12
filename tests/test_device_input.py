@@ -466,7 +466,7 @@ static void probe(const char *m) {
 }
 int main(void) {
     ndevs=3;
-    strcpy(devs[0].mount,"udpfs:");devs[0].icon=DI_NETWORK;devs[0].state=DASH_DEV_ABSENT;
+    strcpy(devs[0].mount,"udpfs:");devs[0].icon=DI_NETWORK_FOLDER;devs[0].state=DASH_DEV_ABSENT;
     strcpy(devs[1].mount,"hdd0:");devs[1].icon=DI_HDD;devs[1].state=DASH_DEV_ABSENT;
     strcpy(devs[2].mount,"mc0:");devs[2].icon=DI_MC;devs[2].state=DASH_DEV_BUSY;
     assert(devSelectable(0) && !devSelectable(1) && devSelectable(2));

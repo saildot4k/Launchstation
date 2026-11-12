@@ -83,7 +83,7 @@ int main(void) {
     const struct { const char *mount,*description; } expected[] = {
         {"mc0:","Memory Card Slot 1"},{"mc1:","Memory Card Slot 2"},
         {"mmce0:","SD2PSX SD Card Slot 1"},{"mmce1:","SD2PSX SD Card Slot 2"},
-        {"mx4sio:","MX4SIO SD Card"},{"hdd0:","APA HDD"},{"hdd1:","APA HDD 2"},
+        {"mx4sio:","MX4SIO SD Card Slot 2"},{"hdd0:","APA HDD"},{"hdd1:","APA HDD 2"},
         {"ata0:","exFAT HDD"},{"ata1:","exFAT HDD 2"},
         {"dvr_hdd0:","PSX DVR"},{"xfrom0:","PSX Internal Flash"},
         {"cdfs:","CDVD Drive"},{"udpfs:","UDPFS Network Server"},{"host:","PC Host Server"},

@@ -30,6 +30,7 @@ c = r"""
 
 #define DI_USB 1
 #define DI_NETWORK 2
+#define DI_NETWORK_FOLDER 5
 #define DI_SDCARD 3
 #define DI_WARNING 4
 
@@ -131,14 +132,14 @@ c += function("iop/mmceman/src/mmceman.c", "static void mmce_init(int port)\n{")
 c += r"""
 int main(void) {
     DashDevice mmce = {DI_SDCARD, "mmce0:", "MMCE Slot 1", "No MMCE storage found"};
-    DashDevice mx4sio = {DI_SDCARD, "mx4sio:", "MX4SIO SD Card", "No MX4SIO storage found"};
+    DashDevice mx4sio = {DI_SDCARD, "mx4sio:", "MX4SIO SD Card Slot 2", "No MX4SIO storage found"};
     DashDevice usb = {DI_USB, "usb0:", "MASS", "Not connected"};
-    DashDevice udpfs = {DI_NETWORK, "udpfs:", "UDPFS", "Not connected"};
+    DashDevice udpfs = {DI_NETWORK_FOLDER, "udpfs:", "UDPFS", "Not connected"};
     DashDevice cf = {DI_SDCARD, "cf0:", "PC CARD CF", "CF card absent"};
     deviceNotFound(&mmce);
     assert(strstr(last_body, "MMCE Slot 1"));
     deviceNotFound(&mx4sio);
-    assert(strstr(last_body, "MX4SIO SD Card"));
+    assert(strstr(last_body, "MX4SIO SD Card Slot 2"));
     deviceNotFound(&usb);
     assert(strstr(last_body, "USB storage device"));
     deviceNotFound(&udpfs);
