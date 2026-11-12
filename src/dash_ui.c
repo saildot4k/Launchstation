@@ -718,6 +718,7 @@ void dashDrawNotifications(void)
 static void modalBackdrop(float k)
 {
 	DashColor c = dashColorScale(dashTheme.bg2, 0.4f);
+	dashGfxSetPopup(1); /* Input/audio RPC waits must retain the complete dialog. */
 	c.a = (u8)(150 * k);
 	dashRect(0, 0, DASH_VW, DASH_VH, c);
 }
@@ -1200,6 +1201,7 @@ static void loadingDraw(void)
 
 	if (loading_view != NULL) {
 		loading_view(loading_title);
+		dashGfxSetPopup(0); /* This view has its own safe wait-frame renderer. */
 		loading_last_draw = Timer();
 		return;
 	}
@@ -1232,6 +1234,7 @@ static void loadingDraw(void)
 	if (loading_cancel)
 		modalHintRow(x + 24, y + h - 34, -1, NULL, dashBackIcon(), "Continue in background");
 	dashGfxPopAlpha();
+	dashGfxSetPopup(0); /* Loading/progress can redraw itself during an RPC wait. */
 	dashGfxPresent();
 	loading_last_draw = Timer();
 }
@@ -1254,6 +1257,10 @@ void dashLoadingBegin(const char *title)
  * input, audio, job completion or device polling belongs in this frame. */
 void dashLoadingRedraw(void)
 {
+	/* Menus/keyboards/confirmations are drawn by their own modal loop. A
+	 * bare scene (or the loading view below a confirmation) would erase
+	 * them for one frame. Keep the last full popup until its next draw. */
+	if (dashGfxPopupActive()) return;
 	if (loading_active)
 		loadingDraw();
 	else {

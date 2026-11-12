@@ -43,6 +43,7 @@ static float g_sy = 1.0f;
 static int g_blend = -1;
 static int gfx_ready;
 static int frame_active;
+static int frame_popup, presented_popup;
 static int gfx_screen_gen = -1;
 
 static GSTEXTURE tex_corner;  /* filled AA quarter disc, center at (32,32) */
@@ -396,9 +397,22 @@ int dashGfxCanYield(void)
 	return gfx_ready && !frame_active;
 }
 
+void dashGfxSetPopup(int popup)
+{
+	frame_popup = !!popup;
+	/* Custom loading views present their own frame before returning. */
+	if (!frame_active) presented_popup = frame_popup;
+}
+
+int dashGfxPopupActive(void)
+{
+	return presented_popup;
+}
+
 void dashGfxBeginFrame(void)
 {
 	frame_active = 1;
+	frame_popup = 0;
 	alpha_top = 0;
 	off_top = 0;
 	g_alpha = 1.0f;
@@ -454,6 +468,7 @@ void dashGfxPresent(void)
 		gsKit_sync_flip(gsGlobal);
 	gsKit_queue_exec(gsGlobal);
 	gsKit_TexManager_nextFrame(gsGlobal);
+	presented_popup = frame_popup;
 	frame_active = 0;
 	/* A foreground RPC/codec caller still owns its buffers and client lock.
 	 * Wait frames must not apply callbacks or start another file job. */

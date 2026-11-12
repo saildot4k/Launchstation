@@ -12,6 +12,19 @@ import tempfile
 root = Path(__file__).resolve().parents[1]
 wraps = ("sceSifCallRpc", "sceSifBindRpc", "mcSync", "xfromSync", "SifIopReset",
          "SifIopSync", "DelayThread", "saveArchiveParse", "saveArchiveBuild")
+def function(source, signature):
+    start = source.index(signature)
+    end = source.index("{", start) + 1
+    depth = 1
+    while depth:
+        depth += (source[end] == "{") - (source[end] == "}")
+        end += 1
+    return source[start:end] + "\n"
+
+
+ui = Path(os.getenv("POPUP_UI_SOURCE", str(root / "src/dash_ui.c"))).read_text()
+gfx = (root / "src/dash_gfx.c").read_text()
+
 for build_file in ("Makefile", "ps2.yaml"):
     text = (root / build_file).read_text()
     for name in wraps:
@@ -92,10 +105,21 @@ static void advance(int delta) {
     }
 }
 s32 __real_DelayThread(s32 delay) {if(delay_error)return delay_error;advance(delay);return 0;}
-void dashLoadingRedraw(void) {
-    assert(tid==1 && !frame_open && dashIoBusy() && DashIoBusy());
-    frames++;frame_open=1;advance(2000);frame_open=0;
+static int frame_popup,presented_popup,visible_popup,loading_active;
+#define frame_active frame_open
+POPUP_GFX_FUNCTIONS
+static float dashVisualUpdate(void) {
+    assert(tid==1 && !frame_open && dashIoBusy() && DashIoBusy());return 0.016f;
 }
+static void dashRenderScene(void) {frame_open=1;frame_popup=0;advance(2000);}
+static void dashGfxPresent(void) {
+    frames++;presented_popup=frame_popup;visible_popup=frame_popup;frame_open=0;
+}
+static void loadingDraw(void) {
+    dashVisualUpdate();dashRenderScene();dashGfxSetPopup(0);dashGfxPresent();
+}
+POPUP_REDRAW_FUNCTION
+
 static void completed(void *arg) {assert(arg==(void *)0x1234);callback_count++;}
 int mockCheckStatRpc(SifRpcClientData_t *cd) {checks++;return cd->busy;}
 int __real_sceSifCallRpc(SifRpcClientData_t *cd,int number,int mode,void *send,int ssize,
@@ -185,6 +209,18 @@ int main(void) {
     assert(frames>before && cd.server && last_mode==1);idle();
     bind_missing=1;assert(!__wrap_sceSifBindRpc(&cd,5,0) && !cd.server);bind_missing=0;
     error=-22;assert(__wrap_sceSifBindRpc(&cd,5,0)==-22);error=0;idle();
+    /* Input/audio RPCs between modal frames must not paint the underlying
+     * dashboard or a progress dialog beneath an overwrite confirmation. */
+    frame_open=1;dashGfxSetPopup(1);dashGfxPresent();before=frames;
+    for(int progress_underneath=0;progress_underneath<2;progress_underneath++) {
+        loading_active=progress_underneath;
+        assert(!__wrap_sceSifCallRpc(&cd,91,0,NULL,0,NULL,0,NULL,NULL));
+        assert(frames==before && visible_popup && dashGfxPopupActive());idle();
+    }
+    /* Explicit loading renderers release ownership and keep animating. */
+    dashGfxSetPopup(0);loading_active=1;
+    assert(!__wrap_sceSifCallRpc(&cd,91,0,NULL,0,NULL,0,NULL,NULL));
+    assert(frames>before && !dashGfxPopupActive());loading_active=0;idle();
     /* libmc/flash preserve completion status, output command and error. */
     for(int flash=0;flash<2;flash++) {
         int cmd=-1,result=123;card_pending=1;card_finish=usec+97000;before=frames;
@@ -221,6 +257,9 @@ int main(void) {
     puts("PASS: frames during RPC/bind/card/reset/delay/codec waits; native results, callbacks, buffers, thread/frame ownership and no nested job dispatch");
 }
 '''
+code = code.replace("POPUP_GFX_FUNCTIONS", function(gfx, "void dashGfxSetPopup(") +
+                    function(gfx, "int dashGfxPopupActive("))
+code = code.replace("POPUP_REDRAW_FUNCTION", function(ui, "void dashLoadingRedraw("))
 compiler = shutil.which("gcc") or shutil.which("clang")
 if not compiler:
     raise SystemExit("Host gcc or clang required")

@@ -326,6 +326,8 @@ void dashGfxShutdown(void);
 int dashGfxCheckScreenChange(void); /* re-inits VRAM state after a mode switch */
 void dashGfxBeginFrame(void);
 int dashGfxCanYield(void); /* ready, between frames, outside a legacy handoff */
+void dashGfxSetPopup(int popup); /* composition of this frame, or the just-presented loading view */
+int dashGfxPopupActive(void); /* last complete frame has an interactive popup */
 void dashGfxPresent(void);
 void dashGfxRestoreLegacyState(void);
 float dashGfxScaleY(void);

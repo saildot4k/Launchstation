@@ -24,7 +24,9 @@ typedef uint64_t u64;
 typedef int DashColor;
 typedef void (*DashLoadingView)(const char *);
 '''+globals_source+r'''
-static int active=1,worker,draws;
+static int active=1,worker,draws,popup;
+static void dashGfxSetPopup(int value){popup=value;}
+static int dashGfxPopupActive(void){return popup;}
 static u64 tick;
 static int DashIsActive(void){return active;}
 static int dashWorkerOnThread(void){return worker;}
@@ -47,7 +49,7 @@ static float dashVisualUpdate(void){return 0.016f;}
 static float dashApproach(float v,float target,float rate,float dt){(void)v;(void)rate;(void)dt;return target;}
 static float dashClampf(float v,float lo,float hi){return v<lo?lo:v>hi?hi:v;}
 static void dashRenderScene(void){text_count=bars=0;hint_y=0;}
-static void modalBackdrop(float a){(void)a;}
+static void modalBackdrop(float a){(void)a;dashGfxSetPopup(1);}
 static void dashGfxPushAlpha(float a){(void)a;}
 static void modalPanel(float x,float y,float w,float h,float alpha){
  (void)alpha;panel_x=x;panel_y=y;panel_w=w;panel_h=h;
@@ -164,7 +166,12 @@ int main(void){
  assert(!strcmp(loading_title,"Creating archive 2 of 3")&&loading_done==5000&&panel_h==210);
  assert(!strcmp(loading_copied,"4 KB")&&!strcmp(loading_transfer[2],"8 KB"));
  int before_redraw=draws;
- tick+=16;dashLoadingRedraw();
+ dashGfxSetPopup(1);tick+=16;dashLoadingRedraw();
+ assert(draws==before_redraw && popup && loading_active); /* Confirm over progress. */
+ loading_active=0;tick+=16;dashLoadingRedraw();
+ assert(draws==before_redraw && popup); /* Ordinary popup over the dashboard. */
+ loading_active=1;loadingDraw();assert(!popup && draws==before_redraw+1);
+ before_redraw=draws;tick+=16;dashLoadingRedraw();
  assert(draws==before_redraw+1 && loading_done==5000 && loading_total==10000);
  assert(!strcmp(loading_title,"Creating archive 2 of 3") && !strcmp(loading_status,"BASLUS-SAVE.psu"));
  assert(!strcmp(loading_copied,"4 KB") && !strcmp(loading_transfer[2],"8 KB"));

@@ -84,6 +84,12 @@ parsing, decompression and PSV signing use the worker so those EE tasks also
 leave time for rendering. Existing progress dialogs retain their filenames,
 byte counts, rates and completion checks while the background and spinner move.
 
+Interactive popups keep their last complete frame while an input or audio
+RPC finishes; their modal loop draws the next popup frame. The wait renderer
+never substitutes the dashboard or an underlying progress popup while
+navigating a menu, editing a value, typing, or answering a confirmation.
+Loading and transfer views continue their own animated redraws.
+
 Wait frames only update visuals. Controller/audio services can pause during
 IOP resets; input resumes after the operation's next input checkpoint. Drawing
 uses cached hardware values and advances an already initialized clock on the
