@@ -340,6 +340,9 @@ int filerPrepareMemoryCardRead(int port)
 	 * against slot 2 if the foreground handoff failed or was skipped. */
 	if (port == 1 && !isPathDeviceStackLoaded("mc1:/"))
 		return sceMcResFailDetect;
+	ret = ensureMemoryCardRpcReady();
+	if (ret < 0)
+		return ret;
 	ret = waitMemoryCardReadyForBrowse(port);
 	if (ret != sceMcResSucceed)
 		return ret;
@@ -361,20 +364,21 @@ int readMC(const char *path, FILEINFO *info, int max)
 	int i, j, port, ret;
 
 	port = path[2] - '0';
-	if (port < 0 || port > 1)
+	if (port < 0 || port > 1 || max <= 0)
 		return 0;
+	if (max > MAX_ENTRY - 2) max = MAX_ENTRY - 2;
 	ret = filerPrepareMemoryCardRead(port);
-	if (mctype_PSx == 2)  //PS2 MC ?
-		time_valid = 1;
+	time_valid = (mctype_PSx == 2);  //PS1 saves have no PS2 timestamps.
 	size_valid = 1;
 	if (ret != sceMcResSucceed)
-		return 0;
+		return ret;
 
 	strcpy(dir, &path[4]);
 	strcat(dir, "*");
 	for (i = 0; i < MC_BROWSER_RETRY_COUNT; i++) {
-		mcGetDir(port, 0, dir, 0, MAX_ENTRY - 2, mcDir);
-		mcSync(0, NULL, &ret);
+		ret = mcGetDir(port, 0, dir, 0, max, mcDir);
+		if (ret < 0) break;
+		if (mcSync(0, NULL, &ret) <= 0) return sceMcResFailDetect;
 		if (ret >= 0)
 			break;
 		if (ret != sceMcResChangedCard)
@@ -384,13 +388,14 @@ int readMC(const char *path, FILEINFO *info, int max)
 		DelayThread(MC_BROWSER_RETRY_DELAY_US);
 	}
 	if (ret < 0)
-		return 0;
+		return ret;
 
-	for (i = j = 0; i < ret; i++) {
+	for (i = j = 0; i < ret && j < max; i++) {
 		if (mcDir[i].AttrFile & sceMcFileAttrSubdir &&
 		    (!strcmp((char *)mcDir[i].EntryName, ".") || !strcmp((char *)mcDir[i].EntryName, "..")))
 			continue;  //Skip pseudopaths "." and ".."
-		strcpy(info[j].name, (char *)mcDir[i].EntryName);
+		memcpy(info[j].name, mcDir[i].EntryName, sizeof(mcDir[i].EntryName));
+		info[j].name[sizeof(mcDir[i].EntryName)] = 0;
 		info[j].stats = mcDir[i];
 		j++;
 	}
@@ -628,9 +633,9 @@ void setPartyList(void)
 	setPartyListForDevice("hdd0:");
 }
 
-/* Does reading `path` still need drivers or the HDD partition list? Both
- * must be set up on the UI thread (filerPrepareDirRead) before getDir()
- * runs on the dashboard's background worker. */
+/* Prepare drivers, HDD partitions, and unresolved/reinserted physical cards
+ * on the UI thread before getDir() runs on the dashboard's worker. Unknown
+ * or cached-absent cards need a fresh handshake before browsing. */
 int filerDirReadNeedsPrep(const char *path)
 {
 	char dev[6];
@@ -639,6 +644,9 @@ int filerDirReadNeedsPrep(const char *path)
 	if (path == NULL || path[0] == '\0' || !strncmp(path, "vmc", 3))
 		return FALSE;
 	if (!isPathDeviceStackLoaded(path))
+		return TRUE;
+	if ((!strncmp(path, "mc0:", 4) || !strncmp(path, "mc1:", 4)) &&
+	    (!isMemoryCardRpcReady() || filerRootMcPresent(path[2] - '0', NULL, NULL) <= 0))
 		return TRUE;
 	if (!strncmp(path, "hdd", 3) && getHddDeviceFromPath(path, dev) >= 0 &&
 	    (unit = getHddUnitFromDevice(dev)) >= 0 && hddNparties[unit] == 0)
@@ -656,6 +664,8 @@ int filerPrepareDirRead(const char *path)
 		return TRUE;
 	if (!ensurePathDeviceStackReady(path))
 		return FALSE;
+	if (!strncmp(path, "mc0:", 4) || !strncmp(path, "mc1:", 4))
+		return filerPrepareMemoryCardRead(path[2] - '0') == sceMcResSucceed;
 	if (!strncmp(path, "hdd", 3) && getHddDeviceFromPath(path, dev) >= 0 &&
 	    (unit = getHddUnitFromDevice(dev)) >= 0 && hddNparties[unit] == 0)
 		setPartyListForDevice(dev);
@@ -1309,6 +1319,10 @@ int pollRootMemoryCardDevices(void)
 	if (isFtpServerRunning())
 		return FALSE;
 #endif
+	/* Failed initialization is retried by explicit card access, never by
+	 * background polling. Keep the last-known presence state meanwhile. */
+	if (!isMemoryCardRpcReady())
+		return FALSE;
 	if (Timer() < root_mc_next_poll_time)
 		return FALSE;
 	/* Polling must never reset MX4SIO or send mc1 requests through its

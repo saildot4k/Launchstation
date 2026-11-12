@@ -18,7 +18,7 @@ enum {
 	COPY,
 	CUT,
 	PASTE,
-	PSUPASTE,
+	CREATE_ARCHIVE,
 	DELETE,
 	RENAME,
 	NEWDIR,
@@ -30,6 +30,8 @@ enum {
 	LAUNCH_ELF_ARGS,
 	TIMEMANIP_CUSTOM,
 	TITLE_CFG,
+	IMPORT_SAVE,
+	EXPORT_PS1,
 	NUM_MENU
 };
 
@@ -104,11 +106,16 @@ int getDir(const char *path, FILEINFO *info);
 int filerPrepareDirRead(const char *path);
 /* Serialized card handshake; slot 2 may require retiring MX4SIO first. */
 int filerPrepareMemoryCardRead(int port);
+/* Cached physical-card presence: 1 present, 0 absent, negative unresolved. */
+int filerRootMcPresent(int port, int *type, int *free_kb);
 int pollRootMemoryCardDevices(void);
 void discardNextMx4sioRootListing(const char *path);
 int ensurePathDeviceStackReady(const char *path);
-void filerMenuEnables(const char *path, const FILEINFO *file, int nmarked, char enable[NUM_MENU]);
+/* card_type belongs to this listing; menu rendering must not issue card RPCs. */
+void filerMenuEnables(const char *path, const FILEINFO *file, int nmarked, int card_type, char enable[NUM_MENU]);
 int prepareTransferDeviceStacks(const char *src_path, const char *dst_path);
+/* Uses the same R3Z source readiness/remount checks as Paste, after workers drain. */
+int filerPrepareClipboardTransfer(const char *destination, char *message, int size);
 int copy(char *outPath, const char *inPath, FILEINFO file, int recurses);
 
 #endif

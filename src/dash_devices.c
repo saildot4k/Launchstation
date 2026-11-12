@@ -309,31 +309,32 @@ const char *dashDeviceDisplayMount(const DashDevice *d, char *buf, int size)
 	return buf;
 }
 
-int dashDevicesList(DashDevice *out, int max)
+/* Update existing rows from the latest poll snapshot without device I/O.
+ * A browser root may stay open across removal/reinsertion of either card. */
+void dashDevicesRefreshMemoryCards(DashDevice *devices, int count)
 {
-	int n = 0, port, i;
-	DashDevice *d;
+	int i;
 
-	for (port = 0; port < 2; port++) {
-		int type = 0, free_kb = -1;
-		int present = filerRootMcPresent(port, &type, &free_kb);
-		char name[32], mount[8], browse[8];
+	for (i = 0; i < count; i++) {
+		DashDevice *d = &devices[i];
+		int port, type = 0, free_kb = -1, present;
 
-		/* PS2 port 0 is mc0 (physical slot 1); port 1 is mc1 (slot 2).
-		 * Keep the label and actual filesystem mount tied to the same port. */
-		snprintf(name, sizeof(name), "Memory card (Slot %d)", port + 1);
-		snprintf(mount, sizeof(mount), "mc%d:", port);
-		snprintf(browse, sizeof(browse), "mc%d:/", port);
-		if (present == -2)
-			d = add(out, &n, max, DI_MC, DASH_DEV_BUSY, name, mount, browse, "Not responding - open to retry");
-		else if (present < 0)
-			d = add(out, &n, max, DI_MC, DASH_DEV_BUSY, name, mount, browse, "Checking...");
-		else if (present == 0)
-			d = add(out, &n, max, DI_MC, DASH_DEV_ABSENT, name, mount, browse, "Slot empty");
-		else {
-			d = add(out, &n, max, DI_MC, DASH_DEV_READY, name, mount, browse,
-			        type == 1 ? "PS1 memory card" : "PS2 memory card");
-			if (d != NULL && free_kb >= 0) {
+		if (d->icon != DI_MC || (strcmp(d->mount, "mc0:") && strcmp(d->mount, "mc1:")))
+			continue;
+		port = d->mount[2] - '0';
+		present = filerRootMcPresent(port, &type, &free_kb);
+		d->detail[0] = '\0';
+		d->fill = -1.0f;
+		if (present < 0) {
+			d->state = DASH_DEV_BUSY;
+			dashStrCopy(d->status, present == -2 ? "Not responding - open to retry" : "Checking...", sizeof(d->status));
+		} else if (!present) {
+			d->state = DASH_DEV_ABSENT;
+			dashStrCopy(d->status, "Slot empty", sizeof(d->status));
+		} else {
+			d->state = DASH_DEV_READY;
+			dashStrCopy(d->status, type == 1 ? "PS1 memory card" : "PS2 memory card", sizeof(d->status));
+			if (free_kb >= 0) {
 				if (type == 2 && free_kb <= 8 * 1024) {
 					snprintf(d->detail, sizeof(d->detail), "%.2f MB free of 8 MB", free_kb / 1024.0f);
 					d->fill = 1.0f - free_kb / 8192.0f;
@@ -341,6 +342,25 @@ int dashDevicesList(DashDevice *out, int max)
 					snprintf(d->detail, sizeof(d->detail), "%.2f MB free", free_kb / 1024.0f);
 			}
 		}
+	}
+}
+
+int dashDevicesList(DashDevice *out, int max)
+{
+	int n = 0, port, i;
+	DashDevice *d;
+
+	for (port = 0; port < 2; port++) {
+		char name[32], mount[8], browse[8];
+
+		/* PS2 port 0 is mc0 (physical slot 1); port 1 is mc1 (slot 2).
+		 * Keep the label and actual filesystem mount tied to the same port. */
+		snprintf(name, sizeof(name), "Memory card (Slot %d)", port + 1);
+		snprintf(mount, sizeof(mount), "mc%d:", port);
+		snprintf(browse, sizeof(browse), "mc%d:/", port);
+		d = add(out, &n, max, DI_MC, DASH_DEV_BUSY, name, mount, browse, "Checking...");
+		if (d != NULL)
+			dashDevicesRefreshMemoryCards(d, 1);
 	}
 
 	if (isUsbMassStackLoaded()) {

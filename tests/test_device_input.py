@@ -84,8 +84,9 @@ static int readpad_noRepeat(void) {
 static u64 last_input_ms;
 static u32 held_prev;
 static u32 text_repeat_armed;
+static u32 shoulder_repeat_armed, shoulder_repeat;
 """
-padcode += function(ui, "void dashInputPollEx(") + function(ui, "void dashInputFlush(")
+padcode += function(ui, "void dashInputPollEx(") + function(ui, "void dashInputFlush(") + function(ui, "u32 dashInputShoulderRepeat(")
 padcode += r"""
 static int repeatTimes(int port,int button,int text_action,int *times) {
     DashInput in;int count=0,presses=0;
@@ -131,6 +132,27 @@ static void checkTextRepeat(void) {
     connected[0]=1;connected[1]=0;keys[0]=keys[1]=0;
     clearPadPressState();held_prev=text_repeat_armed=0;
     puts("PASS: Type/Delete repeat matches every scroll event through delay and acceleration, both mappings/ports, release, failed reads and dialog flushes");
+}
+static void checkShoulderRepeat(void) {
+    int navigation[128],actual[128];DashInput in;
+    for(int port=0;port<2;port++) for(int direction=0;direction<2;direction++) {
+        int count=repeatTimes(port,PAD_DOWN,0,navigation),found=0,presses=0;
+        int pad=direction?PAD_R1:PAD_L1,button=direction?DASH_IN_R1:DASH_IN_L1;
+        clearPadPressState();held_prev=text_repeat_armed=shoulder_repeat_armed=0;
+        keys[port]=pad;
+        for(int ms=0;ms<=3200;ms++) {
+            now_ms=20000+ms;dashInputPollEx(&in,0);
+            presses+=!!(in.pressed&button);
+            if(dashInputShoulderRepeat()&button)actual[found++]=ms;
+        }
+        assert(presses==1 && found==count && !memcmp(actual,navigation,count*sizeof(int)));
+        dashInputFlush();now_ms+=1000;dashInputPollEx(&in,0);
+        assert(!dashInputShoulderRepeat() && !(in.pressed&button));
+        keys[port]=0;dashInputPollEx(&in,0);keys[port]=pad;dashInputPollEx(&in,0);
+        assert(dashInputShoulderRepeat()==(u32)button);
+        keys[port]=0;dashInputPollEx(&in,0);assert(!dashInputShoulderRepeat());
+    }
+    puts("PASS: L1/R1 adjustments use the exact navigation delay/ramp on both ports; tabs stay one press and flush suppresses held shoulders");
 }
 int main(void) {
     DashInput in;
@@ -251,6 +273,7 @@ int main(void) {
         assert(!in.any && !in.raw_new);
     }
     checkTextRepeat();
+    checkShoulderRepeat();
     puts("PASS: failed/disconnected reads, both ports, flush timing, START pass-through/chords/hold suppression, both sticks' direction/repeat/raw bits, right-stick activity, independent D-pad navigation and keyboard");
 }
 """
@@ -273,7 +296,8 @@ static unsigned int reset_generation;
 static int cdmode, uLE_cdmode, vmcMounted[2], console_is_PSX;
 static unsigned int getIopResetGeneration(void) { return reset_generation; }
 static char LaunchElfBootDir[256], LaunchElfDir[256], netConfig[32];
-static int mc_present[2], usb_mask, usb_loaded, resident, media, loads, opens, closes;
+static int mc_present[2],mc_types[2]={2,2},mc_free[2]={1024,1024};
+static int usb_mask, usb_loaded, resident, media, loads, opens, closes;
 static int failed_load, reset_on_load, reset_on_type, usb_snapshot_valid=1;
 static int udpfs_reloads, udpfs_server_seen, reset_refused, worker_allowed=1;
 static u64 delayed_ata;
@@ -335,7 +359,7 @@ static void DelayThread(int us) { now_ms+=us/1000; }
 static void pollRootMemoryCardDevices(void) {}
 static void filerRootMcPollIdle(void) {}
 static int filerRootMcPresent(int p,int *t,int *f) {
-    if(t)*t=2; if(f)*f=1024; return mc_present[p];
+    if(t)*t=mc_types[p]; if(f)*f=mc_free[p]; return mc_present[p];
 }
 static int filerUsbDriversLoaded(void) { return usb_loaded; }
 static int filerUsbDriveMask(void) { return usb_snapshot_valid?usb_mask:0; }
@@ -407,6 +431,28 @@ devcode += (root / "include/list_scroll.h").read_text() + "\n"
 devcode += function(browser, "static void revealSelection(")
 devcode += "static void openRoot(const char *select) {\n" + root_body[:-1] + "}\n"
 devcode += r"""
+#define MAX_PATH 1025
+#define DASH_TOAST_INFO 1
+#define DASH_TOAST_WARN 2
+static int direct_opens,root_opens,insert_prompts,driver_starts;
+static char opened_card[MAX_PATH];
+static void dashOpenBrowser(const char *path) { direct_opens++;snprintf(opened_card,sizeof(opened_card),"%s",path); }
+static void dashModalMessage(int icon,const char *title,const char *body,const char *detail) {
+    (void)icon;(void)title;(void)body;(void)detail;insert_prompts++;
+}
+static void startDevice(const DashDevice *device,int browse) { (void)device;(void)browse;driver_starts++; }
+static int browserStartDevice(const DashDevice *device) { (void)device;driver_starts++;return 0; }
+static void dashToast(int kind,const char *msg) { (void)kind;(void)msg;insert_prompts++; }
+static void openDir(const char *path,const char *select) {
+    (void)select;root_opens++;snprintf(opened_card,sizeof(opened_card),"%s",path);
+}
+"""
+devcode += function(read("src/dash_files.c"), "static void openDevice(")
+activation = function(browser, "static void activate(void)")
+a = activation.index("\tif (fb.dir[0] == '\\0') {")
+b = activation.index("\tif (fb.loading ||", a)
+devcode += 'static void activateRoot(void) { char path[MAX_PATH];\n' + activation[a:b] + '}\n'
+devcode += r"""
 static int state(const char *mount) {
     DashDevice ds[DASH_MAX_DEVICES]; int n=dashDevicesList(ds,DASH_MAX_DEVICES);
     for(int i=0;i<n;i++) if(!strcmp(ds[i].mount,mount)) return ds[i].state;
@@ -425,6 +471,32 @@ int main(void) {
     strcpy(devs[2].mount,"mc0:");devs[2].icon=DI_MC;devs[2].state=DASH_DEV_BUSY;
     assert(devSelectable(0) && !devSelectable(1) && devSelectable(2));
     assert(!devSelectable(-1) && !devSelectable(ndevs));
+    devs[2].state=DASH_DEV_ABSENT;assert(devSelectable(2));
+    for(int reverse=0;reverse<2;reverse++) {
+        mc_present[0]=mc_present[1]=1;mc_types[0]=reverse?2:1;mc_types[1]=reverse?1:2;
+        mc_free[0]=reverse?4096:7;mc_free[1]=reverse?7:4096;
+        openRoot("mc1:/");
+        int selected=fb.sel;float animation=fb.sel_anim;
+        for(int port=0;port<2;port++) {
+            int before_opens=opens,before_loads=loads;
+            mc_present[port]=0;dashDevicesRefreshMemoryCards(fb.devs,fb.ndevs);
+            assert(fb.devs[port].state==DASH_DEV_ABSENT&&fb.devs[1-port].state==DASH_DEV_READY);
+            mc_present[port]=1;dashDevicesRefreshMemoryCards(fb.devs,fb.ndevs);
+            assert(fb.devs[port].state==DASH_DEV_READY);
+            assert(!strcmp(fb.devs[port].status,mc_types[port]==1?"PS1 memory card":"PS2 memory card"));
+            assert(fb.sel==selected&&fb.sel_anim==animation&&opens==before_opens&&loads==before_loads);
+            for(int cached=0;cached<4;cached++) {
+                DashDevice stale=fb.devs[port];stale.state=cached;
+                openDevice(&stale);assert(!strcmp(opened_card,stale.browse));
+                fb.devs[port]=stale;fb.sel=port;activateRoot();
+                assert(!strcmp(opened_card,stale.browse)&&!insert_prompts&&!driver_starts);
+            }
+            fb.sel=selected;dashDevicesRefreshMemoryCards(fb.devs,fb.ndevs);
+        }
+    }
+    assert(direct_opens==16&&root_opens==16);
+    mc_types[0]=mc_types[1]=2;mc_free[0]=mc_free[1]=1024;
+    puts("PASS: mixed-card row snapshots refresh after reinsertion without rebuilding navigation or issuing device I/O");
     /* An initial lazy USB load is discovery, not an attach/failure sound.
      * A missing second unit must not negate any other usable USB unit. */
     for(int unit=0;unit<10;unit++) {
@@ -635,7 +707,9 @@ int main(void) {
     pad_reopen_active=1;
     now_ms=1000; states[0]=3; settle=1; waitPadReady(0,0); assert(now_ms==1500);
     now_ms=1000; settle=0; pad_reopen_active=0; legacy_reads=0;
-    waitPadReady(0,0); assert(now_ms==1000 && legacy_reads==4);
+    waitPadReady(0,0); assert(now_ms==1003 && legacy_reads==4);
+    now_ms=1000;legacy_reads=0;waitAnyPadReady();
+    assert(now_ms==1001 && legacy_reads==4); /* Both negotiations yield for rendering. */
     puts("PASS: runtime pad wait yields/expires; legacy ready/disconnected handling is preserved");
 }
 """
@@ -652,7 +726,8 @@ enum { TS_EMPTY,TS_LOADED,TS_MISSING,TS_LOADING };
 typedef struct { char path[256]; GSTEXTURE tex; int state,gen,max_w,max_h; } ThemeSlot;
 typedef struct { char path[256]; int slot,gen,max_w,max_h; } ThemeTexJob;
 static ThemeSlot theme_slots[THEME_SLOTS];
-static int loading=1, submitted;
+static int loading=1, submitted, foreground_io;
+static int dashIoBusy(void) {return foreground_io;}
 static void *submitted_arg;
 static int dashLoadingActive(void) { return loading; }
 static int isPathDeviceStackLoaded(const char *p) { (void)p; return 1; }
@@ -669,7 +744,10 @@ int main(void) {
     assert(!dashThemeTextureFile("mc0:/THEME/new.png",64,64) && !submitted);
     strcpy(theme_slots[0].path,"mc0:/THEME/cached.png"); theme_slots[0].state=TS_LOADED; theme_slots[0].max_w=theme_slots[0].max_h=64;
     assert(dashThemeTextureFile("mc0:/THEME/cached.png",64,64)==&theme_slots[0].tex);
-    loading=0; assert(!dashThemeTextureFile("mc0:/THEME/new.png",64,64) && submitted==1);
+    loading=0;foreground_io=1;
+    assert(!dashThemeTextureFile("mc0:/THEME/new.png",64,64) && !submitted);
+    assert(dashThemeTextureFile("mc0:/THEME/cached.png",64,64)==&theme_slots[0].tex);
+    foreground_io=0;assert(!dashThemeTextureFile("mc0:/THEME/new.png",64,64) && submitted==1);
     free(submitted_arg);
     puts("PASS: loading overlays use cached theme textures and defer new IO until loading ends");
 }

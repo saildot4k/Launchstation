@@ -1129,6 +1129,35 @@ static void configureFileXioTransferBuffer(void)
 	DPRINTF(" [FILEXIO_RWB]: allocation failed (ret=%d)\n", ret);
 }
 
+/* A failed attempt must not latch readiness. Serialize callers with card
+ * requests; mcReset only clears the EE binding, including an existing binding
+ * left by another libmc caller, before this explicit initialization attempt. */
+int ensureMemoryCardRpcReady(void)
+{
+	int ret;
+
+	if (have_mc_rpc_ready)
+		return 0;
+	loadBasicModules();
+	filerRootMcPollIdle();
+	mcReset();
+#ifdef HOMEBREW_SIO2MAN
+	ret = mcInit(MC_TYPE_XMC);
+#else
+	ret = mcInit(MC_TYPE_MC);
+#endif
+	DPRINTF(" [MC RPC]: initialization result=%d\n", ret);
+	if (ret < 0)
+		return ret;
+	have_mc_rpc_ready = 1;
+	return 0;
+}
+
+int isMemoryCardRpcReady(void)
+{
+	return have_mc_rpc_ready != 0;
+}
+
 void ensureCoreIoStackReady(void)
 {
 	loadBasicModules();
@@ -1139,15 +1168,9 @@ void ensureCoreIoStackReady(void)
 		have_filexio_ready = 1;
 	}
 
-	if (!have_mc_rpc_ready) {
-		DPRINTF("Initializing mc rpc\n");
-#ifdef HOMEBREW_SIO2MAN
-		mcInit(MC_TYPE_XMC);
-#else
-		mcInit(MC_TYPE_MC);
-#endif
-		have_mc_rpc_ready = 1;
-	}
+	/* Other devices can still use FILEXIO if memory-card RPC init fails.
+	 * Explicit card access checks the result and can retry initialization. */
+	ensureMemoryCardRpcReady();
 
 	load_vmcman_module();
 }

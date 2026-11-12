@@ -34,8 +34,11 @@ def function(source,signature):
         pos+=1
     return source[start:pos]+"\n"
 
-assert 'if (pk.mode == DASH_PICK_LAUNCH)' in function(widgets, 'static void pickOpen(')
-assert 'dashStrCopy(d->browse, setting->Misc,' in function(widgets, 'static void pickOpen(')
+# pickOpen also has a forward declaration before pickListDone. Select its
+# definition so these assertions inspect the picker, not the callback's body.
+pick_open = function(widgets, 'static void pickOpen(const char *dir)\n{')
+assert 'if (pk.mode == DASH_PICK_LAUNCH)' in pick_open
+assert 'dashStrCopy(d->browse, setting->Misc,' in pick_open
 assert 'DASH_PICK_LAUNCH, "ELF"' in function(settings, 'static void editLaunchKey(')
 assert 'S_LK_0 + SETTING_LK_AUTO, "Automatic start target"' in settings
 

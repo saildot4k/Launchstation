@@ -1,0 +1,54 @@
+#ifndef FILER_SAVES_H
+#define FILER_SAVES_H
+
+#include "launchelf.h"
+#include "vmc_control.h"
+#include "save_archive.h"
+
+enum {
+	FILER_SAVE_NONE, FILER_SAVE_PS1, FILER_SAVE_PS2,
+	FILER_ARCHIVE_PS1, FILER_ARCHIVE_PS2, FILER_CARD_PS1, FILER_SAVE_MIXED
+};
+/* Serialized content inspection, only for an explicitly requested save action. */
+int filerSaveKind(const char *folder, const FILEINFO *file, int card_type);
+void filerExtractLabel(const char *name, char *label, int size);
+void filerClipboardExtractLabel(char *label, int size);
+int filerLoadSave(const char *source, SaveArchive *save, uint8_t **data, char *message, int size);
+int filerExtractSave(const SaveArchive *save, const char *destination, char *message, int size);
+int filerCreateArchive(const char *source, const FILEINFO *file, int kind, int format,
+					   uint8_t **data, size_t *length, char *name, int name_size, char *message, int size);
+/* 1 publishes, 0 skips an existing PSU under never-overwrite, -1 fails. */
+int filerWriteArchive(const uint8_t *data, size_t length, int format, const char *destination, char *message, int size);
+/* Copy/Cut records listing metadata only: no directory probes or save reads. */
+void filerClearArchiveClipboard(void);
+void filerRememberArchiveClipboard(int card_type);
+/* Resolve clipboard candidates after Create archive is chosen, before format selection. */
+int filerProbeArchiveClipboard(const char *destination);
+/* Metadata-only candidate, or a cached result from the explicit content check. */
+int filerArchiveClipboardKind(void);
+int filerCreateClipboardArchive(const char *destination, int format, uint8_t **data, size_t *length,
+                               char *name, int name_size, char *message, int size);
+/* Call only after publishing the current item. Cut removes that unchanged source;
+ * 0 means the archive exists but the source was retained, 1 means success. */
+int filerFinishArchiveClipboard(const char *destination, char *message, int size);
+/* One archive per clipboard item, processed in order. Completed Cut items
+ * leave the clipboard; skipped, failed and unprocessed sources remain.
+ * Returns the created count, 0 for skips/retained Cut sources, or -1 on failure. */
+int filerCreateClipboardArchives(const char *destination, int format, char *message, int size);
+
+/* Serialized device calls; invoke from the browser's listing worker or after
+ * prepareOp(), never during a concurrent fileXio operation. */
+int filerCardInfo(const char *path, VmcInfo *info);
+int filerImportSave(const char *source, const char *destination, char *message, int size);
+/* Extract into the current destination; Cut removes only unchanged sources
+ * after publish. Returns count, 0 if Cut sources were retained, or -1 on failure. */
+int filerImportClipboard(const char *destination, char *message, int size);
+int filerCanImportClipboard(void);
+int filerIsPs1Image(const char *name);
+/* Listing metadata only; the card is validated when its action is chosen. */
+int filerPs1CardCandidate(const FILEINFO *file);
+unsigned char *filerReadPs1Card(const char *source, char *message, int size);
+int filerSavePs1Card(const unsigned char *data, const char *destination, char *message, int size);
+int filerExportPs1Card(const char *source, const char *destination, char *message, int size);
+
+#endif

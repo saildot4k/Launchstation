@@ -1,14 +1,12 @@
-$(info using ps2sdk mc/pad drivers)
-MCMAN_SOURCE = $(PS2SDK)/iop/irx/mcman.irx
+$(info using local mcman and ps2sdk mcserv/pad drivers)
+MCMAN_AUTOGEN := iop/__generated/mcman.irx
+MCMAN_SOURCE := $(MCMAN_AUTOGEN)
 PADMAN_SOURCE = $(PS2SDK)/iop/irx/padman.irx
 MCSERV_SOURCE = $(PS2SDK)/iop/irx/mcserv.irx
 SIO2MAN_SOURCE = $(PS2SDK)/iop/irx/sio2man.irx
 DVRDRV_SOURCE = $(PS2SDK)/iop/irx/dvrdrv.irx
 DVRFILE_SOURCE = $(PS2SDK)/iop/irx/dvrfile.irx
 
-ifeq ($(wildcard $(MCMAN_SOURCE)),)
-  $(error Missing $(MCMAN_SOURCE). Update PS2SDK/toolchain container)
-endif
 ifeq ($(wildcard $(MCSERV_SOURCE)),)
   $(error Missing $(MCSERV_SOURCE). Update PS2SDK/toolchain container)
 endif
@@ -163,6 +161,7 @@ VMCMAN_SOURCE := $(VMCMAN_AUTOGEN)
 VMCMAN_LOCAL_DIR := iop/vmcman
 VMCMAN_LOCAL_SOURCES := $(wildcard $(VMCMAN_LOCAL_DIR)/Makefile $(VMCMAN_LOCAL_DIR)/src/* $(VMCMAN_LOCAL_DIR)/include/*)
 VMCMAN_SDK_ROOT :=
+MCMAN_LOCAL_SOURCES := $(VMCMAN_LOCAL_SOURCES)
 
 ifneq ($(wildcard $(MMCEMAN_LOCAL_DIR)/Makefile),)
 MMCEMAN_SOURCE := $(MMCEMAN_AUTOGEN)
@@ -651,6 +650,20 @@ $(EE_ASM_DIR)filexio_irx.s: $(FILEXIO_SOURCE) | $(EE_ASM_DIR)
 
 iop/__generated:
 	mkdir -p $@
+
+# Physical-card build: isolated objects and no VMC backing/signing objects.
+$(MCMAN_AUTOGEN): $(MCMAN_LOCAL_SOURCES) | iop/__generated
+	$(MAKE) -C $(VMCMAN_LOCAL_DIR) \
+		PS2SDKSRC=$(VMCMAN_SDK_ROOT) \
+		PS2SDK=$(VMCMAN_SDK_ROOT) \
+		IOP_BIN_DIR=$(abspath iop/__generated)/ \
+		IOP_OBJS_DIR=$(abspath iop/__generated/mcman_obj)/ \
+		IOP_BIN=$(abspath $@) \
+		IOP_OBJS="exports.o main.o mcdev.o mcsio2.o ps2mc_fio.o ps1mc_fio.o imports.o" \
+		MCMAN_BUILDING_VMCMAN=0 \
+		MCMAN_BUILDING_XMCMAN_V2=0 \
+		DEBUG=$(DEBUG)
+	test -s $@
 
 $(VMCMAN_AUTOGEN): $(VMCMAN_LOCAL_SOURCES) | iop/__generated
 	$(MAKE) -C $(VMCMAN_LOCAL_DIR) \

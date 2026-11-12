@@ -1,5 +1,6 @@
 """Execute production buffer selection, IOP tuning and MMCE startup retries."""
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
@@ -67,14 +68,32 @@ static int fileXioSetRWBufferSize(int size) {
  return rw_available?0:-ENOMEM;
 }
 static int have_filexio_ready,have_mc_rpc_ready,fxio_inits,mc_inits;
+static int mc_resets,mc_init_result,mc_bound,pending_mc_requests,mc_drains,vmc_loads;
+#ifndef TEST_LEGACY_MC
 #define HOMEBREW_SIO2MAN 1
+#endif
 #define MC_TYPE_XMC 1
+#define MC_TYPE_MC 0
 static void loadBasicModules(void) {}
 static void fileXioInit(void) { fxio_inits++; }
-static void mcInit(int type) { assert(type==MC_TYPE_XMC);mc_inits++; }
-static void load_vmcman_module(void) {}
+static void filerRootMcPollIdle(void) { mc_drains++;pending_mc_requests=0; }
+static int mcReset(void) { assert(!pending_mc_requests);mc_resets++;mc_bound=0;return 0; }
+static int mcInit(int type) {
+#ifdef HOMEBREW_SIO2MAN
+ assert(type==MC_TYPE_XMC);
+#else
+ assert(type==MC_TYPE_MC);
+#endif
+ mc_inits++;
+ if(mc_bound)return -1; /* An already-bound client must be cleared first. */
+ if(mc_init_result<0)return mc_init_result;
+ mc_bound=1;return 0;
+}
+static void load_vmcman_module(void) { vmc_loads++; }
 '''
 code += function(init, 'static void configureFileXioTransferBuffer(')
+code += function(init, 'int ensureMemoryCardRpcReady(void)\n{')
+code += function(init, 'int isMemoryCardRpcReady(void)\n{')
 code += function(init, 'void ensureCoreIoStackReady(void)\n{')
 code += r'''
 static int ping_calls,ping_success,card_resets;
@@ -124,6 +143,23 @@ int main(void) {
   ensureCoreIoStackReady();assert(tune_calls==1&&fxio_inits==2&&mc_inits==2);
  }
  puts("PASS: R3Z 128/64 KiB IOP tuning, explicit 16 KiB recovery, once per IOP session");
+ const int init_failures[]={-1,-100,-120,-121,-122};
+ for(unsigned i=0;i<sizeof(init_failures)/sizeof(*init_failures);i++) {
+  have_mc_rpc_ready=0;mc_init_result=init_failures[i];mc_bound=1;pending_mc_requests=1;
+  int inits=mc_inits,resets=mc_resets,drains=mc_drains;
+  assert(!isMemoryCardRpcReady());
+  assert(ensureMemoryCardRpcReady()==init_failures[i]&&!isMemoryCardRpcReady());
+  assert(mc_inits==inits+1&&mc_resets==resets+1&&mc_drains==drains+1&&!mc_bound);
+  /* A failed MC client must not prevent unrelated FILEXIO/VMC use. */
+  int vmcs=vmc_loads,fxios=fxio_inits;
+  ensureCoreIoStackReady();assert(!isMemoryCardRpcReady()&&vmc_loads==vmcs+1&&fxio_inits==fxios);
+  /* A later explicit attempt succeeds, including an implicit libmc binding. */
+  mc_init_result=0;mc_bound=1;pending_mc_requests=1;
+  assert(!ensureMemoryCardRpcReady()&&isMemoryCardRpcReady()&&mc_bound&&!pending_mc_requests);
+  inits=mc_inits;resets=mc_resets;drains=mc_drains;
+  assert(!ensureMemoryCardRpcReady()&&mc_inits==inits&&mc_resets==resets&&mc_drains==drains);
+ }
+ puts("PASS: MC init errors stay unready, propagate unchanged, allow later recovery and preserve other devices; existing bindings drain before reset");
  assert(MMCE_PING_ATTEMPTS==2);
  for(int port=2;port<=3;port++)for(int success=-1;success<MMCE_PING_ATTEMPTS;success++) {
   ping_calls=card_resets=0;ping_success=success;mmce_init(port);
@@ -139,6 +175,8 @@ with tempfile.TemporaryDirectory(prefix='r3z-file-io-') as folder:
     compiler = shutil.which('gcc') or shutil.which('cc')
     if not compiler:
         raise SystemExit('Host C compiler required')
-    subprocess.run([compiler, '-std=c99', '-Wall', '-Wextra', '-Werror',
-                    str(path / 'test.c'), '-o', str(path / 'test')], check=True)
-    subprocess.run([str(path / 'test')], check=True)
+    flags = ['-fsanitize=address,undefined', '-fno-omit-frame-pointer'] if os.environ.get('SANITIZE') else []
+    for variant in ([], ['-DTEST_LEGACY_MC=1']):
+        subprocess.run([compiler, '-std=c99', '-Wall', '-Wextra', '-Werror', *flags, *variant,
+                        str(path / 'test.c'), '-o', str(path / 'test')], check=True)
+        subprocess.run([str(path / 'test')], check=True)

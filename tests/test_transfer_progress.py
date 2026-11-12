@@ -14,6 +14,7 @@ start=source.index('static void loadingDraw(')
 render_source=source[start:source.index('void dashLoadingBegin(',start)]
 globals_source=source[source.index('static int loading_active;'):source.index('DashLoadingView dashLoadingSetView(')]
 label_gap=next(line for line in source.splitlines() if line.startswith('#define STACKED_LABEL_GAP '))
+redraw=source[source.index('void dashLoadingRedraw('):source.index('void dashLoadingSetCancel(')]
 code=label_gap+'\n'+r'''
 #include <assert.h>
 #include <stdint.h>
@@ -23,7 +24,9 @@ typedef uint64_t u64;
 typedef int DashColor;
 typedef void (*DashLoadingView)(const char *);
 '''+globals_source+r'''
-static int active=1,worker,draws;
+static int active=1,worker,draws,popup;
+static void dashGfxSetPopup(int value){popup=value;}
+static int dashGfxPopupActive(void){return popup;}
 static u64 tick;
 static int DashIsActive(void){return active;}
 static int dashWorkerOnThread(void){return worker;}
@@ -46,7 +49,7 @@ static float dashVisualUpdate(void){return 0.016f;}
 static float dashApproach(float v,float target,float rate,float dt){(void)v;(void)rate;(void)dt;return target;}
 static float dashClampf(float v,float lo,float hi){return v<lo?lo:v>hi?hi:v;}
 static void dashRenderScene(void){text_count=bars=0;hint_y=0;}
-static void modalBackdrop(float a){(void)a;}
+static void modalBackdrop(float a){(void)a;dashGfxSetPopup(1);}
 static void dashGfxPushAlpha(float a){(void)a;}
 static void modalPanel(float x,float y,float w,float h,float alpha){
  (void)alpha;panel_x=x;panel_y=y;panel_w=w;panel_h=h;
@@ -74,7 +77,8 @@ static void modalHintRow(float x,float y,int a,const char *s,int b,const char *t
 static void dashGfxPopAlpha(void){}
 static void dashGfxPresent(void){draws++;}
 static void dashLoadingBegin(const char *s){loading_active=1;snprintf(loading_title,sizeof(loading_title),"%s",s);}
-'''+stats_type+'\n'+render_source+source[a:b]+r'''
+static void dashLoadingEnd(void){loading_active=0;}
+'''+stats_type+'\n'+render_source+redraw+source[a:b]+r'''
 int main(void){
  loading_active=1;
  assert(DashFileProgress("Pasting file","BOOT.ELF",8ULL<<30,8ULL<<30));
@@ -147,6 +151,35 @@ int main(void){
  DashFileTransferProgress("Pasting file","BIG.ELF",10,100,&stats);
  loading_active=0;tick+=20;DashFileTransferProgress("Pasting file","SECOND.ELF",100,100,&stats);
  assert(loading_active&&loading_done==0&&loading_fraction==0);
+ /* Archive stages share the paste overlay, counting completed saves until bytes are known. */
+ loading_fraction=1;tick+=20;
+ assert(DashFileOperationStatus("Preparing archive","BASLUS-SAVE",2,3));
+ assert(!strcmp(loading_title,"Preparing archive 2 of 3")&&!strcmp(loading_status,"BASLUS-SAVE"));
+ assert(!loading_copied[0]&&!loading_transfer[0][0]&&loading_done==1&&loading_total==3);
+ assert(loading_fraction>0.33f&&loading_fraction<0.34f&&panel_w==420&&panel_h==128&&bars==2);
+ assert(DashFileOperationStatus("Reading archive","BATCH-B.psu",2,3));
+ stats.file_index=2;stats.file_count=3;
+ DashFileTransferProgress("Reading archive","BATCH-B.psu",8192,8192,&stats);
+ assert(loading_done==0&&loading_fraction==0); /* Stage and byte title/name can be identical. */
+ stats.file_index=2;stats.file_count=3;stats.average_speed=1024;stats.remaining_seconds=4;
+ tick+=20;DashFileTransferProgress("Creating archive","BASLUS-SAVE.psu",4096,8192,&stats);
+ assert(!strcmp(loading_title,"Creating archive 2 of 3")&&loading_done==5000&&panel_h==210);
+ assert(!strcmp(loading_copied,"4 KB")&&!strcmp(loading_transfer[2],"8 KB"));
+ int before_redraw=draws;
+ dashGfxSetPopup(1);tick+=16;dashLoadingRedraw();
+ assert(draws==before_redraw && popup && loading_active); /* Confirm over progress. */
+ loading_active=0;tick+=16;dashLoadingRedraw();
+ assert(draws==before_redraw && popup); /* Ordinary popup over the dashboard. */
+ loading_active=1;loadingDraw();assert(!popup && draws==before_redraw+1);
+ before_redraw=draws;tick+=16;dashLoadingRedraw();
+ assert(draws==before_redraw+1 && loading_done==5000 && loading_total==10000);
+ assert(!strcmp(loading_title,"Creating archive 2 of 3") && !strcmp(loading_status,"BASLUS-SAVE.psu"));
+ assert(!strcmp(loading_copied,"4 KB") && !strcmp(loading_transfer[2],"8 KB"));
+ DashFileOperationEnd();assert(!loading_active);
+ before_redraw=draws;dashLoadingRedraw();assert(draws==before_redraw+1 && !loading_active);
+ loading_active=1;worker=1;DashFileOperationEnd();assert(loading_active);worker=0;
+ int stage_draws=draws;worker=1;assert(!DashFileOperationStatus("Opening archive","unsafe",1,2)&&draws==stage_draws);worker=0;
+ active=0;assert(!DashFileOperationStatus("Extracting save","classic",1,2)&&draws==stage_draws);active=1;
  int old=draws;worker=1;assert(!DashFileProgress("Pasting file","unsafe",0,0));
  DashFileDeleteProgress("unsafe");assert(draws==old);worker=0;
  active=0;assert(!DashFileProgress("Pasting file","classic",0,0));active=1;

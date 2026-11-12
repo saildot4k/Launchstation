@@ -72,3 +72,17 @@ These are mentioned or launched through an integration; that does **not** imply 
 - [PS2BBL](https://github.com/israpps/PlayStation2-Basic-BootLoader) by El_isra and [PS2BBLE](https://github.com/saildot4k/PlayStation2-Basic-BootLoader-Extended) by R3Z3N: separate bootloader projects referenced within PS2 homebrew history, not the Launchstation exploit installer.
 - LoadBOOTer: named memory-card exploit installer option in src/main_exploit_installer.c. Exact historical source and authorship still require verification; do not attribute it to PS2BBL without evidence.
 - ESR, FreeMcBoot and PSBBN: compatibility targets, boot environments or platform software. References do not establish redistribution of their binaries.
+
+## Save-format support (2026-11-08)
+
+- [Apollo Save Tool PS2](https://github.com/bucanero/apollo-ps2), by bucanero and contributors: the local `thirdparty/apollo-ps2-main` snapshot was used as a format reference for `src/save_archive.c` (PSU, CBS, MAX, XPS/SPS, PS1/PS2 PSV, MCS, PSX and raw card wrappers). The bounded decoders and PSU/MCS/PSX/PSV writers validate the complete archive before filesystem writes; Apollo's UI and card globals are not compiled into Launchstation. PSX export follows `source/ps1card.c`'s Action Replay `setArHeader` / `saveSingleSave` layout: 54 header bytes followed by the unchanged save payload. The supplied snapshot has no Git revision metadata. Its source credits root670/CheatDevicePS2 and PMStanley/PSV-Exporter for format layouts.
+- `src/save_lzari.c` and `include/save_lzari.h`: vendored from that Apollo snapshot's `source/lzari.c` and `include/lzari.h`. Haruhiko Okumura (1989), with memory-buffer adaptation by Luigi Auriemma and encoding restoration by Wesley Castro. The source's permission to use, distribute and modify freely is retained. Local changes bound the advertised output size, constrain arithmetic-stream end padding, reject overlong matches, use unsigned length decoding and keep codec state private.
+- [mymc](https://github.com/ps2dev/mymc), `ps2save.py`: reference for CodeBreaker's initial RC4 permutation, also documented in Apollo. No PolarSSL/ARC4 dependency was added.
+- dots_tb's Vita MCR2VMP / PS3 PSV resigner, documented in Apollo's `source/psv_resign.c`: reference for the PSP VMP and PS1/PS2 PSV signature layouts and public legacy key derivation. `src/save_sign.c` independently implements streaming HMAC-SHA1 and AES-128 for these file-format checksums, shared by `iop/vmcman/src/vmp_sign.c` and the EE PSV exporter, without a crypto-library dependency. Direct mounts retain the wrapper and regenerate its signature after changes.
+- Ross Ridge's public-domain [mymc ECC equations](https://github.com/ps2dev/mymc/blob/master/ps2mc_ecc.py) and [PS2 memory-card filesystem reference](https://github.com/PCSX2/pcsx2/blob/master/pcsx2/Reference/PS2-MemoryCardFileSystem.htm): reference only, used for independent host verification of PS2 ECC writes. The target retains PS2SDK's `McDataChecksum` implementation.
+
+Physical-card follow-up: compared the native `mcGetInfo` / `mcGetDir` path with
+[wLaunchELF_R3Z save-archives-support](https://github.com/saildot4k/wLaunchELF_R3Z/blob/82d7a99b55a77d7a2970d40685d187bbd9f4840b/src/filer.c),
+commit `82d7a99b55a77d7a2970d40685d187bbd9f4840b` (reference only). Launchstation
+retains its own memory-card/storage handoff handling and applies PS1 menu rules
+using the media type of the current listing.

@@ -29,13 +29,13 @@ else
   EE_BIN_PKD = BOOT.ELF
 endif
 EE_OBJS = main.o main_actions.o main_boot.o main_modules.o main_menu.o main_title.o main_info_screens.o main_console_info.o main_gameid.o main_gameid_table.o neutrino_gameid.o main_history.o remote_control.o pc_game_receiver.o init.o main_startup.o main_fileops.o main_exploit_installer.o kelf_signer.o config.o config_screen.o config_startup.o config_network.o config_advanced.o gui.o gui_colors.o virtual_keyboard.o elf.o draw.o draw_gs.o draw_text.o loader_elf.o filer.o filer_device.o filer_mount.o filer_fileops.o filer_actions.o filer_browser.o filer_copy.o \
-	gui_sort.o gui_texteditor.o gui_hdd0_format.o psu_functions.o \
+	gui_sort.o gui_texteditor.o gui_hdd0_format.o psu_functions.o save_sign.o save_archive.o save_lzari.o filer_saves.o \
 	poweroff_irx.o iomanx_irx.o filexio_irx.o ps2dev9_irx.o dev9_poweroff_irx.o \
 	ps2hdd_irx.o ps2fs_irx.o usbd_irx.o mcman_irx.o mcserv_irx.o \
 	cdvd_irx.o xparam_irx.o vmcman_irx.o ps2kbd_irx.o \
 	hdd.o hdd_header_injector.o hdl_rpc.o hdl_info_irx.o editor.o editor_menu.o editor_input.o editor_rules.o editor_file.o timer.o icon.o lang.o popstarter.o popstarter_path.o popstarter_vcd.o popstarter_gameid.o popstarter_elf.o ember.o ember_gameid.o neutrino_iso.o gui_neutrino.o \
 	font_uLE.o makeicon.o chkesr.o allowdvdv_irx.o \
-	dash_main.o dash_clock_sync.o dash_ftp.o ftp_session.o dash_gfx.o dash_font.o dash_font_data.o dash_font_emotion_engine.o dash_font_emotion_engine_bold.o dash_icons.o dash_png.o dash_art.o dash_bg.o dash_bg_ps2.o dash_bg_geo.o dash_store.o dash_lib.o dash_devices.o dash_ui.o dash_home.o dash_apps.o dash_files.o dash_tools.o dash_settings.o dash_theme.o dash_themes.o dash_sound.o dash_worker.o dash_widgets.o dash_info.o dash_image.o dash_jpeg.o dash_editor.o dash_hdd.o dash_browser.o dash_exploit.o \
+	dash_main.o dash_clock_sync.o dash_ftp.o ftp_session.o dash_gfx.o dash_font.o dash_font_data.o dash_font_emotion_engine.o dash_font_emotion_engine_bold.o dash_icons.o dash_png.o dash_art.o dash_bg.o dash_bg_ps2.o dash_bg_geo.o dash_store.o dash_lib.o dash_devices.o dash_ui.o dash_home.o dash_apps.o dash_files.o dash_tools.o dash_settings.o dash_theme.o dash_themes.o dash_sound.o dash_worker.o dash_io.o dash_widgets.o dash_info.o dash_image.o dash_jpeg.o dash_editor.o dash_hdd.o dash_browser.o dash_exploit.o \
 	exploit_system_xlf_header.o exploit_xsystem_xlf_header.o exploit_dtl_system_xlf_header.o exploit_xlf_body.o \
 	exploit_osdsys_kernel.o exploit_osd110_kernel.o \
 	exploit_jpn_sys.o exploit_usa_sys.o exploit_eur_sys.o exploit_chn_sys.o \
@@ -50,6 +50,8 @@ EE_INCS += -Ipackages/world/audsrv/include
 
 EE_LDFLAGS := -L$(PS2DEV)/gsKit/lib -L$(PS2SDK)/ports/lib -Liop/oldlibs/libcdvd/lib -s -Wl,--no-warn-mismatch
 EE_LDFLAGS += -Lpackages/world/audsrv/lib
+# Keep SDK RPC waits cooperative without changing client return-value contracts.
+EE_LDFLAGS += -Wl,--wrap=sceSifCallRpc -Wl,--wrap=sceSifBindRpc -Wl,--wrap=mcSync -Wl,--wrap=xfromSync -Wl,--wrap=SifIopReset -Wl,--wrap=SifIopSync -Wl,--wrap=DelayThread -Wl,--wrap=saveArchiveParse -Wl,--wrap=saveArchiveBuild
 EE_MATH_LIB := -lm
 ifneq ($(wildcard $(PS2SDK)/ee/lib/libmf.a),)
 EE_MATH_LIB := -lmf

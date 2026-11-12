@@ -15,12 +15,9 @@ int canOpenInTextEditor(const char *path, const FILEINFO *file)
 	if (isDirectoryEntry(file) || isParentEntry(file))
 		return FALSE;
 
-	/* Do not offer text editing for synthetic browser roots or executable/system assets. */
-	if (!strcmp(path, setting->Misc) ||
-	    genCmpFileExt(file->name, "ELF") ||
-	    genCmpFileExt(file->name, "ICN") ||
-	    genCmpFileExt(file->name, "SYS"))
+	/* Use the same file types as opening a document in the Text Editor. */
+	if (!strcmp(path, setting->Misc))
 		return FALSE;
 
-	return TRUE;
+	return IsTextEditorFileType(file->name);
 }

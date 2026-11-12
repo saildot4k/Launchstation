@@ -10,6 +10,7 @@
 
 #include <mcman.h>
 #include "mcman-internal.h"
+#include "../../../include/vmc_control.h"
 
 // mc driver vars
 static int mcman_mc_port = 0;
@@ -787,17 +788,28 @@ s64 mc_lseek64(MC_IO_FIL_T *f, s64 pos, int where)
 //--------------------------------------------------------------
 int mc_devctl(MC_IO_FIL_T *f, const char *name, int cmd, void *arg, unsigned int arglen, void *buf, unsigned int buflen)
 {
-	(void)f;
+	int r = -EINVAL;
 	(void)name;
-	(void)cmd;
-	(void)arg;
-	(void)arglen;
-	(void)buf;
-	(void)buflen;
-
 	WaitSema(mcman_io_sema);
+	mcman_unit2card(f->unit);
+	if (McGetFormat(mcman_mc_port, mcman_mc_slot) <= 0) {
+		r = -EIO;
+	} else if (cmd == VMCCTL_GET_INFO && buf && buflen >= sizeof(VmcInfo)) {
+		VmcInfo info;
+		info.type = McGetMcType(mcman_mc_port, mcman_mc_slot);
+		info.free_units = McGetFreeClusters(mcman_mc_port, mcman_mc_slot);
+		info.unit_bytes = info.type == sceMcTypePS1 ? 8192 : 1024;
+		if (info.free_units >= 0) { memcpy(buf, &info, sizeof(info)); r = 0; }
+		else r = -EIO;
+	} else if (cmd == VMCCTL_READ_PS1_PAGE && arg && arglen == sizeof(int) &&
+			   buf && buflen >= 128 && McGetMcType(mcman_mc_port, mcman_mc_slot) == sceMcTypePS1) {
+		int page;
+		memcpy(&page, arg, sizeof(page));
+		if (page >= 0 && page < 1024 && McFlushCache(mcman_mc_port, mcman_mc_slot) >= 0)
+			r = McReadPS1PDACard(mcman_mc_port, mcman_mc_slot, page, buf) < 0 ? -EIO : 0;
+	}
 	SignalSema(mcman_io_sema);
-	return 0;
+	return r;
 }
 
 //--------------------------------------------------------------

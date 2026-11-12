@@ -24,6 +24,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install save-format host test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zlib1g-dev openssl
+
       - name: Test Settings sessions, navigation and theme compatibility
         run: |
           python3 tests/test_display_feedback.py
@@ -39,6 +44,13 @@ jobs:
           python3 tests/test_r3z_file_io.py
           python3 tests/test_rename_devices.py
           python3 tests/test_vmc_rename.py
+          python3 tests/test_save_formats.py
+          python3 tests/test_save_export.py
+          python3 tests/test_save_actions.py
+          python3 tests/test_save_import.py
+          python3 tests/test_ps1_vmc.py
+          python3 tests/test_ps1_memory_cards.py
+          python3 tests/test_ps1_card_rediscovery.py
           python3 tests/test_file_stat_errors.py
           python3 tests/test_copy_pipeline.py
           python3 tests/test_gamesave_titles.py
@@ -48,6 +60,7 @@ jobs:
           python3 tests/test_transfer_progress.py
           python3 tests/test_settings_persistence.py
           python3 tests/test_storage_probe_frames.py
+          python3 tests/test_cooperative_io.py
           python3 tests/test_mmce_bus_restore.py
           python3 tests/test_poweroff_init.py
           python3 tests/test_settings_save_prompt.py
@@ -100,6 +113,7 @@ jobs:
           python3 tests/test_worker_queue.py
           python3 tests/test_device_input.py
           python3 tests/test_launch_iop_override.py
+          python3 tests/test_osdsys_launch.py
           python3 tests/test_usb_storage_lifecycle.py
           python3 tests/test_usb_iop_pad_handoff.py
           python3 tests/test_zack_storage_drivers.py

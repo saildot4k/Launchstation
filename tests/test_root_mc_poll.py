@@ -46,8 +46,13 @@ code = r'''
 #define MC_BROWSER_RETRY_DELAY_US 100000
 #define MX4SIO 1
 #define ETH 1
-static int ftp_running, info_calls;
+static int ftp_running, info_calls,mc_rpc_ready=1,mc_init_error,mc_init_attempts;
+static int card_types[2]={2,2},card_free[2]={4096,4096},per_port_results[2],use_port_results;
 static int isFtpServerRunning(void) { return ftp_running; }
+static int isMemoryCardRpcReady(void) { return mc_rpc_ready; }
+static int ensureMemoryCardRpcReady(void) {
+    mc_init_attempts++;mc_rpc_ready=mc_init_error>=0;return mc_init_error;
+}
 #define sceMcResSucceed 0
 #define sceMcResChangedCard -1
 #define sceMcResFailDetect -3
@@ -70,8 +75,8 @@ static int fail_port1_start, fail_port1_sync, pending_port = -1;
 static int mcGetInfo(int port, int slot, int *type, int *free, int *format) {
     (void)slot; (void)format; info_calls++;
     if (port == 1 && fail_port1_start) return -1;
-    if(type)*type=2;if(free)*free=4096;pending_port=port;
-    pending_result=changed_card ? (changed_card--,-1) : card_result;return 0;
+    if(type)*type=card_types[port];if(free)*free=card_free[port];pending_port=port;
+    pending_result=changed_card ? (changed_card--,-1) : use_port_results?per_port_results[port]:card_result;return 0;
 }
 static int mcSync(int mode, int *cmd, int *result) {
     (void)mode; (void)cmd;
@@ -222,6 +227,45 @@ int main(void) {
     ftp_running=0;run(4);assert(info_calls>info_before);
     filerRootMcPollIdle();
     puts("PASS: FTP pauses background MCMAN RPCs, preserves presence and resumes after shutdown");
+    /* Presence polling cannot initiate or retry a failed RPC initialization. */
+    mc_rpc_ready=0;mc_init_error=-120;int init_before=mc_init_attempts;
+    info_before=info_calls;int presence=root_mc_present[0];
+    run(40);
+    assert(info_calls==info_before&&mc_init_attempts==init_before&&!root_mc_poll_active);
+    assert(root_mc_present[0]==presence);
+    for(int port=0;port<2;port++) {
+        mc_rpc_ready=0;mc_init_error=-120;before=dir_reads;info_before=info_calls;
+        char path[32];snprintf(path,sizeof(path),"mc%d:/APPS/",port);
+        assert(filerPrepareMemoryCardRead(port)==-120&&!mc_rpc_ready);
+        assert(readMC(path,entries,MAX_ENTRY)==-120&&dir_reads==before&&info_calls==info_before);
+        mc_init_error=0;
+        assert(readMC(path,entries,MAX_ENTRY)==1&&mc_rpc_ready&&dir_reads==before+1);
+    }
+    info_before=info_calls;run(4);filerRootMcPollIdle();assert(info_calls>info_before);
+    puts("PASS: failed init pauses presence polling; both slots return the init error before card I/O and recover on later access");
+    /* Mixed PS1/PS2 cards: alternating requests keep type, free units and
+     * removal/reinsertion tied to their own port in either slot arrangement. */
+    use_port_results=1;
+    for(int reverse=0;reverse<2;reverse++) {
+        card_types[0]=reverse?2:1;card_types[1]=reverse?1:2;
+        card_free[0]=reverse?4096:7;card_free[1]=reverse?7:4096;
+        per_port_results[0]=per_port_results[1]=0;run(16);filerRootMcPollIdle();
+        for(int port=0;port<2;port++) {
+            int actual_type,actual_free;
+            assert(filerRootMcPresent(port,&actual_type,&actual_free)==1);
+            assert(actual_type==card_types[port]&&actual_free==card_free[port]);
+            per_port_results[port]=sceMcResFailDetect;run(16);filerRootMcPollIdle();
+            assert(filerRootMcPresent(port,NULL,NULL)==0&&filerRootMcPresent(1-port,NULL,NULL)==1);
+            per_port_results[port]=-1;run(16);filerRootMcPollIdle();
+            assert(filerRootMcPresent(port,&actual_type,&actual_free)==1);
+            assert(actual_type==card_types[port]&&actual_free==card_free[port]);
+            per_port_results[port]=0;
+            assert(!filerPrepareMemoryCardRead(1-port)&&mctype_PSx==card_types[1-port]);
+            assert(!filerPrepareMemoryCardRead(port)&&mctype_PSx==card_types[port]);
+            assert(root_mc_known_type[0]==card_types[0]&&root_mc_known_type[1]==card_types[1]);
+        }
+    }
+    puts("PASS: mixed PS1/PS2 polling and reinsertion preserve independent slot state in both arrangements");
     puts("PASS: cold/stale MC readiness, retry/cache preservation, pending scan publication, browser drain, lazy USB and MX4SIO ownership");
     puts("PASS: an unresponsive memory-card slot cannot starve the other or stay Checking forever");
     return 0;
@@ -241,6 +285,6 @@ with tempfile.TemporaryDirectory(prefix="wle-mc-poll-") as tmp:
 # The dashboard must let the user open an unresolved slot: browsing runs
 # ensureMemoryCardPortAccessible(), which switches the IOP away from MX4SIO.
 selectable = function(files, "static int devSelectable(")
-assert "DASH_DEV_BUSY" in selectable and "DI_MC" in selectable
+assert "devs[idx].icon == DI_MC" in selectable
 assert "present == -2" in devices
 print("PASS: unresolved memory-card slots stay selectable from Devices")

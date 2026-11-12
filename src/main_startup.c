@@ -19,7 +19,6 @@ static void normalizeBootPath(char *path);
 static int isSlashRootedBootPathDevice(const char *path);
 static int isDevicePathTerminator(char c);
 static int isBootUsbMassPath(const char *path);
-static int isBootUsbStackPath(const char *path);
 static int isBootAtaPath(const char *path);
 static int isBootHddPath(const char *path);
 static int isBootXfromPath(const char *path);
@@ -322,9 +321,18 @@ static void normalizeBootPath(char *path)
 			path[i] = '/';
 	}
 
-	/* Legacy SwapMagic only: exFAT mass0: is a real shared BDM mount,
-	 * which may belong to ATA/MX4SIO instead of USB. */
-#ifndef EXFAT
+	/* Launchers hand off legacy mass paths as USB, as in wLaunchELF_R3Z.
+	 * Store an explicit USB path so config and optional boot files all use
+	 * the same device even when other BDM transports are loaded later. */
+#ifdef EXFAT
+	if (!strncmp(path, "mass:", 5)) {
+		memcpy(path, "usb0", 4);
+	} else if (!strncmp(path, "mass", 4) && path[4] >= '0' &&
+	           path[4] <= '9' && path[5] == ':') {
+		memmove(path + 3, path + 4, strlen(path + 4) + 1);
+		memcpy(path, "usb", 3);
+	}
+#else
 	if (!strncmp(path, "mass0:", 6))
 		memmove(path + 4, path + 5, strlen(path + 5) + 1);
 #endif
@@ -390,18 +398,6 @@ static int isBootUsbMassPath(const char *path)
 }
 //------------------------------
 //endfunc isBootUsbMassPath
-//---------------------------------------------------------------------------
-static int isBootUsbStackPath(const char *path)
-{
-#ifdef EXFAT
-	/* Numbered massN: belongs to the shared BDM namespace. The boot
-	 * transport cannot be inferred, so never start USB just from its name. */
-	if (path != NULL && !strncmp(path, "mass", 4) &&
-	    path[4] >= '0' && path[4] <= '9' && path[5] == ':')
-		return 0;
-#endif
-	return isBootUsbMassPath(path);
-}
 //---------------------------------------------------------------------------
 static int isBootAtaPath(const char *path)
 {
@@ -593,7 +589,7 @@ void bringUpBootDeviceStack(enum BOOT_DEVICE boot_device)
 {
 	switch (boot_device) {
 		case BOOT_DEVICE_MASS:
-			if (isBootUsbStackPath(LaunchElfDir)) {
+			if (isBootUsbMassPath(LaunchElfDir)) {
 				DPRINTF("Loading USB modules for boot\n");
 				loadUsbModules();
 				/* The IOP reset disconnects the boot device.  Wait for it to

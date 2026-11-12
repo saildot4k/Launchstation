@@ -16,6 +16,7 @@ extern u32 paddata;
 static u64 last_input_ms;
 static u32 held_prev;
 static u32 text_repeat_armed;
+static u32 shoulder_repeat_armed, shoulder_repeat;
 
 //--------------------------------------------------------------
 // Input
@@ -34,6 +35,7 @@ void dashInputPollEx(DashInput *in, int usb_kb_as_pad)
 	u32 back_btn = swapKeys ? PAD_CIRCLE : PAD_CROSS;
 
 	memset(in, 0, sizeof(*in));
+	shoulder_repeat = 0;
 	dashWorkerParkPoint();
 	if (dashIopParked())
 		return; /* the IOP (and padman with it) is being rebooted */
@@ -52,7 +54,13 @@ void dashInputPollEx(DashInput *in, int usb_kb_as_pad)
 	 * from one-press UI actions. A flush requires a fresh press before repeating. */
 	text_repeat_armed &= paddata;
 	text_repeat_armed |= np & paddata & (ok_btn | back_btn);
-	repeat = ret ? new_pad & (text_repeat_armed | ~paddata) : 0;
+	/* Value editors can opt into the same repeat ramp for L1/R1. Global
+	 * tab navigation continues to receive only the first shoulder press. */
+	shoulder_repeat_armed &= paddata;
+	shoulder_repeat_armed |= np & paddata & (PAD_L1 | PAD_R1);
+	repeat = ret ? new_pad & (text_repeat_armed | shoulder_repeat_armed | ~paddata) : 0;
+	if (repeat & PAD_L1) shoulder_repeat |= DASH_IN_L1;
+	if (repeat & PAD_R1) shoulder_repeat |= DASH_IN_R1;
 	if (repeat & ok_btn)
 		in->text_repeat |= DASH_IN_OK;
 	if (repeat & back_btn)
@@ -96,8 +104,13 @@ void dashInputPollEx(DashInput *in, int usb_kb_as_pad)
 		in->pressed |= DASH_IN_R3;
 	in->any = (in->pressed != 0);
 	/* The editor consumes right-stick directions directly from raw_new. */
-	if (in->any || in->text_repeat || (np & (PAD_R3_H0 | PAD_R3_H1 | PAD_R3_V0 | PAD_R3_V1)))
+	if (in->any || in->text_repeat || shoulder_repeat || (np & (PAD_R3_H0 | PAD_R3_H1 | PAD_R3_V0 | PAD_R3_V1)))
 		last_input_ms = Timer();
+}
+
+u32 dashInputShoulderRepeat(void)
+{
+	return shoulder_repeat;
 }
 
 void dashInputFlush(void)
@@ -110,6 +123,7 @@ void dashInputFlush(void)
 	}
 	held_prev = paddata;
 	text_repeat_armed = 0;
+	shoulder_repeat_armed = shoulder_repeat = 0;
 	last_input_ms = Timer();
 }
 
@@ -704,6 +718,7 @@ void dashDrawNotifications(void)
 static void modalBackdrop(float k)
 {
 	DashColor c = dashColorScale(dashTheme.bg2, 0.4f);
+	dashGfxSetPopup(1); /* Input/audio RPC waits must retain the complete dialog. */
 	c.a = (u8)(150 * k);
 	dashRect(0, 0, DASH_VW, DASH_VH, c);
 }
@@ -1186,6 +1201,7 @@ static void loadingDraw(void)
 
 	if (loading_view != NULL) {
 		loading_view(loading_title);
+		dashGfxSetPopup(0); /* This view has its own safe wait-frame renderer. */
 		loading_last_draw = Timer();
 		return;
 	}
@@ -1218,6 +1234,7 @@ static void loadingDraw(void)
 	if (loading_cancel)
 		modalHintRow(x + 24, y + h - 34, -1, NULL, dashBackIcon(), "Continue in background");
 	dashGfxPopAlpha();
+	dashGfxSetPopup(0); /* Loading/progress can redraw itself during an RPC wait. */
 	dashGfxPresent();
 	loading_last_draw = Timer();
 }
@@ -1234,6 +1251,23 @@ void dashLoadingBegin(const char *title)
 	loading_fraction = 0.0f;
 	loading_done = loading_total = 0;
 	loadingDraw();
+}
+
+/* Called only at a cooperative wait point on the GS owner thread. No
+ * input, audio, job completion or device polling belongs in this frame. */
+void dashLoadingRedraw(void)
+{
+	/* Menus/keyboards/confirmations are drawn by their own modal loop. A
+	 * bare scene (or the loading view below a confirmation) would erase
+	 * them for one frame. Keep the last full popup until its next draw. */
+	if (dashGfxPopupActive()) return;
+	if (loading_active)
+		loadingDraw();
+	else {
+		dashVisualUpdate();
+		dashRenderScene();
+		dashGfxPresent();
+	}
 }
 
 void dashLoadingSetCancel(int cancelable)
@@ -1336,7 +1370,7 @@ int DashFileTransferProgress(const char *action, const char *name, u64 remaining
 		dashStrCopy(title, action, sizeof(title));
 	if (begin) dashLoadingBegin(title);
 	loadingTransferDetails(stats);
-	if (strncmp(loading_status, name ? name : "", sizeof(loading_status) - 1) ||
+	if (!loading_copied[0] || strncmp(loading_status, name ? name : "", sizeof(loading_status) - 1) ||
 	    strncmp(loading_title, title, sizeof(loading_title) - 1))
 		loading_fraction = 0.0f;
 	dashStrCopy(loading_title, title, sizeof(loading_title));
@@ -1355,6 +1389,32 @@ int DashFileTransferProgress(const char *action, const char *name, u64 remaining
 int DashFileProgress(const char *action, const char *name, u64 remaining, u64 total)
 {
 	return DashFileTransferProgress(action, name, remaining, total, NULL);
+}
+
+int DashFileOperationStatus(const char *action, const char *name, u64 index, u64 count)
+{
+	char title[sizeof(loading_title)];
+	if (!DashIsActive() || dashWorkerOnThread()) return 0;
+	if (index && count)
+		snprintf(title, sizeof(title), "%s %llu of %llu", action,
+		         (unsigned long long)index, (unsigned long long)count);
+	else
+		dashStrCopy(title, action, sizeof(title));
+	if (!loading_active) dashLoadingBegin(title);
+	dashStrCopy(loading_title, title, sizeof(loading_title));
+	loading_copied[0] = loading_transfer[0][0] = '\0';
+	dashStrCopy(loading_status, name ? name : "", sizeof(loading_status));
+	/* The stage bar counts completed saves, not an unknown byte length. */
+	loading_total = count <= 0x7fffffffULL ? (int)count : 0;
+	loading_done = loading_total && index && index <= count ? (int)index - 1 : 0;
+	loading_fraction = loading_total ? loading_done / (float)loading_total : 0.0f;
+	loadingDraw(); /* Present the stage before its blocking device/codec work. */
+	return 1;
+}
+
+void DashFileOperationEnd(void)
+{
+	if (DashIsActive() && !dashWorkerOnThread()) dashLoadingEnd();
 }
 
 void DashFileDeleteProgress(const char *name)

@@ -39,6 +39,8 @@ IOP_OBJS = \
 	main.o \
 	mcdev.o \
 	mciomanx_backing.o \
+	vmp_sign.o \
+	save_sign.o \
 	mcsio2.o \
 	ps2mc_fio.o \
 	ps1mc_fio.o \
@@ -71,3 +73,6 @@ include $(PS2SDKSRC)/Defs.make
 include $(PS2SDKSRC)/iop/Rules.bin.make
 include $(PS2SDKSRC)/iop/Rules.make
 include $(PS2SDKSRC)/iop/Rules.release
+
+$(IOP_OBJS_DIR)save_sign.o: ../../src/save_sign.c
+	$(IOP_CC) $(IOP_CFLAGS) $(IOP_INCS) -c $< -o $@

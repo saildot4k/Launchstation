@@ -325,6 +325,9 @@ void dashGfxInit(void);
 void dashGfxShutdown(void);
 int dashGfxCheckScreenChange(void); /* re-inits VRAM state after a mode switch */
 void dashGfxBeginFrame(void);
+int dashGfxCanYield(void); /* ready, between frames, outside a legacy handoff */
+void dashGfxSetPopup(int popup); /* composition of this frame, or the just-presented loading view */
+int dashGfxPopupActive(void); /* last complete frame has an interactive popup */
 void dashGfxPresent(void);
 void dashGfxRestoreLegacyState(void);
 float dashGfxScaleY(void);
@@ -750,6 +753,8 @@ const char *dashDeviceDisplayMount(const DashDevice *d, char *buf, int size);
 /* Browser device rows: mount and description in two left-aligned columns. */
 void dashDrawDeviceRow(const DashDevice *d, float x, float y, float w, int selected);
 int dashDevicesList(DashDevice *out, int max);
+/* Refresh physical card rows from cached detection, without device I/O. */
+void dashDevicesRefreshMemoryCards(DashDevice *devices, int count);
 /* Starts a device's drivers (UI thread, loading overlay); `cb` is called
  * with ok = device usable. -1 = the user backed out of the wait. */
 typedef void (*DashProbeDone)(const char *mount, int ok, void *user);
@@ -791,6 +796,8 @@ typedef struct
 
 void dashInputPoll(DashInput *in);
 void dashInputPollEx(DashInput *in, int usb_kb_as_pad);
+/* Opt-in L1/R1 adjustment repeats, following the pad delay/ramp. */
+u32 dashInputShoulderRepeat(void);
 void dashInputFlush(void);
 u64 dashInputIdleMs(void);
 
@@ -916,6 +923,9 @@ void dashLoadingStatus(const char *status, int done, int total);
 void dashLoadingFrame(const char *status, int done, int total); /* always draws */
 void dashLoadingSetCancel(int cancelable); /* shows "Back: keep working in background" */
 void dashLoadingEnd(void);
+void dashLoadingRedraw(void); /* visual only; preserves byte/status progress */
+void dashIoInit(void);
+int dashIoBusy(void); /* foreground wait frame; never dispatch jobs inside it */
 int dashLoadingActive(void);
 
 //--------------------------------------------------------------
@@ -1052,6 +1062,11 @@ int dashOpenTextEditor(const char *file); /* 0 = the user backed out before it o
 void dashAppActions(DashApp *app);
 void dashRescanLibrary(int interactive);
 int dashClockDaysInMonth(int year, int month);
+struct MenuClockSettings;
+void dashClockManualLimits(int minimum[6], int maximum[6]);
+void dashClockManualLimitsForSettings(int minimum[6], int maximum[6], const struct MenuClockSettings *settings);
+int dashClockSetManualWithSettings(const int fields[6], const struct MenuClockSettings *settings,
+                                   char *result, int result_size);
 int dashClockSetManual(int year, int month, int day, int hour, int minute, int second,
                        char *result, int result_size);
 int dashClockSyncInternet(char *result, int result_size);

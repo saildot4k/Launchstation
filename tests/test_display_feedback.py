@@ -125,6 +125,7 @@ static ThemeSlot theme_slots[THEME_SLOTS];
 static int jobs, inactive, loading;
 static void dashStrCopy(char *out, const char *in, int size) { snprintf(out, size, "%s", in); }
 static int dashLoadingActive(void) { return loading; }
+static int dashIoBusy(void) { return 0; }
 static int isPathDeviceStackLoaded(const char *path) { (void)path; return !inactive; }
 static void themeTexRun(void *arg) { (void)arg; }
 static void themeTexDone(void *arg) { (void)arg; }

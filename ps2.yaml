@@ -106,12 +106,30 @@ targets:
     cflags: [-Wall]
     headers: [atad, bdm, cdvd, dev9, intrman, iomanx, stdio, sysclib, sysmem, threadman]
 
+  # Physical memory cards share the vendored MCMAN sources with VMCMAN,
+  # compiled without BUILDING_VMCMAN so PS1 rediscovery reaches real SIO2.
+  - name: mcman_physical
+    type: iop
+    sources:
+      - iop/vmcman/src/main.c
+      - iop/vmcman/src/mcdev.c
+      - iop/vmcman/src/mcsio2.c
+      - iop/vmcman/src/ps2mc_fio.c
+      - iop/vmcman/src/ps1mc_fio.c
+    include_dirs: [iop/vmcman/include, iop/vmcman/src]
+    imports_lst: iop/vmcman/src/imports.lst
+    exports_tab: iop/vmcman/src/exports.tab
+    defines: [BUILDING_XMCMAN]
+    headers: [cdvd, sior, secrman, sio2man, intrman, ioman, loadcore, modload, stdio, sysclib, threadman, timrman]
+
   - name: vmcman
     type: iop
     sources:
       - iop/vmcman/src/main.c
       - iop/vmcman/src/mcdev.c
       - iop/vmcman/src/mciomanx_backing.c
+      - iop/vmcman/src/vmp_sign.c
+      - src/save_sign.c
       - iop/vmcman/src/mcsio2.c
       - iop/vmcman/src/ps2mc_fio.c
       - iop/vmcman/src/ps1mc_fio.c
@@ -305,6 +323,10 @@ targets:
       - src/gui_texteditor.c
       - src/gui_hdd0_format.c
       - src/psu_functions.c
+      - src/save_archive.c
+      - src/save_sign.c
+      - src/save_lzari.c
+      - src/filer_saves.c
       - src/hdd.c
       - src/hdd_header_injector.c
       - src/hdl_rpc.c
@@ -357,6 +379,7 @@ targets:
       - src/dash_themes.c
       - src/dash_sound.c
       - src/dash_worker.c
+      - src/dash_io.c
       - src/dash_widgets.c
       - src/dash_info.c
       - src/dash_image.c
@@ -391,6 +414,16 @@ targets:
     ldflags:
       - "-Wl,--no-warn-mismatch"
       - "-Wl,-Map,wLaunchELF.map"
+      # SDK calls inside static libraries must pass through the wait pump too.
+      - "-Wl,--wrap=sceSifCallRpc"
+      - "-Wl,--wrap=sceSifBindRpc"
+      - "-Wl,--wrap=mcSync"
+      - "-Wl,--wrap=xfromSync"
+      - "-Wl,--wrap=SifIopReset"
+      - "-Wl,--wrap=SifIopSync"
+      - "-Wl,--wrap=DelayThread"
+      - "-Wl,--wrap=saveArchiveParse"
+      - "-Wl,--wrap=saveArchiveBuild"
       - "-L../.https-deps/lib"
     headers: [sior, audsrv]
     libs: [iopreboot, hdd_ee, gskit, dmakit, png, z, jpeg, mc, kbd, mbedtls, mbedx509, mbedcrypto, ps2ips, cglue, m, cdvd, filexio, patches, poweroff, debug, secr, pad, audsrv]
@@ -416,7 +449,7 @@ targets:
       # with MINI_DRIVER and USE_GP_REGISTER=0. Avoids the post-2024-09-04
       # USBD rewrite that drops controller/SIO2 and freezes IOP on real hardware.
       - usbd_ra:usbd
-      - mcman
+      - mcman_physical:mcman
       - mcserv
       - cdfs:cdvd
       - xparam

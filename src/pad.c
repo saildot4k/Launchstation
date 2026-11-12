@@ -360,8 +360,8 @@ void waitPadReady(int port, int slot)
 		if (pad_reopen_active) {
 			if (Timer() >= deadline)
 				return;
-			DelayThread(1000);
 		}
+		DelayThread(1000); /* Cooperate while PADMAN is negotiating after a reset. */
 		if (state != lastState)
 			padStateInt2String(state, stateString);
 		lastState = state;
@@ -377,6 +377,7 @@ void waitAnyPadReady(void)
 	state_1 = padGetState(0, 0);
 	state_2 = padGetState(1, 0);
 	while ((state_1 != PAD_STATE_DISCONN) && (state_2 != PAD_STATE_DISCONN) && (state_1 != PAD_STATE_STABLE) && (state_2 != PAD_STATE_STABLE) && (state_1 != PAD_STATE_FINDCTP1) && (state_2 != PAD_STATE_FINDCTP1)) {
+		DelayThread(1000);
 		state_1 = padGetState(0, 0);
 		state_2 = padGetState(1, 0);
 	}

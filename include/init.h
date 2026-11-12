@@ -29,6 +29,11 @@ int isPowerOffReady(void);
 void closeAllAndPoweroff(void);
 void startKbd(void);
 void ensureCoreIoStackReady(void);
+/* Serialized card access: 0 = initialized, negative = mcInit error. A failed
+ * attempt leaves readiness false; the next explicit access may try again. */
+int ensureMemoryCardRpcReady(void);
+/* Cached state only: background polls must not initialize the client. */
+int isMemoryCardRpcReady(void);
 void ensureMemoryCardPortAccessible(int port);
 void rebootIopAndReloadCoreStack(void);
 void rebootIopAndReloadCoreStackSilent(void);

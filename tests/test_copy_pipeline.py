@@ -97,6 +97,7 @@ static struct {int PSU_HugeNames,PSU_DateNames,PSU_NoOverwrite;} config,*setting
 static int PSU_content;
 static int PM_flag[MAX_RECURSE],PM_file[MAX_RECURSE],PasteMode,PasteProgress_f,mctype_PSx;
 static int nclipFiles,browser_cut,browser_pushed,browser_cd;
+static void filerClearArchiveClipboard(void) {}
 static FILEINFO clipFiles[MAX_ENTRY];static char clipPath[MAX_PATH];
 static unsigned clipIopResetGeneration,generation;
 static u64 written_size,PasteTime,clock_ms;
@@ -335,6 +336,7 @@ code+=function(copy,'static void joinIconSysTitleLines(')
 code+=function(copy,'int filerGetGameTitle(')
 code+=copy[copy.index('int copy('):]
 code+=function(browser,'static int waitForClipboardSourceDevice(')
+code+=function(browser,'int filerPrepareClipboardTransfer(')
 code+=function(browser,'static void subfunc_Paste(')
 code+=r'''
 static void put(const char *p,const unsigned char *data,int n){int fd=open(p,O_CREAT|O_TRUNC|O_WRONLY,0600);assert(fd>=0);assert(write(fd,data,n)==n);assert(!close(fd));}
@@ -786,6 +788,20 @@ int main(void){
   message[0]=0;subfunc_Paste(message,dest);assert(!message[0]&&!handles);
   snprintf(target,sizeof(target),"%s%s",dest,long_leaf);assert(matches(target,input,size));
  }
+ /* Save/archive actions share Paste's real compatibility and source-ready policy. */
+ const char *incompatible_src[]={"mmce0:/","mx4sio:/","cf0:/","host:/"};
+ const char *incompatible_dst[]={"mx4sio:/","mc1:/","hdd0:/__common/","udpfs:/"};
+ for(int i=0;i<4;i++) {
+  reset();strcpy(clipPath,incompatible_src[i]);message[0]=0;
+  int before_reads=read_calls,before_writes=write_calls;
+  assert(filerPrepareClipboardTransfer(incompatible_dst[i],message,sizeof(message))==TRANSFER_STACK_INCOMPATIBLE);
+  assert(strstr(message,"Incompatible drivers")&&read_calls==before_reads&&write_calls==before_writes&&!handles);
+ }
+ reset();strcpy(clipPath,"mmce0:/");generation=2;clipIopResetGeneration=1;
+ assert(!filerPrepareClipboardTransfer("usb0:/",message,sizeof(message))&&clipIopResetGeneration==2);
+ reset();source_ready=0;generation=2;clipIopResetGeneration=1;
+ assert(filerPrepareClipboardTransfer("usb0:/",message,sizeof(message))<0&&strstr(message,"source device is unavailable"));
+ puts("PASS: save/archive preflight reuses R3Z source restoration, bounded source waits and all incompatible driver gates");
  puts("PASS: nested/selected-root file ordinals, zero-byte files, PSU creation/restoration payload counts");
  puts("PASS: R3Z direct new/overwrite writes across the device matrix; failed transfers retain move sources");
  puts("PASS: nested MC/VMC/flash replacements preserve all 32 filename bytes");

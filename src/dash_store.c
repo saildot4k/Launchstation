@@ -3,7 +3,7 @@
 //Dashboard persistence.
 //
 //The dashboard never modifies LAUNCHELF.CNF on its own. Its state lives in
-//separate files next to the loaded configuration (or mc0:/SYS-CONF/):
+//separate files in the configured override or loaded main-config folder:
 //  DASHBOARD.CNF  settings and application scan locations
 //  DASHAPPS.CNF   favorites, pinned/recent apps and hidden paths
 //  DASHLIB.CNF    cached application library (dash_lib.c)
@@ -176,21 +176,14 @@ int dashWriteFile(const char *path, const void *data, int size)
 //--------------------------------------------------------------
 // Storage location
 //--------------------------------------------------------------
-static int isWritableDevice(const char *path)
-{
-	if (path == NULL || path[0] == '\0')
-		return 0;
-	return (!strncmp(path, "mc", 2) || !strncmp(path, "mass", 4) || !strncmp(path, "usb", 3) ||
-	        !strncmp(path, "hdd", 3) || !strncmp(path, "mmce", 4) || !strncmp(path, "mx4sio", 6) ||
-	        !strncmp(path, "ata", 3));
-}
-
 static void dirOf(const char *path, char *out, int out_size)
 {
-	const char *slash;
+	const char *slash, *backslash;
 
 	dashStrCopy(out, path, out_size);
 	slash = strrchr(out, '/');
+	backslash = strrchr(out, '\\');
+	if (backslash != NULL && (slash == NULL || backslash > slash)) slash = backslash;
 	if (slash != NULL)
 		out[slash - out + 1] = '\0';
 	else {
@@ -200,16 +193,25 @@ static void dirOf(const char *path, char *out, int out_size)
 	}
 }
 
-static int candidateDirs(char dirs[3][MAX_PATH])
+/* Pick one folder from startup metadata. Missing dashboard files never
+ * trigger a search on another device or change the destination for saves. */
+static void selectStoreDir(void)
 {
-	int n = 0;
+	char dir[MAX_PATH];
+	size_t len;
 
-	if (LoadedConfigPath[0] && isWritableDevice(LoadedConfigPath))
-		dirOf(LoadedConfigPath, dirs[n++], MAX_PATH);
-	if (LaunchElfDir[0] && isWritableDevice(LaunchElfDir) && (n == 0 || strcmp(dirs[0], LaunchElfDir)))
-		dashStrCopy(dirs[n++], LaunchElfDir, MAX_PATH);
-	dashStrCopy(dirs[n++], "mc0:/SYS-CONF/", MAX_PATH);
-	return n;
+	if (setting != NULL && setting->CNF_Path[0])
+		dashStrCopy(dir, setting->CNF_Path, sizeof(dir));
+	else if (LoadedConfigPath[0])
+		dirOf(LoadedConfigPath, dir, sizeof(dir));
+	else
+		dashStrCopy(dir, LaunchElfDir[0] ? LaunchElfDir :
+		            LaunchElfBootDir[0] ? LaunchElfBootDir : "mc0:/SYS-CONF/", sizeof(dir));
+	len = strlen(dir);
+	if (!len || len + 1 >= sizeof(store_dir)) return;
+	memcpy(store_dir, dir, len);
+	if (dir[len - 1] != '/' && dir[len - 1] != '\\') store_dir[len++] = '/';
+	store_dir[len] = '\0';
 }
 
 const char *dashStoreDir(void)
@@ -362,9 +364,8 @@ static int listsKv(const char *key, char *value, void *user)
 
 void dashStoreInit(void)
 {
-	char dirs[3][MAX_PATH];
 	char path[MAX_PATH];
-	int n, i, len;
+	int len;
 	char *text;
 	int scan_reset = 0;
 
@@ -376,23 +377,17 @@ void dashStoreInit(void)
 	store_dir[0] = '\0';
 	dashThemeStoreBegin();
 
-	n = candidateDirs(dirs);
-	for (i = 0; i < n; i++) {
-		if (snprintf(path, sizeof(path), "%.*sDASHBOARD.CNF", (int)sizeof(path) - 16, dirs[i]) >= (int)sizeof(path))
-			continue;
+	selectStoreDir();
+	if (dashStoreBuildPath(path, sizeof(path), "DASHBOARD.CNF") == 0) {
 		text = dashLoadTextFile(path, 64 * 1024, &len);
 		if (text != NULL) {
-			dashStrCopy(store_dir, dirs[i], sizeof(store_dir));
 			if (!boot_safe_mode) {
 				dashKvParse(text, settingsKv, &scan_reset);
 				store_loaded = 1;
 			}
 			free(text);
-			break;
 		}
 	}
-	if (store_dir[0] == '\0')
-		dashStrCopy(store_dir, dirs[0], sizeof(store_dir));
 	dashThemeStoreEnd();
 
 	persisted = dashCfg;

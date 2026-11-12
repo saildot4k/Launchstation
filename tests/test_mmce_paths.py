@@ -46,7 +46,11 @@ for path in ('src/dash_browser.c', 'src/dash_tools.c', 'src/dash_settings.c',
         assert removed not in text, (path, removed)
 browser = (root / 'src/dash_browser.c').read_text()
 assert 'Mount as vmc0:' in browser and 'Mount as vmc1:' in browser
-assert 'opPaste(PASTE_PSU);' in browser
+# Archive creation and extraction both use the clipboard and current folder.
+assert 'opCreateArchive(archive_kind);' in browser
+assert 'opImportSaves();' in browser
+assert 'opExtractSave' not in browser
+assert 'filerCreateClipboardArchives(fb.dir, format,' in browser
 
 code = r'''
 #include <assert.h>

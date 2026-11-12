@@ -75,13 +75,28 @@ key arrangement with those three actions hidden.
 The question-mark and pipe keys stay visible and type `?` and `|` with Caps
 either off or on. Slash and backslash stay hidden and are filtered from USB input.
 
-The cursor never waits for the memory card or a slow device: file reads
-and writes (artwork, saves, library scans, folder listings) run on a
-background thread, and a small indicator above the button hints shows
-what is being worked on. Starting a device's drivers still happens on the
-foreground thread. In the File Browser, its title temporarily replaces
-"Choose a device" or the current path in the path bar, without a popup or
-internal memory-card/probe details. Other operations keep their progress dialogs.
+Background file reads, artwork, library scans and folder listings use the
+EE worker. Driver startup, transfers, paste and archive file operations keep
+their established order, but the EE sends blocking RPC requests in asynchronous
+mode and renders while waiting for the IOP's reply. This includes memory-card
+completion, service binding, reset polling and driver settling delays. Archive
+parsing, decompression and PSV signing use the worker so those EE tasks also
+leave time for rendering. Existing progress dialogs retain their filenames,
+byte counts, rates and completion checks while the background and spinner move.
+
+Interactive popups keep their last complete frame while an input or audio
+RPC finishes; their modal loop draws the next popup frame. The wait renderer
+never substitutes the dashboard or an underlying progress popup while
+navigating a menu, editing a value, typing, or answering a confirmation.
+Loading and transfer views continue their own animated redraws.
+
+Wait frames only update visuals. Controller/audio services can pause during
+IOP resets; input resumes after the operation's next input checkpoint. Drawing
+uses cached hardware values and advances an already initialized clock on the
+EE, without polling the IOP or dispatching another file job. Driver initialization
+stays on the foreground thread. In the File Browser, its title temporarily
+replaces "Choose a device" or the current path in the path bar, without a popup
+or internal memory-card/probe details. Other operations keep their progress dialogs.
 
 ## Sections
 
@@ -393,9 +408,18 @@ running is looked up later, when that device is opened.
 
 ## Files written by the dashboard
 
-Next to LAUNCHELF.CNF when it was loaded from a writable device, otherwise
-in `mc0:/SYS-CONF/`: `DASHBOARD.CNF` (settings, scan folders),
-`DASHAPPS.CNF` (favorites, pins, recents), `DASHLIB.CNF` (library cache).
+Dashboard configuration uses one folder chosen at startup: `CNF_Path` when
+set, otherwise the folder containing the loaded `LAUNCHELF.CNF`.
+`DASHBOARD.CNF`, `DASHAPPS.CNF` (favorites, pins, recents), `DASHLIB.CNF`
+(library cache) and per-game Neutrino profiles all use that folder.
+
+Missing files use defaults without searching CWD, either memory card or
+another device. App lists in the selected folder still load independently
+when `DASHBOARD.CNF` is absent. If no main configuration was loaded, use
+the startup configuration directory already selected by the R3Z boot code.
+Existing files are not migrated, and writes to an unavailable/read-only
+folder are not silently redirected elsewhere. The R3Z startup searches for
+`LAUNCHELF.CNF` and `IPCONFIG.DAT` are retained.
 The active theme is part of DASHBOARD.CNF (`Theme_*` keys); saved themes
 go to `THEMES/<name>/theme.cfg`, only when you choose
 *Export theme to folder* — in the ELF's own folder when writable, else the

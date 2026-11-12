@@ -195,6 +195,17 @@ void ExecuteMainAction(char *pathin, const MainExecuteContext *ctx)
 	if (ctx == NULL || pathin == NULL || pathin[0] == 0)
 		return;
 
+	/* A selected OSDSYS program is an ordinary executable launch. Resolve it
+	 * before device dispatch and argument handling, just like a browser file.
+	 * The embedded R3Z loader tries SifLoadElf, then SifLoadElfEncrypted. */
+	if (!stricmp(pathin, setting->Misc_OSDSYS) &&
+	    setting->LK_Flag[SETTING_LK_OSDSYS] && setting->LK_Path[SETTING_LK_OSDSYS][0]) {
+		pathin = setting->LK_Path[SETTING_LK_OSDSYS];
+		if (strchr(pathin, ':') == NULL) {
+			snprintf(ctx->main_msg, MAX_PATH, "Choose an executable file for the OSDSYS program.");
+			return;
+		}
+	}
 	if (!uLE_related(path, pathin))  //1==uLE_rel 0==missing, -1==other dev
 		return;
 
@@ -343,7 +354,7 @@ Recurse_for_ESR:  //Recurse here for PS2Disc command with ESR disc
 			goto ELFnotFound;
 		pathSep = strchr(fullpath, '/');
 		if (pathSep && (pathSep - fullpath < 7) && pathSep[-1] == ':')
-			strcpy(fullpath + (pathSep - fullpath), pathSep + 1);
+			memmove(pathSep, pathSep + 1, strlen(pathSep + 1) + 1);
 		goto ELFchecked;
 	} else if (!strncmp(path, "ata", 3)) {
 		char *pathSep;
@@ -366,7 +377,7 @@ Recurse_for_ESR:  //Recurse here for PS2Disc command with ESR disc
 			strcpy(fullpath, path);
 		pathSep = strchr(fullpath, '/');
 		if (pathSep && (pathSep - fullpath < 7) && pathSep[-1] == ':')
-			strcpy(fullpath + (pathSep - fullpath), pathSep + 1);
+			memmove(pathSep, pathSep + 1, strlen(pathSep + 1) + 1);
 		goto ELFchecked;
 	} else if (!strncmp(path, "mass", 4)) {
 		char *pathSep;
@@ -404,15 +415,13 @@ Recurse_for_ESR:  //Recurse here for PS2Disc command with ESR disc
 		goto ELFnotFound;
 #endif
 	} else if (!stricmp(path, setting->Misc_OSDSYS)) {
-		char arg0[20], arg1[20], arg2[20], arg3[40];
+		char arg0[20], arg1[20], arg2[20], arg3[MAX_PATH + 3];
 		char *args[4] = {arg0, arg1, arg2, arg3};
 		char kelf_loader[40];
 		int fd, argc;
 
-		if (setting->LK_Flag[SETTING_LK_OSDSYS] && setting->LK_Path[SETTING_LK_OSDSYS][0])
-			strcpy(path, setting->LK_Path[SETTING_LK_OSDSYS]);
-		else
-			strcpy(path, ctx->default_osdsys_path);
+		/* No override: retain the native memory-card system-update boot path. */
+		strcpy(path, ctx->default_osdsys_path);
 
 		fd = genOpen(path, FIO_O_RDONLY);
 		if (fd >= 0)
@@ -436,7 +445,7 @@ Recurse_for_ESR:  //Recurse here for PS2Disc command with ESR disc
 		strcpy(arg0, "-m rom0:SIO2MAN");
 		strcpy(arg1, "-m rom0:MCMAN");
 		strcpy(arg2, "-m rom0:MCSERV");
-		sprintf(arg3, "-x %s", path);
+		snprintf(arg3, sizeof(arg3), "-x %s", path);
 		argc = 4;
 		strcpy(kelf_loader, "moduleload");
 		CleanUpForExec();
