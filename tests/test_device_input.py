@@ -707,7 +707,9 @@ int main(void) {
     pad_reopen_active=1;
     now_ms=1000; states[0]=3; settle=1; waitPadReady(0,0); assert(now_ms==1500);
     now_ms=1000; settle=0; pad_reopen_active=0; legacy_reads=0;
-    waitPadReady(0,0); assert(now_ms==1000 && legacy_reads==4);
+    waitPadReady(0,0); assert(now_ms==1003 && legacy_reads==4);
+    now_ms=1000;legacy_reads=0;waitAnyPadReady();
+    assert(now_ms==1001 && legacy_reads==4); /* Both negotiations yield for rendering. */
     puts("PASS: runtime pad wait yields/expires; legacy ready/disconnected handling is preserved");
 }
 """
@@ -724,7 +726,8 @@ enum { TS_EMPTY,TS_LOADED,TS_MISSING,TS_LOADING };
 typedef struct { char path[256]; GSTEXTURE tex; int state,gen,max_w,max_h; } ThemeSlot;
 typedef struct { char path[256]; int slot,gen,max_w,max_h; } ThemeTexJob;
 static ThemeSlot theme_slots[THEME_SLOTS];
-static int loading=1, submitted;
+static int loading=1, submitted, foreground_io;
+static int dashIoBusy(void) {return foreground_io;}
 static void *submitted_arg;
 static int dashLoadingActive(void) { return loading; }
 static int isPathDeviceStackLoaded(const char *p) { (void)p; return 1; }
@@ -741,7 +744,10 @@ int main(void) {
     assert(!dashThemeTextureFile("mc0:/THEME/new.png",64,64) && !submitted);
     strcpy(theme_slots[0].path,"mc0:/THEME/cached.png"); theme_slots[0].state=TS_LOADED; theme_slots[0].max_w=theme_slots[0].max_h=64;
     assert(dashThemeTextureFile("mc0:/THEME/cached.png",64,64)==&theme_slots[0].tex);
-    loading=0; assert(!dashThemeTextureFile("mc0:/THEME/new.png",64,64) && submitted==1);
+    loading=0;foreground_io=1;
+    assert(!dashThemeTextureFile("mc0:/THEME/new.png",64,64) && !submitted);
+    assert(dashThemeTextureFile("mc0:/THEME/cached.png",64,64)==&theme_slots[0].tex);
+    foreground_io=0;assert(!dashThemeTextureFile("mc0:/THEME/new.png",64,64) && submitted==1);
     free(submitted_arg);
     puts("PASS: loading overlays use cached theme textures and defer new IO until loading ends");
 }

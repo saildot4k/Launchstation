@@ -325,6 +325,9 @@ void dashGfxInit(void);
 void dashGfxShutdown(void);
 int dashGfxCheckScreenChange(void); /* re-inits VRAM state after a mode switch */
 void dashGfxBeginFrame(void);
+int dashGfxCanYield(void); /* ready, between frames, outside a legacy handoff */
+void dashGfxSetPopup(int popup); /* composition of this frame, or the just-presented loading view */
+int dashGfxPopupActive(void); /* last complete frame has an interactive popup */
 void dashGfxPresent(void);
 void dashGfxRestoreLegacyState(void);
 float dashGfxScaleY(void);
@@ -920,6 +923,9 @@ void dashLoadingStatus(const char *status, int done, int total);
 void dashLoadingFrame(const char *status, int done, int total); /* always draws */
 void dashLoadingSetCancel(int cancelable); /* shows "Back: keep working in background" */
 void dashLoadingEnd(void);
+void dashLoadingRedraw(void); /* visual only; preserves byte/status progress */
+void dashIoInit(void);
+int dashIoBusy(void); /* foreground wait frame; never dispatch jobs inside it */
 int dashLoadingActive(void);
 
 //--------------------------------------------------------------

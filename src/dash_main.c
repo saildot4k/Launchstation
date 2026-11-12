@@ -11,6 +11,7 @@
 #include "dash_sound.h"
 #include "filer_shared.h"
 #include "init.h"
+#include "main_title.h"
 
 extern void (*mainActionLaunchHook)(const char *path);
 
@@ -1105,6 +1106,7 @@ void DashRun(const MainExecuteContext *ctx, int from_boot)
 		clearScreenToBlack();
 		dashFontInit();
 	}
+	dashIoInit(); /* GS, fonts, icons and worker are now ready for wait frames. */
 	DashThemeSetLegacyEnabled(1);
 	mainActionLaunchHook = dashLaunchHook;
 #ifdef WLE_BOOT_DIAGNOSTICS
@@ -1208,6 +1210,9 @@ void DashRun(const MainExecuteContext *ctx, int from_boot)
 		 * nothing changed. Keep hotplug responsive without spending render time
 		 * polling hardware tens of times per second. */
 		if (!dashWorkerIoBusy() && !dashIopParked()) {
+			/* Refresh hardware caches between frames. Drawing only advances the
+			 * cached clock and never starts an RTC/temperature RPC. */
+			menuTitleUpdateAsync(0);
 			if (now >= next_disc_poll) {
 				uLE_cdStop();
 				next_disc_poll = now + 1000;

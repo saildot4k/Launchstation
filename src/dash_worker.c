@@ -1,7 +1,8 @@
 //--------------------------------------------------------------
 //File name:   dash_worker.c
-//Background work for the dashboard: one EE thread runs file, memory
-//card and driver work queued by the UI, so the cursor never waits for IO.
+//Background work for the dashboard: one EE thread runs bounded file,
+//memory-card and archive-codec jobs. Driver startup and legacy file
+//operations stay on the UI thread; dash_io.c renders during their waits.
 //
 //Rules that keep the rest of wLaunchELF (which is not thread-safe) happy:
 //* Exactly one job runs at a time, and while it runs the UI thread does

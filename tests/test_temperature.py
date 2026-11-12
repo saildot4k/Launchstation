@@ -28,6 +28,8 @@ code = r'''
 #include <stdio.h>
 #include <string.h>
 typedef uint64_t u64;
+static int io_busy;
+static int DashIoBusy(void) {return io_busy;}
 static int sensor_raw=40*128,sensor_ok=1,sensor_status,sensor_queries;
 static int sceCdApplySCmd(unsigned char cmd,const void *in,int size,void *out) {
     assert(cmd==0x03 && size==1 && *(const unsigned char *)in==0xEF);
@@ -96,7 +98,10 @@ int main(void) {
     int raw=-1;
     assert(MENU_TITLE_TEMP_POLL_MS==5000);
     assert(!menuTitleGetTemperatureRaw(&raw));show("23:59:58");
-    assert(updateTemp(0,0) && sensor_queries==1);
+    io_busy=1;assert(!updateTemp(0,1) && !sensor_queries && !title_temp.checked);
+    io_busy=0;assert(updateTemp(0,0) && sensor_queries==1);
+    io_busy=1;assert(!updateTemp(6000,1) && sensor_queries==1 && title_temp.last_poll_ms==0);
+    assert(menuTitleGetTemperatureRaw(&raw) && raw==40*128);io_busy=0;
     assert(menuTitleGetTemperatureRaw(&raw) && raw==40*128);
     show("23:59:58  40.0\260C");
     for(u64 tick=0;tick<5000;tick+=16)assert(!updateTemp(tick,0));

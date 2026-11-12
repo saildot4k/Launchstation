@@ -962,6 +962,7 @@ static void colorEditor(const char *title, int id)
 		open = dashApproach(open, 1.0f, 14.0f * dashAnimSpeed(), dashVisualUpdate());
 
 		dashRenderScene();
+		dashGfxSetPopup(1); /* This preview popup deliberately has no dim backdrop. */
 		dashGfxPushAlpha(open);
 		{
 			DashColor top = dashColorLighten(DASH_C_PANEL, 0.14f), bot = dashColorLighten(DASH_C_PANEL, 0.06f);

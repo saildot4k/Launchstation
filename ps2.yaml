@@ -379,6 +379,7 @@ targets:
       - src/dash_themes.c
       - src/dash_sound.c
       - src/dash_worker.c
+      - src/dash_io.c
       - src/dash_widgets.c
       - src/dash_info.c
       - src/dash_image.c
@@ -413,6 +414,16 @@ targets:
     ldflags:
       - "-Wl,--no-warn-mismatch"
       - "-Wl,-Map,wLaunchELF.map"
+      # SDK calls inside static libraries must pass through the wait pump too.
+      - "-Wl,--wrap=sceSifCallRpc"
+      - "-Wl,--wrap=sceSifBindRpc"
+      - "-Wl,--wrap=mcSync"
+      - "-Wl,--wrap=xfromSync"
+      - "-Wl,--wrap=SifIopReset"
+      - "-Wl,--wrap=SifIopSync"
+      - "-Wl,--wrap=DelayThread"
+      - "-Wl,--wrap=saveArchiveParse"
+      - "-Wl,--wrap=saveArchiveBuild"
       - "-L../.https-deps/lib"
     headers: [sior, audsrv]
     libs: [iopreboot, hdd_ee, gskit, dmakit, png, z, jpeg, mc, kbd, mbedtls, mbedx509, mbedcrypto, ps2ips, cglue, m, cdvd, filexio, patches, poweroff, debug, secr, pad, audsrv]

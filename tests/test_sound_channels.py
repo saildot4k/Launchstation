@@ -38,6 +38,7 @@ code += r'''
 static audsrv_adpcm_t samples[DASH_SND_COUNT];
 static struct { int sound,sound_vol,bgm,bgm_vol; } dashCfg={1,60,1,80};
 static unsigned generation,sound_reboot_generation;
+static int busy;
 static int sound_ready=1,parked,bgm_channel=23,bgm_tried;
 static int volumes[24],available[24],plays[24],volume_writes[24];
 static int calls,automatic,init_calls,last_channel=-1,fail_sample,fail_volume,bad_channel_reply;
@@ -46,6 +47,7 @@ static u64 last_play_ms;
 static u64 Timer(void) { return now; }
 static unsigned getIopResetGeneration(void) { return generation; }
 static int dashIopParked(void) { return parked; }
+static int DashIoBusy(void) {return dashIopParked() || busy;}
 static int audsrv_ch_play_adpcm(int ch,audsrv_adpcm_t *sample) {
     assert(!parked && generation==sound_reboot_generation);
     assert(sample>=samples && sample<samples+DASH_SND_COUNT && sample->buffer);
@@ -191,6 +193,7 @@ int main(void) {
     dashCfg.sound_vol=30;dashSoundApplyVolume();
     dashSoundPlay(DASH_SND_CONFIRM);assert(volumes[last_channel]==30 && volumes[23]==80);
     /* Respect dead/parked IOPs, invalid IDs, failed uploads and driver errors. */
+    reset();busy=1;dashSoundPlay(DASH_SND_CONFIRM);assert(!calls);busy=0;
     reset();parked=1;dashSoundPlay(DASH_SND_CONFIRM);assert(!calls);
     parked=0;generation++;dashSoundPlay(DASH_SND_CONFIRM);assert(!calls);
     generation=0;dashSoundPlay(-1);dashSoundPlay(DASH_SND_COUNT);assert(!calls);
