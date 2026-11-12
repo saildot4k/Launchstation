@@ -31,9 +31,11 @@ typedef uint64_t u64;
 static int io_busy;
 static int DashIoBusy(void) {return io_busy;}
 static int sensor_raw=40*128,sensor_ok=1,sensor_status,sensor_queries;
+static void (*sensor_wait_redraw)(void);
 static int sceCdApplySCmd(unsigned char cmd,const void *in,int size,void *out) {
     assert(cmd==0x03 && size==1 && *(const unsigned char *)in==0xEF);
     unsigned char *bytes=out;sensor_queries++;
+    if(sensor_wait_redraw) sensor_wait_redraw();
     bytes[0]=sensor_status;bytes[1]=sensor_raw>>8;bytes[2]=sensor_raw&255;
     return sensor_ok;
 }
@@ -94,6 +96,14 @@ static void show(const char *expected) {
     assert(sensor_queries==before); /* units and drawing use the cached raw value */
 }
 static void resetSensor(void) { memset(&title_temp,0,sizeof(title_temp));sensor_queries=0;sensor_ok=1;sensor_status=0; }
+static void redrawDuringSensorWait(void) {
+    int raw;
+    assert(menuTitleGetTemperatureRaw(&raw) && raw==40*128);
+    draws=0;dashDrawClock();assert(draws==2);
+    assert(!strcmp(drawn[0].text,"23:59:58  40.0\260C"));
+    assert(!strcmp(drawn[1].text,"2026/10/25"));
+    assert(fabsf(drawn[0].x-drawn[1].x)<0.01f);
+}
 int main(void) {
     int raw=-1;
     assert(MENU_TITLE_TEMP_POLL_MS==5000);
@@ -122,11 +132,21 @@ int main(void) {
         updateTemp(10,0);assert(!menuTitleGetTemperatureRaw(&raw));show("23:59:58");
         updateTemp(5010,0);updateTemp(100010,0);assert(sensor_queries==1);
     }
-    /* A transient failure after a supported read hides the value until retry. */
-    resetSensor();updateTemp(10,0);sensor_ok=0;assert(updateTemp(5010,0));
-    assert(!menuTitleGetTemperatureRaw(&raw));sensor_ok=1;updateTemp(10009,0);assert(sensor_queries==2);
-    assert(updateTemp(10010,0) && sensor_queries==3);
-    updateTemp(1,0);assert(sensor_queries==4); /* timer restart */
+    /* RPC wait frames keep the last sample and full clock/date layout. */
+    resetSensor();sensor_raw=40*128;updateTemp(10,0);
+    dashCfg.temp_fahrenheit=0;dashTheme.clock=DASH_CLOCK_STANDARD;
+    dashTheme.clock_seconds=1;dashTheme.clock_date=DASH_DATE_SYSTEM;
+    sensor_wait_redraw=redrawDuringSensorWait;
+    sensor_raw=41*128;assert(updateTemp(5010,0));
+    sensor_wait_redraw=NULL;
+    assert(menuTitleGetTemperatureRaw(&raw) && raw==41*128);
+    /* A transient failure keeps the last sample until the scheduled retry. */
+    sensor_raw=40*128;updateTemp(10,1);sensor_wait_redraw=redrawDuringSensorWait;
+    sensor_ok=0;assert(!updateTemp(5010,0));
+    assert(menuTitleGetTemperatureRaw(&raw) && raw==40*128);
+    sensor_wait_redraw=NULL;sensor_ok=1;updateTemp(10009,0);assert(sensor_queries==4);
+    sensor_raw=41*128;assert(updateTemp(10010,0) && sensor_queries==5);
+    updateTemp(1,0);assert(sensor_queries==6); /* timer restart */
     sensor_raw=40*128;updateTemp(2,1);dashCfg.temp_fahrenheit=0;
     dashTheme.clock=DASH_CLOCK_STANDARD;dashTheme.clock_seconds=1;dashTheme.clock_date=DASH_DATE_SYSTEM;
     char time[48],date[24];assert(clockText(time,sizeof(time),date,sizeof(date)));

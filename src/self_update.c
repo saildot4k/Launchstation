@@ -6,11 +6,37 @@
 #include "filer_shared.h"
 #include "filer_actions.h"
 #include "self_update.h"
+#include "dash.h"
 
 #include <ctype.h>
 
 #define UPDATE_ELF_URL "https://github.com/" SELF_UPDATE_REPOSITORY "/releases/download/latest/" SELF_UPDATE_ASSET
 #define UPDATE_MAX_ELF (16 * 1024 * 1024)
+#define UPDATE_SPACE_MARGIN (100 * 1024)
+
+/* Keep actual allocated space aside even on drivers with no free-space API.
+ * All new files must fit alongside this reserve before any old file is deleted. */
+static int reserve_update_space(const char *path)
+{
+    unsigned char zeros[4096] = {0};
+    int fd, remaining = UPDATE_SPACE_MARGIN, ok = 1;
+
+    fd = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_EXCL);
+    if (fd < 0) return 0;
+    while (remaining > 0) {
+        int count = remaining > (int)sizeof(zeros) ? (int)sizeof(zeros) : remaining;
+        int n = genWrite(fd, zeros, count);
+        if (n <= 0 || n > count) { ok = 0; break; }
+        remaining -= n;
+    }
+    if (genClose(fd) < 0) ok = 0;
+    if (!ok) {
+        char remove_path[MAX_PATH];
+        snprintf(remove_path, sizeof(remove_path), "%s", path);
+        genRemove(remove_path);
+    }
+    return ok;
+}
 
 static int device_path(const char *path, const char *name, int allow_bare)
 {
@@ -183,23 +209,21 @@ static int install_update_files(const char *boot, const char *parent, const char
                                  const char *ca_path, const char *expected_sha256,
                                  char *result, int result_size)
 {
-    char stage_leaf[MAX_NAME], backup_leaf[MAX_NAME];
-    char stage[MAX_PATH], backup[MAX_PATH];
+    char stage_leaf[MAX_NAME];
+    char stage[MAX_PATH];
     char package_leaf[MAX_NAME], package[MAX_PATH];
     char update_ca[MAX_PATH], update_ca_stage[MAX_PATH];
     char bgm[MAX_PATH], bgm_stage[MAX_PATH];
-    char title[MAX_PATH], title_stage[MAX_PATH], title_backup[MAX_PATH];
+    char title[MAX_PATH], title_stage[MAX_PATH];
     char error[256], remove_path[MAX_PATH];
     unsigned char expected[32], actual[32];
-    int size, package_size, rollback_ok, sidecar_size, rename_result;
+    int size, package_size, sidecar_size;
+    u64 free_bytes;
     int need_ca, need_bgm, staged_ca = 0, staged_bgm = 0;
     int added_ca = 0, added_bgm = 0;
-    int had_title, title_backed_up = 0, title_installed = 0, title_rollback_ok;
 
     if (snprintf(stage_leaf, sizeof(stage_leaf), "%s.UPDATE", leaf) >= (int)sizeof(stage_leaf) ||
-        snprintf(backup_leaf, sizeof(backup_leaf), "%s.BAK", leaf) >= (int)sizeof(backup_leaf) ||
         !join_leaf(stage, sizeof(stage), parent, stage_leaf) ||
-        !join_leaf(backup, sizeof(backup), parent, backup_leaf) ||
         snprintf(package_leaf, sizeof(package_leaf), "%s.PACKAGE", leaf) >= (int)sizeof(package_leaf) ||
         !join_leaf(package, sizeof(package), parent, package_leaf)) {
         snprintf(result, result_size, "The running ELF path is too long for a safe staged update.");
@@ -213,8 +237,7 @@ static int install_update_files(const char *boot, const char *parent, const char
         !join_leaf(bgm, sizeof(bgm), parent, "BGM.ADP") ||
         !join_leaf(bgm_stage, sizeof(bgm_stage), parent, "BGM.ADP.UPDATE") ||
         !join_leaf(title, sizeof(title), parent, "title.cfg") ||
-        !join_leaf(title_stage, sizeof(title_stage), parent, "title.cfg.UPDATE") ||
-        !join_leaf(title_backup, sizeof(title_backup), parent, "title.cfg.BAK")) {
+        !join_leaf(title_stage, sizeof(title_stage), parent, "title.cfg.UPDATE")) {
         snprintf(result, result_size, "The app folder path is too long for a safe sidecar update.");
         return -1;
     }
@@ -226,8 +249,7 @@ static int install_update_files(const char *boot, const char *parent, const char
                  "An earlier ELF .UPDATE or .PACKAGE file remains beside the app. Resolve that file manually before retrying; no files were changed.");
         return -1;
     }
-    had_title = wleExists(title);
-    if (wleExists(title_stage) || (!had_title && wleExists(title_backup))) {
+    if (wleExists(title_stage)) {
         snprintf(result, result_size,
                  "Unfinished title.cfg recovery files remain beside the app. Resolve them manually before retrying; no files were changed.");
         return -1;
@@ -248,6 +270,7 @@ static int install_update_files(const char *boot, const char *parent, const char
     }
 
     error[0] = '\0';
+    DashStorageProbeStatus("Downloading update package from GitHub");
     size = download_file(UPDATE_ELF_URL, package, ca_path, UPDATE_MAX_ELF,
                          actual, error, sizeof(error));
     if (size <= 0) {
@@ -255,6 +278,7 @@ static int install_update_files(const char *boot, const char *parent, const char
                  error[0] ? error : "no update data was received");
         return -1;
     }
+    DashStorageProbeStatus("Verifying package SHA-256");
     if (memcmp(expected, actual, sizeof(expected)) != 0) {
         snprintf(remove_path, sizeof(remove_path), "%s", package);
         genRemove(remove_path);
@@ -263,6 +287,16 @@ static int install_update_files(const char *boot, const char *parent, const char
         return -1;
     }
     package_size = size;
+    /* PSU contents are uncompressed and bounded by the package size. The
+     * 100 KB margin is already allocated separately; do not count it twice. */
+    DashStorageProbeStatus("Checking space for replacement files plus 100 KB");
+    if (filerFreeSpace(parent, &free_bytes) && free_bytes < (u64)package_size) {
+        snprintf(result, result_size,
+                 "Not enough free space: need up to %d KB for replacement files, plus the reserved 100 KB. Installed files were not changed.",
+                 (package_size + 1023) / 1024);
+        goto discard_package;
+    }
+    DashStorageProbeStatus("Preparing and validating the new executable");
     size = selfUpdateExtractPsu(package, stage, package_size);
     if (size <= 0) {
         snprintf(remove_path, sizeof(remove_path), "%s", package);
@@ -283,6 +317,7 @@ static int install_update_files(const char *boot, const char *parent, const char
 
     /* Metadata belongs to this exact verified build, even for legacy PSUs.
      * Retain the actual boot filename when the installed ELF was renamed. */
+    DashStorageProbeStatus("Preparing metadata and bundled files");
     if (selfUpdateExtractPsuTitle(package, title_stage, package_size, leaf) <= 0)
         goto sidecar_failed;
 
@@ -322,91 +357,34 @@ static int install_update_files(const char *boot, const char *parent, const char
         added_bgm = 1;
     }
 
-    /* Keep a matching metadata recovery copy beside the ELF recovery copy.
-     * Remove a prior title backup only when its current file is still present. */
-    if (had_title && wleExists(title_backup)) {
-        snprintf(remove_path, sizeof(remove_path), "%s", title_backup);
-        if (genRemove(remove_path) < 0 && wleExists(title_backup)) {
-            snprintf(result, result_size,
-                     "Could not replace the previous title.cfg.BAK recovery copy. The original ELF and metadata were not changed.");
-            goto discard_stages;
-        }
-    }
-
-    /* Only now, after a complete verified download, touch the current ELF.
-     * Keep one recovery copy beside it. */
-    if (wleExists(backup)) {
-        snprintf(remove_path, sizeof(remove_path), "%s", backup);
-        if (genRemove(remove_path) < 0 && wleExists(backup)) {
-            snprintf(result, result_size,
-                     "Could not replace the previous .BAK recovery copy. The running ELF was not changed.");
-            goto discard_stages;
-        }
-    }
-
-    rename_result = rename_leaf(parent, leaf, backup_leaf);
-    if (rename_result < 0) {
-        /* A driver can apply a rename and then fail its verification. Only
-         * discard the new stage when the original boot file is still readable. */
-        if (wleExists(boot)) {
-            snprintf(result, result_size,
-                     "Could not create the .BAK recovery copy (error %d).\nSource: %.160s\nThe running ELF was not changed.",
-                     rename_result, boot);
-            goto discard_stages;
-        } else {
-            snprintf(result, result_size,
-                     "Could not confirm the .BAK recovery copy (error %d).\nSource: %.160s\nThe boot file is not readable. Keep the .BAK and .UPDATE files (including title.cfg.UPDATE) for recovery.",
-                     rename_result, boot);
-        }
-        return -1;
-    }
-
-    if (had_title) {
-        rename_result = rename_leaf(parent, "title.cfg", "title.cfg.BAK");
-        title_backed_up = rename_result >= 0 ||
-                          (!wleExists(title) && wleExists(title_backup));
-        if (rename_result < 0)
-            goto install_failed;
-    }
-    rename_result = rename_leaf(parent, "title.cfg.UPDATE", "title.cfg");
-    title_installed = rename_result >= 0 ||
-                      (!wleExists(title_stage) && wleExists(title));
-    if (rename_result < 0)
+    /* Every replacement has finished writing beside the allocated reserve.
+     * Delete and move into place, without retaining copies of the old files. */
+    DashStorageProbeStatus("Replacing the installed executable");
+    snprintf(remove_path, sizeof(remove_path), "%s", boot);
+    if (genRemove(remove_path) < 0 && wleExists(boot))
+        goto install_failed;
+    if (rename_leaf(parent, stage_leaf, leaf) < 0)
         goto install_failed;
 
-    if (rename_leaf(parent, stage_leaf, leaf) < 0) {
-        /* Native verification can report an error after applying a rename.
-         * Only remove the replacement when our stage has actually moved. */
-        if (!wleExists(stage) && wleExists(boot)) {
-            snprintf(remove_path, sizeof(remove_path), "%s", boot);
-            genRemove(remove_path);
-        }
+    DashStorageProbeStatus("Replacing app metadata");
+    snprintf(remove_path, sizeof(remove_path), "%s", title);
+    if (wleExists(title) && genRemove(remove_path) < 0 && wleExists(title))
         goto install_failed;
-    }
+    if (rename_leaf(parent, "title.cfg.UPDATE", "title.cfg") < 0)
+        goto install_failed;
 
+    DashStorageProbeStatus("Update installed; finishing cleanup");
     snprintf(result, result_size,
-             "Update installed and verified (%d bytes). Metadata updated. %s%s%sRecovery copy: %s%s. Restart Launchstation to run the new build.",
+             "Update installed and verified (%d bytes). Metadata replaced. %s%s%sRestart Launchstation to run the new build.",
              size,
              added_ca ? "Installed updater CA. " : "",
              added_bgm ? "Installed BGM. " : "",
-             (!added_ca && !added_bgm) ? "Existing sidecars preserved. " : "",
-             parent, backup_leaf);
+             (!added_ca && !added_bgm) ? "Existing sidecars preserved. " : "");
     return 0;
 
 install_failed:
-    title_rollback_ok = 1;
-    if (title_installed) {
-        snprintf(remove_path, sizeof(remove_path), "%s", title);
-        title_rollback_ok = genRemove(remove_path) >= 0 || !wleExists(title);
-    }
-    if (title_backed_up)
-        title_rollback_ok = title_rollback_ok &&
-                            rename_leaf(parent, "title.cfg.BAK", "title.cfg") >= 0;
-    rollback_ok = rename_leaf(parent, backup_leaf, leaf) >= 0;
     snprintf(result, result_size,
-             rollback_ok && title_rollback_ok
-                 ? "Installing the verified update failed; the original ELF was restored and original metadata retained."
-                 : "Installing the verified update failed and automatic rollback also failed. Keep the ELF and title.cfg .BAK/.UPDATE recovery files and restore them manually.");
+             "Could not finish replacing the app files. No backup was created. Keep any remaining .UPDATE files beside the app and finish copying them into place before restarting.");
     return -1;
 
 sidecar_failed:
@@ -415,11 +393,9 @@ sidecar_failed:
         snprintf(remove_path, sizeof(remove_path), "%s", update_ca_stage);
         genRemove(remove_path);
     }
-    snprintf(remove_path, sizeof(remove_path), "%s", package);
-    genRemove(remove_path);
     snprintf(result, result_size,
              "Failed to stage verified metadata, updater CA or BGM. The running ELF and existing sidecars were not changed.");
-    goto discard_stages;
+    goto discard_package;
 
 sidecar_publish_failed:
     if (staged_ca && !added_ca) {
@@ -436,7 +412,9 @@ sidecar_publish_failed:
     snprintf(result, result_size,
              "Could not install the missing bundled sidecar. The original ELF and existing sidecars were not changed; any newly added CA may remain.");
 
-discard_stages:
+discard_package:
+    snprintf(remove_path, sizeof(remove_path), "%s", package);
+    genRemove(remove_path);
     snprintf(remove_path, sizeof(remove_path), "%s", title_stage);
     genRemove(remove_path);
     snprintf(remove_path, sizeof(remove_path), "%s", stage);
@@ -447,7 +425,7 @@ discard_stages:
 int selfUpdateInstall(const char *ca_path, const char *expected_sha256, char *result, int result_size)
 {
     const char *boot = wleBootElfPath();
-    char parent[MAX_PATH], leaf[MAX_NAME];
+    char parent[MAX_PATH], leaf[MAX_NAME], reserve[MAX_PATH];
     sceMcStDateTime sas_timestamp;
     char warning[128];
     int preserve_sas, installed, timestamp_result;
@@ -463,7 +441,8 @@ int selfUpdateInstall(const char *ca_path, const char *expected_sha256, char *re
         return -1;
     }
     if (!split_parent_leaf(boot, parent, sizeof(parent), leaf, sizeof(leaf)) ||
-        !stricmp(leaf, "title.cfg")) {
+        !stricmp(leaf, "title.cfg") ||
+        !join_leaf(reserve, sizeof(reserve), parent, "WLE-UPDATE.SPACE")) {
         snprintf(result, result_size, "Could not resolve the running ELF path safely.");
         return -1;
     }
@@ -471,8 +450,8 @@ int selfUpdateInstall(const char *ca_path, const char *expected_sha256, char *re
         snprintf(result, result_size, "The running ELF device is not writable right now.");
         return -1;
     }
-    /* Read before the first download/staging write can change the folder date.
-     * Restore after every transaction outcome, including all cleanup/rollback. */
+    /* Read before the first reservation/download write changes the folder date.
+     * Restore after every transaction outcome and all temporary-file cleanup. */
     preserve_sas = filerCaptureSasTimestamp(parent, &sas_timestamp);
     if (preserve_sas < 0) {
         snprintf(result, result_size,
@@ -480,8 +459,24 @@ int selfUpdateInstall(const char *ca_path, const char *expected_sha256, char *re
                  preserve_sas);
         return -1;
     }
-    installed = install_update_files(boot, parent, leaf, ca_path, expected_sha256,
-                                     result, result_size);
+    DashStorageProbeStatus("Checking free space and reserving 100 KB");
+    if (wleExists(reserve)) {
+        snprintf(result, result_size,
+                 "An earlier WLE-UPDATE.SPACE file remains. Remove it before retrying. Installed files were not changed.");
+        installed = -1;
+    } else if (!reserve_update_space(reserve)) {
+        snprintf(result, result_size,
+                 "Could not reserve 100 KB of extra free space. Installed files were not changed.");
+        installed = -1;
+    } else {
+        installed = install_update_files(boot, parent, leaf, ca_path, expected_sha256,
+                                         result, result_size);
+        if (genRemove(reserve) < 0 && wleExists(reserve)) {
+            size_t used = strlen(result);
+            snprintf(result + used, result_size - used,
+                     " Remove WLE-UPDATE.SPACE to release the 100 KB reserve.");
+        }
+    }
     if (preserve_sas > 0) {
         timestamp_result = filerRestoreSasTimestamp(parent, &sas_timestamp);
         if (timestamp_result != 0) {

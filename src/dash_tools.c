@@ -331,13 +331,15 @@ static int updateRequest(const char *title, const char *path, const char *header
                           char *error, int error_size)
 {
     UpdateRequestJob job = {path, headers, ca_path, response, error, error_size, -1};
-    int id = dashWorkerSubmit(title, DASH_JOB_VISIBLE, updateRequestRun, NULL, &job);
+    int id = dashWorkerSubmit(title, 0, updateRequestRun, NULL, &job);
 
     if (id <= 0) {
         snprintf(error, error_size, "The update-check worker is unavailable. Try again after restarting.");
         return -1;
     }
+    dashLoadingBegin(title);
     dashWorkerAwait(id, title, 0);
+    dashLoadingEnd();
     return job.result;
 }
 
@@ -497,7 +499,7 @@ void dashToolsCheckUpdates(void)
 		                 install_result[0] ? install_result :
 		                     (installed == 0 ? "The update was installed." : "The update failed."),
 		                 installed == 0
-		                     ? "The current session keeps running the old code until you restart. The previous ELF remains beside it as .BAK."
+		                     ? "Restart Launchstation to use the new build."
 		                     : "The updater stages and verifies the complete download before changing the running ELF.");
 	}
 }

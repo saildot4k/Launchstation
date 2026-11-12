@@ -86,7 +86,7 @@ static void dashWorkerStatus(const char *text,int done,int total) {
     assert(in_worker && text && *text && !done && !total);status_updates++;
 }
 static int dashWorkerSubmit(const char *title,int flags,void (*run)(void *),void (*done)(void *),void *arg) {
-    assert(!in_worker && !pending_run && !done && title && flags==DASH_JOB_VISIBLE);
+    assert(!in_worker && !pending_run && !done && title && flags==0);
     submits++;if(reject_submit==submits)return -1;
     pending_run=run;pending_arg=arg;return submits;
 }

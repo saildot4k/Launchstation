@@ -614,6 +614,7 @@ static int queryTemperatureCelsius(char *temp_buf, size_t temp_buf_size)
 static int updateTemp(u64 tick_ms, int force)
 {
 	char old_temp[sizeof(title_temp.text)];
+	char new_temp[sizeof(title_temp.text)] = {0};
 
 	if (DashIoBusy()) return 0; /* Never probe a client during a wait/reset frame. */
 
@@ -628,10 +629,11 @@ static int updateTemp(u64 tick_ms, int force)
 
 	title_temp.checked = 1;
 	title_temp.last_poll_ms = tick_ms;
-	if (queryTemperatureCelsius(title_temp.text, sizeof(title_temp.text))) {
+	/* RPC waits may redraw the dashboard. Keep the published sample intact
+	 * until a successful read, including across transient sensor failures. */
+	if (queryTemperatureCelsius(new_temp, sizeof(new_temp))) {
+		memcpy(title_temp.text, new_temp, sizeof(title_temp.text));
 		title_temp.supported = 1;
-	} else {
-		title_temp.text[0] = '\0';
 	}
 
 	return strcmp(old_temp, title_temp.text) != 0;

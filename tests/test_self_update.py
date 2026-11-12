@@ -24,10 +24,7 @@ assert "selfUpdateExtractPsu(package, stage, package_size)" in update
 assert 'selfUpdateExtractPsuSidecar(package, "WLE-UPDATE-CA.PEM"' in update
 assert 'selfUpdateExtractPsuSidecar(package, "BGM.ADP"' in update
 assert 'selfUpdateExtractPsuTitle(package, title_stage, package_size, leaf)' in update
-assert 'rename_leaf(parent, "title.cfg", "title.cfg.BAK")' in update
 assert 'rename_leaf(parent, "title.cfg.UPDATE", "title.cfg")' in update
-assert 'rename_leaf(parent, "title.cfg.BAK", "title.cfg")' in update
-assert update.index("selfUpdateExtractPsuTitle(package") < update.index("rename_leaf(parent, leaf, backup_leaf)")
 assert 'filerCaptureSasTimestamp(parent, &sas_timestamp)' in update
 assert 'filerRestoreSasTimestamp(parent, &sas_timestamp)' in update
 assert "need_ca = !wleExists(update_ca)" in update
@@ -35,16 +32,12 @@ assert "need_bgm = !wleExists(bgm)" in update
 assert "wleExists(update_ca_stage)" in update and "wleExists(bgm_stage)" in update
 assert "wleExists(package) || wleExists(stage)" in update
 assert update.index("wleExists(package) || wleExists(stage)") < update.index("download_file(UPDATE_ELF_URL")
-assert update.index("checkELFheader(stage)") < update.index('selfUpdateExtractPsuSidecar(package, "WLE-UPDATE-CA.PEM"') < update.index("rename_leaf(parent, leaf, backup_leaf)")
 assert 'rename_leaf(parent, "WLE-UPDATE-CA.PEM.UPDATE", "WLE-UPDATE-CA.PEM")' in update
 assert 'rename_leaf(parent, "BGM.ADP.UPDATE", "BGM.ADP")' in update
 assert "checkELFheader(stage)" in update
-assert '"%s.BAK"' in update
 assert '"%s.UPDATE"' in update
 assert "memcmp(expected, actual" in update
-assert "rename_leaf(parent, leaf, backup_leaf)" in update
 assert "rename_leaf(parent, stage_leaf, leaf)" in update
-assert "rename_leaf(parent, backup_leaf, leaf)" in update
 assert "supported_boot_path" in update
 
 assert '#include "self_update.h"' in tools
@@ -59,7 +52,7 @@ assert "sha256sum Launchstation.ELF > Launchstation.ELF.sha256" not in workflow
 assert "artifacts/Launchstation.ELF.sha256#SHA-256" not in workflow
 assert "scripts/package_apps.py" in workflow
 
-print("PASS: native updater verifies GitHub release digests, stages safely, backs up, and rolls back")
+print("PASS: native updater verifies GitHub release digests, checks space, verifies and replaces without backups")
 
 update_ca = (root / "res/WLE-UPDATE-CA.PEM").read_text()
 assert update_ca.count("-----BEGIN CERTIFICATE-----") >= 2
@@ -70,4 +63,11 @@ assert '#ifdef DS34' in header
 assert '"APP_LAUNCHSTATION-DS"' in header and '"APP_LAUNCHSTATION"' in header
 assert '"LAUNCHSTATION-DS.ELF"' in header and '"LAUNCHSTATION.ELF"' in header
 assert 'releaseAssetDigest(response.body, SELF_UPDATE_ASSET' in tools
-assert update.index("memcmp(expected, actual") < update.index("selfUpdateExtractPsu(package, stage, package_size)") < update.index("checkELFheader(stage)") < update.index("rename_leaf(parent, leaf, backup_leaf)")
+
+assert '.BAK' not in update
+assert 'UPDATE_SPACE_MARGIN (100 * 1024)' in update
+assert 'reserve_update_space(reserve)' in update
+assert 'free_bytes < (u64)package_size' in update
+assert update.index('selfUpdateExtractPsuTitle(package') < update.index('genRemove(remove_path) < 0 && wleExists(boot)')
+assert 'dashWorkerSubmit(title, 0,' in tools
+assert 'DashStorageProbeStatus("Replacing the installed executable")' in update

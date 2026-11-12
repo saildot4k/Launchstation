@@ -31,6 +31,12 @@ program=url_definition+"\n"+r'''
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <stdint.h>
+typedef uint64_t u64;
+#define UPDATE_SPACE_MARGIN (100*1024)
+#define FIO_O_WRONLY 1
+#define FIO_O_CREAT 2
+#define FIO_O_EXCL 4
 #include "self_update.h"
 #define MAX_PATH 256
 #define MAX_NAME 128
@@ -78,7 +84,29 @@ static int del(const char *p) {
     return -1;
 }
 static int wleExists(const char *p) { return has(p); }
+static int reserve_bytes, reserve_limit=UPDATE_SPACE_MARGIN, space_known=1;
+static u64 available=1024*1024;
+static int delete_boot_fail, progress_count;
+static void DashStorageProbeStatus(const char *text) { assert(text && *text);progress_count++; }
+static int filerFreeSpace(const char *p,u64 *out) { assert(!strcmp(p,parent));*out=available;return space_known; }
+static int genOpen(const char *p,int flags) {
+    assert(flags==(FIO_O_WRONLY|FIO_O_CREAT|FIO_O_EXCL));
+    if(has(p))return -EEXIST;
+    put(p);return 7;
+}
+static int genWrite(int fd,const void *data,int size) {
+    assert(fd==7 && data && size>0);
+    if(reserve_bytes>=reserve_limit)return -ENOSPC;
+    if(size>reserve_limit-reserve_bytes)size=reserve_limit-reserve_bytes;
+    reserve_bytes+=size;return size;
+}
+static int genClose(int fd) { assert(fd==7);return 0; }
 static int genRemove(const char *p) {
+    if(same_file(p,boot)) {
+        char staged[MAX_PATH];snprintf(staged,sizeof(staged),"%s.UPDATE",boot);
+        assert(has(staged) && reserve_bytes==UPDATE_SPACE_MARGIN);
+        if(delete_boot_fail)return -EACCES;
+    }
     if(remove_title_backup_fail && strstr(p,"title.cfg.BAK"))return -EACCES;
     return del(p);
 }
@@ -203,11 +231,14 @@ for sig in [
     "static int rename_leaf(",
 ]:
     program+=function(sig)
+program+=function("static int reserve_update_space(")
 program+=function("static int install_update_files(")
 program+=function("int selfUpdateInstall(")
 program+=r'''
 static void reset(void) {
     count=downloads=sidecar_calls=0;
+    reserve_bytes=delete_boot_fail=progress_count=0;
+    reserve_limit=UPDATE_SPACE_MARGIN;space_known=1;available=1024*1024;
     capture_result=1;restore_error=captures=restores=mutations=restored_at=0;
     title_stage_fail=title_backup_fail=title_publish_fail=title_applied_fail=0;
     title_rollback_fail=remove_title_backup_fail=elf_applied_fail=0;
@@ -228,159 +259,50 @@ static int install(char *msg) {
     return ret;
 }
 int main(void) {
+    const char *title="mc0:/APP_LAUNCHSTATION/title.cfg";
+    const char *tmp="mc0:/APP_LAUNCHSTATION/LAUNCHSTATION.ELF.UPDATE";
+    const char *pkg="mc0:/APP_LAUNCHSTATION/LAUNCHSTATION.ELF.PACKAGE";
+    const char *reserve="mc0:/APP_LAUNCHSTATION/WLE-UPDATE.SPACE";
     const char *ca="mc0:/APP_LAUNCHSTATION/WLE-UPDATE-CA.PEM";
     const char *bgm="mc0:/APP_LAUNCHSTATION/BGM.ADP";
-    const char *ca_tmp="mc0:/APP_LAUNCHSTATION/WLE-UPDATE-CA.PEM.UPDATE";
-    const char *bgm_tmp="mc0:/APP_LAUNCHSTATION/BGM.ADP.UPDATE";
-    const char *backup="mc0:/APP_LAUNCHSTATION/LAUNCHSTATION.ELF.BAK";
-    const char *elf_tmp="mc0:/APP_LAUNCHSTATION/LAUNCHSTATION.ELF.UPDATE";
-    const char *package_tmp="mc0:/APP_LAUNCHSTATION/LAUNCHSTATION.ELF.PACKAGE";
     char msg[512];
-    reset();
-    assert(install(msg)==0);
-    assert(has(ca)&&has(bgm)&&has(boot)&&has(backup));
-    assert(!has(ca_tmp)&&!has(bgm_tmp)&&sidecar_calls==2&&downloads==1);
-    reset();put(ca);put(bgm);
-    assert(install(msg)==0);
-    assert(has(ca)&&has(bgm)&&sidecar_calls==0&&has(backup));
-    reset();put(ca); /* only restore missing music */
-    assert(install(msg)==0);
-    assert(has(ca)&&has(bgm)&&sidecar_calls==1);
-    reset();legacy=1;
-    assert(install(msg)==0);
-    assert(!has(ca)&&!has(bgm)&&has(boot)&&has(backup));
-    reset();put(ca_tmp);
-    assert(install(msg)<0 && downloads==0&&has(boot)&&has(ca_tmp)&&!has(backup));
-    /* An interrupted ELF stage/download must not be truncated or removed.
-     * No network traffic or package parsing should begin in these cases. */
-    reset();put(elf_tmp);
-    assert(install(msg)<0 && downloads==0 && sidecar_calls==0);
-    assert(has(elf_tmp) && has(boot) && !has(backup) && !has(package_tmp));
-    reset();put(package_tmp);
-    assert(install(msg)<0 && downloads==0 && sidecar_calls==0);
-    assert(has(package_tmp) && has(boot) && !has(backup) && !has(elf_tmp));
-    reset();put(elf_tmp);put(package_tmp);
-    assert(install(msg)<0 && downloads==0 && has(elf_tmp) && has(package_tmp));
-    assert(has(boot) && !has(backup));
-    reset();fail_bgm_stage=1;
-    assert(install(msg)<0 && !has(ca_tmp)&&!has(bgm_tmp));
-    assert(has(boot)&&!has(backup)&&!has(ca)&&!has(bgm));
-    reset();fail_bgm_rename=1;
-    assert(install(msg)<0 && has(boot)&&!has(backup)&&has(ca));
-    assert(!has(bgm)&&!has(bgm_tmp)); /* previously absent CA may remain */
-    reset();bad_digest=1;
-    assert(install(msg)<0 && has(boot)&&!has(backup)&&!has(ca)&&!has(bgm));
-    reset();bad_header=1;
-    assert(install(msg)<0 && has(boot)&&!has(backup)&&!has(ca)&&!has(bgm));
-    reset();fail_elf_once=1;
-    assert(install(msg)<0 && has(boot) && !has(backup) && has(elf_tmp));
-    assert(strstr(msg,"original ELF was restored"));
-    reset();fail_elf_rename=1;
-    assert(install(msg)<0 && !has(boot)&&has(backup)); /* simulated rollback fails too */
-    /* Lookup must not allocate a full browser listing just to rename the
-     * known boot file. Reproduce the reported standard memory-card layout. */
-    reset();listing_alloc_fail=1;put(ca);put(bgm);
-    assert(install(msg)==0 && has(boot) && has(backup));
-    assert(fixes==3 && stats==3 && renames==3);
-    /* FAT/exFAT accepts a differently capitalized boot argument. The updater
-     * must let that filesystem resolve it rather than scan for an exact name. */
-    const char *parents[]={"usb0:/APP_LAUNCHSTATION/","mass:/APP_LAUNCHSTATION/",
-                           "mmce0:/APP_LAUNCHSTATION/","hdd0:/__common/APP_LAUNCHSTATION/"};
-    for(unsigned i=0;i<sizeof(parents)/sizeof(*parents);i++) {
-        char boot_path[MAX_PATH],stored[MAX_PATH],old_copy[MAX_PATH];
-        reset();count=0;parent=parents[i];case_insensitive=1;
-        snprintf(boot_path,sizeof(boot_path),"%sLAUNCHSTATION.ELF",parent);boot=boot_path;
-        snprintf(stored,sizeof(stored),"%sLaunchstation.ELF",parent);put(stored);
-        snprintf(old_copy,sizeof(old_copy),"%sLAUNCHSTATION.ELF.BAK",parent);
-        assert(install(msg)==0 && has(boot) && has(old_copy));
-        assert(fixes==5 && stats==5 && renames==5);
+    reset();put(title);assert(install(msg)==0);
+    assert(value(boot)==2 && value(title)==2 && has(ca) && has(bgm));
+    assert(!has(tmp) && !has(pkg) && !has(reserve) && progress_count>=7);
+    for(int i=0;i<count;i++)assert(!strstr(files[i],".BAK"));
+    reset();put(ca);put(bgm);put(title);assert(install(msg)==0);
+    assert(value(ca)==1 && value(bgm)==1 && !sidecar_calls && value(title)==2);
+    reset();legacy=1;assert(install(msg)==0 && !has(ca) && !has(bgm));
+    reset();space_known=0;assert(install(msg)==0 && !has(reserve));
+    reset();available=8192;assert(install(msg)==0); /* exact contents upper bound */
+    reset();available=8191;assert(install(msg)<0 && value(boot)==1);
+    assert(strstr(msg,"Not enough free space") && !has(pkg) && !has(tmp) && !has(reserve));
+    reset();reserve_limit=100*1024-1;assert(install(msg)<0 && !downloads);
+    assert(value(boot)==1 && !has(reserve));
+    reset();put(reserve);assert(install(msg)<0 && !downloads && has(reserve));
+    for(int kind=0;kind<3;kind++) {
+        reset();put(kind==0?tmp:kind==1?pkg:"mc0:/APP_LAUNCHSTATION/title.cfg.UPDATE");
+        assert(install(msg)<0 && !downloads && value(boot)==1 && !has(reserve));
     }
-    /* Native errors survive lookup/rename; a failed backup cannot proceed
-     * to installing the staged ELF. Existing readable boot files stay put. */
-    const int errors[]={-EACCES,-ENOSPC,-EIO,-ENOENT,-ENAMETOOLONG,-ENOSYS};
-    for(unsigned i=0;i<sizeof(errors)/sizeof(*errors);i++) {
-        char expected[40];
-        reset();put(ca);put(bgm);backup_error=errors[i];
-        assert(install(msg)<0 && has(boot) && !has(backup) && !has(elf_tmp));
-        snprintf(expected,sizeof(expected),"error %d",errors[i]);
-        assert(renames==1 && strstr(msg,expected) && strstr(msg,boot));
-        assert(strstr(msg,"not changed"));
-    }
-    reset();put(ca);put(bgm);lookup_error=-EIO;
-    assert(install(msg)<0 && has(boot) && !has(backup) && !renames && !has(elf_tmp));
-    assert(strstr(msg,"error -5") && strstr(msg,boot));
-    reset();put(ca);put(bgm);lookup_directory=1;
-    assert(install(msg)<0 && !renames && has(boot) && !has(backup));
-    reset();put(ca);put(bgm);path_error=1;
-    assert(install(msg)<0 && !stats && !renames && has(boot) && !has(backup));
-    reset();put(ca);put(bgm);protected_path=1;
-    assert(install(msg)<0 && has(boot) && !has(backup) && !has(elf_tmp));
-    /* A failed verification can follow an applied rename. Keep both the
-     * original backup and verified new stage instead of deleting recovery. */
-    reset();put(ca);put(bgm);backup_applied_error=1;
-    assert(install(msg)<0 && !has(boot) && has(backup) && has(elf_tmp));
-    assert(renames==1 && strstr(msg,"not readable") && !strstr(msg,"not changed"));
-    const char *title="mc0:/APP_LAUNCHSTATION/title.cfg";
-    const char *title_tmp="mc0:/APP_LAUNCHSTATION/title.cfg.UPDATE";
-    const char *title_bak="mc0:/APP_LAUNCHSTATION/title.cfg.BAK";
-    reset();put(title);put(title_bak);set_value(title_bak,9);
-    assert(install(msg)==0 && value(boot)==2 && value(backup)==1);
-    assert(value(title)==2 && value(title_bak)==1 && !has(title_tmp));
-    reset();legacy=1;put(title);
-    assert(install(msg)==0 && value(title)==2 && value(title_bak)==1);
-    reset();
-    assert(install(msg)==0 && value(title)==2 && !has(title_bak));
-    reset();put(title_tmp);
-    assert(install(msg)<0 && !downloads && has(title_tmp) && value(boot)==1);
-    reset();put(title_bak);
-    assert(install(msg)<0 && !downloads && has(title_bak) && !has(title));
-    reset();put(title);title_stage_fail=1;
-    assert(install(msg)<0 && value(title)==1 && value(boot)==1 && !has(backup));
-    assert(!has(title_tmp) && !has(elf_tmp) && !has(package_tmp));
-    reset();put(title);put(title_bak);remove_title_backup_fail=1;
-    assert(install(msg)<0 && value(title)==1 && value(boot)==1 && !has(backup));
-    assert(has(title_bak) && !has(title_tmp) && !has(elf_tmp));
-    reset();put(title);title_backup_fail=1;
-    assert(install(msg)<0 && value(title)==1 && value(boot)==1);
-    assert(!has(backup) && !has(title_bak));
-    reset();put(title);title_publish_fail=1;
-    assert(install(msg)<0 && value(title)==1 && value(boot)==1);
-    assert(!has(backup) && !has(title_bak) && has(title_tmp));
-    reset();put(title);title_applied_fail=1;
-    assert(install(msg)<0 && value(title)==1 && value(boot)==1 && !has(backup));
-    assert(!has(title_bak) && !has(title_tmp));
-    reset();put(title);fail_elf_once=1;
-    assert(install(msg)<0 && value(title)==1 && value(boot)==1);
-    assert(!has(backup) && !has(title_bak));
-    reset();fail_elf_once=1; /* no original title: rollback removes new metadata */
-    assert(install(msg)<0 && value(boot)==1 && !has(title) && !has(title_bak));
-    reset();put(title);elf_applied_fail=1;
-    assert(install(msg)<0 && value(boot)==1 && value(title)==1 && !has(backup));
-    reset();put(title);fail_elf_once=1;title_rollback_fail=1;
-    assert(install(msg)<0 && value(boot)==1 && value(title_bak)==1 && !has(title));
-    assert(strstr(msg,"rollback also failed"));
-    reset();capture_result=0;
-    assert(install(msg)==0 && !restores);
-    reset();capture_result=-EIO;
-    assert(install(msg)<0 && !downloads && !mutations && !restores);
-    reset();restore_error=-EIO;
-    assert(install(msg)==0 && value(boot)==2 && strstr(msg,"Could not restore"));
-    reset();restore_error=1;
-    assert(install(msg)==0 && strstr(msg,"Could not restore"));
-    reset();restore_error=-EIO;
-    char small[32];
-    assert(selfUpdateInstall("ca","sha256:mock",small,sizeof(small))==0);
-    assert(!strncmp(small,"Could not restore",17) && small[sizeof(small)-1]=='\0');
-    reset();restore_error=-EIO;
-    char minimal='x';
-    assert(selfUpdateInstall("ca","sha256:mock",&minimal,1)==0 && minimal=='\0');
-    /* The actual boot filename is passed to metadata extraction unchanged. */
+    reset();bad_digest=1;assert(install(msg)<0 && value(boot)==1 && !has(pkg));
+    reset();bad_header=1;assert(install(msg)<0 && value(boot)==1 && !has(tmp));
+    reset();title_stage_fail=1;assert(install(msg)<0 && value(boot)==1 && !has(tmp));
+    reset();fail_bgm_stage=1;assert(install(msg)<0 && value(boot)==1 && !has(ca));
+    reset();fail_bgm_rename=1;assert(install(msg)<0 && value(boot)==1 && has(ca));
+    reset();delete_boot_fail=1;assert(install(msg)<0 && value(boot)==1 && has(tmp));
+    reset();fail_elf_rename=1;assert(install(msg)<0 && !has(boot) && has(tmp));
+    assert(strstr(msg,"No backup") && !has(reserve));
+    reset();put(title);title_publish_fail=1;assert(install(msg)<0 && value(boot)==2);
+    assert(!has(title) && has("mc0:/APP_LAUNCHSTATION/title.cfg.UPDATE"));
+    reset();elf_applied_fail=1;assert(install(msg)<0 && value(boot)==2 && !has(tmp));
+    reset();capture_result=-EIO;mutations=0;
+    assert(selfUpdateInstall("ca","sha256:mock",msg,sizeof(msg))<0 && !mutations && !downloads);
+    reset();restore_error=-EIO;assert(install(msg)==0 && strstr(msg,"SAS date"));
     reset();count=0;boot="mc0:/APP_LAUNCHSTATION/BOOT.ELF";put(boot);
     assert(install(msg)==0 && value(boot)==2 && value(title)==2);
-    puts("PASS: verified metadata refresh, renamed ELF, matching recovery/rollback, SAS capture before writes and restore after cleanup");
-    puts("PASS: updater refuses to truncate old stages; missing-only sidecars and ELF recover safely");
-    puts("PASS: mc0 recovery without a directory allocation, native lookup/aliases, error details and ambiguous-rename recovery");
+    puts("PASS: delete/replace without backups, reserved 100 KB, space bounds, popup phases, failure retention and SAS timestamps");
 }
+
 '''
 compiler=shutil.which("gcc") or shutil.which("clang")
 assert compiler,"Host C compiler required"

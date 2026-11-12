@@ -171,7 +171,7 @@ and the HOST ioctl.
 | [remote_control.c](../src/remote_control.c) | Remote command polling and action dispatch integration. |
 | [pc_game_receiver.c](../src/pc_game_receiver.c) | Network game transfer receiver polling and receive workflow. |
 | [https_client.c](../src/https_client.c) | PS2 socket/entropy/time adapter, TLS verification/session, HTTP parsing/redirects, streaming download and optional request-thread status reports. |
-| [self_update.c](../src/self_update.c) | Verified staged update, package selection, ancestry/digest checks, install transaction and rollback paths. |
+| [self_update.c](../src/self_update.c) | Verified update download, space reservation, digest checks and deletion/replacement without backups. |
 | [update_psu.c](../src/update_psu.c) | Extract ELF and optional sidecars from updater PSU packages. |
 | [main_exploit_installer.c](../src/main_exploit_installer.c) | Exploit target selection, install plan/space estimation, MagicGate signing, asset writes and installer UI. |
 | [kelf_signer.c](../src/kelf_signer.c) | Key parsing/validation and ELF-to-KELF construction; conditional host test/utility entry point. |
