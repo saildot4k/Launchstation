@@ -4,6 +4,7 @@
 #define DASH_VW 640
 #define DASH_VH 448
 #define DI_NETWORK 1
+#define DI_NETWORK_FOLDER 3
 #define DI_WARNING 2
 #define DASH_FS_LABEL 0.86f
 #define DASH_FS_SMALL 0.66f

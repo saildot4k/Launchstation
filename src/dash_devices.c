@@ -380,11 +380,11 @@ int dashDevicesList(DashDevice *out, int max)
 		add(out, &n, max, DI_USB, DASH_DEV_PROBE, "USB Mass Storage", "usb:", "usb:/", "Not connected");
 
 #ifdef MMCE
-	addStorage(out, &n, max, DI_SDCARD, "MMCE Slot 1", "mmce0:", "mmce0:/", "SD2PSX / MemCard PRO2", "No MMCE storage found");
-	addStorage(out, &n, max, DI_SDCARD, "MMCE Slot 2", "mmce1:", "mmce1:/", "SD2PSX / MemCard PRO2", "No MMCE storage found");
+	addStorage(out, &n, max, DI_MICROSD, "MMCE Slot 1", "mmce0:", "mmce0:/", "SD2PSX / MemCard PRO2", "No MMCE storage found");
+	addStorage(out, &n, max, DI_MICROSD, "MMCE Slot 2", "mmce1:", "mmce1:/", "SD2PSX / MemCard PRO2", "No MMCE storage found");
 #endif
 #ifdef MX4SIO
-	addStorage(out, &n, max, DI_SDCARD, "MX4SIO SD Card", "mx4sio:", "mx4sio:/", "Ready (slot 2)", "No MX4SIO storage found");
+	addStorage(out, &n, max, DI_MICROSD, "MX4SIO SD Card Slot 2", "mx4sio:", "mx4sio:/", "Ready (slot 2)", "No MX4SIO storage found");
 #endif
 
 	if (filerShowHddUnit(0) && !console_is_PSX) {
@@ -439,10 +439,10 @@ int dashDevicesList(DashDevice *out, int max)
 	}
 
 #ifdef UDPFS
-	addStorage(out, &n, max, DI_NETWORK, "Network (UDPFS)", "udpfs:", "udpfs:/", netConfig[0] ? netConfig : "Connected", "UDPFS server not found - open to retry");
+	addStorage(out, &n, max, DI_NETWORK_FOLDER, "Network (UDPFS)", "udpfs:", "udpfs:/", netConfig[0] ? netConfig : "Connected", "UDPFS server not found - open to retry");
 #endif
 #ifdef ETH
-	add(out, &n, max, DI_NETWORK, DASH_DEV_PROBE, "Network Host", "host:", "host:/", "PS2Link host");
+	add(out, &n, max, DI_NETWORK_FOLDER, DASH_DEV_PROBE, "Network Host", "host:", "host:/", "PS2Link host");
 #endif
 #ifdef XFROM
 	if (console_is_PSX || boot_show_all_devices)

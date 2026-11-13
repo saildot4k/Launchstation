@@ -240,6 +240,13 @@ static float rocketLaunchSdf(V2 p)
 	return (winding ? -1.0f : 1.0f) * sqrtf(nearest) / 12.0f;
 }
 
+static float folderSdf(V2 p)
+{
+	float d = sdBox(p, 0.0f, 0.14f, 0.82f, 0.56f, 0.1f);
+	d = U(d, sdBox(p, -0.42f, -0.46f, 0.38f, 0.16f, 0.08f));
+	return S(d, sdBox(p, 0.0f, -0.24f, 0.72f, 0.04f, 0.0f));
+}
+
 static float iconSdf(int id, V2 p)
 {
 	float d = 1e9f;
@@ -256,9 +263,19 @@ static float iconSdf(int id, V2 p)
 				d = U(d, sdBox(p, (k & 1) ? 0.4f : -0.4f, (k & 2) ? 0.4f : -0.4f, 0.3f, 0.3f, 0.1f));
 			break;
 		case DI_FOLDER:
-			d = sdBox(p, 0.0f, 0.14f, 0.82f, 0.56f, 0.1f);
-			d = U(d, sdBox(p, -0.42f, -0.46f, 0.38f, 0.16f, 0.08f));
-			d = S(d, sdBox(p, 0.0f, -0.24f, 0.72f, 0.04f, 0.0f));
+			d = folderSdf(p);
+			break;
+		case DI_NETWORK_FOLDER:
+			{
+				/* Reuse the folder silhouette, raised to leave room for its bus. */
+				V2 q = {p.x / 0.78f, (p.y + 0.24f) / 0.78f};
+				d = folderSdf(q) * 0.78f;
+				d = U(d, sdSeg(p, 0.0f, 0.28f, 0.0f, 0.64f, 0.055f));
+				d = U(d, sdSeg(p, -0.64f, 0.64f, 0.64f, 0.64f, 0.055f));
+				for (k = 0; k < 3; k++)
+					d = U(d, sdBox(p, -0.64f + k * 0.64f, 0.68f,
+					                       0.12f, 0.12f, 0.025f));
+			}
 			break;
 		case DI_SAVE:
 			/* Floppy disk: outlined body with a clipped upper-right corner, a
@@ -469,6 +486,29 @@ static float iconSdf(int id, V2 p)
 			d = fabsf(d) - T;
 			for (k = 0; k < 3; k++)
 				d = U(d, sdSeg(p, -0.3f + k * 0.2f, -0.56f, -0.3f + k * 0.2f, -0.3f, 0.045f));
+			break;
+		case DI_MICROSD:
+			{
+				/* A narrow contact end, diagonal shoulder and side latch notch.
+				 * Keep the open body legible at the device list's small sizes. */
+				static const V2 edge[] = {
+					{-0.42f, -0.80f}, {0.68f, -0.80f}, {0.76f, -0.72f},
+					{0.76f, 0.72f}, {0.68f, 0.80f}, {-0.68f, 0.80f},
+					{-0.76f, 0.72f}, {-0.76f, 0.42f}, {-0.60f, 0.26f},
+					{-0.60f, 0.06f}, {-0.76f, 0.06f}, {-0.76f, -0.20f},
+					{-0.48f, -0.48f}, {-0.48f, -0.74f}
+				};
+				int i;
+				for (i = 0; i < (int)(sizeof(edge) / sizeof(edge[0])); i++) {
+					V2 a = edge[i], b = edge[(i + 1) % (sizeof(edge) / sizeof(edge[0]))];
+					d = U(d, sdSeg(p, a.x, a.y, b.x, b.y, 0.055f));
+				}
+				for (k = 0; k < 4; k++)
+					d = U(d, sdBoxOutline(p, -0.28f + k * 0.28f, -0.56f,
+					                       0.075f, 0.16f, 0.025f, 0.035f));
+				d = U(d, sdSeg(p, -0.72f, 0.54f, 0.36f, 0.54f, 0.045f));
+				d = U(d, sdSeg(p, 0.54f, 0.54f, 0.72f, 0.54f, 0.045f));
+			}
 			break;
 		case DI_CHIP:
 			d = sdBoxOutline(p, 0.0f, 0.0f, 0.5f, 0.5f, 0.08f, T);

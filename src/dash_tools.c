@@ -43,14 +43,14 @@ static const Tool tools[] = {
     {TA_EDITOR, DI_TEXT, "Text Editor", "Edit CNF, CFG, TXT, INI and argument files. Also used to launch an ELF with custom arguments.", NULL, 0, 0},
     {TA_MISC, DI_DISC, "Start disc", "Boot the disc in the drive: PS2 and PS1 games, DVD Video (with the console's player) and ESR discs.", NULL, 0, MISC(Misc_PS2Disc)},
     {TA_HEADER, -1, "STORAGE", NULL, NULL, 0, 0},
-    {TA_USB_DIAG, DI_USB, "USB unit diagnostics", "Inspect the cached USB drive mask without IO, or manually probe logical USB unit 0 or 1 one at a time.", "Each manual probe is a synchronous IOP request and could freeze a failing console. Logical units may not match physical USB ports.", 0, 0},
+    {TA_USB_DIAG, DI_USB, "USB unit diagnostics", "Load USB drivers if needed, then inspect cached units or manually probe logical USB unit 0 or 1 one at a time.", "Each manual probe is a synchronous IOP request and could freeze a failing console. Logical units may not match physical USB ports.", 0, 0},
     {TA_MISC, DI_HDD, "HDD Manager", "Create, remove, rename and expand APA partitions, view HDL game information and format the internal HDD.", "Partition changes and formatting are permanent.", 0, MISC(Misc_HddManager)},
     {TA_MISC, DI_MC, "Memory card exploit installer", "Install a memory card system-update exploit for this console, another model or region, or PSX/DESR.", "Writes system folders to the memory card. Follow the on-screen checks carefully.", 0, MISC(Misc_Exploit_Installer)},
     {TA_HEADER, -1, "SYSTEM", NULL, NULL, 0, 0},
     {TA_MISC, DI_APP, "PS2 system browser", "Leave Launchstation and open the console's own Browser.", NULL, 2, MISC(Misc_PS2Browser)},
     {TA_MISC, DI_APP, "OSDSYS", "Start the console's OSD (or the OSDSYS path configured in Launchstation).", NULL, 2, MISC(Misc_OSDSYS)},
 #ifdef ETH
-    {TA_MISC, DI_NETWORK, "FTP Server", "Transfer files using memory cards 0/1, USB units 0/1, HDD0 PFS partitions and ATA0. Required drivers load when FTP starts.", "Launchstation remains on the FTP screen until you stop the server.", 0, MISC(Misc_PS2Net)},
+    {TA_MISC, DI_NETWORK_FOLDER, "FTP Server", "Transfer files using memory cards 0/1, USB units 0/1, HDD0 PFS partitions and ATA0. Required drivers load when FTP starts.", "Launchstation remains on the FTP screen until you stop the server.", 0, MISC(Misc_PS2Net)},
 #endif
     {TA_MISC, DI_INFO, "System information", "Console model, ROM version, boot path, loaded configuration and debug details.", NULL, 0, MISC(Misc_Debug_Info)},
     {TA_MISC, DI_CHIP, "Build information", "Features and drivers included in this build of Launchstation.", NULL, 0, MISC(Misc_Show_Build_Info)},
@@ -518,7 +518,7 @@ void dashToolsCheckUpdates(void)
 static void dashToolsUsbUnitDiagnostics(void)
 {
 	static const char *const choices[] = {
-		"Show cached units (no I/O)",
+		"Show cached units",
 		"Probe logical unit 0 once",
 		"Probe logical unit 1 once"
 	};
@@ -529,22 +529,7 @@ static void dashToolsUsbUnitDiagnostics(void)
 
 	if (choice < 0 || choice > 2)
 		return;
-	if (choice == 0) {
-		if (!filerUsbDriversLoaded()) {
-			dashModalMessage(DI_INFO, "USB cache", "USB storage drivers are not loaded. No USB filesystem request was made.", NULL);
-			return;
-		}
-		mask = filerUsbDriveMask();
-		snprintf(body, sizeof(body),
-		         "Last recorded units: %s%s%s. This is cached state only; no device I/O was performed.",
-		         (mask & 1) ? "unit 0" : "",
-		         ((mask & 3) == 3) ? ", " : "",
-		         (mask & 2) ? "unit 1" : ((mask & 1) ? "" : "none confirmed"));
-		dashModalMessage(DI_INFO, "USB cached units", body, NULL);
-		return;
-	}
-
-	if (!dashModalConfirm("Probe one USB unit?",
+	if (choice != 0 && !dashModalConfirm("Probe one USB unit?",
 	                      "A single synchronous USB filesystem request may freeze a failing console. No automatic IOP reset or timeout can interrupt it. Continue?",
 	                      "Probe once", 0))
 		return;
@@ -560,6 +545,17 @@ static void dashToolsUsbUnitDiagnostics(void)
 		dashLoadingEnd();
 		dashModalMessage(DI_WARNING, "USB driver unavailable",
 		                 "USB modules could not be started. No filesystem probe was issued.", NULL);
+		return;
+	}
+	if (choice == 0) {
+		mask = filerUsbDriveMask();
+		dashLoadingEnd();
+		snprintf(body, sizeof(body),
+		         "Last recorded units: %s%s%s. This is cached state only; no USB root probe was issued.",
+		         (mask & 1) ? "unit 0" : "",
+		         ((mask & 3) == 3) ? ", " : "",
+		         (mask & 2) ? "unit 1" : ((mask & 1) ? "" : "none confirmed"));
+		dashModalMessage(DI_INFO, "USB cached units", body, NULL);
 		return;
 	}
 #ifdef EXFAT
