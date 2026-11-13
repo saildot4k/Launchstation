@@ -55,6 +55,8 @@ static int nclipFiles,browser_cut,cached_kind,finish_calls,write_ok,preparations
 static FILEINFO clipFiles[2];static char clipPath[MAX_PATH];
 static unsigned clipIopResetGeneration;
 static int reads,switches,writes,extracts,prompts,loading,allocated,freed_saves,messages,refreshes,expected_format;
+static int dashboard_active,classic_conflicts,dash_conflicts;
+static int DashIsActive(void){return dashboard_active;}
 static char observed_source[MAX_PATH],observed_destination[MAX_PATH],first_choice[80];
 static void *allocate(void){allocated++;return malloc(16);}
 static void release(void *p){if(p){assert(allocated>0);allocated--;free(p);}}
@@ -75,11 +77,22 @@ static int dashModalChoice(const char *title,const char *const *items,int count,
  strcpy(first_choice,items[0]);return choice;
 }
 static int saveChoice(const char *title,const char *subtitle,const char *const *items,int count){
+ if(!strcmp(title,"Save already exists")) {
+  assert(subtitle&&!strcmp(subtitle,"BATCH-A")&&count==3);
+  assert(!strcmp(items[0],"Continue")&&!strcmp(items[1],"Skip")&&!strcmp(items[2],"Cancel"));
+  classic_conflicts++;return choice;
+ }
  if(!strcmp(title,"Create archive"))assert(subtitle&&!strcmp(subtitle,nclipFiles>1?"2 saves - one archive per save":kind==FILER_SAVE_PS1?"PS1 save":"PS2 save"));
  else assert(!subtitle);
  return dashModalChoice(title,items,count,0);
 }
 static int dashModalMenu(const char *title,const char *subtitle,const DashMenuItem *items,int count,int initial){
+ if(!strcmp(title,"Save already exists")) {
+  assert(subtitle&&!strcmp(subtitle,"BATCH-A")&&count==3&&initial==0);
+  assert(!strcmp(items[0].label,"Continue")&&!strcmp(items[1].label,"Skip")&&!strcmp(items[2].label,"Cancel"));
+  for(int i=0;i<count;i++)assert(!items[i].disabled&&items[i].detail&&items[i].detail[0]);
+  dash_conflicts++;return choice;
+ }
  const char *labels[3];assert(!strcmp(title,"Create archive")&&subtitle&&!strcmp(subtitle,nclipFiles>1?"2 saves - one archive per save":clipFiles[0].name));
  for(int i=0;i<count;i++) {
   assert(items[i].icon==DI_MC&&!items[i].disabled);labels[i]=items[i].label;
@@ -150,6 +163,8 @@ static int filerCreateClipboardArchives(const char *destination,int format,char 
 static unsigned char *filerReadPs1Card(const char *path,char *message,int size){(void)message;(void)size;source(path);return read_ok?allocate():NULL;}
 static int filerSavePs1Card(const uint8_t *data,const char *destination,char *message,int size){return filerWriteArchive(data,16,SAVE_OUTPUT_MCS,destination,message,size);}
 '''
+code+=function((root/'src/dash_ui.c').read_text(),'int DashSaveConflictChoice(')
+code+=function(classic,'int filerConfirmSaveOverwrite(')
 code+=function(dash,'static int targets(')+function(dash,'static FILEINFO *singleSaveTarget(void)')
 for signature in ['static void opCopy(int cut)','static void opImportSaves(void)','static void opCreateArchive(int kind)','static void opExportPs1(void)']:
     code+=function(dash,signature)
@@ -170,6 +185,11 @@ static void copySave(int cut){
  assert(filerProbeArchiveClipboard(fb.dir)==kind&&!reads);
 }
 int main(void){
+ for(int native=0;native<2;native++)for(choice=-1;choice<3;choice++) {
+  dashboard_active=!native;int before_classic=classic_conflicts,before_dash=dash_conflicts;
+  assert(filerConfirmSaveOverwrite("BATCH-A")== (choice==0?1:choice==1?0:-1));
+  assert(classic_conflicts==before_classic+native&&dash_conflicts==before_dash+!native);
+ }
  for(int ps1=0;ps1<2;ps1++)for(int format=0;format<(ps1?3:2);format++)for(int native=0;native<2;native++) {
   reset(ps1);copySave(format&1);choice=format;expected_format=format==2?SAVE_OUTPUT_PSX:format==1?SAVE_OUTPUT_PSV:ps1?SAVE_OUTPUT_MCS:SAVE_OUTPUT_PSU;
   prompt_ok=0; /* Archive creation must not invoke either filename keyboard. */

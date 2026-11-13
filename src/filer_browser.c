@@ -1153,6 +1153,15 @@ static int saveChoice(const char *title, const char *subtitle, const char *const
 	}
 }
 
+int filerConfirmSaveOverwrite(const char *name)
+{
+	static const char *const choices[] = {"Continue", "Skip", "Cancel"};
+	int choice;
+	if (DashIsActive()) return DashSaveConflictChoice(name);
+	choice = saveChoice("Save already exists", name, choices, 3);
+	return choice == 0 ? 1 : choice == 1 ? 0 : -1;
+}
+
 static void classicImportSaves(const char *folder, char *message, int size)
 {
 	if (!filerCanImportClipboard()) return;

@@ -14,6 +14,9 @@ int filerSaveKind(const char *folder, const FILEINFO *file, int card_type);
 void filerExtractLabel(const char *name, char *label, int size);
 void filerClipboardExtractLabel(char *label, int size);
 int filerLoadSave(const char *source, SaveArchive *save, uint8_t **data, char *message, int size);
+/* Batch save conflict: 1 continues, 0 skips, -1 cancels. */
+int filerConfirmSaveOverwrite(const char *name);
+/* 1 extracts, 0 skips a batch conflict, -1 cancels or fails. */
 int filerExtractSave(const SaveArchive *save, const char *destination, char *message, int size);
 int filerCreateArchive(const char *source, const FILEINFO *file, int kind, int format,
 					   uint8_t **data, size_t *length, char *name, int name_size, char *message, int size);
@@ -41,7 +44,8 @@ int filerCreateClipboardArchives(const char *destination, int format, char *mess
 int filerCardInfo(const char *path, VmcInfo *info);
 int filerImportSave(const char *source, const char *destination, char *message, int size);
 /* Extract into the current destination; Cut removes only unchanged sources
- * after publish. Returns count, 0 if Cut sources were retained, or -1 on failure. */
+ * after publish. Skipped saves and their sources remain untouched.
+ * Returns extracted count, 0 for all skipped/retained Cut sources, -1 on cancel/failure. */
 int filerImportClipboard(const char *destination, char *message, int size);
 int filerCanImportClipboard(void);
 int filerIsPs1Image(const char *name);

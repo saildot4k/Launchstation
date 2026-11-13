@@ -292,7 +292,7 @@ int filerExtractSave(const SaveArchive *s, const char *destination, char *messag
 {
 	VmcInfo card;
 	char parent[MAX_PATH], target[MAX_PATH], path[MAX_PATH];
-	int is_card, folder = 0, result = -1, created = 0, error = -EIO;
+	int is_card, replacing, folder = 0, result = -1, created = 0, error = -EIO;
 	const char *action = "open the destination";
 	saveProgressStage("Preparing destination", save_progress.item);
 	if (!saveWritable(destination) || prepareTransferDeviceStacks(destination, destination) < 0 || genFixPath(destination, parent) < 0) goto fail;
@@ -311,15 +311,35 @@ int filerExtractSave(const SaveArchive *s, const char *destination, char *messag
 	folder = !(s->ps1 && is_card && card.type == 1);
 	const char *name = s->ps1 ? s->files[0].name : s->folder.name;
 	if (snprintf(target, sizeof(target), "%s%s", parent, name) >= (int)sizeof(target)) goto fail;
-	/* Save names are game identifiers. Keep existing saves intact. */
-	if (exists(target)) {
-		snprintf(message, size, "Save already exists: %s. Back it up and remove it before importing.", name); goto done;
+	replacing = exists(target);
+	if (replacing) {
+		int choice;
+		snprintf(message, size, "Save already exists: %s\n\nDo you wish to overwrite it?", name);
+		choice = save_progress.active && save_progress.count > 1 ? filerConfirmSaveOverwrite(name) : ynDialog(message);
+		if (choice == 0) {
+			snprintf(message, size, "Skipped %s", name); result = 0; goto done;
+		}
+		if (choice < 0) {
+			snprintf(message, size, "Save already exists: %s. Extraction canceled.", name); goto done;
+		}
 	}
 	if (is_card) {
 		u64 needed = 0;
 		for (unsigned i = 0; i < s->count; i++) needed += (s->files[i].size + card.unit_bytes - 1) / card.unit_bytes;
 		if (folder) needed += s->count + 3;
 		if (needed > (u64)card.free_units) { snprintf(message, size, "Not enough free space for this save."); goto done; }
+	}
+	if (replacing) {
+		FILEINFO existing = {0};
+		snprintf(existing.name, sizeof(existing.name), "%s", name);
+		existing.stats.AttrFile = folder ? 0x8427 : 0x8497;
+		if (filerConfirmExploitDelete(destination, &existing) < 0) {
+			snprintf(message, size, "Extraction canceled."); goto done;
+		}
+		/* Match PSU restore: replace the whole save, including stale files.
+		 * Confirm and check free space before removing the old destination. */
+		action = "remove the existing save";
+		if ((error = delete(parent, &existing)) < 0) goto fail;
 	}
 	if (folder) {
 		action = "create the save folder";
@@ -401,7 +421,7 @@ static int finishExtractCut(const char *destination, const char *source, const u
 int filerImportClipboard(const char *destination, char *message, int size)
 {
 	char source[MAX_PATH];
-	int count = 0, kept = 0, cut = browser_cut, total = nclipFiles;
+	int count = 0, skipped = 0, kept = 0, cut = browser_cut, total = nclipFiles;
 	if (!filerCanImportClipboard()) {
 		snprintf(message, size, "Copy or cut save archives first."); return -1;
 	}
@@ -411,7 +431,7 @@ int filerImportClipboard(const char *destination, char *message, int size)
 		uint8_t *snapshot = NULL;
 		size_t length = 0;
 		int result = -1;
-		saveProgressItem(count + 1, clipFiles[i].name, "Reading archive");
+		saveProgressItem(count + skipped + 1, clipFiles[i].name, "Reading archive");
 		if (filerPrepareClipboardTransfer(destination, message, size) < 0) {
 			/* Keep the source and destination readiness diagnostic. */
 		} else if (snprintf(source, sizeof(source), "%s%s", clipPath, clipFiles[i].name) >= (int)sizeof(source))
@@ -421,11 +441,17 @@ int filerImportClipboard(const char *destination, char *message, int size)
 		saveArchiveFree(&save);
 		if (result < 0) {
 			free(snapshot);
-			if (count) {
+			if (count || skipped) {
 				char reason[192]; snprintf(reason, sizeof(reason), "%s", message);
-				snprintf(message, size, "%d extracted; stopped: %s", count, reason);
+				if (skipped) snprintf(message, size, "%d extracted; %d skipped; stopped: %s", count, skipped, reason);
+				else snprintf(message, size, "%d extracted; stopped: %s", count, reason);
 			}
 			saveProgressEnd(); return -1;
+		}
+		if (result == 0) {
+			/* Skip never publishes or removes a Cut source. Keep its clipboard
+			 * entry and advance independently of the extracted-save count. */
+			skipped++; i++; free(snapshot); continue;
 		}
 		count++;
 		if (cut && finishExtractCut(destination, source, snapshot, length, &clipFiles[i])) {
@@ -441,10 +467,16 @@ int filerImportClipboard(const char *destination, char *message, int size)
 		browser_cut = 0; clipPath[0] = 0;
 		filerClearArchiveClipboard();
 	}
-	if (kept)
-		snprintf(message, size, "Extracted %d save%s; %d source archive%s kept because removal could not be verified.",
-		         count, count == 1 ? "" : "s", kept, kept == 1 ? "" : "s");
-	else snprintf(message, size, "Extracted %d save%s", count, count == 1 ? "" : "s");
+	snprintf(message, size, "Extracted %d save%s", count, count == 1 ? "" : "s");
+	if (skipped && (int)strlen(message) < size) {
+		int used = strlen(message);
+		snprintf(message + used, size - used, "; %d skipped", skipped);
+	}
+	if (kept && (int)strlen(message) < size) {
+		int used = strlen(message);
+		snprintf(message + used, size - used, "; %d source archive%s kept because removal could not be verified.",
+		         kept, kept == 1 ? "" : "s");
+	}
 	saveProgressEnd();
 	return kept ? 0 : count;
 }

@@ -58,6 +58,7 @@ int DashFileOperationStatus(const char*,const char*,u64,u64);
 void DashFileOperationEnd(void);void nonDialog(char*);void drawMsg(const char*);
 int filerCardInfo(const char *,VmcInfo *);
 int filerExtractSave(const SaveArchive *, const char *, char *, int);
+int filerConfirmSaveOverwrite(const char *);
 int filerPrepareMemoryCardRead(int);int mcGetInfo(int,int,int*,int*,int*);int mcSync(int,void*,int*);
 int genFixPath(const char*,char*);int genOpen(const char*,int);s64 genLseek(int,s64,int);int genRead(int,void*,int);int genWrite(int,void*,int);int genClose(int);
 int genDopen(char*);int genDclose(int);int genMkdir(const char*,int);int genRemove(char*);int genRmdir(char*);
@@ -67,6 +68,7 @@ int mcGetDir(int,int,const char*,int,int,sceMcTblGetDir*);int mcSetFileInfo(int,
 int prepareTransferDeviceStacks(const char*,const char*);unsigned getIopResetGeneration(void);int getDir(const char*,FILEINFO*);
 int filerPrepareClipboardTransfer(const char*,char*,int);
 int isPathDeviceStackLoaded(const char*);int filerConfirmExploitDelete(const char*,const FILEINFO*);
+int ynDialog(const char*);
 int delete(const char*,const FILEINFO*);
 int filerIsPs1Image(const char*);
 void filerExtractLabel(const char*,char*,int);void filerClearArchiveClipboard(void);
@@ -98,6 +100,17 @@ static int write_handles[1024];
 static int source_loaded=1,delete_calls,delete_failure,extract_hook;
 static int open_calls,dir_calls,prepare_calls,incompatible,restore_ok=1;
 static char changed_archive[MAX_PATH];
+static int overwrite_answer=-1,overwrite_prompts,exploit_answer=1;
+static int conflict_answers[3],conflict_count,conflict_index;
+int filerConfirmSaveOverwrite(const char *name){
+ assert(!handles&&name&&name[0]);overwrite_prompts++;
+ if(conflict_count){assert(conflict_index<conflict_count);return conflict_answers[conflict_index++];}
+ return overwrite_answer;
+}
+int ynDialog(const char *message){
+ assert(!handles&&strstr(message,"Save already exists:")&&strstr(message,"overwrite"));
+ overwrite_prompts++;return overwrite_answer;
+}
 int filerPrepareMemoryCardRead(int port){(void)port;return 0;}
 int mcGetInfo(int port,int slot,int *type,int *units,int *format){(void)port;(void)slot;*type=card_type;*units=free_units;if(format)*format=1;return 0;}
 int mcSync(int x,void *y,int *result){(void)x;(void)y;if(result)*result=0;return 1;}
@@ -147,7 +160,7 @@ int filerPrepareClipboardTransfer(const char *destination,char *message,int size
 }
 unsigned getIopResetGeneration(void){return generation;}
 int isPathDeviceStackLoaded(const char *path){(void)path;return source_loaded;}
-int filerConfirmExploitDelete(const char *path,const FILEINFO *file){(void)path;(void)file;return 1;}
+int filerConfirmExploitDelete(const char *path,const FILEINFO *file){(void)path;(void)file;return exploit_answer;}
 int delete(const char *parent,const FILEINFO *file){
  char path[MAX_PATH];snprintf(path,sizeof(path),"%s%s",parent,file->name);delete_calls++;
  if(delete_failure)return -EIO;
@@ -331,6 +344,26 @@ int main(int argc,char **argv){
   assert(filerExtractSave(&parsed,"mc1:/",message,sizeof(message))<0&&strstr(message,"PS2"));
   card_type=2;assert(filerExtractSave(&parsed,"vmc0:/",message,sizeof(message))==1);
   assert(!stat("vmc0:/PS2SAVE/empty",&st)&&!st.st_size);
+  // Existing PSU/PSV saves prompt before changing files; Continue replaces the whole save.
+  const uint8_t previous[]={9,8,7};size_t actual_size;uint8_t *actual;
+  put("vmc0:/PS2SAVE/data",previous,sizeof(previous));put("vmc0:/PS2SAVE/stale",previous,sizeof(previous));
+  int prompts=overwrite_prompts,before_deletes=delete_calls;
+  assert(filerExtractSave(&parsed,"vmc0:/",message,sizeof(message))<0&&strstr(message,"canceled"));
+  assert(overwrite_prompts==prompts+1&&delete_calls==before_deletes);
+  actual=readSource("vmc0:/PS2SAVE/data",&actual_size);
+  assert(actual&&actual_size==sizeof(previous)&&!memcmp(actual,previous,actual_size));free(actual);
+  overwrite_answer=1;exploit_answer=-1;
+  assert(filerExtractSave(&parsed,"vmc0:/",message,sizeof(message))<0&&delete_calls==before_deletes);
+  exploit_answer=1;free_units=0;
+  assert(filerExtractSave(&parsed,"vmc0:/",message,sizeof(message))<0&&strstr(message,"free space")&&delete_calls==before_deletes);
+  free_units=8192;delete_failure=1;
+  assert(filerExtractSave(&parsed,"vmc0:/",message,sizeof(message))<0&&strstr(message,"remove the existing save"));
+  assert(!access("vmc0:/PS2SAVE/stale",F_OK));delete_failure=0;
+  assert(filerExtractSave(&parsed,"vmc0:/",message,sizeof(message))==1);
+  assert(access("vmc0:/PS2SAVE/stale",F_OK)<0);
+  actual=readSource("vmc0:/PS2SAVE/data",&actual_size);
+  assert(actual&&actual_size==sizeof(payload)&&!memcmp(actual,payload,actual_size));free(actual);
+  overwrite_answer=-1;
   unlink("vmc0:/PS2SAVE/icon.sys");unlink("vmc0:/PS2SAVE/icon.icn");unlink("vmc0:/PS2SAVE/data");unlink("vmc0:/PS2SAVE/empty");rmdir("vmc0:/PS2SAVE");
   saveArchiveFree(&parsed);free(snapshot);free(archive);
   strcpy(selected.name,"PS2SAVE");selected.stats.AttrFile=0x8427;
@@ -685,6 +718,72 @@ int main(int argc,char **argv){
   snprintf(target,sizeof(target),"%sFLAT/data",out);assert(!access(target,F_OK));
   assert((access("storage/archives/first.mcs",F_OK)<0)==cut&&(access("storage/archives/second.psu",F_OK)<0)==cut);
   assert(nclipFiles==(cut?0:2)&&!browser_cut);
+ }
+ // PSU overwrite confirmation also preserves a canceled Cut source and closes progress.
+ for(int cut=0;cut<2;cut++) {
+  char out[80],target[120];snprintf(out,sizeof(out),"storage/extract-overwrite-%d/",cut);assert(!mkdir(out,0700));
+  put("storage/archives/overwrite.psu",psu_fixture,psu_size);
+  memset(clipFiles,0,sizeof(clipFiles));strcpy(clipPath,"storage/archives/");strcpy(clipFiles[0].name,"overwrite.psu");
+  nclipFiles=1;browser_cut=0;clipIopResetGeneration=generation;dashboard_active=!cut;
+  assert(filerImportClipboard(out,message,sizeof(message))==1);
+  snprintf(target,sizeof(target),"%sFLAT/data",out);const uint8_t previous[]={9,8,7};
+  size_t original_size;uint8_t *original=readSource(target,&original_size);assert(original);
+  put(target,previous,sizeof(previous));browser_cut=cut;
+  int prompts=overwrite_prompts,before_deletes=delete_calls;
+  assert(filerImportClipboard(out,message,sizeof(message))<0&&strstr(message,"canceled"));
+  assert(overwrite_prompts==prompts+1&&delete_calls==before_deletes&&!save_progress.active);
+  assert(nclipFiles==1&&browser_cut==cut&&!access("storage/archives/overwrite.psu",F_OK));
+  size_t actual_size;uint8_t *actual=readSource(target,&actual_size);
+  assert(actual&&actual_size==sizeof(previous)&&!memcmp(actual,previous,actual_size));free(actual);
+  overwrite_answer=1;
+  assert(filerImportClipboard(out,message,sizeof(message))==1&&!save_progress.active);
+  assert(overwrite_prompts==prompts+2&&nclipFiles==(cut?0:1)&&!browser_cut);
+  assert((access("storage/archives/overwrite.psu",F_OK)<0)==cut);
+  actual=readSource(target,&actual_size);
+  assert(actual&&actual_size==original_size&&!memcmp(actual,original,actual_size));free(actual);free(original);
+  overwrite_answer=-1;dashboard_active=1;
+ }
+ // Batch conflicts support Skip at either end/middle, all skips, Cancel after Skip,
+ // and mixed Continue/Skip choices. Cut removes only successfully extracted sources.
+ for(int cut=0;cut<2;cut++)for(int native=0;native<2;native++)for(int scenario=0;scenario<6;scenario++) {
+  char source[MAX_PATH],archives[MAX_PATH],out[MAX_PATH],target[MAX_PATH],archive_path[MAX_PATH];
+  snprintf(source,sizeof(source),"storage/skip-source-%d-%d-%d/",cut,native,scenario);
+  snprintf(archives,sizeof(archives),"storage/skip-archives-%d-%d-%d/",cut,native,scenario);assert(!mkdir(archives,0700));
+  snprintf(out,sizeof(out),"storage/skip-out-%d-%d-%d/",cut,native,scenario);assert(!mkdir(out,0700));
+  startArchiveBatch(source,3,0);
+  for(int i=0;i<3;i++)makeArchiveBatchItem(source,i,0,0);
+  filerRememberArchiveClipboard(0);assert(filerCreateClipboardArchives(archives,SAVE_OUTPUT_PSU,message,sizeof(message))==3);
+  for(int i=0;i<3;i++) {
+   int collision=scenario==0?i==0:scenario==1?i==1:scenario==3?i>0:scenario==5?i==2:1;
+   if(!collision)continue;
+   assert(snprintf(archive_path,sizeof(archive_path),"%sBATCH-%c.psu",archives,'A'+i)<(int)sizeof(archive_path));
+   assert(filerImportSave(archive_path,out,message,sizeof(message))==1);
+   assert(snprintf(target,sizeof(target),"%sBATCH-%c/data",out,'A'+i)<(int)sizeof(target));
+   const uint8_t previous[]={9,8,7};put(target,previous,sizeof(previous));
+  }
+  strcpy(clipPath,archives);memset(clipFiles,0,sizeof(clipFiles));nclipFiles=3;browser_cut=cut;dashboard_active=!native;
+  for(int i=0;i<3;i++)snprintf(clipFiles[i].name,sizeof(clipFiles[i].name),"BATCH-%c.psu",'A'+i);
+  conflict_count=scenario==2||scenario==4?3:scenario==3?2:1;conflict_index=0;
+  conflict_answers[0]=scenario==4?1:0;conflict_answers[1]=scenario==3?-1:0;conflict_answers[2]=scenario==4?1:0;
+  int before_deletes=delete_calls;seen_ordinals=0;
+  int expected_count=scenario==2?0:scenario==3?1:2;
+  assert(filerImportClipboard(out,message,sizeof(message))==(scenario==3?-1:expected_count));
+  assert(conflict_index==conflict_count&&seen_ordinals==(native?0:14)&&!save_progress.active&&!handles);
+  assert(strstr(message,scenario==2?"3 skipped":"1 skipped"));
+  assert(!strstr(message,"removal could not be verified"));
+  if(scenario==3)assert(strstr(message,"1 extracted; 1 skipped; stopped"));
+  assert(delete_calls==before_deletes+(scenario==4?2:0)+(cut?expected_count:0));
+  assert(nclipFiles==(cut?3-expected_count:3)&&browser_cut==cut);
+  for(int i=0;i<3;i++) {
+   int extracted=scenario==0?i!=0:scenario==1||scenario==4?i!=1:scenario==3?i==0:scenario==5?i!=2:0;
+   assert(snprintf(archive_path,sizeof(archive_path),"%sBATCH-%c.psu",archives,'A'+i)<(int)sizeof(archive_path));
+   assert((access(archive_path,F_OK)<0)==(cut&&extracted));
+   assert(snprintf(target,sizeof(target),"%sBATCH-%c/data",out,'A'+i)<(int)sizeof(target));
+   size_t actual_size;uint8_t *actual=readSource(target,&actual_size);assert(actual);
+   assert(actual_size==(extracted?123:3)&&actual[0]==(extracted?i+1:9));free(actual);
+  }
+  if(cut)assert(!strcmp(clipFiles[0].name,scenario==0||scenario==2?"BATCH-A.psu":scenario==5?"BATCH-C.psu":"BATCH-B.psu"));
+  conflict_count=conflict_index=0;dashboard_active=1;
  }
  free(psu_fixture);
  // Partial Cut batches consume only completed sources and retain unprocessed entries.

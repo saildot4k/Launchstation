@@ -50,6 +50,8 @@ int DashFileTransferProgress(const char *action, const char *name, u64 remaining
 int DashFileOperationStatus(const char *action, const char *name, u64 index, u64 count);
 void DashFileOperationEnd(void);
 void DashFileDeleteProgress(const char *name);
+/* Batch save conflict: 1 continues, 0 skips, -1 cancels. UI thread only. */
+int DashSaveConflictChoice(const char *name);
 
 /* Finish dashboard-owned IO/audio before a child ELF that deliberately
  * inherits the live IOP. Returns 0 if the user cancels the bounded wait. */

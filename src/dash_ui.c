@@ -991,6 +991,17 @@ int dashModalMenuEdit(const char *title, const char *subtitle, DashMenuItem *ite
 	return modalMenu(title, subtitle, items, n, initial, edit, arg);
 }
 
+int DashSaveConflictChoice(const char *name)
+{
+	const DashMenuItem items[] = {
+		{-1, "Continue", "Replace the existing save", 0},
+		{-1, "Skip", "Keep it and extract the next archive", 0},
+		{-1, "Cancel", "Stop extracting", 0}
+	};
+	int choice = dashModalMenu("Save already exists", name, items, 3, 0);
+	return choice == 0 ? 1 : choice == 1 ? 0 : -1;
+}
+
 int dashModalChoice(const char *title, const char *const *options, int n, int current)
 {
 	DashMenuItem items[24];
