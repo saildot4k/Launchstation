@@ -474,6 +474,9 @@ void dashGfxPresent(void)
 	 * Wait frames must not apply callbacks or start another file job. */
 	if (!dashIoBusy())
 		dashWorkerPump();
+	/* Startup audio is a one-shot service after the destination's first
+	 * visible frame. It defers during IO and automatic-launch decisions. */
+	dashStartupAudioAfterPresent();
 }
 
 void dashGfxRestoreLegacyState(void)

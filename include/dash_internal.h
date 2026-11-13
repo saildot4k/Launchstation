@@ -1000,6 +1000,8 @@ int dashVisibleSectionIndex(int section);
 const char *dashVisibleSectionName(int index);
 int dashAdjacentSection(int section, int direction);
 void dashRenderScene(void);
+/* GS owner thread, after a completed present; defers during IO/startup decisions. */
+void dashStartupAudioAfterPresent(void);
 /* Full-screen tools push their scene on entry and pop it on exit, which
  * restores the scene of whatever opened them (dashboard or another tool). */
 void dashPushSceneOverride(void (*fn)(void));
