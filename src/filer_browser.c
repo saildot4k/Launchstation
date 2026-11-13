@@ -39,7 +39,7 @@ const char *filerRootDeviceDescription(const char *name)
 		{"mc1:", "Memory Card Slot 2"},
 		{"mmce0:", "SD2PSX SD Card Slot 1"},
 		{"mmce1:", "SD2PSX SD Card Slot 2"},
-		{"mx4sio:", "MX4SIO SD Card"},
+		{"mx4sio:", "MX4SIO SD Card Slot 2"},
 		{"hdd0:", "APA HDD"},
 		{"hdd1:", "APA HDD 2"},
 		{"ata:", "exFAT HDD"},

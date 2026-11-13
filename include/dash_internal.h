@@ -490,6 +490,8 @@ enum DashIcon {
 	DI_KEY_TAB,     /* keyboard right arrow ending at a vertical bar */
 	DI_KEY_RETURN,  /* keyboard bent left arrow; arrowhead centered at y=0 */
 	DI_SAVE,        /* upstream floppy disk: shutter on top, label below */
+	DI_MICROSD,     /* notched microSD outline for MMCE and MX4SIO */
+	DI_NETWORK_FOLDER, /* existing folder with a network bus and nodes below */
 	DI_COUNT
 };
 

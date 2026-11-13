@@ -71,7 +71,6 @@ static void filerRootMcPollIdle(void) {
     assert(count_wait==1 && count_stat==0);
     count_drain++;
 }
-static int filerUsbDriversLoaded(void) { return loaded; }
 static int isUsbMassStackLoaded(void) { return loaded; }
 static void loadUsbModules(void) {
     assert(count_stat==0 && count_drain==1);
@@ -79,7 +78,7 @@ static void loadUsbModules(void) {
     if(load_succeeds)loaded=1;
 }
 static int filerUsbDriveMask(void) {
-    assert(count_stat==0 && count_drain==0);
+    assert(count_stat==0 && count_drain==1 && loaded);
     return cache_mask;
 }
 static void dashLoadingBegin(const char *title) {
@@ -123,15 +122,23 @@ int main(void) {
     assert(!count_stat && !count_modal && !count_confirm);
     reset();choice=0;loaded=0;
     dashToolsUsbUnitDiagnostics();
-    assert(!count_load&&!count_stat&&!count_drain);
-    assert(strstr(last_body,"not loaded")!=NULL);
+    assert(count_load==1 && !count_stat && count_drain==1 && loaded);
+    assert(count_begin==1 && count_end==1 && !count_confirm);
+    assert(strstr(last_body,"unit 0, unit 1")!=NULL);
     reset();choice=0;cache_mask=3;
     dashToolsUsbUnitDiagnostics();
-    assert(!count_stat&&!count_load&&!count_wait);
+    assert(!count_stat && !count_load && count_wait==1 && count_drain==1);
     assert(strstr(last_body,"unit 0, unit 1")!=NULL);
     reset();choice=0;cache_mask=0;
     dashToolsUsbUnitDiagnostics();
     assert(!count_stat&&strstr(last_body,"none confirmed"));
+    reset();choice=0;loaded=0;load_succeeds=0;
+    dashToolsUsbUnitDiagnostics();
+    assert(count_load==1 && !count_stat && count_begin==1 && count_end==1);
+    assert(strstr(last_title,"driver unavailable")!=NULL);
+    reset();choice=0;loaded=0;worker_idle=0;
+    dashToolsUsbUnitDiagnostics();
+    assert(count_wait==1 && !count_load && !count_stat && !count_drain);
     reset();choice=1;allowed=0;
     dashToolsUsbUnitDiagnostics();
     assert(!count_stat&&!count_wait&&!count_load&&!count_drain);
@@ -152,6 +159,9 @@ int main(void) {
     dashToolsUsbUnitDiagnostics();
     assert(count_load==0&&count_stat==1&&count_frames==1);
     assert(strstr(last_body,"returned -19")!=NULL);
+    reset();choice=2;expected_unit=1;loaded=0;
+    dashToolsUsbUnitDiagnostics();
+    assert(count_load==1 && loaded && count_stat==1 && count_frames==1);
     puts("PASS: user-selected single USB unit only, no implicit dual scan, safe worker/pad sequencing");
 }
 '''
