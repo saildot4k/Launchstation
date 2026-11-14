@@ -22,20 +22,13 @@ int IsNeutrinoIsoPath(const char *path)
 	return path != NULL && genCmpFileExt(path, "ISO");
 }
 
-static int fileExists(const char *path)
-{
-	int fd = openPathForRead(path, NULL, 0);
-	if (fd < 0)
-		return 0;
-	genClose(fd);
-	return 1;
-}
-
 static int neutrinoElfReadable(const char *path)
 {
 	unsigned char ident[4];
 	int fd, rd;
 
+	if (path == NULL || path[0] == '\0')
+		return 0;
 	fd = openPathForRead(path, NULL, 0);
 	if (fd < 0)
 		return 0;
@@ -45,38 +38,14 @@ static int neutrinoElfReadable(const char *path)
 	       ident[1] == 'E' && ident[2] == 'L' && ident[3] == 'F';
 }
 
-static int neutrinoInstallComplete(const char *elf_path)
+static int addNeutrinoCandidate(POPSTARTER_CANDIDATE_LIST *candidates, const char *path)
 {
-	char base[MAX_PATH], check[MAX_PATH];
-	char *slash;
-	int len;
-
-	if (elf_path == NULL || elf_path[0] == '\0' || !neutrinoElfReadable(elf_path))
-		return 0;
-
-	snprintf(base, sizeof(base), "%s", elf_path);
-	slash = strrchr(base, '/');
-	if (slash == NULL)
-		slash = strrchr(base, ':');
-	if (slash == NULL)
-		return 1; /* custom path with no derivable cwd: let Neutrino decide */
-	slash[1] = '\0';
-
-	len = snprintf(check, sizeof(check), "%sconfig/system.toml", base);
-	if (len > 0 && len < (int)sizeof(check) && fileExists(check))
-		return 1;
-	len = snprintf(check, sizeof(check), "%ssystem.toml", base);
-	return len > 0 && len < (int)sizeof(check) && fileExists(check);
-}
-
-static int addCompleteCandidate(POPSTARTER_CANDIDATE_LIST *candidates, const char *path)
-{
-	if (!neutrinoInstallComplete(path))
+	if (!neutrinoElfReadable(path))
 		return 0;
 	return addPopstarterCandidate(candidates, path);
 }
 
-static int findCompleteOnRoot(const char *root, char *out, size_t out_size)
+static int findNeutrinoOnRoot(const char *root, char *out, size_t out_size)
 {
 	static const char *const forms[] = {
 	    "%s/NEUTRINO/neutrino.elf",
@@ -88,7 +57,7 @@ static int findCompleteOnRoot(const char *root, char *out, size_t out_size)
 	for (i = 0; i < (int)(sizeof(forms) / sizeof(forms[0])); i++) {
 		if (snprintf(out, out_size, forms[i], root) >= (int)out_size)
 			continue;
-		if (neutrinoInstallComplete(out))
+		if (neutrinoElfReadable(out))
 			return 1;
 	}
 	return 0;
@@ -107,7 +76,7 @@ static int deviceRootCandidate(const char *iso_path, char *out, size_t out_size)
 	if (root_len <= 1 || root_len >= (int)sizeof(root))
 		return 0;
 	snprintf(root, sizeof(root), "%.*s", root_len, iso_path);
-	return findCompleteOnRoot(root, out, out_size);
+	return findNeutrinoOnRoot(root, out, out_size);
 }
 
 static const char *neutrinoBsdForPath(const char *path)
@@ -228,7 +197,7 @@ int LaunchNeutrinoIso(const char *path, char *message, size_t message_size)
 	char selected[MAX_PATH], fullpath[MAX_PATH], party[MAX_PATH];
 	char opened_iso[MAX_PATH], args[1400];
 	const char *bsd;
-	int exec_kind, ret;
+	int exec_kind, ret, location, found_candidate = 0;
 
 	/* Do not probe the ISO or candidates when the Neutrino route is disabled. */
 	if (setting != NULL && setting->disable_neutrino) {
@@ -276,24 +245,33 @@ int LaunchNeutrinoIso(const char *path, char *message, size_t message_size)
 	))
 		have_gameid = prepareNeutrinoGameID(opened_iso, gameID, sizeof(gameID));
 
-	initPopstarterCandidates(&candidates);
-	/* Same deterministic policy used by RiptOPL: explicit path, game device,
-	 * then the two memory-card slots. Only complete Neutrino installs qualify. */
-	if (setting != NULL && setting->neutrino_file[0] != '\0')
-		addCompleteCandidate(&candidates, setting->neutrino_file);
-	if (deviceRootCandidate(path, candidate, sizeof(candidate)))
-		addPopstarterCandidate(&candidates, candidate);
-	if (findCompleteOnRoot("mc0:", candidate, sizeof(candidate)))
-		addPopstarterCandidate(&candidates, candidate);
-	if (findCompleteOnRoot("mc1:", candidate, sizeof(candidate)))
-		addPopstarterCandidate(&candidates, candidate);
-
-	if (candidates.count == 0) {
+	/* Prepare each location before searching the next: a usable configured
+	 * install needs no game-device or memory-card fallback probes. Keep the
+	 * existing order and MMCE-before-loader preparation for every attempt. */
+	ret = POPSTARTER_ERR_OPEN_POPSTARTER;
+	for (location = 0; location < 4; location++) {
+		initPopstarterCandidates(&candidates);
+		if (location == 0) {
+			if (setting != NULL && setting->neutrino_file[0] != '\0')
+				addNeutrinoCandidate(&candidates, setting->neutrino_file);
+		} else if (location == 1 && deviceRootCandidate(path, candidate, sizeof(candidate)))
+			addPopstarterCandidate(&candidates, candidate);
+		else if (location == 2 && findNeutrinoOnRoot("mc0:", candidate, sizeof(candidate)))
+			addPopstarterCandidate(&candidates, candidate);
+		else if (location == 3 && findNeutrinoOnRoot("mc1:", candidate, sizeof(candidate)))
+			addPopstarterCandidate(&candidates, candidate);
+		if (candidates.count == 0)
+			continue;
+		found_candidate = 1;
+		ret = prepareNeutrinoCandidateLaunch(&candidates, opened_iso, selected, sizeof(selected),
+		                                       fullpath, sizeof(fullpath), party, sizeof(party), &exec_kind);
+		if (ret == POPSTARTER_OK)
+			break;
+	}
+	if (!found_candidate) {
 		setMessage(message, message_size, "Neutrino not found (set its path in Settings)", NULL);
 		return 0;
 	}
-	ret = prepareNeutrinoCandidateLaunch(&candidates, opened_iso, selected, sizeof(selected),
-	                                       fullpath, sizeof(fullpath), party, sizeof(party), &exec_kind);
 	if (ret != POPSTARTER_OK) {
 		setMessage(message, message_size, "Neutrino executable could not be prepared", selected);
 		return 0;
