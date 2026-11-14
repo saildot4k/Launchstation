@@ -218,21 +218,20 @@ int prepareNeutrinoGameID(const char *iso_path, char *gameID, size_t gameID_len)
 }
 
 #ifdef MMCE
-/* Match R3Z 4.80 per-game VMC selection. Files on the MMCE SD filesystem
- * remain eligible; only the emulated mcN: holding Neutrino is excluded.
- * Recheck MMCE without replacing a prepared MX4SIO stack.
- * No status polling occurs unless a responding MMCE accepts SET_GAMEID.
- * The 15 polls mirror upstream's upper bound for a genuine card switch.
- */
-void setNeutrinoMmceGameID(const char *gameID, const char *iso_path, const char *elf_path)
+/* Keep R3Z 4.80's slot policy, using NHDDL rewrite's 15 two-second polls.
+ * Require readiness before handoff and retry transient status-read failures
+ * within that same bounded wait. Files on the MMCE SD filesystem remain
+ * eligible; only mcN: holding Neutrino is protected.
+ * Never replace a prepared MX4SIO stack. */
+int setNeutrinoMmceGameID(const char *gameID, const char *iso_path, const char *elf_path)
 {
-	char device[] = "mmce0:";
+	char device[] = "mmce0:", progress[80];
 	int port, poll, status;
 
 	if (!validGameID(gameID) || iso_path == NULL || elf_path == NULL ||
 	    !strncmp(iso_path, "mx4sio", 6) || !strncmp(elf_path, "mx4sio", 6) ||
 	    !loadMmceModulesForGameID())
-		return;
+		return 1;
 
 	for (port = 0; port < 2; port++) {
 		device[4] = '0' + port;
@@ -240,17 +239,24 @@ void setNeutrinoMmceGameID(const char *gameID, const char *iso_path, const char 
 		 * mmceN: is the adapter's SD filesystem, not its selected VMC. */
 		if (!strncmp(elf_path, port == 0 ? "mc0:" : "mc1:", 4))
 			continue;
-		if (fileXioDevctl(device, MMCE_CMD_PING, NULL, 0, NULL, 0) < 0 ||
-		    fileXioDevctl(device, MMCE_CMD_SET_GAMEID, (void *)gameID, NEUTRINO_GAME_ID_SIZE, NULL, 0) < 0)
+		if (fileXioDevctl(device, MMCE_CMD_PING, NULL, 0, NULL, 0) < 0)
 			continue;
+		snprintf(progress, sizeof(progress), "Switching %s game memory card...", device);
+		drawMsg(progress);
+		if (fileXioDevctl(device, MMCE_CMD_SET_GAMEID, (void *)gameID, NEUTRINO_GAME_ID_SIZE, NULL, 0) < 0)
+			return 0;
 		for (poll = 0; poll < MMCE_SWITCH_POLLS; poll++) {
 			/* Firmware may acknowledge SET_GAMEID before marking itself busy. */
-			DelayThread(1000000);
+			DelayThread(2000000);
 			status = fileXioDevctl(device, MMCE_CMD_GET_STATUS, NULL, 0, NULL, 0);
-			if (status < 0 || !(status & 1))
+			/* A failed read is not readiness; keep waiting within the limit. */
+			if (status >= 0 && !(status & 1))
 				break;
 		}
 		DPRINTF("Neutrino MMCE: %s game=%s polls=%d\n", device, gameID, poll);
+		if (poll == MMCE_SWITCH_POLLS)
+			return 0;
 	}
+	return 1;
 }
 #endif

@@ -19,6 +19,7 @@ code = r"""
 typedef struct { char path[MAX_PATH]; } Candidate;
 typedef struct { Candidate entry[2]; int count; } POPSTARTER_CANDIDATE_LIST;
 static int loads, prepares, load_ok, mx_active, results[2], wanted_loads[2];
+static void drawMsg(const char *message) { assert(!strcmp(message,"Preparing Neutrino executable...")); }
 #ifdef MMCE
 static int loadMmceModules(void) {
  loads++;if(load_ok)mx_active=0;return load_ok;
@@ -79,7 +80,7 @@ int main(void) {
 launch = source[source.index("int LaunchNeutrinoIso("):]
 assert launch.index("showNeutrinoLaunchOptions(&options)") < launch.index("ret = prepareNeutrinoCandidateLaunch(")
 assert launch.index("ret = prepareNeutrinoCandidateLaunch(") < launch.index("setNeutrinoMmceGameID(")
-assert "setNeutrinoMmceGameID(gameID, opened_iso, fullpath);" in launch
+assert "!setNeutrinoMmceGameID(gameID, opened_iso, fullpath)" in launch
 cc = shutil.which("gcc") or shutil.which("cc")
 assert cc, "Host C compiler required"
 with tempfile.TemporaryDirectory(prefix="neutrino-mmce-launch-") as folder:

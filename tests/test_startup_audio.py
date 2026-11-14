@@ -71,7 +71,7 @@ static void dashSoundMaintain(void) {
  /* Slow module/sidecar IO keeps rendering without re-entering startup. */
  io_busy=1;for(int i=0;i<20;i++)present();io_busy=0;
 }
-static void dashSoundPlay(int id) { assert(id==DASH_SND_BOOT&&audio_calls==1);boot_sounds++; }
+static void dashSoundRequestBoot(void) { assert(!audio_calls);boot_sounds++; }
 '''
 code += function('void dashStartupAudioAfterPresent(')
 code += r'''

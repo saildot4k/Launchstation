@@ -331,14 +331,15 @@ POPSTARTER_ELF =
 EMBER_DIR =
 # ----------------------------------------------------------------------
 # NEUTRINO_ELF is optional. When a PS2 .ISO is opened, wLaunchELF looks
-# for a complete Neutrino install in this order:
+# for a Neutrino executable in this order:
 #   1) this explicit path,
 #   2) /neutrino/neutrino.elf on the ISO's device,
 #   3) mc0:/neutrino/neutrino.elf,
 #   4) mc1:/neutrino/neutrino.elf.
-# A complete install needs a valid neutrino.elf plus config/system.toml
-# (legacy system.toml beside the ELF is also accepted), matching RiptOPL's
-# current Neutrino install probing.
+# Each executable is validated and prepared before searching the next location.
+# A usable explicit path skips all fallback searches, including mc0:/mc1:.
+# Only the Neutrino ELF is checked; configuration files/modules are not probed.
+# The user is responsible for providing a complete Neutrino installation.
 # Supported ISO source backends are USB/mass, MX4SIO, MMCE,
 # ATA/exFAT and UDPFS. The launcher preserves the live IOP/device stack,
 # passes -bsd, the full -dvd path, -qb, and an automatic -cwd.

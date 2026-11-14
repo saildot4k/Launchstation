@@ -38,7 +38,7 @@ code += r'''
 static audsrv_adpcm_t samples[DASH_SND_COUNT];
 static struct { int sound,sound_vol,bgm,bgm_vol; } dashCfg={1,60,1,80};
 static unsigned generation,sound_reboot_generation;
-static int busy;
+static int busy,sound_job_id,sound_closing,sound_volume_pending;
 static int sound_ready=1,parked,bgm_channel=23,bgm_tried;
 static int volumes[24],available[24],plays[24],volume_writes[24];
 static int calls,automatic,init_calls,last_channel=-1,fail_sample,fail_volume,bad_channel_reply;
@@ -70,7 +70,7 @@ static int audsrv_adpcm_set_volume_and_pan(int ch,int volume,int pan) {
 static int dashSoundInit(void) { init_calls++;return sound_ready; }
 '''
 for signature in ("int dashBgmRequestedVolume(", "static int bgmPlaybackVolume(",
-                  "static int soundAlive(", "void dashSoundApplyVolume(",
+                  "static int soundAlive(", "static int soundRpcReady(", "void dashSoundApplyVolume(",
                   "void dashBgmSetVolume(", "void dashBgmStop("):
     code += function(signature)
 if "static int soundPlayChannel(" in source:

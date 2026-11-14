@@ -49,9 +49,9 @@ void dashStartupAudioAfterPresent(void)
 	    fade_in < 0.95f || DashIoBusy())
 		return;
 	startup_audio_pending = 0;
-	dashSoundMaintain();
 	if (startup_boot_sound)
-		dashSoundPlay(DASH_SND_BOOT);
+		dashSoundRequestBoot();
+	dashSoundMaintain();
 }
 
 static const DashScreen *const screens[DASH_SEC_COUNT] = {

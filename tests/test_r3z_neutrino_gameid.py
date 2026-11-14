@@ -6,6 +6,9 @@ Reference: saildot4k/wLaunchELF_R3Z tag 4.80, commit
 39fb5bc7700b0d9bf9ed8448f4b9f080b08d81d7, src/neutrino_gameid.c.
 An mmceN: file is on the SD filesystem; only an mcN: Neutrino ELF
 excludes its emulated-card slot. MX4SIO sources/loaders are excluded.
+Like NHDDL (rewrite bbbb254f83fd64182444a0408df86d68cbc4d860,
+src/devices/utils.c), retry status reads at two-second intervals; require a
+nonnegative ready response before allowing the handoff.
 """
 from pathlib import Path
 import struct
@@ -25,7 +28,7 @@ assert "load_udpfs(" not in GAMEID
 assert "showNeutrinoLaunchOptions(&options)" in NEUTRINO
 assert "prepareNeutrinoGameID(opened_iso" in NEUTRINO
 assert "displayRetroGemGameID(gameID, 2);" in NEUTRINO
-assert "setNeutrinoMmceGameID(gameID, opened_iso, fullpath);" in NEUTRINO
+assert "!setNeutrinoMmceGameID(gameID, opened_iso, fullpath)" in NEUTRINO
 assert NEUTRINO.index("prepareNeutrinoGameID(opened_iso") < NEUTRINO.index("prepareNeutrinoCandidateLaunch(&candidates")
 assert NEUTRINO.index("setNeutrinoMmceGameID(gameID") < NEUTRINO.index("CleanUpForKeepIopExec(")
 assert NEUTRINO.index("displayRetroGemGameID(gameID, 2);") > NEUTRINO.index("CleanUpForKeepIopExec(")
@@ -72,7 +75,8 @@ static FILE *iso;
 static int stack_present = 0;
 static int calls, pings, delays, polls, loads;
 static int ping_mask, set_mask, status_mask;
-static int ping_error_mask, set_error_mask, status_result;
+static int ping_error_mask, set_error_mask, status_result, busy_polls, status_error_polls, messages;
+static int port_polls[2];
 static int read_limit, read_error, seek_error;
 enum {STORAGE_STACK_DEFAULT, STORAGE_STACK_MMCE, STORAGE_STACK_MX4SIO};
 static int storage_driver_stack_mode, mx4sio_driver_running;
@@ -115,9 +119,15 @@ int fileXioDevctl(const char *device, int cmd, void *arg, int arglen, void *out,
         return (set_error_mask & mask) ? -1 : 0;
     }
     assert(cmd == 2 && (set_mask & mask) && !arg && !arglen);
-    polls++;status_mask|=mask;return status_result;
+    assert(delays==polls+1); /* Delay before every status read, including the first. */
+    polls++;status_mask|=mask;port_polls[port]++;
+    if(port_polls[port]<=status_error_polls)return -1;
+    return port_polls[port]<=busy_polls ? 1 : status_result;
 }
-void DelayThread(int usec) { assert(usec == 1000000); delays++; }
+void drawMsg(const char *message) {
+    assert(strstr(message,"Switching mmce") && strstr(message,"game memory card"));messages++;
+}
+void DelayThread(int usec) { assert(usec == 2000000); delays++; }
 #define DPRINTF(...) ((void)0)
 """
 init = (ROOT / "src/init.c").read_text()
@@ -130,7 +140,7 @@ code = init[start:end] + (
 )
 main = r"""
 static void reset_mmce(void) {
-    calls=pings=delays=polls=loads=0;
+    calls=pings=delays=polls=loads=messages=busy_polls=status_error_polls=0;port_polls[0]=port_polls[1]=0;
     ping_mask=set_mask=status_mask=0;
     ping_error_mask=set_error_mask=status_result=0;
     stack_present=1;storage_driver_stack_mode=STORAGE_STACK_DEFAULT;
@@ -178,43 +188,67 @@ int main(int argc, char **argv) {
             int eligible=i>=9 ? 0 : elfs[j].mask;
             for (int present=0;present<4;present++) {
                 reset_mmce();ping_error_mask=(~present)&3;
-                setNeutrinoMmceGameID("SLUS_123.45",isos[i],elfs[j].path);
+                assert(setNeutrinoMmceGameID("SLUS_123.45",isos[i],elfs[j].path));
                 assert(ping_mask==eligible && pings==count_slots(eligible));
                 assert(set_mask==(eligible & present));
                 assert(calls==count_slots(set_mask));
                 assert(status_mask==set_mask && polls==calls && delays==calls);
-                assert(loads==(eligible!=0));
+                assert(loads==(eligible!=0) && messages==calls);
             }
         }
     }
     /* A resident MX4SIO stack also excludes switching even for USB paths. */
     reset_mmce();mx4sio_driver_running=1;
     storage_driver_stack_mode=STORAGE_STACK_MX4SIO;
-    setNeutrinoMmceGameID("SLUS_123.45","usb0:/GAME.iso","mass0:/N.ELF");
+    assert(setNeutrinoMmceGameID("SLUS_123.45","usb0:/GAME.iso","mass0:/N.ELF"));
     assert(!loads && !calls && !pings && !polls && !delays);
     reset_mmce();stack_present=0;
-    setNeutrinoMmceGameID("SLUS_123.45","usb0:/GAME.iso","mass0:/N.ELF");
+    assert(setNeutrinoMmceGameID("SLUS_123.45","usb0:/GAME.iso","mass0:/N.ELF"));
     assert(loads==1 && !calls && !pings && !polls && !delays);
     reset_mmce();
-    setNeutrinoMmceGameID("bad","usb0:/GAME.iso","mass0:/N.ELF");
-    setNeutrinoMmceGameID(NULL,"usb0:/GAME.iso","mass0:/N.ELF");
-    setNeutrinoMmceGameID("SLUS_123.45",NULL,"mass0:/N.ELF");
-    setNeutrinoMmceGameID("SLUS_123.45","usb0:/GAME.iso",NULL);
+    assert(setNeutrinoMmceGameID("bad","usb0:/GAME.iso","mass0:/N.ELF"));
+    assert(setNeutrinoMmceGameID(NULL,"usb0:/GAME.iso","mass0:/N.ELF"));
+    assert(setNeutrinoMmceGameID("SLUS_123.45",NULL,"mass0:/N.ELF"));
+    assert(setNeutrinoMmceGameID("SLUS_123.45","usb0:/GAME.iso",NULL));
     assert(!loads && !calls && !pings);
-    /* Each adapter fails independently; no waits without an accepted SET. */
+    /* A responding adapter must accept its request and report ready.
+     * Never launch or try another adapter after an uncertain switch. */
     reset_mmce();set_error_mask=1;
-    setNeutrinoMmceGameID("SLUS_123.45","mmce0:/GAME.iso","mmce0:/N.ELF");
-    assert(ping_mask==3 && set_mask==3 && calls==2);
-    assert(status_mask==2 && polls==1 && delays==1);
-    reset_mmce();set_error_mask=3;
-    setNeutrinoMmceGameID("SLUS_123.45","mmce0:/GAME.iso","mmce0:/N.ELF");
-    assert(calls==2 && !polls && !delays);
-    reset_mmce();status_result=-1;
-    setNeutrinoMmceGameID("SLUS_123.45","mmce0:/GAME.iso","mass0:/N.ELF");
-    assert(polls==2 && delays==2);
+    assert(!setNeutrinoMmceGameID("SLUS_123.45","mmce0:/GAME.iso","mmce0:/N.ELF"));
+    assert(ping_mask==1 && set_mask==1 && calls==1 && messages==1);
+    assert(!polls && !delays);
+    for(int error=-1;error>=-2;error--) {
+        reset_mmce();status_result=error;
+        assert(!setNeutrinoMmceGameID("SLUS_123.45","ata0:/GAME.iso","mmce0:/N.ELF"));
+        assert(polls==15 && delays==15 && ping_mask==1);
+    }
+    /* Retry transient failed reads, followed by busy and then ready. Do not
+     * interpret an error with bit 0 clear as a successful ready response. */
+    for(int failures=1;failures<15;failures++) {
+        reset_mmce();ping_error_mask=2;status_error_polls=failures;status_result=2;
+        assert(setNeutrinoMmceGameID("SLUS_123.45","ata0:/GAME.iso","mmce0:/N.ELF"));
+        assert(polls==failures+1 && delays==polls && set_mask==1);
+    }
+    reset_mmce();ping_error_mask=2;status_error_polls=2;busy_polls=4;
+    assert(setNeutrinoMmceGameID("SLUS_123.45","ata0:/GAME.iso","mmce0:/N.ELF"));
+    assert(polls==5 && delays==5 && set_mask==1);
     reset_mmce();status_result=1;
-    setNeutrinoMmceGameID("SLUS_123.45","mmce0:/GAME.iso","mass0:/N.ELF");
-    assert(polls==30 && delays==30); /* 15 polls per responding adapter. */
+    assert(!setNeutrinoMmceGameID("SLUS_123.45","ata0:/GAME.iso","mmce0:/N.ELF"));
+    assert(polls==15 && delays==15 && ping_mask==1);
+    /* One MMCE in physical slot 1: ATA ISO and MMCE SD ELF. A ready
+     * response at the last allowed poll succeeds; bit 0 alone means busy. */
+    for(int busy=0;busy<15;busy++) {
+        reset_mmce();ping_error_mask=2;busy_polls=busy;status_result=2;
+        assert(setNeutrinoMmceGameID("SLUS_123.45","ata0:/GAME.iso","mmce0:/N.ELF"));
+        assert(polls==busy+1 && delays==polls && set_mask==1 && ping_mask==3 && messages==1);
+    }
+    reset_mmce();busy_polls=2;
+    assert(setNeutrinoMmceGameID("SLUS_123.45","ata0:/GAME.iso","mmce0:/N.ELF"));
+    assert(polls==6 && port_polls[0]==3 && port_polls[1]==3);
+    /* A failure on the second adapter still aborts even if the first is ready. */
+    reset_mmce();set_error_mask=2;
+    assert(!setNeutrinoMmceGameID("SLUS_123.45","ata0:/GAME.iso","mmce0:/N.ELF"));
+    assert(calls==2 && polls==1 && delays==1);
     return 0;
 }
 """

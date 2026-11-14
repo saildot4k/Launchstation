@@ -1,116 +1,76 @@
-"""Execute production audsrv initialization and reset recovery under failures."""
-from pathlib import Path
-import shutil
-import subprocess
-import tempfile
+"""Execute full audio initialization, queue ownership and reset recovery."""
+from dash_sound_harness import run
 
-root = Path(__file__).resolve().parents[1]
-source = (root / "src/dash_sound.c").read_text()
-
-def function(signature):
-    start = source.index(signature)
-    end = source.index("{", start) + 1
-    depth = 1
-    while depth:
-        depth += (source[end] == "{") - (source[end] == "}")
-        end += 1
-    return source[start:end] + "\n"
-
-code = r'''
-#include <assert.h>
-#include <stdlib.h>
-#include <stdio.h>
-typedef struct { void *buffer; } audsrv_adpcm_t;
-#define DASH_SND_COUNT 8
-#define SND_SFX_CH_MAX 23
-#define DASH_TOAST_WARN 1
-static audsrv_adpcm_t samples[DASH_SND_COUNT], bgm_sample;
-static int sound_ready, bgm_loaded, bgm_tried, bgm_channel = -1, sound_retry;
-static void *bgm_data;
-static unsigned int generation, sound_reboot_generation, sound_tried_generation = -1;
-static struct { int sound, bgm, sound_vol; } dashCfg = {1, 1, 50};
-static unsigned char libsd_irx[1], audsrv_irx[1];
-static int size_libsd_irx = 1, size_audsrv_irx = 1;
-static int busy, parked, module_failure, init_failure, adpcm_failure, sample_failures;
-static int module_calls, init_calls, uploads, quits, hard_resets, stops, bgm_starts, warnings;
-static int forbidden_rpc;
-static unsigned int getIopResetGeneration(void) { return generation; }
-static int dashWorkerIoBusy(void) { return busy; }
-static int dashIopParked(void) { return parked; }
-static int SifExecModuleBuffer(void *p, int size, int n, void *args, int *ret) {
-    (void)p; (void)size; (void)n; (void)args;
-    module_calls++; *ret = 0; return module_failure ? -1 : 1;
+run(r'''
+static void ui_during_load(void) {
+    int calls=rpc_calls,queued=submitted;
+    assert(sound_job_id && !sound_ready && !bgm_loaded);
+    ui_steps++;
+    DashInput in;dashInputPollEx(&in,1);
+    assert(in.any && (in.pressed & DASH_IN_DOWN));navigation_events++;
+    /* Real input mapping continues while the worker owns audio/file RPC. */
+    dashSoundPlay(DASH_SND_CURSOR);dashSoundApplyVolume();dashBgmSetVolume();
+    dashBgmStart();dashBgmStop();dashSoundMaintain();dashSoundInit();
+    char status[512];dashSoundGetStatus(status,sizeof(status));assert(strstr(status,"loading"));
+    assert(calls==rpc_calls && queued==submitted);
+    dashCfg.sound_vol=30;dashCfg.bgm_vol=20;
 }
-static int audsrv_init(void) { assert(!forbidden_rpc); init_calls++; return init_failure; }
-static int audsrv_adpcm_init(void) { assert(!forbidden_rpc); hard_resets++; return adpcm_failure; }
-static int audsrv_stop_audio(void) { assert(!forbidden_rpc); stops++; return 0; }
-static void audsrv_quit(void) { assert(!forbidden_rpc); quits++; }
-static void *blob_data(int id) { return &samples[id]; }
-static int blob_size(int id) { (void)id; return 16; }
-static int audsrv_load_adpcm(audsrv_adpcm_t *sample, void *p, int size) {
-    (void)p; assert(!forbidden_rpc && size == 16);
-    int fail = uploads++ < sample_failures;
-    sample->buffer = fail ? NULL : sample; return fail ? -1 : 0;
-}
-static void audsrv_adpcm_set_volume_and_pan(int ch, int volume, int pan) {
-    assert(!forbidden_rpc && ch >= 0 && ch < 23 && volume == 50 && pan == 0);
-}
-static void dashToast(int kind, const char *message) { assert(kind == DASH_TOAST_WARN && message[0]); warnings++; }
-static void dashBgmStart(void) { bgm_starts++; bgm_tried = 1; }
-void dashSoundShutdown(void);
-'''
-for signature in ("static int soundAlive(", "int dashSoundInit(",
-                  "void dashSoundShutdown(", "void dashSoundMaintain("):
-    code += function(signature)
-code += r'''
-static void reset(void) {
-    forbidden_rpc = 0; dashSoundShutdown();
-    generation = sound_reboot_generation = 0; sound_tried_generation = -1;
-    sound_retry = busy = parked = module_failure = init_failure = adpcm_failure = sample_failures = 0;
-    module_calls = init_calls = uploads = quits = hard_resets = stops = bgm_starts = warnings = 0;
-    dashCfg.sound = dashCfg.bgm = 1;
+static void storage_job(void *unused) {
+    (void)unused;assert(worker_thread && active);storage_steps++;
 }
 int main(void) {
-    /* Neither parked IOPs nor active IO may start modules or mark an attempt. */
-    reset(); busy = 1; assert(!dashSoundInit());
-    assert(!module_calls && sound_retry && sound_tried_generation == (unsigned)-1);
-    busy = 0; parked = 1; dashSoundMaintain(); assert(!module_calls);
-    parked = 0; dashSoundMaintain();
-    assert(soundAlive() && module_calls == 2 && uploads == 8 && bgm_starts == 1);
-    for (int i=0; i<20; i++) dashSoundMaintain();
-    assert(module_calls == 2 && uploads == 8 && bgm_starts == 1);
-    /* A healthy service remains usable by BGM if every SFX upload fails. */
-    reset(); sample_failures = DASH_SND_COUNT; dashSoundMaintain();
-    assert(soundAlive() && warnings == 1 && bgm_starts == 1);
-    for (int i=0; i<DASH_SND_COUNT; i++) assert(!samples[i].buffer);
-    for (int i=0; i<20; i++) dashSoundMaintain();
-    assert(warnings == 1 && module_calls == 2 && uploads == 8);
-    /* Real service failures are attempted once per generation, then recover. */
-    for (int failure=0; failure<3; failure++) {
-        reset(); module_failure = failure == 0; init_failure = failure == 1; adpcm_failure = failure == 2;
-        dashSoundMaintain(); assert(!soundAlive() && warnings == 1 && !bgm_starts);
-        int modules = module_calls, inits = init_calls;
-        for (int i=0; i<20; i++) dashSoundMaintain();
-        assert(module_calls == modules && init_calls == inits && warnings == 1);
-        module_failure = init_failure = adpcm_failure = 0;
-        generation++; dashSoundMaintain(); assert(soundAlive() && bgm_starts == 1);
+    reset();during_rpc=ui_during_load;dashSoundRequestBoot();
+    assert(!dashSoundInit());
+    assert(q_count==1 && !module_calls && !rpc_calls && !opens && !sound_ready);
+    for(int i=0;i<20;i++) {ui_steps++;dashSoundMaintain();}
+    assert(submitted==1 && !module_calls); /* Slow/queued init never runs on UI. */
+    settle();during_rpc=NULL;
+    assert(soundAlive() && sample_uploads==8 && music_uploads==1 && ui_steps>20);
+    assert(plays[DASH_SND_BOOT]==1 && plays[23]==1 && volumes[23]==20);
+    for(int i=0;i<23;i++)assert(volumes[i]==30);
+    assert(!sound_job_id && !sound_boot_pending && navigation_events>20);
+    for(int i=0;i<20;i++)dashSoundMaintain();assert(submitted==1);
+    /* Queue order serializes audio with scans/saves/artwork; never bypass it. */
+    reset();dashWorkerSubmit("Storage before",1,storage_job,NULL,NULL);
+    active=1;dashSoundMaintain();active=0;
+    dashWorkerSubmit("Storage after",1,storage_job,NULL,NULL);
+    assert(q_count==3 && !module_calls);
+    finish_one();assert(storage_steps==1 && !module_calls);
+    finish_one();assert(soundAlive() && module_calls==2 && storage_steps==1);
+    finish_one();assert(storage_steps==2);
+    /* Foreground RPC and IOP reset guards defer submission without blocking. */
+    reset();foreground_io=1;dashSoundMaintain();assert(!submitted);
+    foreground_io=0;parked=1;dashSoundMaintain();assert(!submitted);
+    parked=0;reject_submit=1;dashSoundMaintain();assert(!submitted && !sound_job_id);
+    reject_submit=0;dashSoundMaintain();assert(submitted==1);settle();assert(soundAlive());
+    /* A launch/shutdown drains queued initialization and suppresses boot playback. */
+    reset();dashSoundRequestBoot();dashSoundMaintain();dashSoundShutdown();
+    assert(!q_count && !sound_job_id && !sound_ready && !sound_boot_pending && !allocations);
+    assert(quits==1 && stops==1 && !plays[DASH_SND_BOOT] && !plays[23]);
+    /* Stale queued results never invoke old-generation RPC or publish samples. */
+    reset();dashSoundMaintain();generation++;settle();
+    assert(!sound_ready && !module_calls && !rpc_calls && !allocations);
+    dashSoundMaintain();settle();assert(soundAlive());
+    /* Forget an already reset IOP without contacting its destroyed server. */
+    generation++;int before=rpc_calls;dashSoundShutdown();assert(before==rpc_calls);
+    dashSoundMaintain();settle();assert(soundAlive());
+    /* All-SFX failure leaves the healthy service usable by independent BGM. */
+    reset();sample_failures=DASH_SND_COUNT;dashSoundMaintain();settle();
+    assert(soundAlive() && warnings==1 && plays[23]==1);
+    for(int i=0;i<DASH_SND_COUNT;i++)assert(!samples[i].buffer);
+    /* Real failures are attempted once per IOP generation, then recover. */
+    for(int failure=0;failure<4;failure++) {
+        reset();module_failure=failure<2?failure+1:0;init_failure=failure==2;adpcm_failure=failure==3;
+        dashSoundMaintain();settle();assert(!soundAlive() && warnings==1 && !plays[23]);
+        int attempts=submitted;
+        for(int i=0;i<20;i++)dashSoundMaintain();assert(submitted==attempts);
+        module_failure=init_failure=adpcm_failure=0;generation++;
+        dashSoundMaintain();settle();assert(soundAlive() && plays[23]==1);
     }
-    /* Forget stale RPC state without contacting the destroyed old server. */
-    reset(); dashSoundMaintain(); generation++; forbidden_rpc = 1;
-    dashSoundShutdown(); assert(!sound_ready && !quits && !stops);
-    forbidden_rpc = 0; dashSoundMaintain(); assert(soundAlive() && bgm_starts == 2);
-    dashSoundShutdown(); assert(quits == 1 && stops == 1 && !sound_ready);
-    /* The runtime music workaround survives an Off/Off saved configuration. */
-    reset(); dashCfg.sound = dashCfg.bgm = 0; dashSoundMaintain();
-    assert(soundAlive() && module_calls==2 && bgm_starts==1);
-    puts("PASS: production sound initialization failures, BGM independence, IO deferral and reset generations");
+    reset();dashCfg.sound=dashCfg.bgm=0;dashSoundMaintain();settle();
+    assert(soundAlive() && module_calls==2 && plays[23]==1 && volumes[23]==10);
+    reset();
+    puts("PASS: background-only module/sample/music loading, UI RPC exclusion, settings snapshots, queue serialization, startup cue, shutdown draining, failures and reset generations");
+    return 0;
 }
-'''
-with tempfile.TemporaryDirectory(prefix="sound-recovery-") as folder:
-    path = Path(folder)
-    (path / "test.c").write_text(code)
-    exe = path / "test.exe"
-    compiler = shutil.which("gcc") or shutil.which("clang")
-    assert compiler, "Host C compiler required"
-    subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror", str(path / "test.c"), "-o", str(exe)], check=True)
-    subprocess.run([str(exe)], check=True, timeout=10)
+''', 'recovery', navigation=True)
