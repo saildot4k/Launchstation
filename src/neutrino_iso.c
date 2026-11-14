@@ -179,7 +179,6 @@ static int prepareNeutrinoCandidateLaunch(const POPSTARTER_CANDIDATE_LIST *candi
 		if (strncmp(iso_path, "mx4sio", 6) && strncmp(selected, "mx4sio", 6))
 			loadMmceModules();
 #endif
-		drawMsg("Preparing Neutrino executable...");
 		ret = preparePopstarterElfLaunch(selected, fullpath, fullpath_size,
 		                                 party, party_size, exec_kind);
 		if (ret != POPSTARTER_ERR_OPEN_POPSTARTER)
@@ -188,7 +187,7 @@ static int prepareNeutrinoCandidateLaunch(const POPSTARTER_CANDIDATE_LIST *candi
 	return ret;
 }
 
-int LaunchNeutrinoIso(const char *path, char *message, size_t message_size)
+static int launchNeutrinoIso(const char *path, char *message, size_t message_size)
 {
 	POPSTARTER_CANDIDATE_LIST candidates;
 	NEUTRINO_LAUNCH_OPTIONS options;
@@ -293,11 +292,24 @@ int LaunchNeutrinoIso(const char *path, char *message, size_t message_size)
 #endif
 	/* Cleanup frees settings; retain the display choice before handoff. */
 	show_gameid = have_gameid && !setting->cdrom_disable_gameid;
-	drawMsg("Starting Neutrino...");
-	if (!CleanUpForKeepIopExec("Preparing Neutrino"))
+	if (!CleanUpForKeepIopExec(NULL))
 		return 0;
 	if (show_gameid)
 		displayRetroGemGameID(gameID, 2);
 	RunLoaderElfKeepIOP(fullpath, party, selected, exec_kind);
 	return 1;
+}
+
+/* Silence informational driver/probe feedback for the whole ISO route,
+ * including profile lookup and card selection. Errors still return through
+ * message; restore normal browser feedback on every failed/cancelled launch. */
+int LaunchNeutrinoIso(const char *path, char *message, size_t message_size)
+{
+	int quiet = isStartupDriverStatusQuiet();
+	int result;
+
+	setStartupDriverStatusQuiet(1);
+	result = launchNeutrinoIso(path, message, message_size);
+	setStartupDriverStatusQuiet(quiet);
+	return result;
 }

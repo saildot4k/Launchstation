@@ -54,8 +54,11 @@ void DashFileDeleteProgress(const char *name);
 int DashSaveConflictChoice(const char *name);
 
 /* Finish dashboard-owned IO/audio before a child ELF that deliberately
- * inherits the live IOP. Returns 0 if the user cancels the bounded wait. */
+ * inherits the live IOP. NULL title waits without a progress popup.
+ * Returns 0 if the user cancels the bounded wait. */
 int DashPrepareKeepIopHandoff(const char *title);
+/* Committed cleanup only, after IO/audio drain: stop callbacks before freeing UI state. */
+void DashStopUiForExec(void);
 /* Release Confirm for the saved mode, or hold one second to reverse it.
  * Does not edit configuration; callers retain the returned mode per launch. */
 int DashChooseElfIopMode(int configured);

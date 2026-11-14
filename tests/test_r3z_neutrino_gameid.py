@@ -125,7 +125,7 @@ int fileXioDevctl(const char *device, int cmd, void *arg, int arglen, void *out,
     return port_polls[port]<=busy_polls ? 1 : status_result;
 }
 void drawMsg(const char *message) {
-    assert(strstr(message,"Switching mmce") && strstr(message,"game memory card"));messages++;
+    (void)message;messages++;assert(!"Card switching must not draw informational popups");
 }
 void DelayThread(int usec) { assert(usec == 2000000); delays++; }
 #define DPRINTF(...) ((void)0)
@@ -193,7 +193,7 @@ int main(int argc, char **argv) {
                 assert(set_mask==(eligible & present));
                 assert(calls==count_slots(set_mask));
                 assert(status_mask==set_mask && polls==calls && delays==calls);
-                assert(loads==(eligible!=0) && messages==calls);
+                assert(loads==(eligible!=0) && messages==0);
             }
         }
     }
@@ -215,7 +215,7 @@ int main(int argc, char **argv) {
      * Never launch or try another adapter after an uncertain switch. */
     reset_mmce();set_error_mask=1;
     assert(!setNeutrinoMmceGameID("SLUS_123.45","mmce0:/GAME.iso","mmce0:/N.ELF"));
-    assert(ping_mask==1 && set_mask==1 && calls==1 && messages==1);
+    assert(ping_mask==1 && set_mask==1 && calls==1 && messages==0);
     assert(!polls && !delays);
     for(int error=-1;error>=-2;error--) {
         reset_mmce();status_result=error;
@@ -240,7 +240,7 @@ int main(int argc, char **argv) {
     for(int busy=0;busy<15;busy++) {
         reset_mmce();ping_error_mask=2;busy_polls=busy;status_result=2;
         assert(setNeutrinoMmceGameID("SLUS_123.45","ata0:/GAME.iso","mmce0:/N.ELF"));
-        assert(polls==busy+1 && delays==polls && set_mask==1 && ping_mask==3 && messages==1);
+        assert(polls==busy+1 && delays==polls && set_mask==1 && ping_mask==3 && messages==0);
     }
     reset_mmce();busy_polls=2;
     assert(setNeutrinoMmceGameID("SLUS_123.45","ata0:/GAME.iso","mmce0:/N.ELF"));

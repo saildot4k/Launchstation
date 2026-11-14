@@ -19,7 +19,6 @@ code = r"""
 typedef struct { char path[MAX_PATH]; } Candidate;
 typedef struct { Candidate entry[2]; int count; } POPSTARTER_CANDIDATE_LIST;
 static int loads, prepares, load_ok, mx_active, results[2], wanted_loads[2];
-static void drawMsg(const char *message) { assert(!strcmp(message,"Preparing Neutrino executable...")); }
 #ifdef MMCE
 static int loadMmceModules(void) {
  loads++;if(load_ok)mx_active=0;return load_ok;
@@ -77,7 +76,7 @@ int main(void) {
  return 0;
 }
 """
-launch = source[source.index("int LaunchNeutrinoIso("):]
+launch = source[source.index("static int launchNeutrinoIso("):]
 assert launch.index("showNeutrinoLaunchOptions(&options)") < launch.index("ret = prepareNeutrinoCandidateLaunch(")
 assert launch.index("ret = prepareNeutrinoCandidateLaunch(") < launch.index("setNeutrinoMmceGameID(")
 assert "!setNeutrinoMmceGameID(gameID, opened_iso, fullpath)" in launch

@@ -61,6 +61,7 @@ jobs:
           python3 tests/test_settings_persistence.py
           python3 tests/test_storage_probe_frames.py
           python3 tests/test_cooperative_io.py
+          python3 tests/test_exec_ui_lifetime.py
           python3 tests/test_mmce_bus_restore.py
           python3 tests/test_poweroff_init.py
           python3 tests/test_settings_save_prompt.py

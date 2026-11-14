@@ -299,7 +299,7 @@ void dashSoundShutdown(void)
 	 * Suppress automatic restarts while the queue is being drained. */
 	sound_closing = 1;
 	if (sound_job_id)
-		dashWorkerAwait(sound_job_id, "Finishing audio", 0);
+		dashWorkerAwait(sound_job_id, isStartupDriverStatusQuiet() ? NULL : "Finishing audio", 0);
 	sound_boot_pending = 0;
 	sound_music_pending = 0;
 	sound_volume_pending = 0;

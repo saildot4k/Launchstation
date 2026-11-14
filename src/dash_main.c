@@ -45,7 +45,7 @@ static int startup_audio_pending, startup_audio_ready, startup_boot_sound;
  * cooperative audio waits can present again, so consume the request first. */
 void dashStartupAudioAfterPresent(void)
 {
-	if (!startup_audio_pending || !startup_audio_ready || boot_phase ||
+	if (!dash_active || !startup_audio_pending || !startup_audio_ready || boot_phase ||
 	    fade_in < 0.95f || DashIoBusy())
 		return;
 	startup_audio_pending = 0;
@@ -227,7 +227,8 @@ int dashConfirmLeave(void)
 //--------------------------------------------------------------
 static void dashMsgHook(const char *msg)
 {
-	dashLoadingStatus(msg, 0, 0);
+	if (dash_active && !isStartupDriverStatusQuiet())
+		dashLoadingStatus(msg, 0, 0);
 }
 
 static void dashLaunchHook(const char *path)
@@ -283,6 +284,15 @@ int DashChooseElfIopMode(int configured)
 	return mode;
 }
 
+/* After cleanup commits, SDK RPC waits must never redraw settings/fonts
+ * that are about to be released. DashIsActive also gates the wait shim. */
+void DashStopUiForExec(void)
+{
+	dash_active = 0;
+	startup_audio_pending = 0;
+	startup_audio_ready = 0;
+}
+
 int DashPrepareKeepIopHandoff(const char *title)
 {
 	if (!dash_active)
@@ -295,7 +305,7 @@ int DashPrepareKeepIopHandoff(const char *title)
 	 * IOP-side RPC/device state. Also end audsrv cleanly rather than leaving
 	 * our dashboard audio client/server state behind for Ember to inherit.
 	 */
-	if (!settleBackgroundWork(title != NULL ? title : "Preparing application"))
+	if (!settleBackgroundWork(title))
 		return 0;
 	filerRootMcPollIdle();
 	dashSoundShutdown();
@@ -528,12 +538,14 @@ void dashLaunchApp(DashApp *app, int with_args_prompt)
 	char path[MAX_PATH];
 	char title[DASH_TITLE_MAX + 16];
 	DashApp copy;
+	int iso_launch;
 	MainExecuteContext launch_ctx = exec_ctx;
 
 	if (app == NULL)
 		return;
 	memcpy(&copy, app, sizeof(copy));
 	dashStrCopy(path, copy.path, sizeof(path));
+	iso_launch = IsNeutrinoIsoPath(path);
 	if (with_args_prompt != DASH_LAUNCH_PENDING_ARGS)
 		LaunchArgsClear();
 
@@ -565,7 +577,7 @@ void dashLaunchApp(DashApp *app, int with_args_prompt)
 	}
 	if (with_args_prompt == 1 || with_args_prompt == DASH_LAUNCH_PENDING_ARGS) {
 		/* arguments already loaded by the editor or its "Use" action */
-	} else if (!settleBackgroundWork("Finishing up")) {
+	} else if (!settleBackgroundWork(iso_launch ? NULL : "Finishing up")) {
 		return; /* the user backed out while saves/driver work finished */
 	} else if ((copy.flags & DASH_APP_HAS_ARGS) && !argSidecarExists(path)) {
 		char args[1024];
@@ -583,14 +595,16 @@ void dashLaunchApp(DashApp *app, int with_args_prompt)
 	dashStorePushRecent(copy.path);
 	/* the recent list, cache and anything the worker picked up meanwhile
 	 * (e.g. drivers restarted after the Text Editor) are written first */
-	if (!settleBackgroundWork(title)) {
+	if (!settleBackgroundWork(iso_launch ? NULL : title)) {
 		LaunchArgsClear();
 		return;
 	}
 	filerRootMcPollIdle();
-	dashBgFlash(0.8f);
-	dashLoadingBegin(title);
-	dashLoadingStatus(copy.path, 0, 0);
+	if (!iso_launch) {
+		dashBgFlash(0.8f);
+		dashLoadingBegin(title);
+		dashLoadingStatus(copy.path, 0, 0);
+	}
 	exec_ctx.main_msg[0] = '\0';
 	mainActionLaunchHook = NULL; /* already recorded */
 	/* Mute ordinary launches until target validation; final cleanup stops

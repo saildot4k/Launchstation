@@ -225,7 +225,7 @@ int prepareNeutrinoGameID(const char *iso_path, char *gameID, size_t gameID_len)
  * Never replace a prepared MX4SIO stack. */
 int setNeutrinoMmceGameID(const char *gameID, const char *iso_path, const char *elf_path)
 {
-	char device[] = "mmce0:", progress[80];
+	char device[] = "mmce0:";
 	int port, poll, status;
 
 	if (!validGameID(gameID) || iso_path == NULL || elf_path == NULL ||
@@ -241,8 +241,6 @@ int setNeutrinoMmceGameID(const char *gameID, const char *iso_path, const char *
 			continue;
 		if (fileXioDevctl(device, MMCE_CMD_PING, NULL, 0, NULL, 0) < 0)
 			continue;
-		snprintf(progress, sizeof(progress), "Switching %s game memory card...", device);
-		drawMsg(progress);
 		if (fileXioDevctl(device, MMCE_CMD_SET_GAMEID, (void *)gameID, NEUTRINO_GAME_ID_SIZE, NULL, 0) < 0)
 			return 0;
 		for (poll = 0; poll < MMCE_SWITCH_POLLS; poll++) {

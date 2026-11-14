@@ -47,7 +47,7 @@ for token in ("IsPopstarterVcdPath(path)", 'genCmpFileExt(path, "CUE") || IsEmbe
 for path, symbol, field, first_io in (
     ("src/ember.c", "LaunchEmberGame", "disable_ember", "parseEmberGamePath(path,"),
     ("src/popstarter.c", "LaunchPopstarterVcd", "disable_popstarter", "prepareLaunch(path,"),
-    ("src/neutrino_iso.c", "LaunchNeutrinoIso", "disable_neutrino", "validateIso(path,"),
+    ("src/neutrino_iso.c", "launchNeutrinoIso", "disable_neutrino", "validateIso(path,"),
 ):
     body = function(source(path), "int " + symbol + "(")
     guard = "if (setting != NULL && setting->" + field + ")"

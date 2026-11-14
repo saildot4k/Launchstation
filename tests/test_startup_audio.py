@@ -202,6 +202,9 @@ int main(void) {
  reset(DASH_SEC_FILES,2,0,"MISC/TextEditor");held_key=0;DashRun(&ctx,1);show();
  assert(!audio_calls);now_ms=boot_phase_end;bootUpdate(&no_input);
  assert(audio_calls==1&&audio_tool==1&&launches==1);
+ /* Late presents after committed handoff cannot start audio again. */
+ reset(DASH_SEC_HOME,0,0,"");DashRun(&ctx,1);dash_active=0;
+ show();assert(!audio_calls && !boot_sounds && startup_audio_pending);
  /* Startup audio waits for foreground IO, worker reads and parked IOPs. */
  for(int busy=0;busy<3;busy++) {
   reset(DASH_SEC_FILES,0,0,"");DashRun(&ctx,1);

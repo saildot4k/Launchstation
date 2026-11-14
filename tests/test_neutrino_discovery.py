@@ -36,7 +36,9 @@ typedef struct { char path[MAX_PATH],resolved[MAX_PATH];int result; } Install;
 static File files[32];static Install installs[8];
 static int nfiles,ninstalls,probes,prepares,loads,expected_loads,load_ok;
 static int validations,iso_ok,ids,options_calls,accept,cleanup,cleanup_ok,runs,signals,mmce_calls;
-static int switch_ok,preparing_messages,starting_messages;
+static int switch_ok,status_quiet;
+static int isStartupDriverStatusQuiet(void) { return status_quiet; }
+static void setStartupDriverStatusQuiet(int quiet) { status_quiet=quiet; }
 static char probe_paths[128][MAX_PATH],iso_path[MAX_PATH],args[1400],prepared[MAX_PATH],switched_loader[MAX_PATH];
 static void addFile(const char *path,int magic) {
     assert(nfiles<32);snprintf(files[nfiles].path,MAX_PATH,"%s",path);files[nfiles++].magic=magic;
@@ -51,7 +53,7 @@ static int genCmpFileExt(const char *path,const char *ext) {
 }
 static int openPathForRead(const char *path,char *opened,size_t size) {
     /* Discovery only probes ELF files, after the user accepts the menu. */
-    assert(!strstr(path,".toml"));
+    assert(!strstr(path,".toml") && status_quiet);
     assert(options_calls==1 && accept && probes<128);
     snprintf(probe_paths[probes++],MAX_PATH,"%s",path);
     for(int i=0;i<nfiles;i++)if(!strcmp(path,files[i].path)) {
@@ -66,7 +68,7 @@ static int genRead(int fd,void *buffer,int size) {
 }
 static void genClose(int fd) { assert(fd>0 && fd<=nfiles); }
 static int validateIso(const char *path,char *opened,size_t size) {
-    validations++;assert(!probes);snprintf(opened,size,"%s",path);return iso_ok;
+    validations++;assert(!probes && status_quiet);snprintf(opened,size,"%s",path);return iso_ok;
 }
 static int DashIsActive(void) { return 1; }
 static int prepareNeutrinoGameID(const char *path,char *id,size_t size) {
@@ -105,13 +107,8 @@ static int preparePopstarterElfLaunch(const char *path,char *full,size_t full_si
     }
     assert(!"preparing an unknown installation");return POPSTARTER_ERR_OPEN_POPSTARTER;
 }
-static void drawMsg(const char *message) {
-    assert(setting && !cleanup);
-    if(!strcmp(message,"Preparing Neutrino executable..."))preparing_messages++;
-    else { assert(!strcmp(message,"Starting Neutrino...") && args[0]);starting_messages++; }
-}
 static int CleanUpForKeepIopExec(const char *title) {
-    assert(!strcmp(title,"Preparing Neutrino") && args[0]);cleanup++;
+    assert(title==NULL && args[0] && status_quiet);cleanup++;
 #ifdef MMCE
     assert(mmce_calls==1 && !strcmp(switched_loader,prepared));
 #endif
@@ -136,13 +133,13 @@ for signature in ("static void setMessage(", "int IsNeutrinoIsoPath(",
                   "static int addNeutrinoCandidate(", "static int findNeutrinoOnRoot(",
                   "static int deviceRootCandidate(", "static const char *neutrinoBsdForPath(",
                   "static int buildArgs(", "static int prepareNeutrinoCandidateLaunch(",
-                  "int LaunchNeutrinoIso("):
+                  "static int launchNeutrinoIso(", "int LaunchNeutrinoIso("):
     code += function(source, signature)
 code += r'''
 static void reset(void) {
-    setting=&config;memset(&config,0,sizeof(config));nfiles=ninstalls=probes=prepares=loads=expected_loads=0;
+    assert(!status_quiet);setting=&config;memset(&config,0,sizeof(config));nfiles=ninstalls=probes=prepares=loads=expected_loads=0;
     validations=ids=options_calls=cleanup=runs=signals=mmce_calls=0;
-    preparing_messages=starting_messages=0;switch_ok=1;
+    switch_ok=1;
     accept=iso_ok=cleanup_ok=load_ok=1;args[0]=prepared[0]=switched_loader[0]=0;
     strcpy(iso_path,"usb1:/DVD/GAME.ISO");
 }
@@ -152,7 +149,7 @@ static int prefixProbes(const char *prefix) {
 static void success(const char *wanted) {
     char message[512]={0};assert(LaunchNeutrinoIso(iso_path,message,sizeof(message))==1);
     assert(!message[0] && runs==1 && cleanup==1 && ids==1 && options_calls==1 && validations==1);
-    assert(!strcmp(prepared,wanted) && preparing_messages==prepares && starting_messages==1);
+    assert(!strcmp(prepared,wanted) && !status_quiet);
 }
 int main(void) {
     /* A valid ELF alone is enough on every device, including mc: aliases
@@ -201,6 +198,15 @@ int main(void) {
         assert(prefixProbes("usb1:")==4 && prefixProbes("mc0:")==4 && prepares==1);
     }
     char message[512];
+    /* Preserve an already quiet caller, and restore status feedback after
+     * cancellation/errors so later file-browser driver prompts still work. */
+    reset();status_quiet=1;install("usb1:/NEUTRINO/neutrino.elf",1,POPSTARTER_OK,NULL);
+    assert(LaunchNeutrinoIso(iso_path,message,sizeof(message)) && status_quiet==1);status_quiet=0;
+    for(int prior=0;prior<2;prior++) {
+        reset();status_quiet=prior;accept=0;
+        assert(!LaunchNeutrinoIso(iso_path,message,sizeof(message)) && !message[0]);
+        assert(status_quiet==prior);status_quiet=0;
+    }
 #ifdef MMCE
     /* ATA ISO, configured MMCE ELF: failed readiness never starts cleanup or
      * invokes the loader, and must not trigger unrelated fallback discovery. */
@@ -209,7 +215,7 @@ int main(void) {
     install(config.neutrino_file,1,POPSTARTER_OK,NULL);
     assert(!LaunchNeutrinoIso(iso_path,message,sizeof(message)));
     assert(strstr(message,"MMCE game-card switch") && mmce_calls==1 && args[0]);
-    assert(probes==1 && prepares==1 && !cleanup && !runs && !starting_messages && setting);
+    assert(probes==1 && prepares==1 && !cleanup && !runs && setting);
 #endif
     reset();config.cdrom_disable_gameid=1;
     install("usb1:/NEUTRINO/neutrino.elf",1,POPSTARTER_OK,NULL);
@@ -229,7 +235,8 @@ int main(void) {
     assert(!ids && !options_calls && !probes);
     reset();config.disable_neutrino=1;assert(!LaunchNeutrinoIso(iso_path,message,sizeof(message)));
     assert(!validations && !ids && !options_calls && !probes);
-    puts("PASS: configured Neutrino skips every fallback probe; lazy game-device/mc0/mc1 fallback, preparation failures, aliases, case variants, no TOML probes, cancellation and unchanged MMCE-before-ELF/argument handoff");
+    assert(!status_quiet);
+    puts("PASS: quiet ISO launch and restored browser feedback; configured Neutrino skips every fallback probe; lazy game-device/mc0/mc1 fallback, preparation failures, aliases, case variants, no TOML probes, cancellation and unchanged MMCE-before-ELF/argument handoff");
 }
 '''
 compiler = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")

@@ -32,7 +32,8 @@ u8 sfx_message_adp[16], sfx_boot_adp[16], sfx_connect_adp[16], sfx_disconnect_ad
 int size_sfx_cursor_adp=16, size_sfx_confirm_adp=16, size_sfx_cancel_adp=16, size_sfx_transition_adp=16;
 int size_sfx_message_adp=16, size_sfx_boot_adp=16, size_sfx_connect_adp=16, size_sfx_disconnect_adp=16;
 static unsigned generation;
-static int worker_thread, active, parked, foreground_io, frame_active, reject_submit;
+static int worker_thread, active, parked, foreground_io, frame_active, reject_submit, status_quiet;
+static int isStartupDriverStatusQuiet(void) {return status_quiet;}
 static int module_failure, init_failure, adpcm_failure, sample_failures, upload_error;
 static int module_calls, init_calls, adpcm_calls, sample_uploads, music_uploads, warnings;
 static int quits, stops, rpc_calls, ui_steps, storage_steps;
@@ -61,7 +62,7 @@ static int dashWorkerSubmit(const char *label,int flags,JobFn run,JobFn done,voi
     return jobs[i].id;
 }
 static int dashWorkerAwait(int id,const char *label,int cancelable) {
-    assert(!worker_thread && label && !cancelable);
+    assert(!worker_thread && !cancelable && (status_quiet ? label==NULL : label!=NULL));
     while(completed_id<id)finish_one();
     return 1;
 }
@@ -137,7 +138,7 @@ static void dashToast(int kind,const char *message) {
 '''
 RESET = r'''
 static void reset(void) {
-    during_rpc=NULL;foreground_io=parked=frame_active=0;
+    during_rpc=NULL;foreground_io=parked=frame_active=status_quiet=0;
     dashSoundShutdown();assert(!allocations && !q_count);
     memset(&sound_job,0,sizeof(sound_job));sound_job_id=sound_closing=sound_volume_pending=sound_boot_pending=sound_music_pending=0;
     sound_ready=bgm_loaded=bgm_tried=0;bgm_channel=-1;bgm_data=NULL;

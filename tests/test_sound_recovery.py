@@ -44,7 +44,7 @@ int main(void) {
     parked=0;reject_submit=1;dashSoundMaintain();assert(!submitted && !sound_job_id);
     reject_submit=0;dashSoundMaintain();assert(submitted==1);settle();assert(soundAlive());
     /* A launch/shutdown drains queued initialization and suppresses boot playback. */
-    reset();dashSoundRequestBoot();dashSoundMaintain();dashSoundShutdown();
+    reset();dashSoundRequestBoot();dashSoundMaintain();status_quiet=1;dashSoundShutdown();
     assert(!q_count && !sound_job_id && !sound_ready && !sound_boot_pending && !allocations);
     assert(quits==1 && stops==1 && !plays[DASH_SND_BOOT] && !plays[23]);
     /* Stale queued results never invoke old-generation RPC or publish samples. */
