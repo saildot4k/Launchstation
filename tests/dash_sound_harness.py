@@ -55,7 +55,9 @@ static int dashWorkerIoBusy(void) { return active; }
 static int DashIoBusy(void) { return active || parked || foreground_io || frame_active; }
 static void finish_one(void);
 static int dashWorkerSubmit(const char *label,int flags,JobFn run,JobFn done,void *arg) {
-    assert(!worker_thread && label && flags==DASH_JOB_VISIBLE);
+    assert(!worker_thread && label);
+    if(!strcmp(label,"Preparing audio"))assert(flags==0);
+    else assert(flags==DASH_JOB_VISIBLE);
     if(reject_submit || q_count==32)return -1;
     int i=(q_head+q_count++)%32;
     jobs[i].id=next_id++;jobs[i].run=run;jobs[i].done=done;jobs[i].arg=arg;submitted++;

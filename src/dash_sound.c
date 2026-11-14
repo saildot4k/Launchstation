@@ -281,7 +281,8 @@ void dashSoundMaintain(void)
 	sound_job.effects = dashCfg.sound;
 	sound_job.effects_volume = dashCfg.sound_vol;
 	snprintf(sound_job.directory, sizeof(sound_job.directory), "%s", directory);
-	sound_job_id = dashWorkerSubmit("Preparing audio", DASH_JOB_VISIBLE,
+	/* Routine background audio preparation does not need an activity popup. */
+	sound_job_id = dashWorkerSubmit("Preparing audio", 0,
 	                               soundJobRun, soundJobDone, &sound_job);
 	if (sound_job_id < 0) {
 		sound_job_id = 0; /* retry submission later; no blocking UI fallback */
