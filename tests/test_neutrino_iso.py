@@ -19,7 +19,8 @@ assert "setting->neutrino_file[0] = '\\0'" in config
 
 assert 'genCmpFileExt(path, "ISO")' in launcher
 assert '"CD001"' in launcher
-assert ".toml" not in launcher.lower()
+assert "config/system.toml" in launcher
+assert "system.toml" in launcher
 assert "neutrinoElfReadable" in launcher
 assert "openPathForRead(path" in launcher
 
@@ -27,8 +28,8 @@ assert "openPathForRead(path" in launcher
 order = [
     "setting->neutrino_file",
     "deviceRootCandidate(path",
-    'findNeutrinoOnRoot("mc0:"',
-    'findNeutrinoOnRoot("mc1:"',
+    'findCompleteOnRoot("mc0:"',
+    'findCompleteOnRoot("mc1:"',
 ]
 pos = [launcher.index(x) for x in order]
 assert pos == sorted(pos)
