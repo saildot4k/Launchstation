@@ -1712,9 +1712,18 @@ static void browserDrawBody(void)
 	/* Give the current folder its own aligned lane above the file list. */
 	dashDrawPanelBox(DASH_PANE_L, path_panel_y, DASH_PANE_W, 24, 6);
 	/* Text uses y + 16 * scale as its visual centre for every theme font. */
-	dashTextScroll(FB_X + 6, path_center_y - 16.0f * DASH_FS_SMALL,
-	               fb.startup_status[0] ? FB_W - 12 : fb_tab_active ? FB_W - 227 : FB_W - 162,
-	               fb.startup_status[0] ? fb.startup_status : fb.dir[0] ? display_path : "Choose a device", DASH_FS_SMALL, DASH_C_TEXT2);
+	if (fb.startup_status[0]) {
+		const float radius = 5.0f, extent = radius + 5.0f; /* include the spinner's glow */
+		float gap = dashTextWidth("  ", DASH_FS_SMALL);
+		float text_end = dashTextFit(FB_X + 6, path_center_y - 16.0f * DASH_FS_SMALL,
+		                             FB_W - 12 - gap - extent * 2.0f,
+		                             fb.startup_status, DASH_FS_SMALL, DASH_C_TEXT2);
+
+		dashDrawSpinner(text_end + gap + extent, path_center_y, radius, DASH_C_ACCENT);
+	} else
+		dashTextScroll(FB_X + 6, path_center_y - 16.0f * DASH_FS_SMALL,
+		               fb_tab_active ? FB_W - 227 : FB_W - 162,
+		               fb.dir[0] ? display_path : "Choose a device", DASH_FS_SMALL, DASH_C_TEXT2);
 	if (fb.dir[0] && !fb.startup_status[0]) {
 		char space[40];
 
