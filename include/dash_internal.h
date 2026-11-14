@@ -492,6 +492,9 @@ enum DashIcon {
 	DI_SAVE,        /* upstream floppy disk: shutter on top, label below */
 	DI_MICROSD,     /* notched microSD outline for MMCE and MX4SIO */
 	DI_NETWORK_FOLDER, /* existing folder with a network bus and nodes below */
+	DI_SOUND,       /* filled speaker with two sound waves */
+	DI_KEYBOARD,    /* wired keyboard with keys and a space bar */
+	DI_HIDE,        /* crossed-out eye for application visibility */
 	DI_COUNT
 };
 

@@ -401,9 +401,9 @@ static const SetPage pages[P_COUNT] = {
     [P_THEME] = PAGE("Customize theme", DI_PALETTE, "Choose which part of your theme to edit.", theme_items),
     [P_APPS] = PAGE("Home & applications", DI_HOME, "How applications are presented and discovered.", dash_items),
     [P_LIBRARY] = PAGE("Application library", DI_APPS, "Folders and refresh behavior for the ELF library.", library_items),
-    [P_SOUND] = PAGE("Sound", DI_PLAY, "Music and interface sounds have separate volume controls.", sound_items),
+    [P_SOUND] = PAGE("Sound", DI_SOUND, "Music and interface sounds have separate volume controls.", sound_items),
     [P_INPUT] = PAGE("Input", DI_GAMEPAD, "Controller confirmation and keyboard input.", control_items),
-    [P_KEYBOARD] = PAGE("USB keyboard", DI_KEY, "USB keyboard support and optional driver/key map.", keyboard_items),
+    [P_KEYBOARD] = PAGE("USB keyboard", DI_KEYBOARD, "USB keyboard support and optional driver/key map.", keyboard_items),
     [P_LAUNCH] = PAGE("Launching", DI_PLAY, "Boot actions, button shortcuts and application handoff.", launch_items),
     [P_BOOT] = PAGE("Automatic start & boot", DI_CLOCK, "Any button cancels the automatic start countdown.", startup_items),
     [P_LKEY] = PAGE("Launch keys", DI_KEY, "Hold a button at boot, or hold SELECT and press it in the dashboard.", lkey_items),
@@ -2949,7 +2949,8 @@ static void settingsDraw(void)
 			               it->type == ST_PATH ? DI_FOLDER :
 			               it->type == ST_IP ? DI_NETWORK :
 			               it->type == ST_LKEY ? DI_KEY :
-			               it->type == ST_ACTION ? (it->id == S_SAVE_AS ? DI_SAVE : it->id == S_CLOCK ? DI_CLOCK : DI_PLAY) :
+			               it->type == ST_ACTION ? (it->id == S_SAVE_AS ? DI_SAVE : it->id == S_CLOCK ? DI_CLOCK :
+			                                         it->id == S_CLEAR_RECENT ? DI_CLOSE : it->id == S_RESCAN ? DI_REFRESH : DI_PLAY) :
 			               it->type == ST_INFO ? DI_INFO : DI_SETTINGS;
 			dashIcon(row_icon, ix + 12, y + 7, 15, col);
 		}

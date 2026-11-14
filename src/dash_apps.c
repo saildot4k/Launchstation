@@ -225,7 +225,7 @@ void dashAppActions(DashApp *a)
 	items[n].icon = DI_FOLDER, items[n].label = "Show in File Browser", items[n].detail = NULL, items[n].disabled = 0, ids[n++] = 5;
 	items[n].icon = DI_TEXT, items[n].label = "Edit metadata", items[n].detail = NULL, items[n].disabled = 0, ids[n++] = 6;
 	if (in_lib)
-		items[n].icon = DI_CLOSE, items[n].label = dashStoreIsHidden(a->path) ? "Show in view" : "Hide from view", items[n].detail = "file kept", items[n].disabled = 0, ids[n++] = 7;
+		items[n].icon = DI_HIDE, items[n].label = dashStoreIsHidden(a->path) ? "Show in view" : "Hide from view", items[n].detail = "file kept", items[n].disabled = 0, ids[n++] = 7;
 	else
 		items[n].icon = DI_CLOSE, items[n].label = "Remove shortcut", items[n].detail = NULL, items[n].disabled = 0, ids[n++] = 8;
 
@@ -280,7 +280,7 @@ static void appsMenu(void)
 	}
 	items[n].icon = DI_VIEW_GRID + dashCfg.view, items[n].label = "Change view", items[n].detail = NULL, items[n].disabled = 0, n++;
 	items[n].icon = DI_STAR, items[n].label = filt, items[n].detail = NULL, items[n].disabled = 0, n++;
-	items[n].icon = DI_CLOSE, items[n].label = a && dashStoreIsHidden(a->path) ? "Show in view" : "Hide from view", items[n].detail = NULL, items[n].disabled = a == NULL, n++;
+	items[n].icon = DI_HIDE, items[n].label = a && dashStoreIsHidden(a->path) ? "Show in view" : "Hide from view", items[n].detail = NULL, items[n].disabled = a == NULL, n++;
 	items[n].icon = DI_REFRESH, items[n].label = "Refresh library", items[n].detail = "scan now", items[n].disabled = 0, n++;
 
 	r = dashModalMenu("Applications", NULL, items, n, 0);
