@@ -169,6 +169,7 @@ typedef struct { int icon;const char *label,*detail;int disabled; } DashMenuItem
 #define DI_VIEW_GRID 25
 #define DI_CLOSE 26
 #define DI_REFRESH 27
+#define DI_HIDE 28
 #define DASH_VIEW_COUNT 3
 static int popup_choice=-1,filter_choice=-1,action_menus,manual_rescans;
 static int dashModalMenu(const char *title,const char *subtitle,const DashMenuItem *items,int n,int initial) {
