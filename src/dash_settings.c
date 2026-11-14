@@ -2950,7 +2950,7 @@ static void settingsDraw(void)
 			               it->type == ST_PATH ? DI_FOLDER :
 			               it->type == ST_IP ? DI_NETWORK :
 			               it->type == ST_LKEY ? DI_KEY :
-			               it->type == ST_ACTION ? (it->id == S_SAVE_AS ? DI_SAVE : it->id == S_CLOCK ? DI_CLOCK :
+			               it->type == ST_ACTION ? (it->id == S_SCANPATHS ? DI_FOLDER : it->id == S_SAVE_AS ? DI_SAVE : it->id == S_CLOCK ? DI_CLOCK :
 			                                         it->id == S_CLEAR_RECENT ? DI_CLOSE : it->id == S_RESCAN ? DI_REFRESH :
 			                                         (it->id == S_DISPLAY_THEME_RESET || it->id == S_SCREEN_RESET ||
 			                                          it->id == S_T_RESETCAT || it->id == S_T_RESTORE_PRESET ||
