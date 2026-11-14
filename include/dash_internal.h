@@ -495,6 +495,7 @@ enum DashIcon {
 	DI_SOUND,       /* filled speaker with two sound waves */
 	DI_KEYBOARD,    /* wired keyboard with keys and a space bar */
 	DI_HIDE,        /* crossed-out eye for application visibility */
+	DI_UNDO,        /* counterclockwise arrow for reset actions */
 	DI_COUNT
 };
 

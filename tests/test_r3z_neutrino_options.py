@@ -43,7 +43,7 @@ pure_c += r"""
 #define DI_PLAY 2
 #define DI_BACK 3
 #define DI_SAVE 4
-#define DI_REFRESH 5
+#define DI_UNDO 5
 #define DASH_TOAST_OK 1
 #define DASH_TOAST_WARN 2
 static char active_profile_gameid[12];

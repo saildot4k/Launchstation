@@ -1,7 +1,7 @@
 //--------------------------------------------------------------
 //File name:   dash_icons.c
 //Dashboard icon set, rasterized once from signed distance functions into
-//one 512x672 PSMT8 alpha atlas (64x64 icons, tinted by vertex colour).
+//one 512x704 PSMT8 alpha atlas (64x64 icons, tinted by vertex colour).
 //The pad glyphs use the same theme-aware SDF atlas as other icons.
 //No additional CT32 pad tile atlas or PNG decoding is needed at startup.
 //--------------------------------------------------------------
@@ -11,7 +11,7 @@
 #define ICON_SLOT 68
 #define ICON_COLS 7
 #define ICON_TEX_W 512
-#define ICON_TEX_H 672
+#define ICON_TEX_H 704
 #define SELECT_HALF_W 0.68f
 
 /* Header shapes and action icons use the narrow right margin. Keep the
@@ -474,6 +474,14 @@ static float iconSdf(int id, V2 p)
 			d = sdRing(p, 0.0f, 0.0f, 0.62f, T);
 			d = S(d, sdBox(p, 0.4f, -0.4f, 0.4f, 0.4f, 0.0f));
 			d = U(d, sdTriP(p, 0.18f, -0.9f, 0.18f, -0.34f, 0.62f, -0.62f));
+			break;
+		case DI_UNDO:
+			/* Counterclockwise return arrow with a rounded, open arrowhead. */
+			d = sdRing(p, 0.0f, 0.0f, 0.66f, T);
+			d = S(d, sdBox(p, -0.65f, 0.0f, 0.45f, 0.40f, 0.0f));
+			d = U(d, sdCircle(p, -0.525f, 0.40f, T));
+			d = U(d, sdSeg(p, -0.60f, -0.76f, -0.60f, -0.36f, T));
+			d = U(d, sdSeg(p, -0.60f, -0.36f, -0.20f, -0.36f, T));
 			break;
 		case DI_PIN:
 			d = sdCircle(p, 0.0f, -0.36f, 0.34f);
