@@ -55,7 +55,8 @@ static int ensureMemoryCardRpcReady(void) {
 }
 #define sceMcResSucceed 0
 #define sceMcResChangedCard -1
-#define sceMcResFailDetect -3
+#define sceMcResFailDetect2 -13
+#define sceMcResFailDetect -12
 #define sceMcFileAttrSubdir 0x20
 #define stricmp strcmp
 typedef struct { int AttrFile,FileSizeByte;char EntryName[32]; } sceMcTblGetDir;
