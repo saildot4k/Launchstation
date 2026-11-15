@@ -108,7 +108,7 @@ static int rename_calls,fail_after_archive;
 static int write_handles[1024], short_io=1, fail_signature_patch, fail_write_close, fail_payload_read;
 static int source_loaded=1,delete_calls,delete_failure,extract_hook;
 static int open_calls,dir_calls,prepare_calls,incompatible,restore_ok=1;
-static int reclaim_stat_error,reclaim_close_error,reclaim_read_budget;
+static int reclaim_stat_error,reclaim_close_error,reclaim_read_budget,metadata_calls,fail_metadata_at;
 static DIR *reclaim_dirs[1024];
 static char changed_archive[MAX_PATH];
 static int overwrite_answer=-1,overwrite_prompts,exploit_answer=1;
@@ -172,7 +172,7 @@ int fileXioDread(int fd,iox_dirent_t *out){
  memset(out,0,sizeof(*out));strcpy(out->name,entry->d_name);out->stat.mode=s.st_mode;
  out->stat.size=s.st_size;out->stat.hisize=(uint64_t)s.st_size>>32;return 1;
 }
-int fileXioChStat(const char *p,iox_stat_t *out,unsigned flags){(void)p;assert(flags==0xFEED&&out->private_0);return 0;}
+int fileXioChStat(const char *p,iox_stat_t *out,unsigned flags){(void)p;assert(flags==0xFEED&&out->private_0);return ++metadata_calls==fail_metadata_at?-EIO:0;}
 int mcGetDir(int p,int s,const char *path,int flags,int count,sceMcTblGetDir *info){(void)p;(void)s;(void)path;(void)flags;(void)count;(void)info;mc_pending_result=1;return 0;}
 int mcSetFileInfo(int p,int s,const char *path,sceMcTblGetDir *info,int flags){(void)p;(void)s;(void)path;(void)info;(void)flags;mc_pending_result=0;return 0;}
 int prepareTransferDeviceStacks(const char *a,const char *b){(void)a;(void)b;prepare_calls++;return incompatible?-2:0;}
@@ -221,6 +221,15 @@ static int progress_ends,async_yields;
 void DashIoYield(void){async_yields++;}
 static unsigned seen_stages;static u64 seen_ordinals;
 static char last_progress_action[80],last_progress_name[128];
+static int inspect_extraction,extract_events,extract_expected_count,extract_expected_metadata;
+static u64 extract_expected_total,extract_last_done[4];
+static int extract_completions[4];static char extract_labels[4][128],last_classic_extract[512];
+static void inspectExtraction(u64 total,int count,int metadata){
+ inspect_extraction=1;extract_events=0;extract_expected_total=total;
+ extract_expected_count=count;extract_expected_metadata=metadata;
+ memset(extract_last_done,0,sizeof(extract_last_done));memset(extract_completions,0,sizeof(extract_completions));
+ memset(extract_labels,0,sizeof(extract_labels));last_classic_extract[0]=0;
+}
 u64 Timer(void){progress_tick+=7;return progress_tick;}
 int DashIsActive(void){return dashboard_active;}
 int DashFileOperationStatus(const char *action,const char *name,u64 index,u64 count){
@@ -242,6 +251,13 @@ int DashFileTransferProgress(const char *action,const char *name,u64 remaining,u
  assert(action&&name&&name[0]&&remaining<=total&&stats&&stats->file_index>=1&&stats->file_index<=stats->file_count);
  assert(stats->average_speed>=-1&&stats->remaining_seconds>=-1);
  if(!dashboard_active)return 0;
+ if(inspect_extraction&&!strcmp(action,"Extracting save")) {
+  unsigned item=stats->file_index-1;u64 done=total-remaining;
+  assert(item<4&&stats->file_count==(u64)extract_expected_count&&total==extract_expected_total);
+  assert(done>=extract_last_done[item]);extract_last_done[item]=done;extract_events++;
+  if(extract_labels[item][0])assert(!strcmp(extract_labels[item],name));else snprintf(extract_labels[item],sizeof(extract_labels[item]),"%s",name);
+  if(!remaining){extract_completions[item]++;if(extract_expected_metadata>=0)assert(metadata_calls==extract_expected_metadata);}
+ }
  progress_events++;snprintf(last_progress_action,sizeof(last_progress_action),"%s",action);
  snprintf(last_progress_name,sizeof(last_progress_name),"%s",name);
  seen_ordinals|=1ULL<<stats->file_index;
@@ -250,7 +266,13 @@ int DashFileTransferProgress(const char *action,const char *name,u64 remaining,u
  return 1;
 }
 void DashFileOperationEnd(void){if(dashboard_active){assert(!handles);progress_ends++;}}
-void nonDialog(char *text){if(text){assert(text[0]);classic_events++;}else classic_closes++;}
+void nonDialog(char *text){
+ if(text){
+  assert(text[0]);classic_events++;
+  if(inspect_extraction&&strstr(text,"Extracting save ")&&strstr(text,"bytes ("))
+   snprintf(last_classic_extract,sizeof(last_classic_extract),"%s",text);
+ }else classic_closes++;
+}
 void drawMsg(const char *text){assert(text);}
 static int isPcCardCfPath(const char *path){return !strncmp(path,"cf",2);}
 PRODUCTION_BUFFER_POLICY
@@ -882,7 +904,10 @@ int main(int argc,char **argv){
  memset(clipFiles,0,sizeof(clipFiles));strcpy(clipPath,"storage/progress-created/");nclipFiles=3;browser_cut=1;
  for(int i=0;i<3;i++)snprintf(clipFiles[i].name,sizeof(clipFiles[i].name),"BATCH-%c.psu",'A'+i);
  assert(!mkdir("storage/progress-extracted",0700));seen_stages=0;seen_ordinals=0;before_progress=progress_events;
+ inspectExtraction(964+257+123,3,-1);
  assert(filerImportClipboard("storage/progress-extracted/",message,sizeof(message))==3);
+ for(int item=0;item<3;item++)assert(extract_completions[item]==1&&extract_last_done[item]==extract_expected_total&&extract_labels[item][0]);
+ assert(extract_events>3);inspect_extraction=0;
  assert(!save_progress.active&&!save_progress.action&&progress_events>before_progress);
  assert((seen_stages&120)==120&&seen_ordinals==14&&!nclipFiles);
  // A failed close never publishes 100%, and its overlay context cannot leak into later operations.
@@ -901,6 +926,36 @@ int main(int argc,char **argv){
  assert(filerCreateClipboardArchives("storage/progress-classic-out/",SAVE_OUTPUT_PSU,message,sizeof(message))==1);
  assert(classic_events>0&&classic_closes>0&&progress_events==before_progress&&phase_events==before_phases&&!save_progress.active);
  dashboard_active=1;
+ /* One whole-save bar for mixed file sizes and empty files, in both UIs.
+  * Completion follows folder metadata, not the last file's payload write. */
+ for(int native=0;native<2;native++)for(int failure=0;failure<5;failure++) {
+  uint8_t contents[83]={0};SaveArchiveEntry entries[3]={0};SaveArchive group={0};
+  for(int file=0;file<3;file++){
+   snprintf(entries[file].name,sizeof(entries[file].name),"file%d",file);
+   entries[file].mode=0x8497;entries[file].data=contents;
+   entries[file].size=failure==2?0:file==0?17:file==1?83:0;
+  }
+  group.files=entries;group.count=3;group.folder.mode=0x8427;
+  snprintf(group.folder.name,sizeof(group.folder.name),"PROGRESS%d-%d",native,failure);
+  dashboard_active=native;metadata_calls=0;fail_metadata_at=failure==1?4:0;
+  fail_write_close=failure==3;fail_after=failure==4?1:-1;
+  card_type=2;free_units=8192;
+  inspectExtraction(failure==2?0:100,1,4);
+  saveProgressBegin(1);saveProgressItem(1,"group.psu","Reading archive");
+  int result=filerExtractSave(&group,"vmc0:/",message,sizeof(message));
+  assert(result==(failure==0||failure==2?1:-1));
+  assert(!save_progress.extracting&&!save_progress.extract_total&&!save_progress.extract_done&&!handles);
+  if(result>0){
+   if(native){assert(extract_completions[0]==1&&extract_last_done[0]==extract_expected_total);assert(!strcmp(extract_labels[0],group.folder.name));}
+   else assert(strstr(last_classic_extract,failure==2?"0 / 0 bytes (100%)":"100 / 100 bytes (100%)"));
+  }else{
+   assert(!extract_completions[0]&&!strstr(last_classic_extract,"(100%)"));
+   char output[MAX_PATH];snprintf(output,sizeof(output),"vmc0:/%s",group.folder.name);assert(access(output,F_OK)<0);
+  }
+  saveProgressEnd();inspect_extraction=0;fail_metadata_at=fail_write_close=0;fail_after=-1;
+ }
+ dashboard_active=1;
+ puts("PASS: whole-save extraction byte totals, monotonic progress/stable labels across files, save batch ordinals, empty files and 100% only after successful metadata/close in both UIs");
  /* An 8 MiB file must succeed when every allocation over 1 MiB is denied.
   * Copy, Cut, second-buffer allocation failure and changed-source retention
   * all run through the actual browser batch path, not the buffered helper. */

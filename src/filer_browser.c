@@ -469,15 +469,15 @@ void filerMenuEnables(const char *path, const FILEINFO *file, int nmarked, int c
 		enable[TITLE_CFG] = FALSE;
 
 	enable[OPEN_TEXTEDITOR] = canOpenInTextEditor(path, file);
-	enable[LAUNCH_ELF_ARGS] = enable[OPEN_TEXTEDITOR];
 
 	if (isPcCardCfPath(path)) {
 		enable[MOUNTVMC0] = FALSE;
 		enable[MOUNTVMC1] = FALSE;
-		enable[LAUNCH_ELF_ARGS] = FALSE;
 		if (!isPcCardCfOnline())
 			enable[OPEN_TEXTEDITOR] = FALSE;
 	}
+	/* Argument files are read as text; they do not execute from this device. */
+	enable[LAUNCH_ELF_ARGS] = enable[OPEN_TEXTEDITOR];
 
 
 	if (write_disabled || menu_disabled) {
@@ -562,7 +562,7 @@ static int menu(const char *path, FILEINFO *file, int card_type, const FILEINFO 
 	if (menu_len < 25) menu_len = 25; /* Save import/export labels. */
 	int menu_ch_w = menu_len + 1;                                 //Total characters in longest menu string
 	filerMenuEnables(path, file, nmarks, card_type, enable);
-	int menu_ch_h = NUM_MENU - !enable[MOUNTVMC0] - !enable[MOUNTVMC1]; //Visible menu lines
+	int menu_ch_h = NUM_MENU - !enable[MOUNTVMC0] - !enable[MOUNTVMC1] - !enable[LAUNCH_ELF_ARGS]; //Visible menu lines
 	int mSprite_Y1 = 64;                                          //Top edge of sprite
 	int mSprite_X2 = SCREEN_WIDTH - 35;                           //Right edge of sprite
 	int mSprite_X1 = mSprite_X2 - (menu_ch_w + 3) * FONT_WIDTH;   //Left edge of sprite
@@ -617,7 +617,7 @@ static int menu(const char *path, FILEINFO *file, int card_type, const FILEINFO 
 
 			sel_y = -1;
 			for (i = 0, y = mSprite_Y1 + FONT_HEIGHT / 2; i < NUM_MENU; i++) {
-				if ((i == MOUNTVMC0 || i == MOUNTVMC1) && !enable[i])
+				if ((i == MOUNTVMC0 || i == MOUNTVMC1 || i == LAUNCH_ELF_ARGS) && !enable[i])
 					continue;
 				if (i == sel)
 					sel_y = y;

@@ -1479,8 +1479,8 @@ static void actionsMenu(void)
 		}
 		if (en[TIMEMANIP_CUSTOM])
 			ADD(DI_CLOCK, "Folder dates...", "order the saves", 0, F_DATES);
-		ADD(DI_LAUNCH_ARGS, "Use as launch arguments", "then choose the application",
-		    f == NULL || isDir(f) || !en[LAUNCH_ELF_ARGS], F_USE_ARGS);
+		if (f != NULL && !isDir(f) && en[LAUNCH_ELF_ARGS])
+			ADD(DI_LAUNCH_ARGS, "Use as launch arguments", "then choose the application", 0, F_USE_ARGS);
 		ADD(DI_SELECT_ALL, "Select all", NULL, fb.n == 0, F_SELALL);
 		ADD(DI_INVERT_SELECTION, "Invert selection", NULL, fb.n == 0, F_INVERT);
 		if (fb.nmarked)

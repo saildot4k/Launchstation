@@ -16,10 +16,10 @@ static int sameArchiveName(const char *left, const char *right);
  * Reuse the paste popup, publishing measured bytes from the streaming loops.
  * Listing probes and Copy/Cut never enable this context. */
 static struct {
-	int active, verifying, classic_drawn;
+	int active, verifying, classic_drawn, extracting, extract_complete;
 	const char *action;
-	char item[MAX_NAME];
-	u64 index, count, started, bytes, file_done, last_draw;
+	char item[MAX_NAME], extract_name[MAX_NAME];
+	u64 index, count, started, bytes, file_done, last_draw, extract_done, extract_total;
 } save_progress;
 
 static void saveProgressBegin(int count)
@@ -58,7 +58,7 @@ static void saveProgressItem(int index, const char *name, const char *action)
 	saveProgressStage(action, name);
 }
 
-static void saveProgressBytes(const char *path, size_t done, size_t total)
+static void saveProgressBytes(const char *path, u64 done, u64 total)
 {
 	DashTransferStats stats = {0};
 	char name[128], text[512], speed_text[40], time_text[40];
@@ -66,15 +66,27 @@ static void saveProgressBytes(const char *path, size_t done, size_t total)
 	u64 now, elapsed, speed;
 	if (!save_progress.active) return;
 	now = Timer(); elapsed = now >= save_progress.started ? now - save_progress.started : 0;
-	if (done >= save_progress.file_done) save_progress.bytes += done - save_progress.file_done;
+	if (done >= save_progress.file_done) {
+		u64 delta = done - save_progress.file_done;
+		save_progress.bytes += delta;
+		if (save_progress.extracting) save_progress.extract_done += delta;
+	}
 	save_progress.file_done = done;
+	if (save_progress.extracting) {
+		done = save_progress.extract_done; total = save_progress.extract_total;
+		/* File closes and save metadata must succeed before showing 100%.
+		 * Empty saves remain in the named stage until metadata is restored. */
+		if (done == total && !save_progress.extract_complete) return;
+	}
 	speed = elapsed ? (u64)done * 1000 / elapsed : 0;
 	stats.current_speed = stats.average_speed = elapsed ? (speed > 0x7fffffffULL ? 0x7fffffff : (int)speed) : -1;
 	stats.remaining_seconds = done == total ? 0 : speed ? (int)((total - done) / speed) : -1;
 	stats.written_total = save_progress.bytes;
 	stats.file_index = save_progress.index; stats.file_count = save_progress.count;
 	leaf = strrchr(path, '/'); leaf = leaf ? leaf + 1 : path;
-	if (strcmp(leaf, save_progress.item))
+	if (save_progress.extracting)
+		snprintf(name, sizeof(name), "%.127s", save_progress.extract_name);
+	else if (strcmp(leaf, save_progress.item))
 		snprintf(name, sizeof(name), "%.64s / %.59s", save_progress.item, leaf);
 	else snprintf(name, sizeof(name), "%s", leaf);
 	if (DashFileTransferProgress(save_progress.action, name, total - done, total, &stats) || DashIsActive()) return;
@@ -95,8 +107,35 @@ static void saveProgressBytes(const char *path, size_t done, size_t total)
 static void saveProgressFile(const char *path, size_t size)
 {
 	if (!save_progress.active) return;
-	save_progress.started = Timer(); save_progress.file_done = 0;
+	if (!save_progress.extracting) save_progress.started = Timer();
+	save_progress.file_done = 0;
 	if (size) saveProgressBytes(path, 0, size);
+}
+
+/* Extraction publishes one byte total and one stable label for the save.
+ * Keep the batch ordinal; individual output files never reset its bar/ETA. */
+static void saveProgressExtractBegin(const SaveArchive *save, const char *name)
+{
+	if (!save_progress.active) return;
+	save_progress.extracting = 1; save_progress.extract_complete = 0;
+	save_progress.extract_done = save_progress.extract_total = save_progress.file_done = 0;
+	save_progress.started = Timer();
+	snprintf(save_progress.extract_name, sizeof(save_progress.extract_name), "%s", name);
+	for (unsigned i = 0; i < save->count; i++) save_progress.extract_total += save->files[i].size;
+	saveProgressBytes(name, 0, 0);
+}
+
+static void saveProgressExtractEnd(int success)
+{
+	if (!save_progress.extracting) return;
+	if (success) {
+		save_progress.extract_complete = 1;
+		/* Re-publish the last per-file count without counting its bytes twice. */
+		saveProgressBytes(save_progress.extract_name, save_progress.file_done, 0);
+	}
+	save_progress.extracting = save_progress.extract_complete = 0;
+	save_progress.extract_done = save_progress.extract_total = 0;
+	save_progress.extract_name[0] = '\0';
 }
 
 int filerCardInfo(const char *path, VmcInfo *info)
@@ -406,6 +445,7 @@ int filerExtractSave(const SaveArchive *s, const char *destination, char *messag
 		created = 1;
 	}
 	saveProgressStage("Extracting save", name);
+	saveProgressExtractBegin(s, name);
 	for (unsigned i = 0; i < s->count; i++) {
 		if (folder) {
 			if (snprintf(path, sizeof(path), "%s/%s", target, s->files[i].name) >= (int)sizeof(path)) { error = -ENAMETOOLONG; goto fail; }
@@ -428,6 +468,7 @@ int filerExtractSave(const SaveArchive *s, const char *destination, char *messag
 fail:
 	snprintf(message, size, "Could not %s (%d): %s", action, error, destination);
 done:
+	saveProgressExtractEnd(result > 0);
 	if (created) removeStage(target, s, folder);
 	return result;
 }
