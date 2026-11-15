@@ -122,11 +122,11 @@ static float sel_anim, grid_cam;
 static void dashUiFocusPoke(void) {}
 #define DASH_TOAST_WARN 1
 static int failed_card_roots,failed_card_warnings;
-static char failed_card_selection[16];
+static char failed_card_selection[16],failed_card_message[96];
 static void openDir(const char *path,const char *selected) {
  assert(!path[0]);failed_card_roots++;snprintf(failed_card_selection,sizeof(failed_card_selection),"%s",selected);
 }
-static void dashToast(int kind,const char *message) {assert(kind==DASH_TOAST_WARN&&message);failed_card_warnings++;}
+static void dashToast(int kind,const char *message) {assert(kind==DASH_TOAST_WARN&&message);snprintf(failed_card_message,sizeof(failed_card_message),"%s",message);failed_card_warnings++;}
 """
 code = re.sub(r"^#define FB_ROWS \d+$", re.search(r"^#define FB_ROWS \d+$", browser, re.M).group(0), code, flags=re.M)
 code += (root / "include/list_scroll.h").read_text() + "\n"
@@ -240,13 +240,15 @@ static void checkParentCompletion(void) {
   j->gen=fb.gen-!abandoned;j->abandoned=abandoned;j->n=1;
   int sel=fb.sel,top=fb.top,card_type=fb.card_type,ps1_free=fb.ps1_free;float anim=fb.sel_anim;
   listDone(j);assert(fb.sel==sel && fb.top==top && fb.sel_anim==anim);
-  for(int port=0;port<2;port++) {
+  const char *card_roots[]={"mc0:/","mc1:/","mmce0:/","mmce1:/"};
+  for(int port=0;port<4;port++) {
    FbListJob *failed=calloc(1,sizeof(*failed));assert(failed);
    failed->files=calloc(1,sizeof(*failed->files));assert(failed->files);
-   failed->gen=fb.gen;failed->n=-12;snprintf(failed->path,sizeof(failed->path),"mc%d:/",port);
+   failed->gen=fb.gen;failed->n=-12;snprintf(failed->path,sizeof(failed->path),"%s",card_roots[port]);
    int before=failed_card_roots;listDone(failed);
    assert(failed_card_roots==before+1&&failed_card_warnings==failed_card_roots);
-   char expected[16];snprintf(expected,sizeof(expected),"mc%d:/",port);assert(!strcmp(failed_card_selection,expected));
+   assert(!strcmp(failed_card_selection,card_roots[port]));
+   assert(strstr(failed_card_message,"error -12"));
   }
   assert(fb.card_type==card_type && fb.ps1_free==ps1_free);
  }

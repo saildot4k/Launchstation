@@ -48,3 +48,8 @@ iop/pccf/.clangd
 
 # Host test bytecode caches
 __pycache__/
+
+# Experimental VU profiles / separate build outputs
+.ps2-vu-*.yaml
+build-vu-*/
+bench/vu/.clangd

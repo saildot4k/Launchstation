@@ -1,0 +1,125 @@
+.vu
+.align 4
+.global dashVu1TunnelStart
+.global dashVu1TunnelEnd
+dashVu1TunnelStart:
+    nop    lq vf01, 0(vi00)
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    ilw.x vi01, 1(vi00)
+    nop    ilw.y vi07, 1(vi00)
+    nop    ilw.z vi08, 1(vi00)
+    nop    iaddiu vi02, vi00, 7
+    nop    iaddiu vi03, vi00, 512
+    nop    iaddiu vi10, vi00, 512
+    nop    lq vf10, 5(vi00)
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    lq vf11, 6(vi00)
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    sub.xyzw vf07, vf00, vf00    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+quad_loop:
+    nop    lq vf03, 2(vi00)
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    sq vf03, 0(vi03)
+    nop    iaddiu vi03, vi03, 1
+    nop    iaddiu vi04, vi00, 4
+vertex_loop:
+    nop    lq vf04, 0(vi02)
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    lq vf05, 1(vi02)
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    mulz.xy vf06, vf04, vf04z    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    mul.xy vf06, vf06, vf01    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    addz.x vf06, vf06, vf01z    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    addw.y vf06, vf06, vf01w    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    max.xy vf06, vf06, vf10    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    mini.xy vf06, vf06, vf11    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    ftoi4.xy vf06, vf06    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    mtir vi05, vf06x
+    nop    mtir vi06, vf06y
+    nop    iadd vi05, vi05, vi07
+    nop    iadd vi06, vi06, vi08
+    nop    sq vf05, 0(vi03)
+    nop    sq vf07, 1(vi03)
+    nop    isw.x vi05, 1(vi03)
+    nop    isw.y vi06, 1(vi03)
+    nop    iaddiu vi02, vi02, 2
+    nop    iaddiu vi03, vi03, 2
+    nop    isubiu vi04, vi04, 1
+    nop    nop
+    nop    ibne vi04, vi00, vertex_loop
+    nop    nop
+    nop    isubiu vi01, vi01, 1
+    nop    nop
+    nop    ibne vi01, vi00, quad_loop
+    nop    nop
+    nop    lq vf08, 3(vi00)
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    sq vf08, 0(vi03)
+    nop    lq vf08, 4(vi00)
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    sq vf08, 1(vi03)
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    nop
+    nop    xgkick vi10
+    nop[E]    nop
+    nop    nop
+.align 4
+dashVu1TunnelEnd:

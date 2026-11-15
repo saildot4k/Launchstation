@@ -364,6 +364,10 @@ targets:
       - src/dash_ftp.c
       - src/ftp_session.c
       - src/dash_gfx.c
+      - src/dash_profile.c
+      - src/dash_vu_math.c
+      - src/dash_vu1.c
+      - src/dash_vu1_tunnel.vsm
       - src/dash_font.c
       - src/dash_font_data.c
       - src/dash_font_emotion_engine.c

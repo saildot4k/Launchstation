@@ -351,13 +351,18 @@ static void listDone(void *arg)
 	int i, o = 0;
 
 	if (!j->abandoned && j->gen == fb.gen && fb.files != NULL) {
-		if (j->n < 0 && (!strncmp(j->path, "mc0:", 4) || !strncmp(j->path, "mc1:", 4))) {
-			char card[8];
-			snprintf(card, sizeof(card), "mc%c:/", j->path[2]);
+		if (j->n < 0 && (!strncmp(j->path, "mc0:", 4) || !strncmp(j->path, "mc1:", 4) ||
+		                  !strncmp(j->path, "mmce0:", 6) || !strncmp(j->path, "mmce1:", 6))) {
+			char card[8], message[96];
+			if (!strncmp(j->path, "mmce", 4))
+				snprintf(card, sizeof(card), "mmce%c:/", j->path[4]);
+			else
+				snprintf(card, sizeof(card), "mc%c:/", j->path[2]);
+			snprintf(message, sizeof(message), "Memory card could not be read (error %d). Try opening it again.", j->n);
 			free(j->files);
 			free(j);
 			openDir("", card);
-			dashToast(DASH_TOAST_WARN, "Memory card could not be read. Try opening it again.");
+			dashToast(DASH_TOAST_WARN, message);
 			return;
 		}
 		for (i = 0; i < j->n && o < MAX_ENTRY; i++) {

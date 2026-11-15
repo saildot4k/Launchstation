@@ -10,6 +10,11 @@
 //Procedural helper textures are tiny (32x32/64x64 CT32).
 //--------------------------------------------------------------
 #include "dash_internal.h"
+#include "dash_profile.h"
+#if DASH_VU1
+#include "dash_vu1.h"
+#include "dash_vu_renderer.h"
+#endif
 #include <gsInline.h>
 #include <delaythread.h>
 
@@ -42,6 +47,9 @@ static float g_ox, g_oy;
 static float g_sy = 1.0f;
 static int g_blend = -1;
 static int gfx_ready;
+#if DASH_PROFILE
+static uint32_t profile_frame;
+#endif
 static int frame_active;
 static int frame_popup, presented_popup;
 static int gfx_screen_gen = -1;
@@ -341,8 +349,14 @@ void dashTexRelease(GSTEXTURE *tex)
 void dashGfxInit(void)
 {
 	if (!gfx_ready) {
+#if DASH_PROFILE
+		uint32_t started = dashProfileNow();
+#endif
 		buildCornerTextures();
 		buildGlowTextures();
+#if DASH_PROFILE
+		dashProfileEnd(DASH_PROF_GLOWS, started);
+#endif
 		gfx_ready = 1;
 	}
 	/* setupGS() already allocated both framebuffers in the configured mode.
@@ -396,6 +410,9 @@ int dashGfxPopupActive(void)
 
 void dashGfxBeginFrame(void)
 {
+#if DASH_PROFILE
+	profile_frame = dashProfileNow();
+#endif
 	frame_active = 1;
 	frame_popup = 0;
 	alpha_top = 0;
@@ -447,11 +464,28 @@ void dashGfxPresent(void)
 {
 	dashSpriteBatchEnd();
 	dashWorkerParkPoint();
+#if DASH_PROFILE
+	dashProfileEnd(DASH_PROF_FRAME, profile_frame);
+	uint32_t wait_started = dashProfileNow();
+#endif
+#if DASH_VU1
+	/* A VU1 pass has already drawn into the active backbuffer. Complete
+	 * the UI in that same buffer before making it visible. Use this order
+	 * for every frame in the prototype, including CPU-only themes/fallback. */
+	gsKit_queue_exec(gsGlobal);
+	dmaKit_wait_fast();
+	gsKit_finish();
+#endif
 	if (!gsGlobal->FirstFrame && dashWorkerIoBusy())
 		flipVsyncSharing();
 	else
 		gsKit_sync_flip(gsGlobal);
+#if !DASH_VU1
 	gsKit_queue_exec(gsGlobal);
+#endif
+#if DASH_PROFILE
+	dashProfileEnd(DASH_PROF_PRESENT_WAIT, wait_started);
+#endif
 	gsKit_TexManager_nextFrame(gsGlobal);
 	presented_popup = frame_popup;
 	frame_active = 0;
@@ -462,6 +496,9 @@ void dashGfxPresent(void)
 	/* Startup audio is a one-shot service after the destination's first
 	 * visible frame. It defers during IO and automatic-launch decisions. */
 	dashStartupAudioAfterPresent();
+#if DASH_PROFILE
+	if (!dashIoBusy()) dashProfileFrameComplete();
+#endif
 }
 
 void dashGfxRestoreLegacyState(void)
@@ -982,6 +1019,58 @@ void dashSpriteBatchEnd(void)
 		gskit_prim_list_sprite_texture_uv_flat_color(gsGlobal, tex, batch_color, batch_n * 2, batch_pts);
 	batch_n = 0;
 }
+
+#if DASH_VU1
+/* These calls are confined to the opaque background pass. Flush PATH3's
+ * queued clear/state before PATH1 starts. Each VU1 transaction waits for
+ * FLUSHA/MARK and GS FINISH before PATH3 can resume or storage is reused. */
+static void recoverVu1Screen(void)
+{
+	gsKit_init_screen(gsGlobal);
+	gsScreenGeneration++;
+	gsKit_set_display_offset(gsGlobal, setting->screen_x, setting->screen_y);
+	dashGfxCheckScreenChange();
+	g_blend = -1;
+	dashGfxBlend(DASH_BLEND_NORMAL);
+	gsKit_set_test(gsGlobal, GS_ATEST_OFF);
+	gsKit_set_clamp(gsGlobal, GS_CMODE_CLAMP);
+	dashGfxScissorReset();
+}
+int dashGfxVu1Begin(float cx, float cy)
+{
+	if (DASH_VU1_REFERENCE || g_alpha != 1.0f || !dashVu1Available()) return 0;
+	DashVu1Screen screen = {1.18f, g_sy, SX(cx), SY(cy), gsGlobal->OffsetX, gsGlobal->OffsetY, gsGlobal->PrimContext};
+	dashSpriteBatchEnd();
+	gsKit_queue_exec(gsGlobal);
+	dmaKit_wait_fast();
+	gsKit_finish();
+	if (dashVu1Begin(&screen, gsScreenGeneration)) return 1;
+	recoverVu1Screen();
+	return -1;
+}
+int dashGfxVu1Quad(float ca0, float sa0, float ca1, float sa1, float near_radius, float far_radius,
+                   uint32_t near_rgba, uint32_t far_rgba)
+{
+	DashVu1Vertex vertices[4] = {
+		{{ca0,sa0,near_radius,0},{0}}, {{ca1,sa1,near_radius,0},{0}},
+		{{ca0,sa0,far_radius,0},{0}}, {{ca1,sa1,far_radius,0},{0}}
+	};
+	for (unsigned i = 0; i < 4; i++) {
+		uint32_t color = i < 2 ? near_rgba : far_rgba;
+		for (unsigned j = 0; j < 4; j++) vertices[i].color[j] = (color >> (j*8)) & 255;
+	}
+	return dashVu1Append(vertices);
+}
+int dashGfxVu1End(void)
+{
+	if (dashVu1End()) return 1;
+	/* The backend stopped DMA/VIF/VU1 first. Recreate GS/texture state only
+	 * on a prototype fault; subsequent frames use CPU rendering. */
+	recoverVu1Screen();
+	return 0;
+}
+#endif
+
 //--------------------------------------------------------------
 //End of file: dash_gfx.c
 //--------------------------------------------------------------

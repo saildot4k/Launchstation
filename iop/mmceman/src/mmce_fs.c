@@ -700,6 +700,10 @@ int mmce_fs_dread(iomanX_iop_file_t *file, iox_dirent_t *dirent)
     u8 wrbuf[0x5];
     u8 rdbuf[0x2B];
 
+    if (file->privdata == NULL || *(int *)file->privdata < 0 ||
+        *(int *)file->privdata >= MMCE_FS_MAX_FD)
+        return -EBADF;
+
     DPRINTF("%s fd: %i\n", __func__, (u8)*(int*)file->privdata);
 
     mmce_fs_update_unit(file->unit);
@@ -731,9 +735,12 @@ int mmce_fs_dread(iomanX_iop_file_t *file, iox_dirent_t *dirent)
     }
 
     if (rdbuf[0x4] != 0) {
-        DPRINTF("%s ERROR: Returned %i, Expected 0\n", __func__, rdbuf[0x4]);
+        DPRINTF("%s: directory status %i\n", __func__, rdbuf[0x4]);
         mmce_sio2_unlock();
-        return -1;
+        /* sd2psXtd sends status 1 when its directory iterator is exhausted.
+         * IOMANX requires zero for EOF; a negative result discards otherwise
+         * complete listings in callers which propagate directory errors. */
+        return rdbuf[0x4] == 1 ? 0 : -EIO;
     }
 
     //Packet #n + 1: io_stat_t and filename len
@@ -743,6 +750,8 @@ int mmce_fs_dread(iomanX_iop_file_t *file, iox_dirent_t *dirent)
         mmce_sio2_unlock();
         return -1;
     }
+
+    memset(dirent, 0, sizeof(*dirent));
 
     //Could cast but not sure about alignment?
     dirent->stat.mode  = rdbuf[0x1] << 24;
@@ -812,7 +821,9 @@ int mmce_fs_dread(iomanX_iop_file_t *file, iox_dirent_t *dirent)
 
     mmce_sio2_unlock();
 
-    return rdbuf[0x1]; //itr fd from mmce
+    /* The wire value is an iterator handle, including valid handle zero.
+     * Return an entry count to IOMANX rather than exposing that handle. */
+    return rdbuf[0x1] < MMCE_FS_MAX_FD ? 1 : -EIO;
 }
 
 int mmce_fs_getstat(iomanX_iop_file_t *file, const char *name, iox_stat_t *stat)

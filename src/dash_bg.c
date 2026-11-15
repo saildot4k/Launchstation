@@ -19,6 +19,7 @@
 //elements.
 //--------------------------------------------------------------
 #include "dash_internal.h"
+#include "dash_profile.h"
 
 #define BG_STARS 72
 #define BG_SPARKS 18
@@ -587,7 +588,13 @@ void dashBgDraw(void)
 {
 	int fx = effectiveFx();
 
+#if DASH_PROFILE
+	uint32_t started = dashProfileNow();
+#endif
 	drawScene(fx);
+#if DASH_PROFILE
+	dashProfileEnd(DASH_PROF_BACKGROUND, started);
+#endif
 	drawAppWallpaper();
 	if (dashTheme.scanlines)
 		drawScanlines();
