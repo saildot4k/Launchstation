@@ -311,3 +311,40 @@ with tempfile.TemporaryDirectory(prefix='ps1-physical-') as folder:
     subprocess.run([os.environ.get('CC', 'cc'), '-std=c99', '-Wall', '-Wextra', *flags,
                     '-I', str(root / 'include'), str(folder / 'test.c'), '-o', str(exe)], check=True)
     subprocess.run([str(exe)], check=True, timeout=20)
+
+    # Compile the complete rules module independently. The runtime harness
+    # above defines its device spies before copying functions, which can hide
+    # missing production includes. Only the real init.h declares CF queries.
+    (folder / 'filer_shared.h').write_text(r'''
+#ifndef MENU_COMPILE_PLATFORM
+#define MENU_COMPILE_PLATFORM
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include "filer_types.h"
+#include "filer_menu.h"
+typedef uint32_t u32;
+#define TRUE 1
+#define FALSE 0
+#define sceMcFileAttrSubdir 0x20
+struct FilerFileInfo { char name[256];struct {unsigned AttrFile;}stats; };
+typedef struct {int HOSTwrite;} MenuCompileSettings;
+extern MenuCompileSettings *setting;
+extern int nclipFiles,host_elflist;
+extern FILEINFO clipFiles[32];
+int genCmpFileExt(const char *,const char *);
+int genCanRenamePath(const char *);
+#endif
+''')
+    (folder / 'filer_actions.h').write_text(
+        'int filerCanOrganizeFolderTimestamps(const char *);\n'
+        'int filerIsExploitProtectedPath(const char *,const FILEINFO *);\n')
+    (folder / 'gui_texteditor.h').write_text(
+        'int canOpenInTextEditor(const char *,const FILEINFO *);\n')
+    production_flags = ['-DWLE_PS2BUILD', '-DEXFAT', '-DXFROM', '-DDVRP',
+                        '-DMMCE', '-DMX4SIO', '-DETH', '-DUDPFS', '-DHOMEBREW_SIO2MAN']
+    for variant in ([], production_flags, [*production_flags, '-DDS34']):
+        subprocess.run([os.environ.get('CC', 'cc'), '-std=c99', '-Wall', '-Wextra', '-Werror',
+                        '-fsyntax-only', *variant, '-I', str(folder), '-I', str(root / 'include'),
+                        str(root / 'src/filer_menu_rules.c')], check=True)
+    print('PASS: complete menu rules module compiles independently with real device declarations in minimal and both release configurations')

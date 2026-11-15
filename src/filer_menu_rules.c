@@ -2,6 +2,7 @@
 #include "filer_saves.h"
 #include "filer_actions.h"
 #include "gui_texteditor.h"
+#include "init.h"
 
 static int isHddBrowserPath(const char *path)
 {
