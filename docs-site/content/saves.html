@@ -17,9 +17,9 @@
 </tbody></table>
 <p>Imports retain the game filename. Existing saves are left intact: back up and remove an existing save before importing its replacement. Invalid paths, incomplete archives and duplicate filenames are rejected before writing. Compressed and uncompressed save data are limited to 16 MiB per input; allocation failures are reported. Save metadata and timestamps are restored on PS2 cards and VMCs; ordinary storage folders keep the decoded files.</p>
 <h2 id="copy">Copying saves</h2><p>Copy/paste and PSU workflows retain the specialized handling required by memory-card folders. Avoid treating a PS2 save as an arbitrary PC directory when preserving icon metadata, attributes and timestamps matters.</p>
-<h2 id="vmc">Virtual memory cards</h2><p>Both browsers can mount a selected image as <code>vmc0:/</code> or <code>vmc1:/</code>. PS1 formats include <b>VMP, MCR, VM1, BIN, VMC, GME, VGS, SRM and MCD</b>. Mounting checks the contents and geometry, independently of the filename extension or its case. This also accepts PS2 MCD, MC2, VMC and other raw image names, and distinguishes PS1 from PS2 when the same suffix is used.</p>
+<h2 id="vmc">Virtual memory cards</h2><p>Both browsers show <b>Mount as vmc0:</b> and <b>Mount as vmc1:</b> for whole-card image filenames ending in <b>VMC, MCD, MC2, BIN, MCR, MC, SRM, VM1, DDF, PS, PSM, SAV, PS2, VM2, RAW, GME, VGS, MEM or VMP</b>, regardless of case. Other files do not show these actions. The extension selects which filenames offer mounting; mounting still validates the contents and geometry and distinguishes PS1 from PS2 when the same suffix is used. Supported raw and headered card images can be mounted directly.</p>
 <table><thead><tr><th>PS1 image layout</th><th>File size</th><th>Header before card data</th></tr></thead><tbody>
-<tr><td>Raw MC card (MCR, VM1, BIN, VMC, SRM, MCD and other suffixes)</td><td>131,072 bytes</td><td>None</td></tr>
+<tr><td>Raw MC card (supported raw-image suffixes)</td><td>131,072 bytes</td><td>None</td></tr>
 <tr><td>VGS</td><td>131,136 bytes</td><td>64 bytes</td></tr>
 <tr><td>PSP VMP</td><td>131,200 bytes</td><td>128 bytes</td></tr>
 <tr><td>DexDrive GME</td><td>134,976 bytes</td><td>3,904 bytes</td></tr>
