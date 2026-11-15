@@ -1,4 +1,5 @@
 #include "dash_internal.h"
+#include "dash_sound.h"
 #include "main_title.h"
 #include "init.h"
 #include "dash_settings_clock.h"

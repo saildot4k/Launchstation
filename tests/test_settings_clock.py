@@ -44,7 +44,7 @@ typedef struct { int icon; const char *label, *detail; int disabled; } DashMenuI
 #define DASH_VH 448
 #define DC(r,g,b,a) 0
 '''
-symbols = sorted(set(re.findall(r"\b(?:DI_|DASH_FS_|DASH_SND_|DASH_C_)\w+",
+symbols = sorted(set(re.findall(r"\b(?:DI_|DASH_FS_|DASH_C_)\w+",
                                function(settings, "static int editClockDateTime("))))
 code += "enum { " + ",".join(symbols + ["DI_CHECK", "DI_WARNING"]) + " };\n"
 input_start = header.rfind("enum {", 0, header.index("DASH_IN_UP"))
@@ -90,11 +90,7 @@ static void dashInputPoll(DashInput *in) {
 static unsigned dashInputShoulderRepeat(void) { return shoulder_input; }
 static void repeatShoulder(int button) { press(button<<16); }
 static void dashInputFlush(void) { if(!(flushes%2))panel_open=0;flushes++; }
-static void dashSoundPlay(int sound) {
-    if(sound==DASH_SND_CONFIRM)sounds[0]++;
-    else if(sound==DASH_SND_CANCEL)sounds[1]++;
-    else { assert(sound==DASH_SND_CURSOR);sounds[2]++; }
-}
+
 static float dashVisualUpdate(void) { ticks++;return 0.02f; }
 static float dashAnimSpeed(void) { return 1; }
 static float dashEaseOutCubic(float t) { return 1-(1-t)*(1-t)*(1-t); }
@@ -211,7 +207,14 @@ static int dashClockSyncInternet(char *result,int cap) {
 '''
 code += "#endif\n"
 code += '#include "' + str(root / 'src/dash_settings_clock.c') + '"\n'
+# The production module must include the real sound header before these
+# spies: supplying enums/prototypes here would mask a missing include.
 code += r'''
+void dashSoundPlay(int sound) {
+    if(sound==DASH_SND_CONFIRM)sounds[0]++;
+    else if(sound==DASH_SND_CANCEL)sounds[1]++;
+    else { assert(sound==DASH_SND_CURSOR);sounds[2]++; }
+}
 static void reset(void) {
     const int initial[]={2026,11,8,8,30,15},lo[]={2000,1,1,0,0,0},hi[]={2099,12,31,23,59,59};
     memcpy(minimum,lo,sizeof(lo));memcpy(maximum,hi,sizeof(hi));allow_wait=1;waits=0;
@@ -416,5 +419,5 @@ with tempfile.TemporaryDirectory(prefix="launchstation-settings-clock-") as tmp:
         (Path(tmp) / name).write_text("")
     for flags in ([], ["-DETH"]):
         subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
-                        *flags, "-I", tmp, str(src), "-lm", "-o", str(binary)], check=True)
+                        *flags, "-I", tmp, "-I", str(root / "include"), str(src), "-lm", "-o", str(binary)], check=True)
         subprocess.run([str(binary)], check=True, timeout=5)
