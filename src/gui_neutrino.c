@@ -425,7 +425,7 @@ int showNeutrinoLaunchOptions(NEUTRINO_LAUNCH_OPTIONS *options)
 		NEUTRINO_LAUNCH_OPTIONS saved;
 		unsigned int revision;
 		int slot;
-		if (active_profile_gameid[0] && dashWorkerAwaitAll("Loading game profile") &&
+		if (active_profile_gameid[0] && dashWorkerAwaitAll(isStartupDriverStatusQuiet() ? NULL : "Loading game profile") &&
 		    profileReadLatest(active_profile_gameid, &saved, &revision, &slot))
 			*options = saved;
 		return showDashboardNeutrinoOptions(options);

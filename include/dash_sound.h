@@ -18,7 +18,9 @@ enum DashSound {
 	DASH_SND_COUNT
 };
 
+/* Queues initialization; returns ready now, without waiting for the job. */
 int dashSoundInit(void);
+void dashSoundRequestBoot(void); /* play once after background initialization */
 void dashSoundShutdown(void);
 void dashSoundSuspend(void); /* mute while a launch can still return */
 void dashSoundPlay(int id);
@@ -29,7 +31,7 @@ void dashBgmStop(void); /* settings Off: retains the 10% playback workaround */
 int dashBgmRequestedVolume(void); /* user-visible gain; zero when music is Off */
 void dashBgmSetVolume(void); /* apply requested gain or the 10% runtime override */
 /* Main loop: restores audio and the music workaround after an IOP reboot,
- * even with both visible sound switches Off. Tries once per IOP session. */
+ * even with both visible sound switches Off. Queues one attempt per IOP session. */
 void dashSoundMaintain(void);
 
 #endif
