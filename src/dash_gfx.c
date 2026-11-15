@@ -345,23 +345,8 @@ void dashGfxInit(void)
 		buildGlowTextures();
 		gfx_ready = 1;
 	}
-	/*
-	 * The classic wLE menu uses a single framebuffer. That works for its
-	 * mostly static screens, but the animated dashboard writes new pixels
-	 * into the framebuffer that the GS is currently scanning out. The
-	 * resulting horizontal tear is particularly obvious along the header.
-	 *
-	 * Switch only on entering the dashboard: gsKit allocates the second
-	 * framebuffer, and later sync_flip() presents complete frames at VBLANK.
-	 * The dashboard is the only UI from here on; launch/IOP handoffs retain
-	 * their established paths. Screen-mode changes keep DoubleBuffering ON.
-	 */
-	if (gsGlobal->DoubleBuffering != GS_SETTING_ON) {
-		gsGlobal->DoubleBuffering = GS_SETTING_ON;
-		gsKit_init_screen(gsGlobal);
-		gsScreenGeneration++; /* drop every stale texture VRAM mapping */
-		gsKit_set_display_offset(gsGlobal, setting->screen_x, setting->screen_y);
-	}
+	/* setupGS() already allocated both framebuffers in the configured mode.
+	 * Attach the dashboard texture manager without resetting video output. */
 	gfx_screen_gen = -1;
 	dashGfxCheckScreenChange();
 }
