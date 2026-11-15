@@ -1,261 +1,4 @@
-#include "filer_saves.h"
-#include "filer_shared.h"
-#include "filer_actions.h"
-#include "filer_copy.h"
-#include "dash.h"
-#include "save_archive.h"
-#include "init.h"
-#include "save_sign.h"
-#include <ctype.h>
-
-static int clipboardIsPs1Card(void);
-static int sameArchiveName(const char *left, const char *right);
-
-/* Archive actions run on the UI thread after transfer preflight. dash_io
- * redraws during serialized async RPC waits without dispatching other I/O.
- * Reuse the paste popup, publishing measured bytes from the streaming loops.
- * Listing probes and Copy/Cut never enable this context. */
-static struct {
-	int active, verifying, classic_drawn, extracting, extract_complete;
-	const char *action;
-	char item[MAX_NAME], extract_name[MAX_NAME];
-	u64 index, count, started, bytes, file_done, last_draw, extract_done, extract_total;
-} save_progress;
-
-static void saveProgressBegin(int count)
-{
-	memset(&save_progress, 0, sizeof(save_progress));
-	save_progress.active = 1;
-	save_progress.count = count;
-}
-
-static void saveProgressEnd(void)
-{
-	if (save_progress.classic_drawn) nonDialog(NULL);
-	if (save_progress.active) DashFileOperationEnd();
-	memset(&save_progress, 0, sizeof(save_progress));
-}
-
-static void saveProgressStage(const char *action, const char *name)
-{
-	char text[384];
-	if (!save_progress.active) return;
-	save_progress.action = action;
-	if (DashFileOperationStatus(action, name, save_progress.index, save_progress.count) || DashIsActive()) return;
-	if (save_progress.classic_drawn) nonDialog(NULL);
-	snprintf(text, sizeof(text), "%s %llu of %llu\n%.255s", action,
-	         (unsigned long long)save_progress.index, (unsigned long long)save_progress.count, name);
-	nonDialog(text); drawMsg(name);
-	save_progress.classic_drawn = 1;
-	save_progress.last_draw = Timer();
-}
-
-static void saveProgressItem(int index, const char *name, const char *action)
-{
-	save_progress.index = index;
-	save_progress.verifying = 0;
-	snprintf(save_progress.item, sizeof(save_progress.item), "%s", name);
-	saveProgressStage(action, name);
-}
-
-static void saveProgressBytes(const char *path, u64 done, u64 total)
-{
-	DashTransferStats stats = {0};
-	char name[128], text[512], speed_text[40], time_text[40];
-	const char *leaf;
-	u64 now, elapsed, speed;
-	if (!save_progress.active) return;
-	now = Timer(); elapsed = now >= save_progress.started ? now - save_progress.started : 0;
-	if (done >= save_progress.file_done) {
-		u64 delta = done - save_progress.file_done;
-		save_progress.bytes += delta;
-		if (save_progress.extracting) save_progress.extract_done += delta;
-	}
-	save_progress.file_done = done;
-	if (save_progress.extracting) {
-		done = save_progress.extract_done; total = save_progress.extract_total;
-		/* File closes and save metadata must succeed before showing 100%.
-		 * Empty saves remain in the named stage until metadata is restored. */
-		if (done == total && !save_progress.extract_complete) return;
-	}
-	speed = elapsed ? (u64)done * 1000 / elapsed : 0;
-	stats.current_speed = stats.average_speed = elapsed ? (speed > 0x7fffffffULL ? 0x7fffffff : (int)speed) : -1;
-	stats.remaining_seconds = done == total ? 0 : speed ? (int)((total - done) / speed) : -1;
-	stats.written_total = save_progress.bytes;
-	stats.file_index = save_progress.index; stats.file_count = save_progress.count;
-	leaf = strrchr(path, '/'); leaf = leaf ? leaf + 1 : path;
-	if (save_progress.extracting)
-		snprintf(name, sizeof(name), "%.127s", save_progress.extract_name);
-	else if (strcmp(leaf, save_progress.item))
-		snprintf(name, sizeof(name), "%.64s / %.59s", save_progress.item, leaf);
-	else snprintf(name, sizeof(name), "%s", leaf);
-	if (DashFileTransferProgress(save_progress.action, name, total - done, total, &stats) || DashIsActive()) return;
-	if (done != total && now - save_progress.last_draw < 30) return;
-	if (save_progress.classic_drawn) nonDialog(NULL);
-	if (stats.average_speed < 0) snprintf(speed_text, sizeof(speed_text), "Unknown");
-	else snprintf(speed_text, sizeof(speed_text), "%d B/s", stats.average_speed);
-	if (stats.remaining_seconds < 0) snprintf(time_text, sizeof(time_text), "Unknown");
-	else snprintf(time_text, sizeof(time_text), "%d sec", stats.remaining_seconds);
-	snprintf(text, sizeof(text), "%s %llu of %llu\n%s\n%llu / %llu bytes (%d%%)\nAverage speed: %s\nRemaining time: %s",
-	         save_progress.action, (unsigned long long)save_progress.index, (unsigned long long)save_progress.count, name,
-	         (unsigned long long)done, (unsigned long long)total, total ? (int)((u64)done * 100 / total) : 100,
-	         speed_text, time_text);
-	nonDialog(text); drawMsg(name);
-	save_progress.classic_drawn = 1; save_progress.last_draw = now;
-}
-
-static void saveProgressFile(const char *path, size_t size)
-{
-	if (!save_progress.active) return;
-	if (!save_progress.extracting) save_progress.started = Timer();
-	save_progress.file_done = 0;
-	if (size) saveProgressBytes(path, 0, size);
-}
-
-/* Extraction publishes one byte total and one stable label for the save.
- * Keep the batch ordinal; individual output files never reset its bar/ETA. */
-static void saveProgressExtractBegin(const SaveArchive *save, const char *name)
-{
-	if (!save_progress.active) return;
-	save_progress.extracting = 1; save_progress.extract_complete = 0;
-	save_progress.extract_done = save_progress.extract_total = save_progress.file_done = 0;
-	save_progress.started = Timer();
-	snprintf(save_progress.extract_name, sizeof(save_progress.extract_name), "%s", name);
-	for (unsigned i = 0; i < save->count; i++) save_progress.extract_total += save->files[i].size;
-	saveProgressBytes(name, 0, 0);
-}
-
-static void saveProgressExtractEnd(int success)
-{
-	if (!save_progress.extracting) return;
-	if (success) {
-		save_progress.extract_complete = 1;
-		/* Re-publish the last per-file count without counting its bytes twice. */
-		saveProgressBytes(save_progress.extract_name, save_progress.file_done, 0);
-	}
-	save_progress.extracting = save_progress.extract_complete = 0;
-	save_progress.extract_done = save_progress.extract_total = 0;
-	save_progress.extract_name[0] = '\0';
-}
-
-int filerCardInfo(const char *path, VmcInfo *info)
-{
-	int result, formatted = 0;
-	char device[8];
-	memset(info, 0, sizeof(*info));
-	if (!strncmp(path, "vmc", 3) && (path[3] == '0' || path[3] == '1') && path[4] == ':') {
-		if (!vmcMounted[path[3] - '0']) return 0;
-		snprintf(device, sizeof(device), "vmc%c:", path[3]);
-		result = fileXioDevctl(device, VMCCTL_GET_INFO, NULL, 0, info, sizeof(*info));
-		return result == 0 && (info->type == 1 || info->type == 2) && info->free_units >= 0 &&
-		       info->unit_bytes == (info->type == 1 ? 8192 : 1024);
-	}
-	if (strncmp(path, "mc", 2) || (path[2] != '0' && path[2] != '1') || path[3] != ':') return 0;
-	if (filerPrepareMemoryCardRead(path[2] - '0') < 0) return 0;
-	result = mcGetInfo(path[2] - '0', 0, &info->type, &info->free_units, &formatted);
-	if (result < 0 || mcSync(0, NULL, &result) <= 0 || result < -1 || !formatted || info->free_units < 0) return 0;
-	info->unit_bytes = info->type == 1 ? 8192 : 1024;
-	return info->type == 1 || info->type == 2;
-}
-
-int filerPs1CardCandidate(const FILEINFO *file)
-{
-	u64 bytes;
-	if (!file || (file->stats.AttrFile & sceMcFileAttrSubdir) || !filerIsPs1Image(file->name)) return 0;
-	bytes = ((u64)file->stats.Reserve2 << 32) | file->stats.FileSizeByte;
-	return bytes == 131072 || bytes == 131136 || bytes == 131200 || bytes == 134976;
-}
-
-int filerIsPs1Image(const char *name)
-{
-	return genCmpFileExt(name, "VMC") || genCmpFileExt(name, "BIN") || genCmpFileExt(name, "MCR") ||
-	       genCmpFileExt(name, "MCD") || genCmpFileExt(name, "MC") || genCmpFileExt(name, "MEM") ||
-	       genCmpFileExt(name, "VM1") || genCmpFileExt(name, "SRM") ||
-	       genCmpFileExt(name, "GME") || genCmpFileExt(name, "VGS") || genCmpFileExt(name, "VMP");
-}
-
-static uint8_t *readSource(const char *path, size_t *size)
-{
-	char fixed[MAX_PATH];
-	uint8_t *data;
-	s64 length;
-	size_t done = 0;
-	int fd, n;
-	if (genFixPath(path, fixed) < 0) return NULL;
-	fd = genOpen(fixed, FIO_O_RDONLY);
-	if (fd < 0) return NULL;
-	length = genLseek(fd, 0, SEEK_END);
-	if (length < 0 || length > SAVE_ARCHIVE_LIMIT || genLseek(fd, 0, SEEK_SET) < 0) { genClose(fd); return NULL; }
-	data = malloc(length ? (size_t)length : 1);
-	if (!data) { genClose(fd); return NULL; }
-	saveProgressFile(path, length);
-	while (done < (size_t)length) {
-		int count = (length - done > 65536) ? 65536 : (int)(length - done);
-		n = genRead(fd, data + done, count);
-		if (n <= 0 || n > count) { free(data); genClose(fd); return NULL; }
-		done += n;
-		if (done < (size_t)length) saveProgressBytes(path, done, length);
-	}
-	if (genClose(fd) < 0) { free(data); return NULL; }
-	saveProgressBytes(path, done, length);
-	*size = done;
-	return data;
-}
-
-static int exists(const char *path)
-{
-	char dir[MAX_PATH];
-	int fd = genOpen(path, FIO_O_RDONLY);
-	if (fd >= 0) { genClose(fd); return 1; }
-	snprintf(dir, sizeof(dir), "%s", path);
-	fd = genDopen(dir);
-	if (fd >= 0) { genDclose(fd); return 1; }
-	return 0;
-}
-
-static int saveWritable(const char *path)
-{
-	/* Keep the existing save-action destination policy. Archive writes do
-	 * not depend on the device actually implementing native rename. */
-	return genCanRenamePath(path) && strncmp(path, "host", 4);
-}
-
-static int uniquePath(const char *parent, char *out, size_t size, const char *suffix)
-{
-	for (int i = 0; i < 100; i++) {
-		if (snprintf(out, size, "%sLSI%02d.%s", parent, i, suffix) >= (int)size) return 0;
-		if (!exists(out)) return 1;
-	}
-	return 0;
-}
-
-/* R3Z writes the requested destination directly. Do not require native
- * rename support just to create an archive or extract a save. */
-static int writeFileResult(const char *path, const uint8_t *data, size_t size, int *opened)
-{
-	size_t done = 0;
-	int n, result = 0, closed, fd;
-	if (opened) *opened = 0;
-	fd = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC);
-	if (fd < 0) return fd;
-	if (opened) *opened = 1;
-	saveProgressFile(path, size);
-	while (done < size) {
-		int count = size - done > 65536 ? 65536 : (int)(size - done);
-		n = genWrite(fd, (void *)(data + done), count);
-		if (n <= 0 || n > count) { result = n < 0 ? n : -EIO; break; }
-		done += n;
-		if (done < size) saveProgressBytes(path, done, size);
-	}
-	closed = genClose(fd);
-	if (result >= 0 && closed >= 0) saveProgressBytes(path, done, size);
-	return result < 0 ? result : closed < 0 ? closed : 0;
-}
-
-static int writeFile(const char *path, const uint8_t *data, size_t size)
-{
-	return writeFileResult(path, data, size, NULL) >= 0;
-}
+#include "filer_saves_internal.h"
 
 static int metadata(const char *path, const SaveArchiveEntry *e, int folder)
 {
@@ -303,7 +46,7 @@ static void removeStage(const char *stage, const SaveArchive *s, int folder)
 static int loadSaveSnapshot(const char *source, SaveArchive *save, uint8_t **data, size_t *length,
                             char *message, int size)
 {
-    *data = readSource(source, length);
+    *data = filerSaveReadSource(source, length);
     if (!*data) { snprintf(message, size, "Could not read save: %s", source); return 0; }
 	saveProgressStage("Opening archive", save_progress.item);
     if (!saveArchiveParse(save, *data, *length, source)) {
@@ -384,7 +127,7 @@ int filerExtractSave(const SaveArchive *s, const char *destination, char *messag
 	int is_card, replacing, folder = 0, result = -1, created = 0, error = -EIO;
 	const char *action = "open the destination";
 	saveProgressStage("Preparing destination", save_progress.item);
-	if (!saveWritable(destination) || prepareTransferDeviceStacks(destination, destination) < 0 || genFixPath(destination, parent) < 0) goto fail;
+	if (!filerSaveWritable(destination) || prepareTransferDeviceStacks(destination, destination) < 0 || genFixPath(destination, parent) < 0) goto fail;
 	is_card = !strncmp(destination, "mc", 2) || !strncmp(destination, "vmc", 3);
 	if (is_card && !filerCardInfo(destination, &card)) goto fail;
 	if (is_card && card.type == 1 && !s->ps1) {
@@ -400,7 +143,7 @@ int filerExtractSave(const SaveArchive *s, const char *destination, char *messag
 	folder = !(s->ps1 && is_card && card.type == 1);
 	const char *name = s->ps1 ? s->files[0].name : s->folder.name;
 	if (snprintf(target, sizeof(target), "%s%s", parent, name) >= (int)sizeof(target)) goto fail;
-	replacing = exists(target);
+	replacing = filerSaveExists(target);
 	if (replacing) {
 		int choice;
 		snprintf(message, size, "Save already exists: %s\n\nDo you wish to overwrite it?", name);
@@ -451,7 +194,7 @@ int filerExtractSave(const SaveArchive *s, const char *destination, char *messag
 			if (snprintf(path, sizeof(path), "%s/%s", target, s->files[i].name) >= (int)sizeof(path)) { error = -ENAMETOOLONG; goto fail; }
 		} else snprintf(path, sizeof(path), "%s", target);
 		action = "write a save file";
-		if ((error = writeFileResult(path, s->files[i].data, s->files[i].size, folder ? NULL : &created)) < 0) goto fail;
+		if ((error = filerSaveWriteFileResult(path, s->files[i].data, s->files[i].size, folder ? NULL : &created)) < 0) goto fail;
 		action = "restore save metadata";
 		if (!s->ps1 && !metadata(path, &s->files[i], 0)) { error = -EIO; goto fail; }
 	}
@@ -477,7 +220,7 @@ int filerCanImportClipboard(void)
 {
 	/* Native PS1 saves are already files: Paste transfers them, and Create
 	 * archive exports them. Only recognized save containers need Extract. */
-	if (nclipFiles <= 0 || clipboardIsPs1Card()) return 0;
+	if (nclipFiles <= 0 || filerSaveClipboardIsPs1Card()) return 0;
 	for (int i = 0; i < nclipFiles; i++) {
 		if ((clipFiles[i].stats.AttrFile & sceMcFileAttrSubdir) ||
 		    !saveArchiveSupported(clipFiles[i].name)) return 0;
@@ -500,21 +243,53 @@ void filerClipboardExtractLabel(char *label, int size)
 	else snprintf(label, size, "Extract saves...");
 }
 
-/* Restore compatible source/destination drivers before verifying a Cut
- * source. Delete only an unchanged archive after successful publication. */
+/* Compare archive bytes with bounded transfer storage. The decoded save and
+ * archive snapshot may already occupy several MiB; never allocate a second
+ * archive just to authorize deleting its source. */
 static int finishExtractCut(const char *destination, const char *source, const uint8_t *snapshot, size_t length, const FILEINFO *file)
 {
-	uint8_t *current;
-	size_t current_length;
-	int same;
-	char message[160];
+	SaveSha1 hash;
+	uint8_t expected[20], actual[20], *buffer = NULL;
+	char fixed[MAX_PATH], message[160];
+	size_t done = 0, capacity;
+	int fd = -1, same = 0;
+	unsigned int generation;
 	if (filerPrepareClipboardTransfer(destination, message, sizeof(message)) < 0) return 0;
+	generation = getIopResetGeneration();
 	saveProgressStage("Verifying source", file->name);
-	current = readSource(source, &current_length);
-	if (!current) return 0;
-	same = current_length == length && !memcmp(current, snapshot, length);
-	free(current);
-	return same && clipIopResetGeneration == getIopResetGeneration() &&
+	saveHashInit(&hash);
+	while (done < length) {
+		size_t block = length - done > 65536 ? 65536 : length - done;
+		saveHashUpdate(&hash, snapshot + done, block); done += block;
+		DashIoYield();
+	}
+	saveHashFinish(&hash, expected);
+	capacity = filerTransferBufferSize(source, destination, length);
+	if (!capacity || !(buffer = memalign(64, capacity)) || genFixPath(source, fixed) < 0 ||
+	    (fd = genOpen(fixed, FIO_O_RDONLY)) < 0) goto done;
+	if (genLseek(fd, 0, SEEK_END) != (s64)length || genLseek(fd, 0, SEEK_SET) != 0) goto done;
+	saveHashInit(&hash); saveProgressFile(source, length);
+	done = 0;
+	while (done < length) {
+		size_t block = length - done > capacity ? capacity : length - done;
+		int count = genRead(fd, buffer, block);
+		if (count <= 0 || (size_t)count > block) goto done;
+		/* Bound cooperative work even when a fast device selected a 1 MiB buffer. */
+		for (size_t offset = 0; offset < (size_t)count;) {
+			size_t chunk = count - offset > 65536 ? 65536 : count - offset;
+			saveHashUpdate(&hash, buffer + offset, chunk); offset += chunk; DashIoYield();
+		}
+		done += count;
+		if (done < length) saveProgressBytes(source, done, length);
+	}
+	if (genLseek(fd, 0, SEEK_END) != (s64)length) goto done;
+	saveHashFinish(&hash, actual);
+	same = !memcmp(actual, expected, sizeof(actual));
+done:
+	if (fd >= 0 && genClose(fd) < 0) same = 0;
+	free(buffer);
+	if (same) saveProgressBytes(source, length, length);
+	return same && generation == getIopResetGeneration() && clipIopResetGeneration == generation &&
 	       filerConfirmExploitDelete(clipPath, file) >= 0 && delete(clipPath, file) >= 0;
 }
 
@@ -581,105 +356,6 @@ int filerImportClipboard(const char *destination, char *message, int size)
 	return kept ? 0 : count;
 }
 
-unsigned char *filerReadPs1Card(const char *source, char *message, int size)
-{
-	uint8_t *data = NULL;
-	VmcInfo info;
-	size_t length = 0;
-	int offset = 0;
-	/* VMC snapshots include the full raw card, including deleted slots. */
-	if (!strncmp(source, "vmc", 3)) {
-		if (!filerCardInfo(source, &info) || info.type != 1) goto fail;
-		data = malloc(PS1_CARD_SIZE);
-		if (!data) goto fail;
-		for (int page = 0; page < 1024; page++)
-			if (fileXioDevctl(source, VMCCTL_READ_PS1_PAGE, &page, sizeof(page), data + page * 128, 128) < 0) goto fail;
-	} else if (!strncmp(source, "mc", 2)) {
-		FILEINFO *files;
-		int count;
-		if (!filerCardInfo(source, &info) || info.type != 1) goto fail;
-		files = malloc(MAX_ENTRY * sizeof(*files));
-		data = malloc(PS1_CARD_SIZE);
-		if (!files || !data) { free(files); goto fail; }
-		ps1CardFormat(data);
-		count = getDir(source, files);
-		if (count < 0) { free(files); goto fail; }
-		for (int i = 0; i < count; i++) {
-			uint8_t *save;
-			char path[MAX_PATH];
-			int ok;
-			if (!strcmp(files[i].name, ".") || !strcmp(files[i].name, "..")) continue;
-			if (snprintf(path, sizeof(path), "mc%c:/%s", source[2], files[i].name) >= (int)sizeof(path)) { free(files); goto fail; }
-			save = readSource(path, &length);
-			ok = save && ps1CardAppend(data, files[i].name, save, length);
-			free(save);
-			if (!ok) { free(files); goto fail; }
-		}
-		free(files);
-	} else {
-		data = readSource(source, &length);
-		if (!data || (offset = ps1CardOffset(data, length)) < 0) {
-			snprintf(message, size, "Choose a 128 KiB PS1 card (raw, GME, VGS or VMP)."); free(data); return NULL;
-		}
-	}
-	if (offset) memmove(data, data + offset, PS1_CARD_SIZE);
-	return data;
-fail:
-	free(data);
-	snprintf(message, size, "Could not read a PS1 card from this source.");
-	return NULL;
-}
-
-int filerSavePs1Card(const unsigned char *data, const char *destination, char *message, int size)
-{
-	char output[MAX_PATH], parent[MAX_PATH], stage[MAX_PATH];
-	int staged = 0, result = -1;
-	if (!data || memcmp(data, "MC", 2) || !saveWritable(destination)) goto fail;
-	if (prepareTransferDeviceStacks(destination, destination) < 0 || genFixPath(destination, output) < 0) goto fail;
-	snprintf(parent, sizeof(parent), "%s", output);
-	char *leaf = strrchr(parent, '/');
-	if (!leaf || !leaf[1]) goto fail;
-	leaf[1] = 0;
-	if (exists(output)) { snprintf(message, size, "Card already exists. Rename it or choose another folder."); goto done; }
-	if (!uniquePath(parent, stage, sizeof(stage), "VMC")) goto fail;
-	staged = 1;
-	if (!writeFile(stage, data, PS1_CARD_SIZE) || genRenameNoReplace(stage, output) < 0) goto fail;
-	staged = 0;
-	snprintf(message, size, "Saved raw PS1 card: %s", destination);
-	result = 1;
-	goto done;
-fail:
-	snprintf(message, size, "Could not save the PS1 card. Check the destination and free space.");
-done:
-	if (staged) genRemove(stage);
-	return result;
-}
-
-int filerExportPs1Card(const char *source, const char *destination, char *message, int size)
-{
-	unsigned char *data = filerReadPs1Card(source, message, size);
-	int result;
-	if (!data) return -1;
-	result = filerSavePs1Card(data, destination, message, size);
-	free(data);
-	return result;
-}
-
-static int saveHeader(const char *path, uint8_t header[132], size_t *length)
-{
-	char fixed[MAX_PATH];
-	int fd, got, used = 0;
-	s64 bytes;
-	memset(header, 0, 132);
-	if (genFixPath(path, fixed) < 0 || (fd = genOpen(fixed, FIO_O_RDONLY)) < 0) return 0;
-	bytes = genLseek(fd, 0, SEEK_END);
-	if (bytes < 0 || bytes > SAVE_ARCHIVE_LIMIT || genLseek(fd, 0, SEEK_SET) < 0) { genClose(fd); return 0; }
-	while (used < 132 && (got = genRead(fd, header + used, 132 - used)) > 0) used += got;
-	if (genClose(fd) < 0) return 0;
-	*length = bytes;
-	return used;
-}
-
 int filerSaveKind(const char *folder, const FILEINFO *file, int card_type)
 {
 	char path[MAX_PATH], nested[MAX_PATH];
@@ -694,9 +370,9 @@ int filerSaveKind(const char *folder, const FILEINFO *file, int card_type)
 	if (dir) {
 		if (card && card_type == 2) return file->stats.AttrFile & 0x1000 ? FILER_SAVE_PS1 : FILER_SAVE_PS2;
 		if (snprintf(nested, sizeof(nested), "%s/icon.sys", path) < (int)sizeof(nested) &&
-		    saveHeader(nested, header, &length) >= 4 && !memcmp(header, "PS2D", 4)) return FILER_SAVE_PS2;
+		    filerSaveReadHeader(nested, header, &length) >= 4 && !memcmp(header, "PS2D", 4)) return FILER_SAVE_PS2;
 		if (snprintf(nested, sizeof(nested), "%s/%s", path, file->name) >= (int)sizeof(nested)) return FILER_SAVE_NONE;
-		n = saveHeader(nested, header, &length);
+		n = filerSaveReadHeader(nested, header, &length);
 		return n >= 2 && !memcmp(header, "SC", 2) && length && length <= 15 * PS1_BLOCK_SIZE &&
 		       !(length % PS1_BLOCK_SIZE) ? FILER_SAVE_PS1 : FILER_SAVE_NONE;
 	}
@@ -704,7 +380,7 @@ int filerSaveKind(const char *folder, const FILEINFO *file, int card_type)
 	length = file->stats.FileSizeByte;
 	if (!saveArchiveSupported(file->name) && !filerIsPs1Image(file->name) &&
 	    !(length && length <= 134976 && !(length % PS1_BLOCK_SIZE))) return FILER_SAVE_NONE;
-	n = saveHeader(path, header, &length);
+	n = filerSaveReadHeader(path, header, &length);
 	if (n < 4) return FILER_SAVE_NONE;
 	if ((length == 131072 && !memcmp(header, "MC", 2)) ||
 	    (length == 131136 && !memcmp(header, "VgsM", 4)) ||
@@ -727,662 +403,4 @@ void filerExtractLabel(const char *name, char *label, int size)
 	char ext[4] = {0};
 	if (dot && strlen(dot + 1) == 3) for (int i = 0; i < 3; i++) ext[i] = toupper((unsigned char)dot[i + 1]);
 	snprintf(label, size, "Extract %s...", ext[0] ? ext : "save");
-}
-
-int filerCreateArchive(const char *source, const FILEINFO *file, int kind, int format,
-					   uint8_t **data, size_t *length, char *name, int name_size, char *message, int size)
-{
-	SaveArchive save = {0};
-	FILEINFO *files = NULL;
-	uint8_t *raw = NULL;
-	char folder[MAX_PATH], path[MAX_PATH];
-	size_t bytes, accumulated = 0;
-	int result = -1, count;
-	*data = NULL; *length = 0;
-	snprintf(folder, sizeof(folder), "%s", source);
-	bytes = strlen(folder);
-	if (bytes && folder[bytes - 1] == '/') folder[bytes - 1] = 0;
-	if (kind == FILER_SAVE_PS1) {
-		if (file->stats.AttrFile & sceMcFileAttrSubdir) {
-			if (snprintf(path, sizeof(path), "%s/%s", folder, file->name) >= (int)sizeof(path)) goto done;
-		} else snprintf(path, sizeof(path), "%s", folder);
-		raw = readSource(path, &bytes);
-		if (!raw || !saveArchiveParse(&save, raw, bytes, file->name) || !save.ps1) goto done;
-	} else if (kind == FILER_SAVE_PS2) {
-		if (snprintf(path, sizeof(path), "%s/", folder) >= (int)sizeof(path)) goto done;
-		files = malloc(MAX_ENTRY * sizeof(*files));
-		if (!files || (count = getDir(path, files)) <= 0 || count >= MAX_ENTRY - 2) goto done;
-		save.files = calloc(count, sizeof(*save.files));
-		if (!save.files) goto done;
-		snprintf(save.folder.name, sizeof(save.folder.name), "%.32s", file->name);
-		if (strlen(file->name) > 32) goto done;
-		save.folder.mode = file->stats.AttrFile;
-		memcpy(save.folder.created, &file->stats._Create, 8); memcpy(save.folder.modified, &file->stats._Modify, 8);
-		for (int i = 0; i < count; i++) {
-			SaveArchiveEntry *e = &save.files[save.count];
-			if (!strcmp(files[i].name, ".") || !strcmp(files[i].name, "..")) continue;
-			if ((files[i].stats.AttrFile & sceMcFileAttrSubdir) || strlen(files[i].name) > 32 ||
-			    snprintf(path, sizeof(path), "%s/%s", folder, files[i].name) >= (int)sizeof(path)) goto done;
-			e->data = readSource(path, &e->size);
-			save.count++;
-			if (!e->data || e->size > SAVE_ARCHIVE_LIMIT - accumulated) goto done;
-			accumulated += e->size;
-			strcpy(e->name, files[i].name); e->mode = files[i].stats.AttrFile;
-			memcpy(e->created, &files[i].stats._Create, 8); memcpy(e->modified, &files[i].stats._Modify, 8);
-		}
-	} else goto done;
-	saveProgressStage(save_progress.verifying ? "Verifying source" : "Preparing archive", file->name);
-	if (!saveArchiveBuild(&save, format, data, length) || !saveArchiveFilename(&save, format, name, name_size)) {
-		free(*data); *data = NULL; *length = 0; goto done;
-	}
-	result = 1;
-done:
-	if (kind == FILER_SAVE_PS2) for (unsigned i = 0; i < save.count; i++) free((void *)save.files[i].data);
-	saveArchiveFree(&save); free(raw); free(files);
-	if (result < 0) snprintf(message, size, format == SAVE_OUTPUT_PSV && kind == FILER_SAVE_PS2 ?
-		"PSV needs a flat PS2 save with icon.sys and its referenced icons." : "Could not read or archive this save. Choose one complete save.");
-	return result;
-}
-
-int filerWriteArchive(const uint8_t *data, size_t length, int format, const char *destination, char *message, int size)
-{
-	char output[MAX_PATH];
-	VmcInfo card;
-	int opened = 0, replace, result;
-	if (!data || !length || length > SAVE_ARCHIVE_LIMIT || !saveWritable(destination) ||
-	    prepareTransferDeviceStacks(destination, destination) < 0 || genFixPath(destination, output) < 0) {
-		snprintf(message, size, "Could not open the archive destination: %s", destination); return -1;
-	}
-	if ((!strncmp(destination, "mc", 2) || !strncmp(destination, "vmc", 3)) &&
-	    (!filerCardInfo(destination, &card) || card.type == 1)) {
-		snprintf(message, size, "Choose storage or a PS2 card for archive files."); return -1;
-	}
-	replace = exists(output);
-	if (replace) {
-		if (format != SAVE_OUTPUT_PSU) {
-			snprintf(message, size, "Archive already exists. Rename it or choose another folder."); return -1;
-		}
-		if (setting->PSU_NoOverwrite) {
-			snprintf(message, size, "PSU archive already exists; skipped because never overwrite is enabled."); return 0;
-		}
-	}
-	result = writeFileResult(output, data, length, &opened);
-	if (result < 0) {
-		/* Remove an incomplete new export. As with R3Z's ordinary overwrite,
-		 * an existing PSU may already have been truncated; retain it for inspection. */
-		if (opened && !replace) genRemove(output);
-		snprintf(message, size, "Could not write archive (%d): %s", result, destination);
-		return -1;
-	}
-	snprintf(message, size, "Archive created: %s", destination);
-	return 1;
-}
-
-/* Copy/Cut stores metadata only. Browser archive creation retains a digest,
- * not payload data, for its post-write Cut check. Buffered API callers keep
- * the older snapshot contract below. */
-static uint8_t *archive_clip_data;
-static int archive_stream_valid, archive_stream_format;
-static size_t archive_stream_length;
-static uint8_t archive_stream_digest[20];
-static size_t archive_clip_length;
-static int archive_clip_kind, archive_clip_card_type, archive_clip_probed;
-static int archive_clip_count, archive_clip_index;
-static FILEINFO archive_clip_file;
-static char archive_clip_folder[MAX_PATH];
-
-/* The listing's captured card type avoids probing the source in Options.
- * A native save can contain a dot and resemble an archive filename. */
-static int clipboardIsPs1Card(void)
-{
-	return archive_clip_card_type == 1 && !strcmp(clipPath, archive_clip_folder) &&
-	       (!strncmp(clipPath, "mc", 2) || !strncmp(clipPath, "vmc", 3));
-}
-
-void filerClearArchiveClipboard(void)
-{
-	free(archive_clip_data);
-	archive_clip_data = NULL;
-	archive_stream_valid = 0;
-	archive_clip_length = 0;
-	archive_clip_kind = FILER_SAVE_NONE;
-	archive_clip_probed = 0;
-}
-
-static int archiveClipboardMatches(void)
-{
-	return nclipFiles > 0 && nclipFiles == archive_clip_count && archive_clip_index < nclipFiles &&
-	       !strcmp(clipPath, archive_clip_folder) &&
-	       !strcmp(clipFiles[archive_clip_index].name, archive_clip_file.name) &&
-	       !memcmp(&clipFiles[archive_clip_index].stats, &archive_clip_file.stats, sizeof(archive_clip_file.stats));
-}
-
-static int archiveCandidate(const FILEINFO *file)
-{
-	u64 bytes = ((u64)file->stats.Reserve2 << 32) | file->stats.FileSizeByte;
-	if (!file->name[0] || !strcmp(file->name, ".") || !strcmp(file->name, ".."))
-		return FILER_SAVE_NONE;
-	/* Opening Options uses listing metadata only. Resolve a candidate's
-	 * contents and folder flatness after the user chooses Create archive. */
-	if (file->stats.AttrFile & sceMcFileAttrSubdir)
-		return archive_clip_card_type == 2 && (file->stats.AttrFile & 0x1000) ? FILER_SAVE_PS1 : FILER_SAVE_PS2;
-	if (archive_clip_card_type == 1 || (bytes && bytes <= 15 * PS1_BLOCK_SIZE &&
-	    !(bytes % PS1_BLOCK_SIZE) && strlen(file->name) <= 20)) return FILER_SAVE_PS1;
-	return FILER_SAVE_NONE;
-}
-
-int filerArchiveClipboardKind(void)
-{
-	int kind = FILER_SAVE_NONE;
-	if (!archiveClipboardMatches()) return FILER_SAVE_NONE;
-	if (nclipFiles == 1 && archive_clip_probed) return archive_clip_kind;
-	for (int i = 0; i < nclipFiles; i++) {
-		int candidate = archiveCandidate(&clipFiles[i]);
-		if (!candidate) return FILER_SAVE_NONE;
-		kind = !kind || kind == candidate ? candidate : FILER_SAVE_MIXED;
-	}
-	return kind;
-}
-
-void filerRememberArchiveClipboard(int card_type)
-{
-	filerClearArchiveClipboard();
-	archive_clip_folder[0] = 0;
-	archive_clip_count = 0; archive_clip_index = 0;
-	if (nclipFiles <= 0 || nclipFiles > MAX_ENTRY) return;
-	archive_clip_count = nclipFiles;
-	archive_clip_file = clipFiles[0];
-	snprintf(archive_clip_folder, sizeof(archive_clip_folder), "%s", clipPath);
-	archive_clip_card_type = card_type;
-}
-
-/* A folder is eligible only after checking its complete immediate listing.
- * getDir() caps listings at MAX_ENTRY - 2; a full buffer cannot prove flatness. */
-static int flatArchiveFolder(const char *source)
-{
-	FILEINFO *files;
-	char path[MAX_PATH];
-	int count, flat = 1, regular = 0;
-	if (snprintf(path, sizeof(path), "%s/", source) >= (int)sizeof(path)) return 0;
-	files = malloc(MAX_ENTRY * sizeof(*files));
-	if (!files) return 0;
-	count = getDir(path, files);
-	if (count <= 0 || count >= MAX_ENTRY - 2) flat = 0;
-	for (int i = 0; flat && i < count; i++) {
-		if (!strcmp(files[i].name, ".") || !strcmp(files[i].name, "..")) continue;
-		if (files[i].stats.AttrFile & sceMcFileAttrSubdir) flat = 0;
-		else regular++;
-	}
-	free(files);
-	return flat ? regular : 0;
-}
-
-static int probeArchiveItem(const FILEINFO *file)
-{
-	char source[MAX_PATH];
-	VmcInfo card;
-	int kind, files, type = archive_clip_card_type;
-	if (!archiveCandidate(file) ||
-	    snprintf(source, sizeof(source), "%s%s", clipPath, file->name) >= (int)sizeof(source)) return FILER_SAVE_NONE;
-	if (!strncmp(clipPath, "mc", 2) || !strncmp(clipPath, "vmc", 3)) {
-		if (!filerCardInfo(clipPath, &card)) return FILER_SAVE_NONE;
-		type = card.type;
-	}
-	kind = filerSaveKind(clipPath, file, type);
-	if (file->stats.AttrFile & sceMcFileAttrSubdir) {
-		files = flatArchiveFolder(source);
-		if (!files) kind = FILER_SAVE_NONE;
-		else if (kind == FILER_SAVE_NONE || (kind == FILER_SAVE_PS1 && files != 1)) kind = FILER_SAVE_PS2;
-	}
-	return kind == FILER_SAVE_PS1 || kind == FILER_SAVE_PS2 ? kind : FILER_SAVE_NONE;
-}
-
-int filerProbeArchiveClipboard(const char *destination)
-{
-	char message[160];
-	int kind = FILER_SAVE_NONE;
-	if (!archiveClipboardMatches() || !saveWritable(destination) ||
-	    filerPrepareClipboardTransfer(destination, message, sizeof(message)) < 0) return FILER_SAVE_NONE;
-	for (int i = 0; i < nclipFiles; i++) {
-		int candidate = probeArchiveItem(&clipFiles[i]);
-		if (!candidate) { kind = FILER_SAVE_NONE; break; }
-		kind = !kind || kind == candidate ? candidate : FILER_SAVE_MIXED;
-	}
-	if (nclipFiles == 1) { archive_clip_kind = kind; archive_clip_probed = 1; }
-	return kind;
-}
-
-/* Apply the existing PSU backup policy only to the final output name.
- * Canonical clipboard snapshots and their Cut comparisons stay independent
- * of naming preferences. Reuse R3Z's title conversion and device name limits. */
-static int clipboardArchiveFilename(const SaveArchive *save, int format, const char *source,
-                                    const char *destination, char *out, int size)
-{
-	char parent[MAX_PATH], path[MAX_PATH], name[MAX_NAME], title[66] = {0};
-	unsigned char sjis[66];
-	const uint8_t *date = save->folder.modified;
-	int count;
-	if (format != SAVE_OUTPUT_PSU) return saveArchiveFilename(save, format, out, size);
-	if (setting->PSU_HugeNames || fileShowTitles()) {
-		snprintf(parent, sizeof(parent), "%s", source);
-		char *leaf = strrchr(parent, '/');
-		if (leaf) {
-			leaf[1] = 0;
-			if (filerGetGameTitle(parent, &archive_clip_file, sjis) == 0 && sjis[0]) transcpy_sjis(title, sjis);
-		}
-	}
-	if (title[0] && setting->PSU_HugeNames)
-		count = snprintf(name, sizeof(name), "%s_%s", save->folder.name, title);
-	else count = snprintf(name, sizeof(name), "%s", title[0] ? title : save->folder.name);
-	if (count < 0 || count >= (int)sizeof(name)) return 0;
-	for (int i = 0; name[i]; i++) if (strchr("\"\\/:*?<>|", name[i])) name[i] = '_';
-	if (setting->PSU_DateNames) {
-		count += snprintf(name + count, sizeof(name) - count, "_%04d-%02d-%02d_%02d-%02d-%02d",
-		                  date[6] | (date[7] << 8), date[5], date[4], date[3], date[2], date[1]);
-		if (count >= (int)sizeof(name)) return 0;
-	}
-	if (snprintf(path, sizeof(path), "%s%s", destination, name) >= (int)sizeof(path)) return 0;
-	genLimObjName(path, 4);
-	if (strlen(path) + 4 >= sizeof(path)) return 0;
-	strcat(path, ".psu");
-	const char *leaf = strrchr(path, '/');
-	return leaf && snprintf(out, size, "%s", leaf + 1) < size;
-}
-
-int filerCreateClipboardArchive(const char *destination, int format, uint8_t **data, size_t *length,
-                               char *name, int name_size, char *message, int size)
-{
-	SaveArchive save = {0};
-	char source[MAX_PATH], temporary_name[80];
-	int result = -1, kind;
-	*data = NULL; *length = 0;
-	if (!archiveClipboardMatches()) {
-		snprintf(message, size, "Copy or cut complete PS1 saves or flat folders first.");
-		return -1;
-	}
-	if (filerPrepareClipboardTransfer(destination, message, size) < 0) return -1;
-	/* Refresh eligibility after restoring drivers; cached menu metadata is not
-	 * authority to archive a folder which acquired subdirectories meanwhile. */
-	filerClearArchiveClipboard();
-	kind = archive_clip_kind = probeArchiveItem(&archive_clip_file);
-	archive_clip_probed = 1;
-	if (!kind || snprintf(source, sizeof(source), "%s%s", clipPath, archive_clip_file.name) >= (int)sizeof(source)) {
-		snprintf(message, size, "Choose complete PS1 saves or folders with files and no subdirectories.");
-		return -1;
-	}
-	if (filerCreateArchive(source, &archive_clip_file, kind, kind == FILER_SAVE_PS1 ? SAVE_OUTPUT_MCS : SAVE_OUTPUT_PSU,
-	                       &archive_clip_data, &archive_clip_length, temporary_name, sizeof(temporary_name), message, size) < 0)
-		return -1;
-	if (saveArchiveParse(&save, archive_clip_data, archive_clip_length,
-	                     archive_clip_kind == FILER_SAVE_PS1 ? "clipboard.mcs" : "clipboard.psu") &&
-	    saveArchiveBuild(&save, format, data, length) &&
-	    clipboardArchiveFilename(&save, format, source, destination, name, name_size))
-		result = 1;
-	if (result < 0) {
-		free(*data); *data = NULL; *length = 0;
-		snprintf(message, size, format == SAVE_OUTPUT_PSV && archive_clip_kind == FILER_SAVE_PS2 ?
-		         "PSV needs a flat PS2 save with icon.sys and its referenced icons." : "Could not create this save archive.");
-	}
-	saveArchiveFree(&save);
-	if (result < 0) filerClearArchiveClipboard();
-	return result;
-}
-
-/* One source listing and two bounded transfer buffers; payloads are never
- * retained between entries or between archive creation and Cut verification. */
-typedef struct {
-	SaveArchive save;
-	char source[MAX_PATH];
-	int input, output, entry;
-	size_t input_pos, output_pos, length, buffer_size;
-	uint8_t *buffer, *buffer2;
-	SaveSha1 hash;
-} ArchiveStream;
-
-static int archiveStreamCloseInput(ArchiveStream *stream)
-{
-	int result = 0;
-	if (stream->input >= 0) result = genClose(stream->input);
-	stream->input = -1;
-	return result >= 0;
-}
-
-static void archiveStreamFree(ArchiveStream *stream)
-{
-	archiveStreamCloseInput(stream);
-	if (stream->output >= 0) genClose(stream->output);
-	stream->output = -1;
-	free(stream->buffer2); free(stream->buffer);
-	stream->buffer = stream->buffer2 = NULL;
-	saveArchiveFree(&stream->save);
-}
-
-static int archiveStreamPath(const ArchiveStream *stream, unsigned entry, char *out)
-{
-	return (stream->save.ps1 ? snprintf(out, MAX_PATH, "%s", stream->source) :
-	        snprintf(out, MAX_PATH, "%s/%s", stream->source, stream->save.files[entry].name)) < MAX_PATH;
-}
-
-static int archiveStreamRead(void *context, unsigned entry, size_t offset, void *data, size_t length)
-{
-	ArchiveStream *stream = context;
-	char path[MAX_PATH], fixed[MAX_PATH];
-	size_t done = 0;
-	if (entry >= stream->save.count || offset > stream->save.files[entry].size ||
-	    length > stream->save.files[entry].size - offset) return 0;
-	if (stream->input < 0 || stream->entry != (int)entry) {
-		if (!archiveStreamCloseInput(stream) || !archiveStreamPath(stream, entry, path) ||
-		    genFixPath(path, fixed) < 0 || (stream->input = genOpen(fixed, FIO_O_RDONLY)) < 0) return 0;
-		stream->entry = entry;
-		if (genLseek(stream->input, 0, SEEK_END) != (s64)stream->save.files[entry].size ||
-		    genLseek(stream->input, 0, SEEK_SET) != 0) return 0;
-		stream->input_pos = 0;
-	}
-	if (stream->input_pos != offset && genLseek(stream->input, offset, SEEK_SET) != (s64)offset) return 0;
-	while (done < length) {
-		int n = genRead(stream->input, (uint8_t *)data + done, length - done);
-		if (n <= 0 || (size_t)n > length - done) return 0;
-		done += n;
-	}
-	stream->input_pos = offset + done;
-	return 1;
-}
-
-static int archiveStreamWrite(void *context, size_t offset, const void *data, size_t length)
-{
-	ArchiveStream *stream = context;
-	size_t done = 0;
-	/* Hash the deterministic header/data emission, including PSV's final patch.
-	 * The same encoder is replayed into this digest sink before a Cut deletes. */
-	for (size_t hashed = 0; hashed < length;) {
-		size_t block = length - hashed;
-		if (block > 65536) block = 65536;
-		saveHashUpdate(&stream->hash, (const uint8_t *)data + hashed, block); hashed += block;
-		DashIoYield();
-	}
-	if (stream->output >= 0) {
-		if (stream->output_pos != offset && genLseek(stream->output, offset, SEEK_SET) != (s64)offset) return 0;
-		while (done < length) {
-			int n = genWrite(stream->output, (uint8_t *)data + done, length - done);
-			if (n <= 0 || (size_t)n > length - done) return 0;
-			done += n;
-		}
-	}
-	stream->output_pos = offset + length;
-	/* 100% is published only after both descriptors have closed successfully. */
-	if (offset + length < stream->length && offset != 28)
-		saveProgressBytes(save_progress.item, offset + length, stream->length);
-	return 1;
-}
-
-static int archiveStreamLoad(ArchiveStream *stream, const char *source, const FILEINFO *file, int kind)
-{
-	SaveArchive *save = &stream->save;
-	FILEINFO *files = NULL;
-	char path[MAX_PATH];
-	int count;
-	memset(stream, 0, sizeof(*stream)); stream->input = stream->output = stream->entry = -1;
-	if (snprintf(stream->source, sizeof(stream->source), "%s", source) >= (int)sizeof(stream->source)) return 0;
-	size_t used = strlen(stream->source);
-	if (used && stream->source[used - 1] == '/') stream->source[used - 1] = 0;
-	if (kind == FILER_SAVE_PS1) {
-		uint8_t header[132];
-		size_t length;
-		if (file->stats.AttrFile & sceMcFileAttrSubdir) {
-			if (snprintf(path, sizeof(path), "%s/%s", stream->source, file->name) >= (int)sizeof(path)) return 0;
-			snprintf(stream->source, sizeof(stream->source), "%s", path);
-		}
-		if (saveHeader(stream->source, header, &length) < 2 || length > 15 * PS1_BLOCK_SIZE ||
-		    !length || length % PS1_BLOCK_SIZE || toupper(header[0]) != 'S' || toupper(header[1]) != 'C' ||
-		    strlen(file->name) > 20) return 0;
-		save->files = calloc(1, sizeof(*save->files));
-		if (!save->files) return 0;
-		save->ps1 = save->count = 1;
-		strcpy(save->files[0].name, file->name); save->files[0].size = length; save->files[0].mode = 0x8497;
-		return 1;
-	}
-	if (kind != FILER_SAVE_PS2 || strlen(file->name) > 32 ||
-	    snprintf(path, sizeof(path), "%s/", stream->source) >= (int)sizeof(path)) return 0;
-	files = malloc(MAX_ENTRY * sizeof(*files));
-	if (!files) return 0;
-	count = getDir(path, files);
-	if (count <= 0 || count >= MAX_ENTRY - 2 ||
-	    !(save->files = calloc(count, sizeof(*save->files)))) { free(files); return 0; }
-	strcpy(save->folder.name, file->name); save->folder.mode = file->stats.AttrFile;
-	memcpy(save->folder.created, &file->stats._Create, 8); memcpy(save->folder.modified, &file->stats._Modify, 8);
-	for (int i = 0; i < count; i++) {
-		SaveArchiveEntry *e = &save->files[save->count];
-		if (!strcmp(files[i].name, ".") || !strcmp(files[i].name, "..")) continue;
-		if ((files[i].stats.AttrFile & sceMcFileAttrSubdir) || strlen(files[i].name) > 32 ||
-		    files[i].stats.Reserve2 || files[i].stats.FileSizeByte > SAVE_ARCHIVE_LIMIT) { free(files); return 0; }
-		strcpy(e->name, files[i].name); e->size = files[i].stats.FileSizeByte; e->mode = files[i].stats.AttrFile;
-		memcpy(e->created, &files[i].stats._Create, 8); memcpy(e->modified, &files[i].stats._Modify, 8);
-		save->count++;
-	}
-	free(files);
-	return save->count != 0;
-}
-
-static int archiveStreamBuffers(ArchiveStream *stream, const char *destination)
-{
-	if (stream->buffer) return 1;
-	stream->buffer_size = filerTransferBufferSize(stream->source, destination, stream->length);
-	if (!stream->buffer_size || !(stream->buffer = memalign(64, stream->buffer_size))) return 0;
-	if (stream->buffer_size == 0x100000) stream->buffer2 = memalign(64, stream->buffer_size);
-	return 1;
-}
-
-static void archiveStreamYield(void *context)
-{
-	(void)context;
-	DashIoYield();
-}
-
-static int archiveStreamRun(ArchiveStream *stream, int format, const char *destination, uint8_t digest[20])
-{
-	SaveArchiveStreamIo io = {archiveStreamRead, archiveStreamWrite, stream, NULL, NULL, 0, archiveStreamYield};
-	int result;
-	if (!archiveStreamBuffers(stream, destination)) return 0;
-	io.buffer = stream->buffer; io.buffer2 = stream->buffer2; io.buffer_size = stream->buffer_size;
-	saveHashInit(&stream->hash);
-	result = saveArchiveStream(&stream->save, format, &io, &stream->length);
-	if (!archiveStreamCloseInput(stream)) result = 0;
-	if (result) saveHashFinish(&stream->hash, digest);
-	return result;
-}
-
-static int archiveStreamPrepare(const char *destination, int format, ArchiveStream *stream,
-                                char *name, int name_size, char *message, int size)
-{
-	char source[MAX_PATH];
-	SaveArchiveStreamIo io = {archiveStreamRead, NULL, stream, NULL, NULL, 0, NULL};
-	memset(stream, 0, sizeof(*stream)); stream->input = stream->output = stream->entry = -1;
-	if (!archiveClipboardMatches() || !saveWritable(destination) ||
-	    filerPrepareClipboardTransfer(destination, message, size) < 0) return 0;
-	archive_clip_kind = probeArchiveItem(&archive_clip_file); archive_clip_probed = 1;
-	if (!archive_clip_kind || snprintf(source, sizeof(source), "%s%s", clipPath, archive_clip_file.name) >= (int)sizeof(source) ||
-	    !archiveStreamLoad(stream, source, &archive_clip_file, archive_clip_kind) ||
-	    !saveArchiveStream(&stream->save, format, &io, &stream->length) ||
-	    !archiveStreamCloseInput(stream) ||
-	    !clipboardArchiveFilename(&stream->save, format, source, destination, name, name_size)) {
-		snprintf(message, size, format == SAVE_OUTPUT_PSV && archive_clip_kind == FILER_SAVE_PS2 ?
-		         "PSV needs a flat PS2 save with icon.sys and its referenced icons." : "Could not read or archive this save. Choose one complete save.");
-		return 0;
-	}
-	return 1;
-}
-
-static int archiveStreamPublish(ArchiveStream *stream, int format, const char *destination, char *message, int size)
-{
-	char output[MAX_PATH], path[MAX_PATH], fixed[MAX_PATH];
-	VmcInfo card;
-	int replace, result, closed;
-	uint8_t digest[20];
-	if (genFixPath(destination, output) < 0) goto fail;
-	if ((!strncmp(destination, "mc", 2) || !strncmp(destination, "vmc", 3)) &&
-	    (!filerCardInfo(destination, &card) || card.type == 1)) {
-		snprintf(message, size, "Choose storage or a PS2 card for archive files."); return -1;
-	}
-	/* Streaming must never truncate one of its own inputs. */
-	for (unsigned i = 0; i < stream->save.count; i++) {
-		if (!archiveStreamPath(stream, i, path) || genFixPath(path, fixed) < 0) goto fail;
-		if (sameArchiveName(fixed, output)) {
-			snprintf(message, size, "The archive destination is one of the source files."); return -1;
-		}
-	}
-	replace = exists(output);
-	if (replace) {
-		if (format != SAVE_OUTPUT_PSU) {
-			snprintf(message, size, "Archive already exists. Rename it or choose another folder."); return -1;
-		}
-		if (setting->PSU_NoOverwrite) {
-			snprintf(message, size, "PSU archive already exists; skipped because never overwrite is enabled."); return 0;
-		}
-	}
-	/* Allocate before opening/truncating the destination; a second fast buffer
-	 * is optional, exactly as in ordinary transfers. */
-	if (!archiveStreamBuffers(stream, destination)) goto fail;
-	stream->output = genOpen(output, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC);
-	if (stream->output < 0) goto fail;
-	saveProgressFile(save_progress.item, stream->length);
-	result = archiveStreamRun(stream, format, destination, digest);
-	closed = genClose(stream->output); stream->output = -1;
-	if (!result || closed < 0) {
-		if (!replace) genRemove(output);
-		goto fail;
-	}
-	archive_stream_valid = 1; archive_stream_format = format; archive_stream_length = stream->length;
-	memcpy(archive_stream_digest, digest, sizeof(archive_stream_digest));
-	saveProgressBytes(save_progress.item, stream->length, stream->length);
-	snprintf(message, size, "Archive created: %s", destination);
-	return 1;
-fail:
-	snprintf(message, size, "Could not write archive: %s", destination);
-	return -1;
-}
-
-static int archiveStreamVerify(const char *source, const char *destination)
-{
-	ArchiveStream stream;
-	uint8_t digest[20];
-	int same = 0;
-	if (archiveStreamLoad(&stream, source, &archive_clip_file, archive_clip_kind)) {
-		SaveArchiveStreamIo io = {archiveStreamRead, NULL, &stream, NULL, NULL, 0, NULL};
-		if (saveArchiveStream(&stream.save, archive_stream_format, &io, &stream.length) &&
-		    stream.length == archive_stream_length) {
-			saveProgressFile(save_progress.item, stream.length);
-			same = archiveStreamRun(&stream, archive_stream_format, destination, digest) &&
-			       !memcmp(digest, archive_stream_digest, sizeof(digest));
-			if (same) saveProgressBytes(save_progress.item, stream.length, stream.length);
-		}
-	}
-	archiveStreamFree(&stream);
-	return same;
-}
-
-int filerFinishArchiveClipboard(const char *destination, char *message, int size)
-{
-	char source[MAX_PATH], name[80], detail[160];
-	uint8_t *current = NULL;
-	size_t length = 0;
-	int same;
-	unsigned int generation;
-	if (!browser_cut) { filerClearArchiveClipboard(); return 1; }
-	if (!archiveClipboardMatches() || !archive_clip_kind || (!archive_clip_data && !archive_stream_valid) ||
-	    snprintf(source, sizeof(source), "%s%s", archive_clip_folder, archive_clip_file.name) >= (int)sizeof(source)) goto kept;
-	/* Do not delete an output created inside the original PS2 save folder. */
-	length = strlen(source);
-	if (!strncmp(destination, source, length) && destination[length] == '/') goto kept;
-	if (filerPrepareClipboardTransfer(destination, detail, sizeof(detail)) < 0) goto kept;
-	generation = getIopResetGeneration();
-	if (save_progress.active) save_progress.verifying = 1;
-	saveProgressStage("Verifying source", archive_clip_file.name);
-	/* Confirm the complete data and metadata still match before deleting. */
-	if (archive_stream_valid) {
-		same = archiveStreamVerify(source, destination);
-	} else {
-		/* Buffered API callers keep their existing snapshot contract. */
-		if (filerCreateArchive(source, &archive_clip_file, archive_clip_kind,
-		                       archive_clip_kind == FILER_SAVE_PS1 ? SAVE_OUTPUT_MCS : SAVE_OUTPUT_PSU,
-		                       &current, &length, name, sizeof(name), detail, sizeof(detail)) < 0) goto kept;
-		same = length == archive_clip_length && !memcmp(current, archive_clip_data, length);
-		free(current); current = NULL;
-	}
-	if (!same || generation != getIopResetGeneration() ||
-	    filerConfirmExploitDelete(archive_clip_folder, &archive_clip_file) < 0 ||
-	    delete(archive_clip_folder, &archive_clip_file) < 0) goto kept;
-	memmove(&clipFiles[archive_clip_index], &clipFiles[archive_clip_index + 1],
-	        (nclipFiles - archive_clip_index - 1) * sizeof(clipFiles[0]));
-	archive_clip_count = --nclipFiles;
-	archive_clip_index = 0;
-	if (!nclipFiles) { browser_cut = 0; clipPath[0] = 0; }
-	else archive_clip_file = clipFiles[0];
-	filerClearArchiveClipboard();
-	return 1;
-kept:
-	free(current);
-	filerClearArchiveClipboard();
-	snprintf(message, size, "Archive created; source save kept because it could not be safely removed.");
-	return 0;
-}
-
-static int sameArchiveName(const char *left, const char *right)
-{
-	while (*left && toupper((unsigned char)*left) == toupper((unsigned char)*right)) { left++; right++; }
-	return *left == *right;
-}
-
-int filerCreateClipboardArchives(const char *destination, int format, char *message, int size)
-{
-	char output[MAX_PATH], name[MAX_NAME], detail[MAX_PATH];
-	char (*created)[MAX_NAME];
-	int count = 0, skipped = 0, kept = 0, total = nclipFiles, cut = browser_cut;
-	if (!archiveClipboardMatches() || !total) {
-		snprintf(message, size, "Copy or cut complete PS1 saves or flat folders first."); return -1;
-	}
-	/* Retain only output names across items, never an entire batch of saves.
-	 * Detect duplicate generated names before an overwrite could discard a
-	 * previous Cut item's only backup (including case-insensitive devices). */
-	created = calloc(total, sizeof(*created));
-	if (!created) { snprintf(message, size, "Not enough memory to create archives."); return -1; }
-	saveProgressBegin(total);
-	for (int i = 0; i < nclipFiles;) {
-		ArchiveStream stream;
-		int result, before = nclipFiles;
-		filerClearArchiveClipboard();
-		archive_clip_index = i; archive_clip_file = clipFiles[i];
-		saveProgressItem(count + skipped + 1, clipFiles[i].name, "Preparing archive");
-		if (!archiveStreamPrepare(destination, format, &stream, name, sizeof(name), message, size)) {
-			archiveStreamFree(&stream); goto fail;
-		}
-		if (!name[0] || snprintf(output, sizeof(output), "%s%s", destination, name) >= (int)sizeof(output)) {
-			archiveStreamFree(&stream); snprintf(message, size, "The archive destination path is too long."); goto fail;
-		}
-		for (int j = 0; j < count; j++) if (sameArchiveName(name, created[j])) {
-			archiveStreamFree(&stream);
-			snprintf(message, size, "Two saves produce the same archive name: %s", name); goto fail;
-		}
-		saveProgressStage("Creating archive", name);
-		result = archiveStreamPublish(&stream, format, output, message, size);
-		archiveStreamFree(&stream);
-		if (result < 0) goto fail;
-		if (!result) skipped++;
-		else {
-			snprintf(created[count++], MAX_NAME, "%s", name);
-			if (!filerFinishArchiveClipboard(output, message, size) && cut) kept++;
-		}
-		if (nclipFiles == before) i++;
-	}
-	saveProgressEnd(); free(created); filerClearArchiveClipboard();
-	if (total == 1 && !skipped && !kept) snprintf(message, size, "Archive created: %s", output);
-	else snprintf(message, size, "%d archive%s created; %d skipped; %d source save%s kept.",
-	              count, count == 1 ? "" : "s", skipped, cut ? skipped + kept : total,
-	              (cut ? skipped + kept : total) == 1 ? "" : "s");
-	return skipped || kept ? 0 : count;
-fail:
-	snprintf(detail, sizeof(detail), "%s", message);
-	snprintf(message, size, "%d archive%s created; stopped at %s: %s", count, count == 1 ? "" : "s",
-	         archive_clip_file.name, detail);
-	saveProgressEnd(); free(created); filerClearArchiveClipboard();
-	return -1;
 }

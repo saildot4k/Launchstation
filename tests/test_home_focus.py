@@ -1,4 +1,5 @@
 """Run Home focus, automatic library entry and persisted startup routing."""
+from source_groups import component_source
 from pathlib import Path
 import shutil
 import subprocess
@@ -21,7 +22,7 @@ def function(signature, text=None):
     return text[start:end] + "\n"
 
 
-code = r"""
+code = '#include "' + str(root / "include/dash_icons.h") + '"\n' + r"""
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -30,10 +31,6 @@ typedef unsigned long long u64;
 #define SETTING_LK_AUTO 0
 #define DASH_PATH_MAX 128
 #define DASH_MAX_APPS 8
-#define DI_HDD 20
-#define DI_MC 21
-#define DI_USB 22
-#define DI_STAR 23
 #define DASH_VIEW_GRID 0
 #define DASH_VIEW_LIST 1
 #define DASH_VIEW_CAROUSEL 2
@@ -50,19 +47,11 @@ typedef unsigned long long u64;
 #define CHIP_FILES 2
 #define CHIP_LIBRARY 0
 #define CHIP_LAST_FOLDER 1
-#define DI_DISC 1
-#define DI_KEY 2
 #define CHIP_DISC 3
 #define CHIP_DEVICES 4
 #define CHIP_TOOLS 5
 #define CHIP_SETTINGS 6
 #define CHIP_LAUNCHKEY 7
-#define DI_APPS 3
-#define DI_CLOCK 8
-#define DI_FOLDER 4
-#define DI_DEVICES 5
-#define DI_TOOLS 6
-#define DI_SETTINGS 7
 typedef struct { char path[DASH_PATH_MAX]; int flags; } DashApp;
 typedef struct { char pin[8][DASH_PATH_MAX], recent[8][DASH_PATH_MAX], fav[8][DASH_PATH_MAX]; int npin, nrecent, nfav; } Lists;
 typedef struct { int Init_Delay,timeout;char Misc_PS2Net[DASH_PATH_MAX]; char LK_Path[SETTING_LK_BTN_COUNT][DASH_PATH_MAX]; char LK_Title[SETTING_LK_BTN_COUNT][DASH_TITLE_MAX]; int LK_Flag[SETTING_LK_BTN_COUNT]; } Setting;
@@ -126,7 +115,7 @@ static void addChip(int kind, int lk, int icon, const char *label, const char *d
 code += function("static int homeHas(") + function("static void homeAdd(") + function("static void homeRebuild(")
 code += function("void dashHomeOpenApplications(") + function("static void homeEnter(")
 header = (root / "include/dash_internal.h").read_text()
-settings = (root / "src/dash_settings.c").read_text()
+settings = component_source('src/dash_settings.c')
 main = (root / "src/dash_main.c").read_text()
 code += header[header.index("enum DashSection"):header.index("enum DashView")]
 choice_start = settings.index("\t\tcase S_START: {", settings.index("static int choiceInfo("))
@@ -165,11 +154,6 @@ code += function("static void appsDraw(", apps)
 code += function("static DashApp *selApp(", apps)
 code += r"""
 typedef struct { int icon;const char *label,*detail;int disabled; } DashMenuItem;
-#define DI_APP 24
-#define DI_VIEW_GRID 25
-#define DI_CLOSE 26
-#define DI_REFRESH 27
-#define DI_HIDE 28
 #define DASH_VIEW_COUNT 3
 static int popup_choice=-1,filter_choice=-1,action_menus,manual_rescans;
 static int dashModalMenu(const char *title,const char *subtitle,const DashMenuItem *items,int n,int initial) {

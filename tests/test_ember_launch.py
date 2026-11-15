@@ -1,3 +1,4 @@
+from source_groups import component_source
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
@@ -75,7 +76,7 @@ assert "- src/ember.c" in yaml
 
 # Preserve the historical CNF key while selecting an ELF in Settings.
 config = (root / "src/config.c").read_text(encoding="utf-8")
-settings = (root / "src/dash_settings.c").read_text(encoding="utf-8")
+settings = component_source('src/dash_settings.c')
 assert "char ember_dir[MAX_PATH]" in header
 assert "EMBER_DIR = %s" in config
 assert 'strcmp(name, "EMBER_DIR")' in config

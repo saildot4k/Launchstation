@@ -1,7 +1,7 @@
 #ifndef FILER_SAVES_H
 #define FILER_SAVES_H
 
-#include "launchelf.h"
+#include "filer_types.h"
 #include "vmc_control.h"
 #include "save_archive.h"
 
@@ -18,10 +18,6 @@ int filerLoadSave(const char *source, SaveArchive *save, uint8_t **data, char *m
 int filerConfirmSaveOverwrite(const char *name);
 /* 1 extracts, 0 skips a batch conflict, -1 cancels or fails. */
 int filerExtractSave(const SaveArchive *save, const char *destination, char *message, int size);
-int filerCreateArchive(const char *source, const FILEINFO *file, int kind, int format,
-					   uint8_t **data, size_t *length, char *name, int name_size, char *message, int size);
-/* 1 publishes, 0 skips an existing PSU under never-overwrite, -1 fails. */
-int filerWriteArchive(const uint8_t *data, size_t length, int format, const char *destination, char *message, int size);
 /* Copy/Cut records listing metadata only: no directory probes or save reads. */
 void filerClearArchiveClipboard(void);
 void filerRememberArchiveClipboard(int card_type);
@@ -29,12 +25,6 @@ void filerRememberArchiveClipboard(int card_type);
 int filerProbeArchiveClipboard(const char *destination);
 /* Metadata-only candidate, or a cached result from the explicit content check. */
 int filerArchiveClipboardKind(void);
-/* Buffered convenience API; browser actions use the streaming batch API below. */
-int filerCreateClipboardArchive(const char *destination, int format, uint8_t **data, size_t *length,
-                               char *name, int name_size, char *message, int size);
-/* Call only after publishing the current item. Cut removes that unchanged source;
- * 0 means the archive exists but the source was retained, 1 means success. */
-int filerFinishArchiveClipboard(const char *destination, char *message, int size);
 /* Streams one archive per clipboard item with device-selected transfer buffers.
  * Cut verification retains only a content/metadata digest, never a full save.
  * Completed Cut items leave the clipboard; skipped, failed and unprocessed sources remain.

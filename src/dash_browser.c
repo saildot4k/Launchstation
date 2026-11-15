@@ -911,9 +911,7 @@ static void opNewFolder(void)
 		openDir(fb.dir, name);
 }
 
-/* getFileSize() recurses with a MAX_ENTRY listing on the stack and may
- * start drivers, so it runs here on the UI thread (big stack), not on the
- * worker */
+/* Device preparation and measurement stay serialized on the UI thread. */
 static void opSize(void)
 {
 	static int idx[MAX_ENTRY];
@@ -927,9 +925,12 @@ static void opSize(void)
 	for (i = 0; i < n; i++) {
 		u64 s;
 		dashLoadingStatus(fb.files[idx[i]].name, i, n);
-		s = getFileSize(fb.dir, &fb.files[idx[i]]);
-		if ((s64)s > 0)
-			total += s;
+		if (getFileSize(fb.dir, &fb.files[idx[i]], &s) < 0 || s > ~(u64)0 - total) {
+			opDone();
+			dashModalMessage(DI_WARNING, "Size", "Could not measure all selected items.", NULL);
+			return;
+		}
+		total += s;
 	}
 	opDone();
 	if (total >= (u64)1024 * 1024 * 1024)
@@ -1393,29 +1394,29 @@ static void actionsMenu(void)
 	int ids[44], n = 0, r;
 	char marked[24], sort_detail[48];
 	enum {
-		F_COPY,
-		F_CUT,
-		F_PASTE,
-		F_PASTE_RENAME,
-		F_CREATE,
-		F_IMPORT,
-		F_EXPORT_PS1,
-		F_DELETE,
-		F_RENAME,
-		F_NEWDIR,
-		F_NEWICON,
-		F_SIZE,
-		F_EDIT,
-		F_ARGS,
-		F_TITLECFG,
-		F_VMC0,
-		F_VMC1,
-		F_DATES,
-		F_SELALL,
+		F_COPY = COPY,
+		F_CUT = CUT,
+		F_PASTE = PASTE,
+		F_PASTE_RENAME = NUM_MENU,
+		F_CREATE = CREATE_ARCHIVE,
+		F_IMPORT = IMPORT_SAVE,
+		F_EXPORT_PS1 = EXPORT_PS1,
+		F_DELETE = DELETE,
+		F_RENAME = RENAME,
+		F_NEWDIR = NEWDIR,
+		F_NEWICON = NEWICON,
+		F_SIZE = GETSIZE,
+		F_EDIT = OPEN_TEXTEDITOR,
+		F_ARGS = NUM_MENU + 1,
+		F_TITLECFG = TITLE_CFG,
+		F_VMC0 = MOUNTVMC0,
+		F_VMC1 = MOUNTVMC1,
+		F_DATES = TIMEMANIP_CUSTOM,
+		F_SELALL = NUM_MENU + 2,
 		F_INVERT,
 		F_CLEARSEL,
-		F_USE_ARGS,
-		F_CLEAR_ARGS,
+		F_USE_ARGS = LAUNCH_ELF_ARGS,
+		F_CLEAR_ARGS = NUM_MENU + 5,
 		F_VIEW,
 		F_SORT,
 		F_BOOKMARK,
@@ -1451,9 +1452,9 @@ static void actionsMenu(void)
 		ADD(DI_PLUS, "Paste here", nclipFiles > 0 ? (browser_cut ? "move" : "copy") : NULL, !en[PASTE], F_PASTE);
 		if (en[PASTE])
 			ADD(DI_PASTE_RENAME, "Paste with new names...", NULL, 0, F_PASTE_RENAME);
-		if (en[CREATE_ARCHIVE])
+		if (filerMenuVisible(CREATE_ARCHIVE, en, FILER_MENU_NATIVE))
 			ADD(DI_MC, "Create archive...", nclipFiles > 1 ? "One archive per copied save" : "Save from clipboard", 0, F_CREATE);
-		if (en[IMPORT_SAVE])
+		if (filerMenuVisible(IMPORT_SAVE, en, FILER_MENU_NATIVE))
 			ADD(DI_MC, extract_label, browser_cut ? "Move saves from clipboard into this folder" : "Extract clipboard into this folder", 0, F_IMPORT);
 		if ((ps1_card && en[EXPORT_PS1]) || (en[COPY] && save_kind == FILER_CARD_PS1))
 			ADD(DI_MC, "Save card as...", "Whole PS1 card", 0, F_EXPORT_PS1);
@@ -1461,25 +1462,25 @@ static void actionsMenu(void)
 		ADD(DI_EDIT, "Rename...", NULL, f == NULL || !en[RENAME], F_RENAME);
 		if (!ps1_card)
 			ADD(DI_FOLDER, "New folder...", NULL, !en[NEWDIR], F_NEWDIR);
-		if (en[NEWICON])
+		if (filerMenuVisible(NEWICON, en, FILER_MENU_NATIVE))
 			ADD(DI_IMAGE, "Create folder icon...", "icon.sys", 0, F_NEWICON);
 		ADD(DI_INFO, "Size", NULL, !has_target || !en[GETSIZE], F_SIZE);
-		if (f != NULL && !isDir(f) && en[OPEN_TEXTEDITOR])
+		if (f != NULL && !isDir(f) && filerMenuVisible(OPEN_TEXTEDITOR, en, FILER_MENU_NATIVE))
 			ADD(DI_TEXT, "Open in Text Editor", NULL, 0, F_EDIT);
 		if (is_elf && !ps1_card) {
 			int args_disabled = isPcCardCfPath(fb.dir) ? 1 : 0;
 			ADD(DI_EDIT, "Start with arguments...", args_disabled ? "Direct launch unsupported" : NULL,
 			    args_disabled, F_ARGS);
-			if (en[TITLE_CFG])
+			if (filerMenuVisible(TITLE_CFG, en, FILER_MENU_NATIVE))
 				ADD(DI_SETTINGS, "Create title.cfg", NULL, 0, F_TITLECFG);
 		}
-		if (f != NULL && !isDir(f) && en[MOUNTVMC0]) {
+		if (f != NULL && !isDir(f) && filerMenuVisible(MOUNTVMC0, en, FILER_MENU_NATIVE)) {
 			ADD(DI_MC, "Mount as vmc0:", vmcMounted[0] ? "replaces the mounted one" : NULL, 0, F_VMC0);
 			ADD(DI_MC, "Mount as vmc1:", vmcMounted[1] ? "replaces the mounted one" : NULL, !en[MOUNTVMC1], F_VMC1);
 		}
-		if (en[TIMEMANIP_CUSTOM])
+		if (filerMenuVisible(TIMEMANIP_CUSTOM, en, FILER_MENU_NATIVE))
 			ADD(DI_CLOCK, "Folder dates...", "order the saves", 0, F_DATES);
-		if (f != NULL && !isDir(f) && en[LAUNCH_ELF_ARGS])
+		if (f != NULL && !isDir(f) && filerMenuVisible(LAUNCH_ELF_ARGS, en, FILER_MENU_NATIVE))
 			ADD(DI_LAUNCH_ARGS, "Use as launch arguments", "then choose the application", 0, F_USE_ARGS);
 		ADD(DI_SELECT_ALL, "Select all", NULL, fb.n == 0, F_SELALL);
 		ADD(DI_INVERT_SELECTION, "Invert selection", NULL, fb.n == 0, F_INVERT);

@@ -1,4 +1,5 @@
 """Run production SFX routing and music controls with SPU2 voice contention."""
+from source_groups import component_source
 from pathlib import Path
 import re
 import shutil
@@ -7,7 +8,7 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 source = (root / "src/dash_sound.c").read_text()
-settings = (root / "src/dash_settings.c").read_text()
+settings = component_source('src/dash_settings.c')
 header = (root / "include/dash_sound.h").read_text()
 
 

@@ -15,6 +15,8 @@
 #include "init.h"
 #include "dash_sound.h"
 #include "main_title.h"
+#include "dash_settings_clock.h"
+#include "dash_settings_theme.h"
 
 enum SetType {
 	ST_CHOICE = 0,
@@ -2030,40 +2032,6 @@ static void resetDisplayThemeDefaults(void)
 //--------------------------------------------------------------
 // Theme actions
 //--------------------------------------------------------------
-static DashTheme preview_saved;
-static int preview_saved_preset, preview_saved_custom;
-
-static void presetPreview(int index)
-{
-	dashThemeSetPreset(index);
-}
-
-static void choosePreset(void)
-{
-	DashMenuItem items[32];
-	int n = dashThemePresetCount(), i, r;
-
-	if (n > 32)
-		n = 32;
-	for (i = 0; i < n; i++) {
-		items[i].icon = (i == dashThemeBasePreset() && !dashThemeIsCustom()) ? DI_CHECK : -1;
-		items[i].label = dashThemePresetInfo(i)->name;
-		items[i].detail = NULL;
-		items[i].disabled = 0;
-	}
-	preview_saved = dashTheme;
-	preview_saved_preset = dashThemeBasePreset();
-	preview_saved_custom = dashThemeIsCustom();
-	dashModalSetPreview(presetPreview);
-	r = dashModalMenu("Theme", "Move to preview, confirm to keep", items, n, dashThemeBasePreset());
-	if (r < 0) {
-		dashThemeRestore(&preview_saved, preview_saved_preset, preview_saved_custom);
-		return;
-	}
-	dashThemeSetPreset(r);
-	dash_dirty = 1;
-}
-
 static int pickPng(char *out, int size, const char *what)
 {
 	char path[MAX_PATH], start[MAX_PATH], title[64];
@@ -2079,151 +2047,6 @@ static int pickPng(char *out, int size, const char *what)
 	}
 	dashStrCopy(out, path, size);
 	return 1;
-}
-
-/* Theme folder IO runs on the background worker; the UI waits with a
- * cancellable overlay and applies the result. */
-enum {
-	TIO_LIST = 0,
-	TIO_READ,
-	TIO_WRITE
-};
-
-typedef struct
-{
-	int op;
-	char folder[DASH_THEME_NAME_MAX];
-	char names[24][DASH_THEME_NAME_MAX];
-	int n;
-	DashTheme t;
-	char *text;
-	int len;
-	int ret;
-	int abandoned;
-} ThemeIoJob;
-
-static void themeIoRun(void *arg)
-{
-	ThemeIoJob *j = (ThemeIoJob *)arg;
-
-	if (j->op == TIO_LIST)
-		j->n = dashThemeFolderList(j->names, 24);
-	else if (j->op == TIO_READ)
-		j->ret = dashThemeFolderRead(j->folder, &j->t);
-	else
-		j->ret = dashThemeFolderWrite(j->folder, j->text, j->len);
-}
-
-static void themeIoDone(void *arg)
-{
-	ThemeIoJob *j = (ThemeIoJob *)arg;
-
-	if (j->abandoned) {
-		free(j->text);
-		free(j);
-	}
-}
-
-/* 1 = finished (caller owns j), 0 = user backed out (job frees itself) */
-static int themeIo(ThemeIoJob *j, const char *title)
-{
-	int id = dashWorkerSubmit(title, DASH_JOB_THEME | DASH_JOB_VISIBLE, themeIoRun, themeIoDone, j);
-
-	if (id < 0) {
-		free(j->text);
-		free(j);
-		dashToast(DASH_TOAST_WARN, "Theme operation could not be queued; try again");
-		return 0;
-	}
-
-	if (dashWorkerAwait(id, title, 1))
-		return 1;
-	j->abandoned = 1;
-	return 0;
-}
-
-static void themeSave(void)
-{
-	ThemeIoJob *j;
-	char name[DASH_THEME_NAME_MAX], body[200];
-	int i;
-
-	dashStrCopy(name, dashTheme.name, sizeof(name));
-	for (i = 0; name[i]; i++) {
-		char ch = name[i];
-		if (!((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_'))
-			name[i] = '_';
-	}
-	if (name[0] == '\0')
-		strcpy(name, "MyTheme");
-	snprintf(body, sizeof(body), "Save the current theme as %sTHEMES/%s/theme.cfg? An existing theme with that name is replaced.",
-	         dashStoreDir(), name);
-	if (!dashModalConfirm("Save theme", body, "Save", 0))
-		return;
-	j = (ThemeIoJob *)malloc(sizeof(ThemeIoJob));
-	if (j == NULL)
-		return;
-	memset(j, 0, sizeof(*j));
-	j->op = TIO_WRITE;
-	dashStrCopy(j->folder, name, sizeof(j->folder));
-	j->text = dashThemeFolderText(&j->len);
-	if (j->text == NULL) {
-		free(j);
-		return;
-	}
-	if (!themeIo(j, "Saving theme"))
-		return;
-	if (j->ret == 0)
-		dashToast(DASH_TOAST_OK, "Theme saved");
-	else
-		dashModalMessage(DI_WARNING, "Theme not saved", "The theme folder could not be written. Check that the device is writable.", NULL);
-	free(j->text);
-	free(j);
-}
-
-static void themeLoad(void)
-{
-	ThemeIoJob *j = (ThemeIoJob *)malloc(sizeof(ThemeIoJob));
-	DashMenuItem items[24];
-	int i, r;
-	char body[200];
-
-	if (j == NULL)
-		return;
-	memset(j, 0, sizeof(*j));
-	j->op = TIO_LIST;
-	if (!themeIo(j, "Looking for themes"))
-		return;
-	if (j->n <= 0) {
-		snprintf(body, sizeof(body), "Put each theme in its own folder with a theme.cfg inside %sTHEMES/. "
-		                             "\"Export theme to folder\" creates one you can copy and edit.", dashStoreDir());
-		dashModalMessage(DI_FOLDER, "No themes found", body, NULL);
-		free(j);
-		return;
-	}
-	for (i = 0; i < j->n; i++) {
-		items[i].icon = DI_PALETTE;
-		items[i].label = j->names[i];
-		items[i].detail = NULL;
-		items[i].disabled = 0;
-	}
-	r = dashModalMenu("Load theme", "THEMES folder", items, j->n, 0);
-	if (r < 0) {
-		free(j);
-		return;
-	}
-	j->op = TIO_READ;
-	dashStrCopy(j->folder, j->names[r], sizeof(j->folder));
-	if (!themeIo(j, "Loading theme"))
-		return;
-	if (j->ret == 0) {
-		dashTheme = j->t;
-		dashThemeCommit();
-		dash_dirty = 1;
-		dashToast(DASH_TOAST_OK, "Theme loaded");
-	} else
-		dashModalMessage(DI_WARNING, "Theme not loaded", "theme.cfg is missing or could not be read.", j->folder);
-	free(j);
 }
 
 static int themeSettingResettable(int id)
@@ -2308,10 +2131,10 @@ static void runThemeAction(int id)
 			openPage(P_THEME);
 			break;
 		case S_T_LOAD:
-			themeLoad();
+			dash_dirty |= dashSettingsLoadTheme();
 			break;
 		case S_T_SAVE:
-			themeSave();
+			dashSettingsSaveTheme();
 			break;
 		case S_T_DEFAULT:
 			if (dashModalConfirm("Restore default theme", "Replace the current theme with OSD Classic? Saved theme folders are not affected.", "Restore", 0)) {
@@ -2365,245 +2188,6 @@ static void runThemeAction(int id)
 	}
 }
 
-/* Restrict each field to the portion of the RTC range representable in local
- * time, including partial first/last days after time-zone and DST conversion. */
-static void clockFieldLimits(int value[6], const int minimum[6], const int maximum[6], int low[6], int high[6])
-{
-	static const int base_low[] = {0, 1, 1, 0, 0, 0};
-	int base_high[] = {0, 12, 31, 23, 59, 59};
-	int at_min = 1, at_max = 1;
-	for (int i = 0; i < 6; i++) {
-		if (i == 2) base_high[2] = dashClockDaysInMonth(value[0], value[1]);
-		low[i] = at_min ? minimum[i] : base_low[i];
-		high[i] = at_max ? maximum[i] : base_high[i];
-		if (value[i] < low[i]) value[i] = low[i];
-		if (value[i] > high[i]) value[i] = high[i];
-		at_min &= value[i] == minimum[i];
-		at_max &= value[i] == maximum[i];
-	}
-}
-
-/* Keep all edits local until Apply, including preferences and AM/PM. */
-static int editClockDateTime(int fields[6], MenuClockSettings *settings)
-{
-	static const char *const labels[] = {"Year", "Month", "Day", "Hour", "Minute", "Second", "AM/PM",
-	                                      "Time zone (UTC)", "Daylight saving", "Hour format"};
-	int minimum[6], maximum[6], low[6], high[6];
-	int value[6], sel = 0, i, accepted = 0;
-	MenuClockSettings choice = *settings;
-	char description[80];
-	float open = 0.0f, sx = 0.0f, sy = 0.0f, sw = 0.0f;
-	const float w = 528.0f, h = 324.0f;
-	const float x = (DASH_VW - w) * 0.5f, y = (DASH_VH - h) * 0.5f;
-	/* Reserve the seven-field layout even when AM/PM is hidden. */
-	const float bw = 56.0f, gap = 8.0f;
-	const float bx0 = x + (w - (7 * bw + 6 * gap)) * 0.5f;
-	const float by = y + 88, preferences_y = y + 186;
-	DashInput in;
-
-	memcpy(value, fields, sizeof(value));
-	dashClockManualLimitsForSettings(minimum, maximum, &choice);
-	clockFieldLimits(value, minimum, maximum, low, high);
-	dashInputFlush();
-	while (1) {
-		int step = 0, shoulders;
-		float dt, oe, target_x, target_y, target_w;
-
-		dashInputPoll(&in);
-		if (in.pressed & (DASH_IN_BACK | DASH_IN_MENU)) break;
-		if (in.pressed & (DASH_IN_LEFT | DASH_IN_RIGHT)) {
-			int direction = (in.pressed & DASH_IN_LEFT) ? -1 : 1;
-			do { sel = (sel + direction + 10) % 10; } while (sel == 6 && !choice.use_12h);
-			dashSoundPlay(DASH_SND_CURSOR);
-		}
-		if (in.pressed & DASH_IN_UP) step = 1;
-		if (in.pressed & DASH_IN_DOWN) step = -1;
-		shoulders = in.pressed | dashInputShoulderRepeat();
-		if (shoulders & (DASH_IN_R1 | DASH_IN_R2)) step = 10;
-		if (shoulders & (DASH_IN_L1 | DASH_IN_L2)) step = -10;
-		if (step) {
-			if (sel < 6) {
-				if (sel == 3 && choice.use_12h) {
-					int hour = value[3] % 12;
-					int next = ((hour ? hour : 12) - 1 + step) % 12;
-					if (next < 0) next += 12;
-					value[3] = ((next + 1) % 12) + (value[3] >= 12 ? 12 : 0);
-				} else {
-					int range = high[sel] - low[sel] + 1;
-					int next = (value[sel] - low[sel] + step) % range;
-					if (next < 0) next += range;
-					value[sel] = low[sel] + next;
-				}
-			} else if (sel == 6) {
-				value[3] = (value[3] + 12) % 24;
-			} else if (sel == 7) {
-				/* Offer whole-hour offsets. Preserve a saved fractional offset
-				 * until this field is edited, then move in the chosen direction. */
-				int offset = choice.timezone_minutes + 720;
-				int next = offset / 60;
-				if (step < 0 && offset % 60) next++;
-				next = (next + step) % 27;
-				if (next < 0) next += 27;
-				choice.timezone_minutes = next * 60 - 720;
-			} else if (sel == 8) {
-				choice.daylight_saving = !choice.daylight_saving;
-			} else {
-				choice.use_12h = !choice.use_12h;
-			}
-			dashClockManualLimitsForSettings(minimum, maximum, &choice);
-			clockFieldLimits(value, minimum, maximum, low, high);
-			dashSoundPlay(DASH_SND_CURSOR);
-		}
-		if (in.pressed & DASH_IN_OK) { accepted = 1; break; }
-		target_x = sel < 7 ? bx0 + sel * (bw + gap) : x + 24 + (sel - 7) * 164;
-		target_y = sel < 7 ? by : preferences_y;
-		target_w = sel < 7 ? bw : 152;
-		if (!sw) { sx = target_x; sy = target_y; sw = target_w; }
-		dt = dashVisualUpdate();
-		open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dt);
-		sx = dashApproach(sx, target_x, 22.0f * dashAnimSpeed(), dt);
-		sy = dashApproach(sy, target_y, 22.0f * dashAnimSpeed(), dt);
-		sw = dashApproach(sw, target_w, 22.0f * dashAnimSpeed(), dt);
-		oe = dashEaseOutCubic(open);
-		snprintf(description, sizeof(description), "Local date and time (%d-%d). Apply also saves system preferences.", minimum[0], maximum[0]);
-		dashRenderScene();
-		dashModalBackdrop(oe);
-		dashGfxPushAlpha(oe);
-		dashGfxPushOffset(0, 18.0f * (1.0f - oe));
-		dashModalPanel(x, y, w, h, oe);
-		dashIcon(DI_CLOCK, x + 24, y + 18, 22, DASH_C_ACCENT);
-		dashTextS(x + 56, y + 18, "Set PS2 Clock", DASH_FS_LABEL, DASH_C_TEXT);
-		dashTextFit(x + 24, y + 48, w - 48, description, DASH_FS_CAPTION, DASH_C_TEXT3);
-		dashDrawSelection(sx, sy, sw, 44, 10, 1.0f);
-		for (i = 0; i < 10; i++) {
-			char text[20];
-			float bx = i < 7 ? bx0 + i * (bw + gap) : x + 24 + (i - 7) * 164;
-			float row_y = i < 7 ? by : preferences_y;
-			float box_w = i < 7 ? bw : 152;
-			int number;
-			if (i == 6 && !choice.use_12h) continue;
-			dashTextCenter(bx + box_w * 0.5f, row_y + 50, labels[i], DASH_FS_CAPTION, DASH_C_TEXT3);
-			if (i != sel) dashPanel(bx, row_y, box_w, 44, 10, DC(255, 255, 255, 16));
-			if (i < 6) {
-				number = value[i];
-				if (i == 3 && choice.use_12h) number = value[3] % 12 ? value[3] % 12 : 12;
-				snprintf(text, sizeof(text), i == 0 ? "%04d" : "%02d", number);
-			} else if (i == 6) {
-				snprintf(text, sizeof(text), "%s", value[3] >= 12 ? "PM" : "AM");
-			} else if (i == 7) {
-				number = abs(choice.timezone_minutes);
-				snprintf(text, sizeof(text), "%c%02d:%02d", choice.timezone_minutes < 0 ? '-' : '+', number / 60, number % 60);
-			} else {
-				snprintf(text, sizeof(text), "%s", i == 8 ? (choice.daylight_saving ? "On (+1h)" : "Off") :
-				         (choice.use_12h ? "12-hour" : "24-hour"));
-			}
-			dashTextCenter(bx + box_w * 0.5f, row_y + 10, text, DASH_FS_LABEL, dashItemColor(i == sel));
-			if (i < 5) dashTextCenter(bx + bw + gap * 0.5f, row_y + 10, i < 2 ? "-" : i == 2 ? "" : ":", DASH_FS_LABEL, DASH_C_TEXT2);
-			if (i == sel) {
-				dashTextCenter(bx + box_w * 0.5f, row_y - 20, "+", DASH_FS_BODY, DASH_C_ACCENT);
-				/* Leave ten pixels after the 12 px field label before the minus cue. */
-				dashTextCenter(bx + box_w * 0.5f, row_y + 72, "-", DASH_FS_BODY, DASH_C_ACCENT);
-			}
-		}
-		{
-			float field_w = dashButtonWidth(DI_BTN_LEFT, NULL) + 2 + dashButtonWidth(DI_BTN_RIGHT, NULL) + 4 +
-			                dashTextWidth("Field", DASH_FS_SMALL);
-			float change_w = dashButtonWidth(DI_BTN_UP, NULL) + 2 + dashButtonWidth(DI_BTN_DOWN, NULL) + 4 +
-			                 dashTextWidth("Change", DASH_FS_SMALL);
-			float step_w = dashButtonWidth(-1, "L1") + 2 + dashButtonWidth(-1, "R1") + 4 +
-			               dashTextWidth("10", DASH_FS_SMALL);
-			float apply_w = dashButtonWidth(dashOkIcon(), NULL) + 8 + dashTextWidth("Apply", DASH_FS_SMALL);
-			float cancel_w = dashButtonWidth(dashBackIcon(), NULL) + 8 + dashTextWidth("Cancel", DASH_FS_SMALL);
-			/* Include the three group gaps and the Apply/Cancel gap used below. */
-			float hints_w = field_w + change_w + step_w + 3 * 12 + apply_w + 24 + cancel_w;
-			float hx = x + (w - hints_w) * 0.5f, hy = y + h - 36;
-
-			hx += dashDrawButton(hx, hy, DI_BTN_LEFT, NULL) + 2;
-			hx += dashDrawButton(hx, hy, DI_BTN_RIGHT, NULL) + 4;
-			hx = dashTextS(hx, hy + 4.5f, "Field", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
-			hx += dashDrawButton(hx, hy, DI_BTN_UP, NULL) + 2;
-			hx += dashDrawButton(hx, hy, DI_BTN_DOWN, NULL) + 4;
-			hx = dashTextS(hx, hy + 4.5f, "Change", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
-			hx += dashDrawButton(hx, hy, -1, "L1") + 2;
-			hx += dashDrawButton(hx, hy, -1, "R1") + 4;
-			hx = dashTextS(hx, hy + 4.5f, "10", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
-			dashModalHintRow(hx, hy, dashOkIcon(), "Apply", dashBackIcon(), "Cancel");
-		}
-		dashGfxPopOffset();
-		dashGfxPopAlpha();
-		dashGfxPresent();
-	}
-	if (accepted) { memcpy(fields, value, sizeof(value)); *settings = choice; }
-	dashSoundPlay(accepted ? DASH_SND_CONFIRM : DASH_SND_CANCEL);
-	dashInputFlush();
-	return accepted;
-}
-
-static void setClockManually(void)
-{
-	char input[40], date[16], time[16], result[160];
-	int fields[] = {2000, 1, 1, 0, 0, 0};
-	int use12, datefmt;
-	MenuClockSettings preferences;
-	int ok;
-
-	if (!dashWorkerAwaitAll("Finishing background storage work")) return;
-	filerRootMcPollIdle();
-	menuTitleLoadSavedClockSettings();
-	if (!menuTitleGetClockFields(&fields[0], &fields[1], &fields[2], &fields[3], &fields[4], &fields[5],
-	                             &use12, &datefmt)) {
-		fields[0] = 2000;
-		fields[1] = fields[2] = 1;
-		fields[3] = fields[4] = fields[5] = 0;
-	}
-	menuTitleGetClockSettings(&preferences);
-	if (!editClockDateTime(fields, &preferences))
-		return;
-	menuTitleFormatClockDate(date, sizeof(date), fields[0], fields[1], fields[2], preferences.date_format);
-	menuTitleFormatClockTime(time, sizeof(time), fields[3], fields[4], fields[5], preferences.use_12h);
-	snprintf(input, sizeof(input), "%s %s", date, time);
-	if (!dashWorkerAwaitAll("Finishing background storage work")) return;
-	filerRootMcPollIdle();
-	ok = dashClockSetManualWithSettings(fields, &preferences, result, sizeof(result));
-	dashModalMessage(ok ? DI_CHECK : DI_WARNING,
-	                 ok ? "PS2 clock updated" : "Clock update failed", result, input);
-}
-
-#ifdef ETH
-static void syncClockFromInternet(void)
-{
-	char result[160];
-	int ok;
-
-	if (!dashWorkerAwaitAll("Finishing background storage work"))
-		return;
-	dashLoadingBegin("Synchronizing PS2 clock");
-	ok = dashClockSyncInternet(result, sizeof(result));
-	dashLoadingEnd();
-	dashModalMessage(ok ? DI_CHECK : DI_WARNING,
-	                 ok ? "PS2 clock synchronized" : "Clock synchronization failed",
-	                 result[0] ? result : (ok ? "The hardware clock was updated." : "No reliable Internet time was available."), NULL);
-}
-#endif
-
-static void setPs2Clock(void)
-{
-	DashMenuItem items[] = {
-	    {DI_CLOCK, "Set manually...", "Set local time, time zone, DST and hour format", 0},
-#ifdef ETH
-	    {DI_CLOCK, "Sync from Internet", "Use Internet time", 0},
-#endif
-	};
-	int choice = dashModalMenu("Set PS2 Clock", NULL, items, NITEMS(items), 0);
-
-	if (choice == 0)
-		setClockManually();
-#ifdef ETH
-	else if (choice == 1)
-		syncClockFromInternet();
-#endif
-}
-
 static void runAction(int id)
 {
 	if (id >= S_T_PRESET) {
@@ -2634,7 +2218,7 @@ static void runAction(int id)
 			openPage(P_LKEY);
 			break;
 		case S_CLOCK:
-			setPs2Clock();
+			dashSettingsSetPs2Clock();
 			break;
 		case S_SAVE_CLASSIC:
 			settingsSaveAction();
@@ -2850,7 +2434,7 @@ static void settingsInput(const DashInput *in)
 	} else if (it->type == ST_COLOR && (in->pressed & DASH_IN_OK)) {
 		colorEditor(it->label, it->id);
 	} else if (it->type == ST_CHOICE && it->id == S_T_PRESET && (in->pressed & DASH_IN_OK)) {
-		choosePreset();
+		dash_dirty |= dashSettingsChoosePreset();
 	} else if (it->type == ST_NUMBER && (in->pressed & (DASH_IN_LEFT | DASH_IN_RIGHT))) {
 		int v, lo, hi;
 		char text[24];

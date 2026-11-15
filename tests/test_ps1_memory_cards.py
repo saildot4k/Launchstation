@@ -3,6 +3,7 @@
 The fixtures cover both slots, PS1/PS2 changes, multi-block saves, bounded
 listings and failed card requests. They do not emulate physical SIO timing.
 """
+from source_groups import component_source
 from pathlib import Path
 import os
 import re
@@ -11,9 +12,9 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 filer = (root / 'src/filer.c').read_text()
-browser = (root / 'src/filer_browser.c').read_text()
+browser = component_source('src/filer_browser.c')
 dash = (root / 'src/dash_browser.c').read_text()
-shared = (root / 'include/filer_shared.h').read_text()
+shared = (root / 'include/filer_menu.h').read_text()
 header = (root / 'include/launchelf.h').read_text()
 fileops = (root / 'src/filer_fileops.c').read_text()
 texteditor = (root / 'src/gui_texteditor.c').read_text()
@@ -32,7 +33,7 @@ def function(source, signature):
 
 enum_start = shared.index('enum {')
 enum_end = shared.index('};', enum_start) + 2
-code = r'''
+code = '#include "' + str(root / 'src/filer_menu.c') + '"\n' + r'''
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -61,7 +62,7 @@ static int mcGetDir(int port,int slot,const char *path,int flags,int max,sceMcTb
 static int mcSync(int mode,void *ignored,int *result){(void)ignored;assert(!mode);*result=dir_result<0?dir_result:dir_result<limit?dir_result:limit;return sync_return;}
 static int waitMemoryCardReadyForBrowse(int port){(void)port;return 0;}
 static void DelayThread(int delay){(void)delay;}
-'''+function(filer, 'int readMC(')+shared[enum_start:enum_end]+function(header, 'static inline unsigned char wle_ascii_tolower(')+function(header, 'static inline int wle_stricmp(')+'#define stricmp wle_stricmp\n'+function(fileops, 'int genCmpFileExt(')+r'''
+'''+function(filer, 'int readMC(')+function(header, 'static inline unsigned char wle_ascii_tolower(')+function(header, 'static inline int wle_stricmp(')+'#define stricmp wle_stricmp\n'+function(fileops, 'int genCmpFileExt(')+r'''
 static int nclipFiles,archive_kind,import_eligible=1;static FILEINFO clipFiles[MAX_ENTRY];
 #define FILER_SAVE_NONE 0
 static int filerArchiveClipboardKind(void){return nclipFiles>0?archive_kind:FILER_SAVE_NONE;}
@@ -308,5 +309,5 @@ with tempfile.TemporaryDirectory(prefix='ps1-physical-') as folder:
     exe = folder / 'test'
     flags = ['-fsanitize=address,undefined', '-fno-omit-frame-pointer'] if os.environ.get('SANITIZE') else []
     subprocess.run([os.environ.get('CC', 'cc'), '-std=c99', '-Wall', '-Wextra', *flags,
-                    str(folder / 'test.c'), '-o', str(exe)], check=True)
+                    '-I', str(root / 'include'), str(folder / 'test.c'), '-o', str(exe)], check=True)
     subprocess.run([str(exe)], check=True, timeout=20)

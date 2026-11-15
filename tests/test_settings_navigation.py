@@ -3,6 +3,7 @@
 Checks reachability, unique controls, restored selection/scroll, global Changes
 access, dependent settings, and page IDs that overlap setting IDs.
 """
+from source_groups import component_source
 from pathlib import Path
 import re
 import shutil
@@ -10,7 +11,7 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-settings = (root / "src/dash_settings.c").read_text()
+settings = component_source('src/dash_settings.c')
 header = (root / "include/dash_internal.h").read_text()
 classic = (root / "include/launchelf.h").read_text()
 
@@ -90,7 +91,7 @@ static void runAction(int id) { if(id==S_SAVE_CLASSIC) saves++; else if(id==S_RE
 static void dashSwitchSection(int s) { assert(s == DASH_SEC_HOME); home++; }
 static void dashToast(int kind,const char *msg) { (void)kind; assert(msg); toast++; }
 static void colorEditor(const char *name,int id) { (void)name; (void)id; edits++; }
-static void choosePreset(void) { edits++; }
+static int dashSettingsChoosePreset(void) { edits++; return 1; }
 static int chooseLanguage(const char *const *names,int n,int current) {
     assert(n==3 && current==chosen_language && names[0]);language_menus++;return modal_result;
 }

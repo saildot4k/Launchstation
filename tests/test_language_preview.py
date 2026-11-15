@@ -1,4 +1,5 @@
 """Run the production language preview and setter with host storage/UI mocks."""
+from source_groups import component_source
 from pathlib import Path
 import re
 import shutil
@@ -6,7 +7,7 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-settings = (root / "src/dash_settings.c").read_text()
+settings = component_source('src/dash_settings.c')
 language = (root / "src/lang.c").read_text()
 
 

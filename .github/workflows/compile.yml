@@ -52,6 +52,7 @@ jobs:
           python3 tests/test_ps1_memory_cards.py
           python3 tests/test_ps1_card_rediscovery.py
           python3 tests/test_file_stat_errors.py
+          python3 tests/test_filer_tree.py
           python3 tests/test_copy_pipeline.py
           python3 tests/test_gamesave_titles.py
           python3 tests/test_udpfs_directory_errors.py

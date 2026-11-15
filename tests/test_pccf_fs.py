@@ -1,4 +1,5 @@
 """Verify PC CARD CompactFlash Stages L2-L4 filesystem, transfer, UI and launch blocking."""
+from source_groups import component_source
 from pathlib import Path
 import shutil
 import subprocess
@@ -10,8 +11,8 @@ filer_c = (root / "src/filer.c").read_text(encoding="utf-8")
 fileops_c = (root / "src/filer_fileops.c").read_text(encoding="utf-8")
 device_c = (root / "src/filer_device.c").read_text(encoding="utf-8")
 copy_c = (root / "src/filer_copy.c").read_text(encoding="utf-8")
-actions_c = (root / "src/filer_actions.c").read_text(encoding="utf-8")
-browser_c = (root / "src/filer_browser.c").read_text(encoding="utf-8")
+actions_c = component_source('src/filer_actions.c')
+browser_c = component_source('src/filer_browser.c')
 dash_dev_c = (root / "src/dash_devices.c").read_text(encoding="utf-8")
 dash_files_c = (root / "src/dash_files.c").read_text(encoding="utf-8")
 dash_browser_c = (root / "src/dash_browser.c").read_text(encoding="utf-8")

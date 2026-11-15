@@ -1,4 +1,5 @@
 """Exercise production section routing with Files as a first-class tab."""
+from source_groups import component_source
 from pathlib import Path
 import shutil
 import subprocess
@@ -9,7 +10,7 @@ main = (root / "src/dash_main.c").read_text()
 home = (root / "src/dash_home.c").read_text()
 tools = (root / "src/dash_tools.c").read_text()
 apps = (root / "src/dash_apps.c").read_text()
-settings = (root / "src/dash_settings.c").read_text()
+settings = component_source('src/dash_settings.c')
 widgets = (root / "src/dash_widgets.c").read_text()
 
 assert "DASH_SEC_APPS" not in main[main.index("static const int visible_sections[]"):main.index("#define DASH_VISIBLE_SEC_COUNT")]

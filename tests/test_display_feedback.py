@@ -1,4 +1,5 @@
 """Exercise live video switches, graphics fences, scaling and texture recovery."""
+from source_groups import component_source
 from pathlib import Path
 import shutil
 import subprocess
@@ -341,6 +342,6 @@ font = (root / "src/dash_font.c").read_text()
 assert "top = dashGfxTextY(y + sel.yshift);" in function(font, "static float drawRun(")
 assert "TV_mode_480P,\n\tTV_mode_576P," in (root / "include/launchelf.h").read_text()
 assert gs.count("case TV_mode_576P:") == 2  # initial setup and live changes
-settings = (root / "src/dash_settings.c").read_text()
+settings = component_source('src/dash_settings.c')
 assert '"Auto", "NTSC", "PAL", "VGA", "480p", "576p"}' in settings
 assert '"576i"' not in settings and '"576i"' not in (root / "src/config_screen.c").read_text()

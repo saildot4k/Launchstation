@@ -45,3 +45,6 @@ iop/pccf/.clangd
 # Obsolete local build output (may contain old generated credentials)
 .cloud-deps/
 .cache/cloud-deps/
+
+# Host test bytecode caches
+__pycache__/

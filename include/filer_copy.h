@@ -2,6 +2,7 @@
 #define FILER_COPY_H
 
 #include "launchelf.h"
+#include "filer_transfer.h"
 
 /* UI-thread paste diagnostics: one bounded record, no transfer-time I/O. */
 void filerCopyDiagBegin(const char *source, const char *destination);

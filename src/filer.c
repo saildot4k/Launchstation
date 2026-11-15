@@ -425,7 +425,7 @@ int readXFROM(const char *path, FILEINFO *info, int max)
 	int i, j, ret, limit;
 
 	if (!console_is_PSX || !loadFlashModules())
-		return 0;
+		return -ENODEV;
 
 	xfromSync(0, NULL, NULL);
 
@@ -443,7 +443,7 @@ int readXFROM(const char *path, FILEINFO *info, int max)
 	xfromGetDir(0, 0, dir, 0, limit, mcDir);
 	xfromSync(0, NULL, &ret);
 	if (ret < 0)
-		return 0;
+		return ret;
 
 	for (i = j = 0; i < ret && j < max; i++) {
 		if (mcDir[i].AttrFile & sceMcFileAttrSubdir &&
@@ -464,7 +464,7 @@ int readXFROM(const char *path, FILEINFO *info, int max)
 int readCD(const char *path, FILEINFO *info, int max)
 {
 	iox_dirent_t record;
-	int n = 0, dd = -1;
+	int n = 0, dd = -1, result = 0, closed;
 	u64 wait_start;
 
 	if (sceCdGetDiskType() <= SCECdUNKNOWN) {
@@ -481,10 +481,11 @@ int readCD(const char *path, FILEINFO *info, int max)
 		}
 	}
 	if ((dd = fileXioDopen(path)) < 0)
-		goto exit;  //exit if error opening directory
-	while (fileXioDread(dd, &record) > 0) {
+		return dd;
+	while ((result = fileXioDread(dd, &record)) > 0) {
 		if ((FIO_S_ISDIR(record.stat.mode)) && (!strcmp(record.name, ".") || !strcmp(record.name, "..")))
 			continue;  //Skip entry if pseudo-folder "." or ".."
+		if (!memchr(record.name, 0, sizeof(record.name))) { result = -EINVAL; break; }
 		strcpy(info[n].name, record.name);
 		clearMcTable(&info[n].stats);
 		if (FIO_S_ISDIR(record.stat.mode)) {
@@ -504,10 +505,8 @@ int readCD(const char *path, FILEINFO *info, int max)
 	}  //ends while
 	size_valid = 1;
 
-exit:
-	if (dd >= 0)
-		fileXioDclose(dd);  //Close directory if opened above
-	return n;
+closed = fileXioDclose(dd);
+	return result < 0 ? result : closed < 0 ? closed : n;
 }
 #else
 #include "snippets/readCD.h"
@@ -905,15 +904,16 @@ int readVMC(const char *path, FILEINFO *info, int max)
 {
 	iox_dirent_t dirbuf;
 	char dir[MAX_PATH];
-	int i = 0, fd;
+	int i = 0, fd, result, closed;
 
 	strcpy(dir, path);
 	if ((fd = fileXioDopen(dir)) < 0)
-		return 0;
+		return fd;
 
-	while (fileXioDread(fd, &dirbuf) > 0) {
+	while ((result = fileXioDread(fd, &dirbuf)) > 0) {
 		unsigned int vmc_mc_mode = dirbuf.stat.private_0;
 
+		if (!memchr(dirbuf.name, 0, sizeof(dirbuf.name))) { result = -EINVAL; break; }
 		if (!strcmp(dirbuf.name, ".") || !strcmp(dirbuf.name, ".."))
 			continue;  //Skip pseudopaths "." and ".."
 
@@ -945,12 +945,12 @@ int readVMC(const char *path, FILEINFO *info, int max)
 			break;
 	}
 
-	fileXioDclose(fd);
+	closed = fileXioDclose(fd);
 
 	size_valid = 1;
 	time_valid = 1;
 
-	return i;
+	return result < 0 ? result : closed < 0 ? closed : i;
 }
 //------------------------------
 //endfunc readVMC
@@ -959,7 +959,7 @@ int readHDD(const char *path, FILEINFO *info, int max)
 {
 	iox_dirent_t dirbuf;
 	char hdd_device[6], party[MAX_PATH], dir[MAX_PATH];
-	int i = 0, fd, ret, hdd_unit;
+	int i = 0, fd, ret, closed, hdd_unit;
 
 	if (getHddDeviceFromPath(path, hdd_device) < 0)
 		return 0;
@@ -988,17 +988,18 @@ int readHDD(const char *path, FILEINFO *info, int max)
 	getHddParty(path, NULL, party, dir);
 	ret = mountParty(party);
 	if (ret < 0)
-		return 0;
+		return ret;
 	dir[3] = ret + '0';
 
 	if ((fd = fileXioDopen(dir)) < 0)
-		return 0;
+		return fd;
 
-	while (fileXioDread(fd, &dirbuf) > 0) {
+	while ((ret = fileXioDread(fd, &dirbuf)) > 0) {
 		if (dirbuf.stat.mode & FIO_S_IFDIR &&
 		    (!strcmp(dirbuf.name, ".") || !strcmp(dirbuf.name, "..")))
 			continue;  //Skip pseudopaths "." and ".."
 
+		if (!memchr(dirbuf.name, 0, sizeof(dirbuf.name))) { ret = -EINVAL; break; }
 		strcpy(info[i].name, dirbuf.name);
 		clearMcTable(&info[i].stats);
 		if (dirbuf.stat.mode & FIO_S_IFDIR) {
@@ -1017,12 +1018,12 @@ int readHDD(const char *path, FILEINFO *info, int max)
 			break;
 	}
 
-	fileXioDclose(fd);
+	closed = fileXioDclose(fd);
 
 	size_valid = 1;
 	time_valid = 1;
 
-	return i;
+	return ret < 0 ? ret : closed < 0 ? closed : i;
 }
 //------------------------------
 //endfunc readHDD
@@ -1032,7 +1033,7 @@ int readHDDDVRP(const char *path, FILEINFO *info, int max)
 {
 	iox_dirent_t dirbuf;
 	char party[MAX_PATH], dir[MAX_PATH];
-	int i = 0, fd, ret;
+	int i = 0, fd, ret, closed;
 
 	if (!console_is_PSX)
 		return 0;
@@ -1053,17 +1054,18 @@ int readHDDDVRP(const char *path, FILEINFO *info, int max)
 	getHddDVRPParty(path, NULL, party, dir);
 	ret = mountDVRPParty(party);
 	if (ret < 0)
-		return 0;
+		return ret;
 	dir[7] = ret + '0';
 
 	if ((fd = fileXioDopen(dir)) < 0)
-		return 0;
+		return fd;
 
-	while (fileXioDread(fd, &dirbuf) > 0) {
+	while ((ret = fileXioDread(fd, &dirbuf)) > 0) {
 		if (dirbuf.stat.mode & FIO_S_IFDIR &&
 		    (!strcmp(dirbuf.name, ".") || !strcmp(dirbuf.name, "..")))
 			continue;  //Skip pseudopaths "." and ".."
 
+		if (!memchr(dirbuf.name, 0, sizeof(dirbuf.name))) { ret = -EINVAL; break; }
 		strcpy(info[i].name, dirbuf.name);
 		clearMcTable(&info[i].stats);
 		if (dirbuf.stat.mode & FIO_S_IFDIR) {
@@ -1082,12 +1084,12 @@ int readHDDDVRP(const char *path, FILEINFO *info, int max)
 			break;
 	}
 
-	fileXioDclose(fd);
+	closed = fileXioDclose(fd);
 
 	size_valid = 1;
 	time_valid = 1;
 
-	return i;
+	return ret < 0 ? ret : closed < 0 ? closed : i;
 }
 //------------------------------
 //endfunc readHDDDVRP
@@ -1349,14 +1351,15 @@ int pollRootMemoryCardDevices(void)
 int readGENERIC(const char *path, FILEINFO *info, int max)
 {
 	iox_dirent_t record;
-	int n = 0, dd = -1;
+	int n = 0, dd = -1, result = 0, closed;
 
 	if ((dd = fileXioDopen(path)) < 0)
-		goto exit;  //exit if error opening directory
-	while (fileXioDread(dd, &record) > 0) {
+		return dd;  // Preserve failed opens instead of reporting an empty folder.
+	while ((result = fileXioDread(dd, &record)) > 0) {
 		if ((FIO_S_ISDIR(record.stat.mode)) && (!strcmp(record.name, ".") || !strcmp(record.name, "..")))
 			continue;  //Skip entry if pseudo-folder "." or ".."
 
+		if (!memchr(record.name, 0, sizeof(record.name))) { result = -EINVAL; break; }
 		strcpy(info[n].name, record.name);
 		clearMcTable(&info[n].stats);
 		if (FIO_S_ISDIR(record.stat.mode)) {
@@ -1379,10 +1382,8 @@ int readGENERIC(const char *path, FILEINFO *info, int max)
 	size_valid = 1;
 	time_valid = 1;
 
-exit:
-	if (dd >= 0)
-		fileXioDclose(dd);  //Close directory if opened above
-	return n;
+closed = fileXioDclose(dd);
+	return result < 0 ? result : closed < 0 ? closed : n;
 }
 //------------------------------
 //endfunc readGENERIC
@@ -1498,7 +1499,7 @@ void initHOST(void)
 int readHOST(const char *path, FILEINFO *info, int max)
 {
 	iox_dirent_t hostcontent;
-	int hfd, rv, hostcount = 0;
+	int hfd, rv, closed, hostcount = 0;
 	char host_path[MAX_PATH];
 	char Win_path[MAX_PATH];
 
@@ -1550,9 +1551,10 @@ int readHOST(const char *path, FILEINFO *info, int max)
 	}
 
 	if ((hfd = fileXioDopen(makeHostPath(Win_path, host_path))) < 0)
-		return 0;
+		return hfd;
 	strcpy(host_path, Win_path);
-	while ((rv = fileXioDread(hfd, &hostcontent))) {
+	while ((rv = fileXioDread(hfd, &hostcontent)) > 0) {
+		if (!memchr(hostcontent.name, 0, sizeof(hostcontent.name))) { rv = -EINVAL; break; }
 		if (strcmp(hostcontent.name, ".") && strcmp(hostcontent.name, "..")) {
 			size_valid = 1;
 			time_valid = 1;
@@ -1576,9 +1578,9 @@ int readHOST(const char *path, FILEINFO *info, int max)
 				break;
 		}
 	}
-	fileXioDclose(hfd);
+	closed = fileXioDclose(hfd);
 	strcpy(info[hostcount].name, "\0");
-	return hostcount;
+	return rv < 0 ? rv : closed < 0 ? closed : hostcount;
 }
 #endif
 #ifdef UDPFS
@@ -1705,7 +1707,7 @@ int getDir(const char *path, FILEINFO *info)
 #ifdef EXFAT
 		// First browse after loading ATA_BD can race module/device readiness.
 		// Retry briefly so ataN:/ populates on first open instead of requiring re-entry.
-		if (n == 0 && wait_budget_ms > 0) {
+		if (n <= 0 && wait_budget_ms > 0) {
 			wait_start = Timer();
 			while (Timer() < wait_start + wait_budget_ms) {
 				path_ready = 0;
@@ -1794,7 +1796,7 @@ int getDir(const char *path, FILEINFO *info)
 		}
 
 		n = readGENERIC(path, info, max);
-		if ((n == 0) && has_path_alt)
+		if ((n <= 0) && has_path_alt)
 			n = readGENERIC(path_alt, info, max);
 
 		if (path[6] == ':') {
@@ -1819,13 +1821,13 @@ int getDir(const char *path, FILEINFO *info)
 			}
 		}
 
-		if ((n == 0) && has_indexed_path)
+		if ((n <= 0) && has_indexed_path)
 			n = readGENERIC(indexed_path, info, max);
-		if ((n == 0) && has_indexed_path_alt)
+		if ((n <= 0) && has_indexed_path_alt)
 			n = readGENERIC(indexed_path_alt, info, max);
 
 		/* First browse after loading MX4SIO can race mount readiness; retry briefly. */
-		if (n == 0 && wait_budget_ms > 0) {
+		if (n <= 0 && wait_budget_ms > 0) {
 			wait_start = Timer();
 			while (Timer() < wait_start + wait_budget_ms) {
 				path_ready = 0;
@@ -1856,11 +1858,11 @@ int getDir(const char *path, FILEINFO *info)
 					n = 0;
 					if (path_ready)
 						n = readGENERIC(path, info, max);
-					if (n == 0 && has_path_alt)
+					if (n <= 0 && has_path_alt)
 						n = readGENERIC(path_alt, info, max);
-					if (n == 0 && indexed_ready) {
+					if (n <= 0 && indexed_ready) {
 						n = readGENERIC(indexed_path, info, max);
-						if (n == 0 && indexed_path_alt[0] != '\0')
+						if (n <= 0 && indexed_path_alt[0] != '\0')
 							n = readGENERIC(indexed_path_alt, info, max);
 					}
 					if (n > 0 || !is_root)

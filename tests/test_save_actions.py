@@ -1,4 +1,5 @@
 """Exercise both browsers' actual archive dialogs with cancellation/device-switch spies."""
+from source_groups import component_source
 from pathlib import Path
 import os
 import subprocess
@@ -6,7 +7,7 @@ import tempfile
 
 root=Path(__file__).resolve().parents[1]
 dash=(root/'src/dash_browser.c').read_text()
-classic=(root/'src/filer_browser.c').read_text()
+classic=component_source('src/filer_browser.c')
 
 def function(source, signature):
     start=source.index(signature)

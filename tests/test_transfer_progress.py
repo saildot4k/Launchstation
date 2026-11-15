@@ -1,4 +1,5 @@
 """Run the production transfer layout, byte labels and rates with large files."""
+from source_groups import component_source
 from pathlib import Path
 import shutil
 import subprocess
@@ -197,7 +198,7 @@ assert '(w - 60) * loading_fraction' in renderer and '* p + 8' not in renderer
 assert 'dashTextFit(x + 84, y + 26' in renderer
 copy=(root/'src/filer_copy.c').read_text()
 assert 'if (!DashFileTransferProgress("Pasting file", file.name, size, original_size, &transfer_stats))' in copy
-assert 'DashFileDeleteProgress(file->name)' in (root/'src/filer_actions.c').read_text()
+assert 'DashFileDeleteProgress(file->name)' in component_source('src/filer_actions.c')
 def function(text, signature):
  a=text.index(signature);b=text.index('{',a)+1;depth=1
  while depth:
