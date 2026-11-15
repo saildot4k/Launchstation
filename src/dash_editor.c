@@ -751,7 +751,7 @@ static int editorMenu(EdDoc *d)
 
 #define ADD(ic, lab, det, dis, id) \
 	(items[n].icon = (ic), items[n].label = (lab), items[n].detail = (det), items[n].disabled = (dis), ids[n++] = (id))
-	ADD(DI_CHECK, "Save", d->dirty ? "unsaved" : NULL, 0, M_SAVE);
+	ADD(DI_SAVE, "Save", d->dirty ? "unsaved" : NULL, 0, M_SAVE);
 	ADD(DI_EDIT, "Save as...", NULL, 0, M_SAVEAS);
 	ADD(DI_NEW_DOCUMENT, "New document", NULL, ndocs >= ED_MAX_DOCS, M_NEW);
 	ADD(DI_FOLDER, "Open...", NULL, ndocs >= ED_MAX_DOCS, M_OPEN);

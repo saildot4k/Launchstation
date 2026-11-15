@@ -13,6 +13,8 @@ filer = (root / 'src/filer.c').read_text()
 browser = (root / 'src/filer_browser.c').read_text()
 dash = (root / 'src/dash_browser.c').read_text()
 shared = (root / 'include/filer_shared.h').read_text()
+header = (root / 'include/launchelf.h').read_text()
+fileops = (root / 'src/filer_fileops.c').read_text()
 
 
 def function(source, signature):
@@ -55,7 +57,7 @@ static int mcGetDir(int port,int slot,const char *path,int flags,int max,sceMcTb
 static int mcSync(int mode,void *ignored,int *result){(void)ignored;assert(!mode);*result=dir_result<0?dir_result:dir_result<limit?dir_result:limit;return sync_return;}
 static int waitMemoryCardReadyForBrowse(int port){(void)port;return 0;}
 static void DelayThread(int delay){(void)delay;}
-'''+function(filer, 'int readMC(')+shared[enum_start:enum_end]+r'''
+'''+function(filer, 'int readMC(')+shared[enum_start:enum_end]+function(header, 'static inline unsigned char wle_ascii_tolower(')+function(header, 'static inline int wle_stricmp(')+'#define stricmp wle_stricmp\n'+function(fileops, 'int genCmpFileExt(')+r'''
 static int nclipFiles,archive_kind,import_eligible=1;static FILEINFO clipFiles[MAX_ENTRY];
 #define FILER_SAVE_NONE 0
 static int filerArchiveClipboardKind(void){return nclipFiles>0?archive_kind:FILER_SAVE_NONE;}
@@ -66,13 +68,12 @@ static int isPcCardCfOnline(void){return 1;}
 static int isHddRootPath(const char *p){return !strcmp(p,"hdd0:/");}
 static int isTitleCfgPathEligible(const char *p,int disabled){(void)p;return !disabled;}
 static int filerCanOrganizeFolderTimestamps(const char *p){(void)p;return 1;}
-static int genCmpFileExt(const char *p,const char *ext){const char *dot=strrchr(p,'.');return dot&&!strcmp(dot+1,ext);}
 static int canOpenInTextEditor(const char *p,const FILEINFO *f){(void)p;(void)f;return 1;}
 static int genCanRenamePath(const char *p){(void)p;return 1;}
 static int filerIsExploitProtectedPath(const char *p,const FILEINFO *f){(void)p;(void)f;return 0;}
 static int filerCanImportClipboard(void){return nclipFiles>0&&import_eligible;}
 static int filerIsPs1Image(const char *p){(void)p;return 0;}
-'''+function(browser, 'static int isMcLikePath(')+function(browser, 'void filerMenuEnables(')+r'''
+'''+function(browser, 'static int isMcLikePath(')+function(browser, 'static int isVmcImageName(')+function(browser, 'void filerMenuEnables(')+r'''
 #define MOUNT_LIMIT 4
 #define FIO_MT_RDWR 1
 static int vmcMounted[2],vmc_PartyIndex[2]={-1,-1},Party_vmcIndex[MOUNT_LIMIT];
@@ -86,6 +87,50 @@ static int fileXioMount(const char *dev,const char *image,int flags){
  assert(!strcmp(image,"usb0:/card.mcd")||!strcmp(image,"usb0:/card.MC2"));mount_calls++;return 0;
 }
 '''+function(browser, 'int filerUnmountVmc(')+function(browser, 'int filerMountVmc(')+r'''
+/* Run the classic menu with controller input and capture its final drawn frame. */
+typedef uint64_t u64;
+#define LNG(label) #label
+#define SCREEN_WIDTH 640
+#define SCREEN_MARGIN 16
+#define FONT_WIDTH 8
+#define FONT_HEIGHT 16
+#define COLOR_BACKGR 0
+#define COLOR_TEXT 1
+#define COLOR_FRAME 2
+#define COLOR_SELECT 3
+#define LEFT_CUR 1
+#define PAD_UP 1
+#define PAD_DOWN 2
+#define PAD_TRIANGLE 4
+#define PAD_CROSS 8
+#define PAD_CIRCLE 16
+#define PAD_SQUARE 32
+#define FILER_CARD_PS1 1
+static struct {u64 color[4];} settings, *setting=&settings;
+static int nmarks,swapKeys,new_pad,Menu_tooltip_y=450;
+static int pad_calls,down_count,drawn_mounts,drawn_rows,cursor_y,size_y,popup_bottom;
+static int filerPs1CardCandidate(const FILEINFO *f){(void)f;return 0;}
+static void filerClipboardExtractLabel(char *out,size_t n){snprintf(out,n,"Extract archive...");}
+static void waitPadReady(int port,int slot){(void)port;(void)slot;}
+static int readpad(void){
+ assert(++pad_calls<20);if(pad_calls==1)return 0;
+ new_pad=pad_calls<=down_count+1?PAD_DOWN:PAD_CIRCLE;return 1;
+}
+static void drawPopSprite(u64 c,int x,int y,int right,int bottom){
+ (void)c;(void)x;(void)y;(void)right;popup_bottom=bottom;drawn_mounts=drawn_rows=0;
+}
+static void drawFrame(int x,int y,int right,int bottom,u64 c){(void)x;(void)y;(void)right;(void)bottom;(void)c;}
+static void drawSprite(u64 c,int x,int y,int right,int bottom){(void)c;(void)x;(void)y;(void)right;(void)bottom;}
+static void printXY(const char *text,int x,int y,u64 c,int enabled,int z){
+ (void)x;(void)c;(void)enabled;(void)z;
+ if(y==Menu_tooltip_y)return;
+ drawn_rows++;assert(y<popup_bottom);
+ if(!strncmp(text,"Mount vmc",9))drawn_mounts++;
+ if(!strcmp(text,"Get_Size"))size_y=y;
+}
+static void drawChar(int ch,int x,int y,u64 c){(void)ch;(void)x;(void)c;cursor_y=y;}
+static void drawScr(void){}
+'''+function(browser, 'static int menu(')+r'''
 int main(void){
  FILEINFO list[2];
  strcpy(entries[0].EntryName,"BASLUS-ONE");entries[0].AttrFile=0x9017;entries[0].FileSizeByte=8192;
@@ -110,6 +155,35 @@ int main(void){
  const char *paths[]={"mc0:/","mc1:/","vmc0:/","vmc1:/"};
  FILEINFO save={0};strcpy(save.name,"SAVE.ELF");nclipFiles=1;
  char enabled[NUM_MENU];
+ /* Both browsers offer mounts only for whole-card suffixes, without case sensitivity. */
+ const char *extensions[]={"vmc","mcd","mc2","bin","mcr","mc","srm","vm1",
+                           "ddf","ps","psm","sav","ps2","vm2","raw","gme","vgs","mem","vmp"};
+ for(unsigned i=0;i<sizeof(extensions)/sizeof(extensions[0]);i++) {
+  for(int letter_case=0;letter_case<3;letter_case++) {
+   snprintf(save.name,sizeof(save.name),"my.card.%s",extensions[i]);
+   for(unsigned j=8;save.name[j];j++)
+    if(letter_case==1 || (letter_case==2 && j%2==0))
+     if(save.name[j]>='a'&&save.name[j]<='z') save.name[j]-='a'-'A';
+   filerMenuEnables("usb0:/",&save,0,0,enabled);
+   assert(enabled[MOUNTVMC0]&&enabled[MOUNTVMC1]);
+   save.stats.AttrFile=sceMcFileAttrSubdir;
+   filerMenuEnables("usb0:/",&save,0,0,enabled);
+   assert(!enabled[MOUNTVMC0]&&!enabled[MOUNTVMC1]);save.stats.AttrFile=0;
+   for(unsigned p=0;p<sizeof(paths)/sizeof(paths[0]);p++) {
+    filerMenuEnables(paths[p],&save,0,0,enabled);
+    assert(!enabled[MOUNTVMC0]&&!enabled[MOUNTVMC1]);
+   }
+  }
+ }
+ const char *other_files[]={"save.mcs","save.psv","save.psu","save.max","save.cbs",
+                            "card.vme","card.mci","app.elf","readme.txt","card",
+                            "card.","card.vmc.bak","",".."};
+ for(unsigned i=0;i<sizeof(other_files)/sizeof(other_files[0]);i++) {
+  strcpy(save.name,other_files[i]);
+  filerMenuEnables("usb0:/",&save,0,0,enabled);
+  assert(!enabled[MOUNTVMC0]&&!enabled[MOUNTVMC1]);
+ }
+ strcpy(save.name,"SAVE.ELF");
  for(unsigned i=0;i<sizeof(paths)/sizeof(paths[0]);i++){
   filerMenuEnables(paths[i],&save,0,1,enabled);
   assert(!enabled[NEWDIR]&&!enabled[NEWICON]&&!enabled[LAUNCH_ELF_ARGS]&&!enabled[OPEN_TEXTEDITOR]);
@@ -154,7 +228,19 @@ int main(void){
   unmount_error=0;assert(!filerMountVmc("usb0:/",&image,slot,message,sizeof(message)));
   assert(!filerUnmountVmc(slot)&&!vmcMounted[slot]&&vmc_PartyIndex[slot]==-1&&Party_vmcIndex[1]==-1);
  }
+ /* Hidden rows shrink the menu; navigation still returns the original command ID. */
+ for(int eligible=0;eligible<2;eligible++) {
+  strcpy(image.name,eligible?"card.VmC":"notes.txt");
+  down_count=eligible?9:7;pad_calls=0;
+  assert(menu("usb0:/",&image,0,&image)==GETSIZE);
+  assert(drawn_mounts==(eligible?2:0));
+  assert(drawn_rows==NUM_MENU-(eligible?0:2));
+  assert(popup_bottom==64+(drawn_rows+1)*FONT_HEIGHT);
+  assert(cursor_y==size_y&&size_y==64+FONT_HEIGHT/2+(eligible?10:8)*FONT_HEIGHT);
+ }
+ puts("PASS: classic menu hides mount rows, resizes its border and keeps cursor/navigation aligned");
  puts("PASS: real-card libmc path for both slots, flat multi-block saves, card swaps, bounded reads/errors and PS1-only browser actions");
+ puts("PASS: both browsers filter mount choices by whole-card extensions in all cases");
  puts("PASS: shared mounts accept MCD/MC2 names and retain mounted state/partition locks when flushing fails");
 }
 '''

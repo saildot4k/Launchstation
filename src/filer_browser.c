@@ -404,6 +404,21 @@ static int classifyPsuAction(const char *destPath)
 	return PSU_ACTION_NONE;
 }
 
+/* Filename eligibility only; VMCMAN validates the complete card on mount. */
+static int isVmcImageName(const char *name)
+{
+	static const char *const extensions[] = {
+		"VMC", "MCD", "MC2", "BIN", "MCR", "MC", "SRM", "VM1",
+		"DDF", "PS", "PSM", "SAV", "PS2", "VM2", "RAW",
+		"GME", "VGS", "MEM", "VMP"
+	};
+
+	for (unsigned int i = 0; i < sizeof(extensions) / sizeof(extensions[0]); i++)
+		if (genCmpFileExt(name, extensions[i]))
+			return TRUE;
+	return FALSE;
+}
+
 /* Which file operations are allowed on `file` in `path` (read-only
  * devices, partition and device lists, the clipboard...). Shared by the
  * classic menu and the dashboard File Browser. */
@@ -491,7 +506,8 @@ void filerMenuEnables(const char *path, const FILEINFO *file, int nmarked, int c
 		enable[RENAME] = FALSE;
 	}
 
-	if ((file->stats.AttrFile & sceMcFileAttrSubdir) || !strncmp(path, "vmc", 3) || !strncmp(path, "mc", 2)) {
+	if (!isVmcImageName(file->name) || (file->stats.AttrFile & sceMcFileAttrSubdir) ||
+	    !strncmp(path, "vmc", 3) || !strncmp(path, "mc", 2)) {
 		enable[MOUNTVMC0] = FALSE;  //forbid insane VMC mounting
 		enable[MOUNTVMC1] = FALSE;  //forbid insane VMC mounting
 	}
@@ -523,7 +539,7 @@ static int menu(const char *path, FILEINFO *file, int card_type, const FILEINFO 
 	u64 color;
 	char enable[NUM_MENU], tmp[80], extract_label[32];
 	const char *create_label = "Create archive...";
-	int x, y, i, sel;
+	int x, y, i, sel, sel_y;
 	int event, post_event = 0;
 	int kind = FILER_SAVE_NONE;
 
@@ -545,13 +561,13 @@ static int menu(const char *path, FILEINFO *file, int card_type, const FILEINFO 
 
 	if (menu_len < 25) menu_len = 25; /* Save import/export labels. */
 	int menu_ch_w = menu_len + 1;                                 //Total characters in longest menu string
-	int menu_ch_h = NUM_MENU;                                     //Total number of menu lines
+	filerMenuEnables(path, file, nmarks, card_type, enable);
+	int menu_ch_h = NUM_MENU - !enable[MOUNTVMC0] - !enable[MOUNTVMC1]; //Visible menu lines
 	int mSprite_Y1 = 64;                                          //Top edge of sprite
 	int mSprite_X2 = SCREEN_WIDTH - 35;                           //Right edge of sprite
 	int mSprite_X1 = mSprite_X2 - (menu_ch_w + 3) * FONT_WIDTH;   //Left edge of sprite
 	int mSprite_Y2 = mSprite_Y1 + (menu_ch_h + 1) * FONT_HEIGHT;  //Bottom edge of sprite
 
-	filerMenuEnables(path, file, nmarks, card_type, enable);
 	if (enable[COPY] && filerPs1CardCandidate(save_file)) kind = FILER_CARD_PS1;
 	filerClipboardExtractLabel(extract_label, sizeof(extract_label));
 	enable[EXPORT_PS1] = (card_type == 1 && isMcLikePath(path)) || (enable[COPY] && kind == FILER_CARD_PS1);
@@ -599,7 +615,12 @@ static int menu(const char *path, FILEINFO *file, int card_type, const FILEINFO 
 			              mSprite_X2, mSprite_Y2);
 			drawFrame(mSprite_X1, mSprite_Y1, mSprite_X2, mSprite_Y2, setting->color[COLOR_FRAME]);
 
+			sel_y = -1;
 			for (i = 0, y = mSprite_Y1 + FONT_HEIGHT / 2; i < NUM_MENU; i++) {
+				if ((i == MOUNTVMC0 || i == MOUNTVMC1) && !enable[i])
+					continue;
+				if (i == sel)
+					sel_y = y;
 				if (i == COPY)
 					strcpy(tmp, LNG(Copy));
 				else if (i == CUT)
@@ -643,8 +664,8 @@ static int menu(const char *path, FILEINFO *file, int card_type, const FILEINFO 
 				printXY(tmp, mSprite_X1 + 2 * FONT_WIDTH, y, color, TRUE, 0);
 				y += FONT_HEIGHT;
 			}
-			if (sel < NUM_MENU)
-				drawChar(LEFT_CUR, mSprite_X1 + FONT_WIDTH, mSprite_Y1 + (FONT_HEIGHT / 2 + sel * FONT_HEIGHT), setting->color[COLOR_TEXT]);
+			if (sel_y >= 0)
+				drawChar(LEFT_CUR, mSprite_X1 + FONT_WIDTH, sel_y, setting->color[COLOR_TEXT]);
 
 			//Tooltip section
 			x = SCREEN_MARGIN;
