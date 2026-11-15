@@ -76,10 +76,10 @@ int main(void) {
  return 0;
 }
 """
-launch = source[source.index("int LaunchNeutrinoIso("):]
+launch = source[source.index("static int launchNeutrinoIso("):]
 assert launch.index("showNeutrinoLaunchOptions(&options)") < launch.index("ret = prepareNeutrinoCandidateLaunch(")
 assert launch.index("ret = prepareNeutrinoCandidateLaunch(") < launch.index("setNeutrinoMmceGameID(")
-assert "setNeutrinoMmceGameID(gameID, opened_iso, fullpath);" in launch
+assert "!setNeutrinoMmceGameID(gameID, opened_iso, fullpath)" in launch
 cc = shutil.which("gcc") or shutil.which("cc")
 assert cc, "Host C compiler required"
 with tempfile.TemporaryDirectory(prefix="neutrino-mmce-launch-") as folder:

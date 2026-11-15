@@ -401,9 +401,9 @@ static const SetPage pages[P_COUNT] = {
     [P_THEME] = PAGE("Customize theme", DI_PALETTE, "Choose which part of your theme to edit.", theme_items),
     [P_APPS] = PAGE("Home & applications", DI_HOME, "How applications are presented and discovered.", dash_items),
     [P_LIBRARY] = PAGE("Application library", DI_APPS, "Folders and refresh behavior for the ELF library.", library_items),
-    [P_SOUND] = PAGE("Sound", DI_PLAY, "Music and interface sounds have separate volume controls.", sound_items),
+    [P_SOUND] = PAGE("Sound", DI_SOUND, "Music and interface sounds have separate volume controls.", sound_items),
     [P_INPUT] = PAGE("Input", DI_GAMEPAD, "Controller confirmation and keyboard input.", control_items),
-    [P_KEYBOARD] = PAGE("USB keyboard", DI_KEY, "USB keyboard support and optional driver/key map.", keyboard_items),
+    [P_KEYBOARD] = PAGE("USB keyboard", DI_KEYBOARD, "USB keyboard support and optional driver/key map.", keyboard_items),
     [P_LAUNCH] = PAGE("Launching", DI_PLAY, "Boot actions, button shortcuts and application handoff.", launch_items),
     [P_BOOT] = PAGE("Automatic start & boot", DI_CLOCK, "Any button cancels the automatic start countdown.", startup_items),
     [P_LKEY] = PAGE("Launch keys", DI_KEY, "Hold a button at boot, or hold SELECT and press it in the dashboard.", lkey_items),
@@ -1936,7 +1936,7 @@ static void editScanPaths(void)
 			n++;
 		}
 		items[n].icon = DI_PLUS, items[n].label = "Add folder...", items[n].detail = "choose the exact folder to scan", items[n].disabled = (dashCfg.nscan >= DASH_MAX_SCAN), n++;
-		items[n].icon = DI_REFRESH, items[n].label = "Restore defaults", items[n].detail = "mc:/APPS, mc:/BOOT, mass:/APPS, mass:/BOOT", items[n].disabled = 0, n++;
+		items[n].icon = DI_UNDO, items[n].label = "Restore defaults", items[n].detail = "mc:/APPS, mc:/BOOT, mass:/APPS, mass:/BOOT", items[n].disabled = 0, n++;
 		r = dashModalMenu("Application folders", "Only listed folders are scanned for .ELF files", items, n, 0);
 		if (r < 0)
 			break;
@@ -2946,10 +2946,15 @@ static void settingsDraw(void)
 		dashGfxPushAlpha(disabled ? DASH_DISABLED_ALPHA : 1.0f);
 		{
 			int row_icon = it->type == ST_PAGE ? pages[it->id].icon :
+			               it->type == ST_CHOICE && it->id == S_REBOOT_ELF ? DI_UNDO :
 			               it->type == ST_PATH ? DI_FOLDER :
 			               it->type == ST_IP ? DI_NETWORK :
 			               it->type == ST_LKEY ? DI_KEY :
-			               it->type == ST_ACTION ? (it->id == S_SAVE_AS ? DI_SAVE : it->id == S_CLOCK ? DI_CLOCK : DI_PLAY) :
+			               it->type == ST_ACTION ? (it->id == S_SCANPATHS ? DI_FOLDER : it->id == S_SAVE_AS ? DI_SAVE : it->id == S_CLOCK ? DI_CLOCK :
+			                                         it->id == S_CLEAR_RECENT ? DI_CLOSE : it->id == S_RESCAN ? DI_REFRESH :
+			                                         (it->id == S_DISPLAY_THEME_RESET || it->id == S_SCREEN_RESET ||
+			                                          it->id == S_T_RESETCAT || it->id == S_T_RESTORE_PRESET ||
+			                                          it->id == S_T_DEFAULT) ? DI_UNDO : DI_PLAY) :
 			               it->type == ST_INFO ? DI_INFO : DI_SETTINGS;
 			dashIcon(row_icon, ix + 12, y + 7, 15, col);
 		}

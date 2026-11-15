@@ -235,7 +235,8 @@ assert 'x = setting->reboot_iop_elf_load;' not in actions
 assert 'RunLoaderElf(fullpath, party, path, t, x);' in actions
 assert 'RunLoaderMemory("rom0:HDDBOOT", mbr_mem_arg, x);' in actions
 iso = (root/'src/neutrino_iso.c').read_text()
-launch = function(iso, 'int LaunchNeutrinoIso(')
+# The public entry scopes quiet feedback; ordering belongs to its implementation.
+launch = function(iso, 'static int launchNeutrinoIso(')
 assert launch.index('showNeutrinoLaunchOptions(&options)') < launch.index('CleanUpForKeepIopExec(') < launch.index('RunLoaderElfKeepIOP(')
 cleanup = function(actions, 'int CleanUpForKeepIopExec(')
 assert cleanup.index('DashPrepareKeepIopHandoff(') < cleanup.index('cleanUpForExecInternal(1)')

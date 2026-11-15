@@ -405,6 +405,8 @@ void dashTextCenter(float cx, float y, const char *s, float scale, DashColor c);
 void dashTextRight(float rx, float y, const char *s, float scale, DashColor c);
 float dashTextFit(float x, float y, float maxw, const char *s, float scale, DashColor c);
 void dashTextScroll(float x, float y, float maxw, const char *s, float scale, DashColor c);
+/* A shared 0..1 progress lets related fields scroll and restart together. */
+void dashTextScrollProgress(float x, float y, float maxw, const char *s, float scale, DashColor c, float progress);
 void dashTextScrollTimed(float x, float y, float maxw, const char *s, float scale, DashColor c, float age);
 void dashTextScrollCenter(float cx, float y, float maxw, const char *s, float scale, DashColor c);
 int dashTextWrap(float x, float y, float w, int max_lines, const char *s, float scale, DashColor c, float line_h);
@@ -492,6 +494,10 @@ enum DashIcon {
 	DI_SAVE,        /* upstream floppy disk: shutter on top, label below */
 	DI_MICROSD,     /* notched microSD outline for MMCE and MX4SIO */
 	DI_NETWORK_FOLDER, /* existing folder with a network bus and nodes below */
+	DI_SOUND,       /* filled speaker with two sound waves */
+	DI_KEYBOARD,    /* wired keyboard with keys and a space bar */
+	DI_HIDE,        /* crossed-out eye for application visibility */
+	DI_UNDO,        /* counterclockwise arrow for reset actions */
 	DI_COUNT
 };
 
@@ -1000,6 +1006,8 @@ int dashVisibleSectionIndex(int section);
 const char *dashVisibleSectionName(int index);
 int dashAdjacentSection(int section, int direction);
 void dashRenderScene(void);
+/* GS owner thread, after a completed present; defers during IO/startup decisions. */
+void dashStartupAudioAfterPresent(void);
 /* Full-screen tools push their scene on entry and pop it on exit, which
  * restores the scene of whatever opened them (dashboard or another tool). */
 void dashPushSceneOverride(void (*fn)(void));

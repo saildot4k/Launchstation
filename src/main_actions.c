@@ -23,6 +23,9 @@ static void cleanUpForExecInternal(int end_pad_rpc)
 	dashSoundShutdown(); /* the launch is now committed */
 	DashThemeSetLegacyEnabled(0);
 	clearScreenToBlack();
+	/* PAD/keyboard shutdown still performs RPC. Stop cooperative redraws
+	 * before releasing the settings and fonts those frames would use. */
+	DashStopUiForExec();
 	free(setting);
 	free(elisaFnt);
 	free(External_Lang_Buffer);
@@ -62,7 +65,7 @@ int CleanUpForKeepIopExec(const char *title)
 	 * libpad client so the child can bind cleanly instead of inheriting stale
 	 * EE ownership.
 	 */
-	if (!DashPrepareKeepIopHandoff(title != NULL ? title : "Preparing application"))
+	if (!DashPrepareKeepIopHandoff(title))
 		return 0;
 
 	cleanUpForExecInternal(1);

@@ -38,6 +38,21 @@ static float frame_dt;
 static int boot_phase;         /* 0 none, 1 init delay, 2 auto-launch countdown */
 static u64 boot_phase_end;
 static char boot_auto_title[DASH_TITLE_MAX];
+static int startup_audio_pending, startup_audio_ready, startup_boot_sound;
+
+/* The selected screen (including a modal MISC tool) must be visible before
+ * audio module/sample/sidecar IO. Present calls this only between frames;
+ * cooperative audio waits can present again, so consume the request first. */
+void dashStartupAudioAfterPresent(void)
+{
+	if (!dash_active || !startup_audio_pending || !startup_audio_ready || boot_phase ||
+	    fade_in < 0.95f || DashIoBusy())
+		return;
+	startup_audio_pending = 0;
+	if (startup_boot_sound)
+		dashSoundRequestBoot();
+	dashSoundMaintain();
+}
 
 static const DashScreen *const screens[DASH_SEC_COUNT] = {
     &dashHomeScreen, &dashAppsScreen, &dashFilesScreen, &dashDevicesScreen, &dashToolsScreen, &dashSettingsScreen};
@@ -212,7 +227,8 @@ int dashConfirmLeave(void)
 //--------------------------------------------------------------
 static void dashMsgHook(const char *msg)
 {
-	dashLoadingStatus(msg, 0, 0);
+	if (dash_active && !isStartupDriverStatusQuiet())
+		dashLoadingStatus(msg, 0, 0);
 }
 
 static void dashLaunchHook(const char *path)
@@ -268,6 +284,15 @@ int DashChooseElfIopMode(int configured)
 	return mode;
 }
 
+/* After cleanup commits, SDK RPC waits must never redraw settings/fonts
+ * that are about to be released. DashIsActive also gates the wait shim. */
+void DashStopUiForExec(void)
+{
+	dash_active = 0;
+	startup_audio_pending = 0;
+	startup_audio_ready = 0;
+}
+
 int DashPrepareKeepIopHandoff(const char *title)
 {
 	if (!dash_active)
@@ -280,7 +305,7 @@ int DashPrepareKeepIopHandoff(const char *title)
 	 * IOP-side RPC/device state. Also end audsrv cleanly rather than leaving
 	 * our dashboard audio client/server state behind for Ember to inherit.
 	 */
-	if (!settleBackgroundWork(title != NULL ? title : "Preparing application"))
+	if (!settleBackgroundWork(title))
 		return 0;
 	filerRootMcPollIdle();
 	dashSoundShutdown();
@@ -338,8 +363,12 @@ static void runMiscCommand(const char *misc_path)
 	dashStrCopy(path, misc_path, sizeof(path));
 	/* saves, scans and driver work finish first: the command may reboot
 	 * the IOP or leave wLaunchELF */
-	if (!settleBackgroundWork(title))
+	/* No dashboard audio from command-preparation or handoff frames. */
+	startup_audio_ready = 0;
+	if (!settleBackgroundWork(title)) {
+		startup_audio_ready = 1;
 		return;
+	}
 	filerRootMcPollIdle();
 	dashLoadingBegin(title);
 	exec_ctx.main_msg[0] = '\0';
@@ -360,6 +389,7 @@ static void runMiscCommand(const char *misc_path)
 	/* back here: the command finished, or leaving failed */
 	if (leaves)
 		dashGfxCheckScreenChange();
+	startup_audio_ready = 1;
 	afterMiscCommand();
 	dashLoadingEnd();
 	showActionMessage();
@@ -508,12 +538,14 @@ void dashLaunchApp(DashApp *app, int with_args_prompt)
 	char path[MAX_PATH];
 	char title[DASH_TITLE_MAX + 16];
 	DashApp copy;
+	int iso_launch;
 	MainExecuteContext launch_ctx = exec_ctx;
 
 	if (app == NULL)
 		return;
 	memcpy(&copy, app, sizeof(copy));
 	dashStrCopy(path, copy.path, sizeof(path));
+	iso_launch = IsNeutrinoIsoPath(path);
 	if (with_args_prompt != DASH_LAUNCH_PENDING_ARGS)
 		LaunchArgsClear();
 
@@ -545,7 +577,7 @@ void dashLaunchApp(DashApp *app, int with_args_prompt)
 	}
 	if (with_args_prompt == 1 || with_args_prompt == DASH_LAUNCH_PENDING_ARGS) {
 		/* arguments already loaded by the editor or its "Use" action */
-	} else if (!settleBackgroundWork("Finishing up")) {
+	} else if (!settleBackgroundWork(iso_launch ? NULL : "Finishing up")) {
 		return; /* the user backed out while saves/driver work finished */
 	} else if ((copy.flags & DASH_APP_HAS_ARGS) && !argSidecarExists(path)) {
 		char args[1024];
@@ -563,14 +595,16 @@ void dashLaunchApp(DashApp *app, int with_args_prompt)
 	dashStorePushRecent(copy.path);
 	/* the recent list, cache and anything the worker picked up meanwhile
 	 * (e.g. drivers restarted after the Text Editor) are written first */
-	if (!settleBackgroundWork(title)) {
+	if (!settleBackgroundWork(iso_launch ? NULL : title)) {
 		LaunchArgsClear();
 		return;
 	}
 	filerRootMcPollIdle();
-	dashBgFlash(0.8f);
-	dashLoadingBegin(title);
-	dashLoadingStatus(copy.path, 0, 0);
+	if (!iso_launch) {
+		dashBgFlash(0.8f);
+		dashLoadingBegin(title);
+		dashLoadingStatus(copy.path, 0, 0);
+	}
 	exec_ctx.main_msg[0] = '\0';
 	mainActionLaunchHook = NULL; /* already recorded */
 	/* Mute ordinary launches until target validation; final cleanup stops
@@ -759,13 +793,19 @@ static void runLaunchKey(int lk)
 
 	if (lk < 0 || !setting->LK_Path[lk][0])
 		return;
+	startup_audio_ready = 0;
 	if (strchr(setting->LK_Path[lk], ':') != NULL && genCmpFileExt(setting->LK_Path[lk], "ELF")) {
 		DashApp *a = dashLibResolve(setting->LK_Path[lk], &tmp);
 		if (lk < SETTING_LK_BTN_COUNT && setting->LK_Title[lk][0])
 			dashStrCopy(a->title, setting->LK_Title[lk], sizeof(a->title));
 		dashLaunchApp(a, 0);
-	} else
+	} else {
+		/* Native MISC tools can remain in a modal loop. Let their first
+		 * presented screen start audio; runMiscCommand guards handoffs. */
+		startup_audio_ready = 1;
 		dashRunMisc(setting->LK_Path[lk]);
+	}
+	startup_audio_ready = 1; /* a failed launch can resume the dashboard */
 }
 
 //--------------------------------------------------------------
@@ -1091,6 +1131,9 @@ void DashRun(const MainExecuteContext *ctx, int from_boot)
 		return;
 	dash_active = 1;
 	background_only = 0; /* never persist hidden UI across launches/restarts */
+	startup_audio_pending = 1;
+	startup_audio_ready = 0;
+	startup_boot_sound = from_boot;
 	exec_ctx = *ctx;
 
 	dashGfxCheckScreenChange();
@@ -1106,22 +1149,12 @@ void DashRun(const MainExecuteContext *ctx, int from_boot)
 		clearScreenToBlack();
 		dashFontInit();
 	}
+	section_anim = 1.0f;
+	fade_in = 0.0f;
+	last_frame_ms = Timer();
 	dashIoInit(); /* GS, fonts, icons and worker are now ready for wait frames. */
 	DashThemeSetLegacyEnabled(1);
 	mainActionLaunchHook = dashLaunchHook;
-#ifdef WLE_BOOT_DIAGNOSTICS
-	drawMsg("Boot check 6: dashboard initialized; starting audio");
-#endif
-	dashSoundInit();
-	dashBgmStart();
-#ifdef WLE_BOOT_DIAGNOSTICS
-	drawMsg("Boot check 7: audio startup returned");
-#endif
-	if (from_boot)
-		dashSoundPlay(DASH_SND_BOOT);
-
-	section_anim = 1.0f;
-	fade_in = 0.0f;
 	if (screens[section]->enter)
 		screens[section]->enter();
 	dashAppsRebuildView();
@@ -1139,6 +1172,7 @@ void DashRun(const MainExecuteContext *ctx, int from_boot)
 	next_remote_poll = last_frame_ms;
 	if (from_boot)
 		bootBegin();
+	startup_audio_ready = 1;
 	/* the dashboard is the only shell: it never returns */
 	while (1) {
 		float dt = dashVisualUpdate();
@@ -1223,7 +1257,8 @@ void DashRun(const MainExecuteContext *ctx, int from_boot)
 			}
 		}
 		idle_ms = dashInputIdleMs();
-		dashSoundMaintain();
+		if (!startup_audio_pending)
+			dashSoundMaintain();
 		dashThemeSavePending((int)idle_ms);
 		if (!boot_phase)
 			dashArtStep((int)idle_ms);
