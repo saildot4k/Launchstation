@@ -31,6 +31,34 @@
 #define TRANSFER_ETA_UPDATE_MS 1000
 #define COPY_BUFFER_FAST_DEFAULT 0x100000
 
+int filerTransferBufferSize(const char *in, const char *out, u64 size)
+{
+	int buffSize;
+	buffSize = COPY_BUFFER_FAST_DEFAULT;  //First assume fast-device buffer size
+	if (!strncmp(out, "mc", 2) || !strncmp(out, "mass", 4) || !strncmp(out, "vmc", 3) || isPcCardCfPath(out))
+		buffSize = 131072;  //Use  128KB if writing to USB/CF (Flash RAM writes) or MC (pretty slow).
+	                        //VMC contents should use the same size, as VMCs will often be stored on USB
+#ifdef MX4SIO
+	else if (!strncmp(out, "mx4sio", 6))
+		buffSize = 131072;  //Use 128KB when writing to MX4SIO (FAT over SIO2).
+#endif
+	else if (!strncmp(in, "mc", 2))
+		buffSize = 262144;  //Use 256KB if reading from MC (still pretty slow)
+#if defined(ETH) || defined(UDPFS)
+	else if (!strncmp(out, "host", 4))
+		buffSize = 393216;  //Use 384KB if writing to HOST (acceptable)
+#endif
+	else if ((!strncmp(in, "mass", 4)) || (!strncmp(in, "host", 4)) || isPcCardCfPath(in)
+#ifdef MX4SIO
+	         || (!strncmp(in, "mx4sio", 6))
+#endif
+	        )
+		buffSize = 524288;  //Use 512KB reading from USB, CF, or HOST (acceptable)
+
+	if (size < (u64)buffSize) buffSize = (int)size;
+	return buffSize;
+}
+
 /* One paste context, owned by the UI thread after workers are drained.
  * Keep no history and perform no diagnostic I/O during the transfer. */
 static struct {
@@ -1044,27 +1072,7 @@ non_PSU_RESTORE_init:
        using a large block size with a slow device will result in an unresponsive UI.
        To prevent a loss in performance, these values must each be in a multiple of the device's sector/page size.
        They must also be in multiples of 64, to prevent FILEIO from doing alignment correction in software. */
-	buffSize = COPY_BUFFER_FAST_DEFAULT;  //First assume fast-device buffer size
-	if (!strncmp(out, "mc", 2) || !strncmp(out, "mass", 4) || !strncmp(out, "vmc", 3) || isPcCardCfPath(out))
-		buffSize = 131072;  //Use  128KB if writing to USB/CF (Flash RAM writes) or MC (pretty slow).
-	                        //VMC contents should use the same size, as VMCs will often be stored on USB
-#ifdef MX4SIO
-	else if (!strncmp(out, "mx4sio", 6))
-		buffSize = 131072;  //Use 128KB when writing to MX4SIO (FAT over SIO2).
-#endif
-	else if (!strncmp(in, "mc", 2))
-		buffSize = 262144;  //Use 256KB if reading from MC (still pretty slow)
-#if defined(ETH) || defined(UDPFS)
-	else if (!strncmp(out, "host", 4))
-		buffSize = 393216;  //Use 384KB if writing to HOST (acceptable)
-#endif
-	else if ((!strncmp(in, "mass", 4)) || (!strncmp(in, "host", 4)) || isPcCardCfPath(in)
-#ifdef MX4SIO
-	         || (!strncmp(in, "mx4sio", 6))
-#endif
-	        )
-		buffSize = 524288;  //Use 512KB reading from USB, CF, or HOST (acceptable)
-
+	buffSize = filerTransferBufferSize(in, out, size);
 	if (size < (u64)buffSize)
 		buffSize = (int)size;
 

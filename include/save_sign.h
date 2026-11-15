@@ -8,6 +8,10 @@ typedef struct {
     unsigned used;
     uint8_t block[64];
 } SaveSha1;
+/* Incremental content/metadata fingerprints for bounded Cut verification. */
+void saveHashInit(SaveSha1 *hash);
+void saveHashUpdate(SaveSha1 *hash, const uint8_t *data, unsigned length);
+void saveHashFinish(SaveSha1 *hash, uint8_t digest[20]);
 typedef struct { SaveSha1 sha; uint8_t outer[64]; } SaveSigner;
 int saveSignInit(SaveSigner *signer, const uint8_t seed[20], int type);
 void saveSignUpdate(SaveSigner *signer, const uint8_t *data, unsigned length);

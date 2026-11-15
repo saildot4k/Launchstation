@@ -29,13 +29,15 @@ void filerRememberArchiveClipboard(int card_type);
 int filerProbeArchiveClipboard(const char *destination);
 /* Metadata-only candidate, or a cached result from the explicit content check. */
 int filerArchiveClipboardKind(void);
+/* Buffered convenience API; browser actions use the streaming batch API below. */
 int filerCreateClipboardArchive(const char *destination, int format, uint8_t **data, size_t *length,
                                char *name, int name_size, char *message, int size);
 /* Call only after publishing the current item. Cut removes that unchanged source;
  * 0 means the archive exists but the source was retained, 1 means success. */
 int filerFinishArchiveClipboard(const char *destination, char *message, int size);
-/* One archive per clipboard item, processed in order. Completed Cut items
- * leave the clipboard; skipped, failed and unprocessed sources remain.
+/* Streams one archive per clipboard item with device-selected transfer buffers.
+ * Cut verification retains only a content/metadata digest, never a full save.
+ * Completed Cut items leave the clipboard; skipped, failed and unprocessed sources remain.
  * Returns the created count, 0 for skips/retained Cut sources, or -1 on failure. */
 int filerCreateClipboardArchives(const char *destination, int format, char *message, int size);
 

@@ -423,6 +423,140 @@ int saveArchiveBuild(const SaveArchive *s, int format, uint8_t **output, size_t 
 	return 1;
 }
 
+/* Plan headers from bounded metadata, then emit payloads through caller-owned
+ * buffers. A NULL writer performs all format checks without creating output. */
+int saveArchiveStream(const SaveArchive *s, int format, const SaveArchiveStreamIo *io, size_t *length)
+{
+	uint8_t header[1536] = {0}, icon_data[452], first[2], signature[20];
+	SaveSigner signer;
+	size_t payload = 0, total, pos, header_size;
+	int icon = -1, refs[3] = {-1, -1, -1}, buffer_index = 0;
+	char checked[33];
+	*length = 0;
+	if (!io || !io->read || !s->files || !s->count || s->count > SAVE_ARCHIVE_FILES ||
+	    format < SAVE_OUTPUT_PSU || format > SAVE_OUTPUT_PSX ||
+	    (s->ps1 ? s->count != 1 || format == SAVE_OUTPUT_PSU : format >= SAVE_OUTPUT_MCS)) return 0;
+	if (!s->ps1 && (!(s->folder.mode & 0x20) || !nameCopy(checked, (const uint8_t *)s->folder.name, 33, 32))) return 0;
+	for (unsigned i = 0; i < s->count; i++) {
+		const SaveArchiveEntry *e = &s->files[i];
+		if (!nameCopy(checked, (const uint8_t *)e->name, 33, s->ps1 ? 20 : 32) ||
+		    e->size > SAVE_ARCHIVE_LIMIT || (e->mode & 0x20)) return 0;
+		for (unsigned j = 0; j < i; j++) if (!strcmp(e->name, s->files[j].name)) return 0;
+		payload += e->size;
+		if (payload > SAVE_ARCHIVE_LIMIT) return 0;
+		if (!strcmp(e->name, "icon.sys")) icon = i;
+	}
+	if (s->ps1 && (!payload || payload % PS1_BLOCK_SIZE || payload > 15 * PS1_BLOCK_SIZE ||
+	    !io->read(io->context, 0, 0, first, 2) || toupper(first[0]) != 'S' || toupper(first[1]) != 'C')) return 0;
+	if (s->ps1) total = payload + (format == SAVE_OUTPUT_MCS ? 128 : format == SAVE_OUTPUT_PSX ? 54 : 132);
+	else if (format == SAVE_OUTPUT_PSU) {
+		total = 1536;
+		for (unsigned i = 0; i < s->count; i++) total += 512 + ((s->files[i].size + 1023) & ~(size_t)1023);
+	} else {
+		if (icon < 0 || s->files[icon].size < sizeof(icon_data) ||
+		    !io->read(io->context, icon, 0, icon_data, sizeof(icon_data)) || memcmp(icon_data, "PS2D", 4)) return 0;
+		for (unsigned j = 0; j < 3; j++) {
+			const uint8_t *ref = icon_data + 260 + j * 64;
+			if (!ref[0]) ref = icon_data + 260;
+			for (unsigned i = 0; i < s->count; i++)
+				if (!strncmp(s->files[i].name, (const char *)ref, 64)) refs[j] = i;
+			if (refs[j] < 0) return 0;
+		}
+		total = 168 + s->count * 68 + payload;
+	}
+	if (total > SAVE_ARCHIVE_LIMIT) return 0;
+	*length = total;
+	if (!io->write) return 1;
+	if (!io->buffer || !io->buffer_size) return 0;
+
+	if (format == SAVE_OUTPUT_PSX) {
+		memcpy(header, s->files[0].name, strlen(s->files[0].name)); header_size = 54;
+	} else if (format == SAVE_OUTPUT_MCS) {
+		header[0] = 0x51; put32(header + 4, payload); header[8] = header[9] = 0xff;
+		memcpy(header + 10, s->files[0].name, strlen(s->files[0].name));
+		for (unsigned i = 0; i < 127; i++) header[127] ^= header[i];
+		header_size = 128;
+	} else if (format == SAVE_OUTPUT_PSU) {
+		psuHeader(header, &s->folder, s->folder.name, s->count + 2);
+		psuHeader(header + 512, &s->folder, ".", 0); psuHeader(header + 1024, &s->folder, "..", 0);
+		header_size = 1536;
+	} else {
+		memcpy(header, "\0VSP", 4); memcpy(header + 8, "Launchstation PSV", 17);
+		put32(header + 56, s->ps1 ? 20 : 44); put32(header + 60, s->ps1 ? 1 : 2);
+		put32(header + 64, payload);
+		if (s->ps1) {
+			put32(header + 68, 132); put32(header + 72, 512);
+			put32(header + 92, payload); put32(header + 96, 0x9003);
+			memcpy(header + 100, s->files[0].name, strlen(s->files[0].name)); header_size = 132;
+		} else {
+			put32(header + 100, s->count);
+			memcpy(header + 104, s->folder.created, 8); memcpy(header + 112, s->folder.modified, 8);
+			put32(header + 120, s->count + 2); put32(header + 124, s->folder.mode);
+			memcpy(header + 128, s->folder.name, strlen(s->folder.name)); header_size = 168;
+			pos = header_size + s->count * 68;
+			for (unsigned i = 0; i < s->count; i++) {
+				if ((int)i == icon) { put32(header + 68, pos); put32(header + 72, s->files[i].size); }
+				for (unsigned j = 0; j < 3; j++) if ((int)i == refs[j]) {
+					put32(header + 76 + j * 8, pos); put32(header + 80 + j * 8, s->files[i].size);
+				}
+				pos += s->files[i].size;
+			}
+		}
+		saveSignInit(&signer, header + 8, s->ps1 ? 1 : 2);
+	}
+	if (!io->write(io->context, 0, header, header_size)) return 0;
+	if (format == SAVE_OUTPUT_PSV) saveSignUpdate(&signer, header, header_size);
+	pos = header_size;
+	if (format == SAVE_OUTPUT_PSV && !s->ps1) {
+		size_t data_pos = header_size + s->count * 68;
+		for (unsigned i = 0; i < s->count; i++) {
+			const SaveArchiveEntry *e = &s->files[i];
+			memset(header, 0, 68); memcpy(header, e->created, 8); memcpy(header + 8, e->modified, 8);
+			put32(header + 16, e->size); put32(header + 20, e->mode);
+			memcpy(header + 24, e->name, strlen(e->name)); put32(header + 64, data_pos);
+			if (!io->write(io->context, pos, header, 68)) return 0;
+			saveSignUpdate(&signer, header, 68); pos += 68; data_pos += e->size;
+		}
+	}
+	for (unsigned i = 0; i < s->count; i++) {
+		const SaveArchiveEntry *e = &s->files[i];
+		size_t offset = 0;
+		if (!e->size && !io->read(io->context, i, 0, io->buffer, 0)) return 0;
+		if (format == SAVE_OUTPUT_PSU) {
+			memset(header, 0, 512); psuHeader(header, e, e->name, e->size);
+			if (!io->write(io->context, pos, header, 512)) return 0;
+			pos += 512;
+		}
+		while (offset < e->size) {
+			size_t count = e->size - offset;
+			uint8_t *buffer = buffer_index && io->buffer2 ? io->buffer2 : io->buffer;
+			if (count > io->buffer_size) count = io->buffer_size;
+			if (!io->read(io->context, i, offset, buffer, count)) return 0;
+			if (format == SAVE_OUTPUT_PSV) {
+				for (size_t hashed = 0; hashed < count;) {
+					size_t block = count - hashed;
+					if (block > 65536) block = 65536;
+					saveSignUpdate(&signer, buffer + hashed, block); hashed += block;
+					if (io->yield) io->yield(io->context);
+				}
+			}
+			if (!io->write(io->context, pos, buffer, count)) return 0;
+			offset += count; pos += count; buffer_index ^= 1;
+		}
+		if (format == SAVE_OUTPUT_PSU) {
+			size_t pad = (1024 - (e->size & 1023)) & 1023;
+			memset(header, 0, pad);
+			if (pad && !io->write(io->context, pos, header, pad)) return 0;
+			pos += pad;
+		}
+	}
+	if (format == SAVE_OUTPUT_PSV) {
+		saveSignFinish(&signer, signature);
+		if (!io->write(io->context, 28, signature, sizeof(signature))) return 0;
+	}
+	return pos == total;
+}
+
 int ps1CardOffset(const uint8_t *d, size_t n)
 {
 	int offset;

@@ -18,6 +18,7 @@ stub = r'''
 #include <dirent.h>
 #include <errno.h>
 #include <assert.h>
+#include <malloc.h>
 #include "vmc_control.h"
 #include "save_archive.h"
 typedef uint64_t u64;typedef int64_t s64;
@@ -30,10 +31,13 @@ typedef uint64_t u64;typedef int64_t s64;
 #define FIO_O_CREAT O_CREAT
 #define FIO_S_IFDIR S_IFDIR
 #define FIO_S_IFREG S_IFREG
+#define FIO_S_ISDIR(mode) S_ISDIR(mode)
+#define FIO_S_ISREG(mode) S_ISREG(mode)
 #define sceMcFileAttrSubdir 0x20
 typedef struct {uint8_t bytes[8];} sceMcStDateTime;
 typedef struct {unsigned AttrFile,Reserve1,Reserve2,FileSizeByte;char EntryName[32];sceMcStDateTime _Create,_Modify;} sceMcTblGetDir;
-typedef struct {unsigned mode,private_0;uint8_t ctime[8],mtime[8];} iox_stat_t;
+typedef struct {unsigned mode,private_0,size,hisize;uint8_t ctime[8],mtime[8];} iox_stat_t;
+typedef struct {iox_stat_t stat;char name[256];} iox_dirent_t;
 typedef struct {char name[256];struct {unsigned AttrFile,Reserve2,FileSizeByte;sceMcStDateTime _Create,_Modify;}stats;} FILEINFO;
 typedef struct {int PSU_HugeNames,PSU_DateNames,PSU_NoOverwrite;} SETTING;
 extern SETTING *setting;
@@ -55,7 +59,7 @@ typedef struct
 u64 Timer(void);int DashIsActive(void);
 int DashFileTransferProgress(const char*,const char*,u64,u64,const DashTransferStats*);
 int DashFileOperationStatus(const char*,const char*,u64,u64);
-void DashFileOperationEnd(void);void nonDialog(char*);void drawMsg(const char*);
+void DashFileOperationEnd(void);void DashIoYield(void);void nonDialog(char*);void drawMsg(const char*);
 int filerCardInfo(const char *,VmcInfo *);
 int filerExtractSave(const SaveArchive *, const char *, char *, int);
 int filerConfirmSaveOverwrite(const char *);
@@ -63,6 +67,7 @@ int filerPrepareMemoryCardRead(int);int mcGetInfo(int,int,int*,int*,int*);int mc
 int genFixPath(const char*,char*);int genOpen(const char*,int);s64 genLseek(int,s64,int);int genRead(int,void*,int);int genWrite(int,void*,int);int genClose(int);
 int genDopen(char*);int genDclose(int);int genMkdir(const char*,int);int genRemove(char*);int genRmdir(char*);
 int genCmpFileExt(const char*,const char*);int genCanRenamePath(const char*);int genRenameNoReplace(const char*,const char*);
+int fileXioDread(int,iox_dirent_t*);
 int fileXioDevctl(const char*,int,void*,unsigned,void*,unsigned);int fileXioGetStat(const char*,iox_stat_t*);int fileXioChStat(const char*,iox_stat_t*,unsigned);
 int mcGetDir(int,int,const char*,int,int,sceMcTblGetDir*);int mcSetFileInfo(int,int,const char*,sceMcTblGetDir*,int);
 int prepareTransferDeviceStacks(const char*,const char*);unsigned getIopResetGeneration(void);int getDir(const char*,FILEINFO*);
@@ -75,6 +80,10 @@ void filerExtractLabel(const char*,char*,int);void filerClearArchiveClipboard(vo
 #endif
 '''
 fileops = (root / 'src/filer_fileops.c').read_text()
+copy_source = (root / 'src/filer_copy.c').read_text()
+a = copy_source.index('int filerTransferBufferSize(')
+b = copy_source.index('/* One paste context,', a)
+buffer_policy = '#define COPY_BUFFER_FAST_DEFAULT 0x100000\n' + copy_source[a:b]
 name_limits = fileops[fileops.index('void genLimObjName('):fileops.index('\nint genRmdir(')]
 code = r'''
 #define _DEFAULT_SOURCE
@@ -93,12 +102,14 @@ int filerGetGameTitle(const char *path,const FILEINFO *file,unsigned char *out){
 char *transcpy_sjis(char *out,const unsigned char *in){return strcpy(out,(const char*)in);}
 PRODUCTION_NAME_LIMITS
 unsigned clipIopResetGeneration=1;FILEINFO clipFiles[MAX_ENTRY];char clipPath[MAX_PATH];
-static int card_type=1,free_units=15,fail_after=-1,fail_close,fail_rename,handles,physical_mkdirs;
+static int card_type=1,free_units=15,fail_after=-1,fail_close,fail_rename,handles,physical_mkdirs,mc_pending_result;
 static unsigned generation=1;
 static int rename_calls,fail_after_archive;
-static int write_handles[1024];
+static int write_handles[1024], short_io=1, fail_signature_patch, fail_write_close, fail_payload_read;
 static int source_loaded=1,delete_calls,delete_failure,extract_hook;
 static int open_calls,dir_calls,prepare_calls,incompatible,restore_ok=1;
+static int reclaim_stat_error,reclaim_close_error,reclaim_read_budget;
+static DIR *reclaim_dirs[1024];
 static char changed_archive[MAX_PATH];
 static int overwrite_answer=-1,overwrite_prompts,exploit_answer=1;
 static int conflict_answers[3],conflict_count,conflict_index;
@@ -112,23 +123,26 @@ int ynDialog(const char *message){
  overwrite_prompts++;return overwrite_answer;
 }
 int filerPrepareMemoryCardRead(int port){(void)port;return 0;}
-int mcGetInfo(int port,int slot,int *type,int *units,int *format){(void)port;(void)slot;*type=card_type;*units=free_units;if(format)*format=1;return 0;}
-int mcSync(int x,void *y,int *result){(void)x;(void)y;if(result)*result=0;return 1;}
+int mcGetInfo(int port,int slot,int *type,int *units,int *format){(void)port;(void)slot;*type=card_type;*units=free_units;if(format)*format=1;mc_pending_result=0;return 0;}
+int mcSync(int x,void *y,int *result){(void)x;(void)y;if(result)*result=mc_pending_result;mc_pending_result=0;return 1;}
 int genFixPath(const char *in,char *out){strcpy(out,in);return 0;}
 int genOpen(const char *p,int flags){open_calls++;int f=open(p,flags,0600);if(f>=0){assert(f<1024);handles++;write_handles[f]=(flags&O_ACCMODE)!=O_RDONLY;}return f<0?-errno:f;}
-s64 genLseek(int f,s64 offset,int how){return lseek(f,offset,how);}
-int genRead(int f,void *p,int n){return read(f,p,n>17?17:n);}
-int genWrite(int f,void *p,int n){if(fail_after==0)return -EIO;if(fail_after>0)fail_after--;return write(f,p,n>13?13:n);}
+s64 genLseek(int f,s64 offset,int how){if(fail_signature_patch&&write_handles[f]&&offset==28&&how==SEEK_SET)return -EIO;return lseek(f,offset,how);}
+int genRead(int f,void *p,int n){if(fail_payload_read&&n>65536)return -EIO;return read(f,p,short_io&&n>17?17:n);}
+int genWrite(int f,void *p,int n){if(fail_after==0)return -EIO;if(fail_after>0)fail_after--;return write(f,p,short_io&&n>13?13:n);}
 int genClose(int f){
  handles--;int wrote=write_handles[f];write_handles[f]=0;int result=close(f);
  if(wrote && !result && extract_hook==1){int fd=open(changed_archive,O_RDWR);assert(fd>=0);uint8_t b;assert(pread(fd,&b,1,256)==1);b^=1;assert(pwrite(fd,&b,1,256)==1);close(fd);}
  if(wrote && !result && extract_hook==2)generation++;
  if(wrote && !result && extract_hook==3){source_loaded=0;restore_ok=0;}
  if(wrote&&!result&&fail_after_archive>0&&!--fail_after_archive)fail_after=0;
- return fail_close?-EIO:result;
+ return fail_close||(wrote&&fail_write_close)?-EIO:result;
 }
 int genDopen(char *p){return genOpen(p,O_RDONLY|O_DIRECTORY);}
-int genDclose(int f){return genClose(f);}
+int genDclose(int f){
+ if(reclaim_dirs[f]){assert(!closedir(reclaim_dirs[f]));reclaim_dirs[f]=NULL;}
+ int r=genClose(f);return reclaim_close_error?-EIO:r;
+}
 int genMkdir(const char *p,int mode){(void)mode;if(!strncmp(p,"mc",2))physical_mkdirs++;return mkdir(p,0700);}
 int genRemove(char *p){return unlink(p);}
 int genRmdir(char *p){return rmdir(p);}
@@ -144,10 +158,23 @@ int fileXioDevctl(const char *p,int cmd,void *arg,unsigned arglen,void *buf,unsi
  (void)p;(void)arg;(void)arglen;(void)buflen;if(cmd!=VMCCTL_GET_INFO)return -EINVAL;
  VmcInfo *info=buf;info->type=card_type;info->free_units=free_units;info->unit_bytes=card_type==1?8192:1024;return 0;
 }
-int fileXioGetStat(const char *p,iox_stat_t *out){struct stat s;int r=stat(p,&s);memset(out,0,sizeof(*out));out->ctime[4]=out->mtime[4]=1;return r;}
+int fileXioGetStat(const char *p,iox_stat_t *out){
+ struct stat s;int r=lstat(p,&s);memset(out,0,sizeof(*out));out->ctime[4]=out->mtime[4]=1;
+ if(!r){out->mode=s.st_mode;out->size=s.st_size;out->hisize=(uint64_t)s.st_size>>32;}
+ return reclaim_stat_error?-EIO:r;
+}
+int fileXioDread(int fd,iox_dirent_t *out){
+ assert(fd>=0&&fd<1024);
+ if(reclaim_read_budget>0&&!--reclaim_read_budget)return -EIO;
+ if(!reclaim_dirs[fd]){int copy=dup(fd);assert(copy>=0);reclaim_dirs[fd]=fdopendir(copy);assert(reclaim_dirs[fd]);}
+ errno=0;struct dirent *entry=readdir(reclaim_dirs[fd]);if(!entry)return errno?-errno:0;
+ struct stat s;if(fstatat(fd,entry->d_name,&s,AT_SYMLINK_NOFOLLOW)<0)return -errno;
+ memset(out,0,sizeof(*out));strcpy(out->name,entry->d_name);out->stat.mode=s.st_mode;
+ out->stat.size=s.st_size;out->stat.hisize=(uint64_t)s.st_size>>32;return 1;
+}
 int fileXioChStat(const char *p,iox_stat_t *out,unsigned flags){(void)p;assert(flags==0xFEED&&out->private_0);return 0;}
-int mcGetDir(int p,int s,const char *path,int flags,int count,sceMcTblGetDir *info){(void)p;(void)s;(void)path;(void)flags;(void)count;(void)info;return 0;}
-int mcSetFileInfo(int p,int s,const char *path,sceMcTblGetDir *info,int flags){(void)p;(void)s;(void)path;(void)info;(void)flags;return 0;}
+int mcGetDir(int p,int s,const char *path,int flags,int count,sceMcTblGetDir *info){(void)p;(void)s;(void)path;(void)flags;(void)count;(void)info;mc_pending_result=1;return 0;}
+int mcSetFileInfo(int p,int s,const char *path,sceMcTblGetDir *info,int flags){(void)p;(void)s;(void)path;(void)info;(void)flags;mc_pending_result=0;return 0;}
 int prepareTransferDeviceStacks(const char *a,const char *b){(void)a;(void)b;prepare_calls++;return incompatible?-2:0;}
 int filerPrepareClipboardTransfer(const char *destination,char *message,int size){
  int result=prepareTransferDeviceStacks(clipPath,destination);
@@ -161,17 +188,19 @@ int filerPrepareClipboardTransfer(const char *destination,char *message,int size
 unsigned getIopResetGeneration(void){return generation;}
 int isPathDeviceStackLoaded(const char *path){(void)path;return source_loaded;}
 int filerConfirmExploitDelete(const char *path,const FILEINFO *file){(void)path;(void)file;return exploit_answer;}
+static int removeTree(const char *path){
+ struct stat st;if(lstat(path,&st)<0)return -errno;
+ if(!S_ISDIR(st.st_mode))return unlink(path);
+ DIR *dir=opendir(path);assert(dir);struct dirent *e;int result=0;
+ while((e=readdir(dir)))if(strcmp(e->d_name,".")&&strcmp(e->d_name,"..")){
+  char child[MAX_PATH];assert(snprintf(child,sizeof(child),"%s/%s",path,e->d_name)<(int)sizeof(child));
+  if(removeTree(child)<0){result=-EIO;break;}
+ }
+ closedir(dir);return result<0?result:rmdir(path);
+}
 int delete(const char *parent,const FILEINFO *file){
  char path[MAX_PATH];snprintf(path,sizeof(path),"%s%s",parent,file->name);delete_calls++;
- if(delete_failure)return -EIO;
- if(file->stats.AttrFile&sceMcFileAttrSubdir){
-  DIR *dir=opendir(path);assert(dir);struct dirent *e;
-  while((e=readdir(dir)))if(strcmp(e->d_name,".")&&strcmp(e->d_name,"..")){
-   char child[MAX_PATH];assert(strlen(path)+strlen(e->d_name)+2<sizeof(child));strcpy(child,path);strcat(child,"/");strcat(child,e->d_name);assert(!unlink(child));
-  }
-  closedir(dir);return rmdir(path);
- }
- return unlink(path);
+ return delete_failure?-EIO:removeTree(path);
 }
 int getDir(const char *p,FILEINFO *f){
  dir_calls++;DIR *dir=opendir(p);if(!dir)return -EIO;struct dirent *e;int count=0;
@@ -188,7 +217,8 @@ int getDir(const char *p,FILEINFO *f){
 
 static int progress_events,phase_events,progress_partial,progress_complete,classic_events,classic_closes;
 static int dashboard_active=1;static u64 progress_tick;
-static int progress_ends;
+static int progress_ends,async_yields;
+void DashIoYield(void){async_yields++;}
 static unsigned seen_stages;static u64 seen_ordinals;
 static char last_progress_action[80],last_progress_name[128];
 u64 Timer(void){progress_tick+=7;return progress_tick;}
@@ -222,7 +252,34 @@ int DashFileTransferProgress(const char *action,const char *name,u64 remaining,u
 void DashFileOperationEnd(void){if(dashboard_active){assert(!handles);progress_ends++;}}
 void nonDialog(char *text){if(text){assert(text[0]);classic_events++;}else classic_closes++;}
 void drawMsg(const char *text){assert(text);}
+static int isPcCardCfPath(const char *path){return !strncmp(path,"cf",2);}
+PRODUCTION_BUFFER_POLICY
+/* Reject save-sized allocations in the real browser action, including its
+ * verification pass. Format parsing below is outside the guarded operation. */
+static int bounded_archive,allocation_rejections,buffer_allocations,fail_buffer_allocation;
+static size_t largest_request;
+static int allocationAllowed(size_t bytes){
+ if(!bounded_archive)return 1;
+ if(bytes>largest_request)largest_request=bytes;
+ if(bytes>0x100000){allocation_rejections++;return 0;}
+ return 1;
+}
+static void *archiveMalloc(size_t bytes){return allocationAllowed(bytes)?malloc(bytes):NULL;}
+static void *archiveCalloc(size_t count,size_t bytes){
+ if(count&&bytes>SIZE_MAX/count)return NULL;
+ return allocationAllowed(count*bytes)?calloc(count,bytes):NULL;
+}
+static void *archiveMemalign(size_t alignment,size_t bytes){
+ if(bounded_archive&&++buffer_allocations==fail_buffer_allocation)return NULL;
+ return allocationAllowed(bytes)?memalign(alignment,bytes):NULL;
+}
+#define malloc archiveMalloc
+#define calloc archiveCalloc
+#define memalign archiveMemalign
 #include "PRODUCTION_SAVES"
+#undef malloc
+#undef calloc
+#undef memalign
 static int rememberAndProbe(int type){
  int opened=open_calls,listed=dir_calls,prepared=prepare_calls,progress=progress_events,phases=phase_events;
  filerRememberArchiveClipboard(type);
@@ -355,7 +412,10 @@ int main(int argc,char **argv){
   overwrite_answer=1;exploit_answer=-1;
   assert(filerExtractSave(&parsed,"vmc0:/",message,sizeof(message))<0&&delete_calls==before_deletes);
   exploit_answer=1;free_units=0;
+  /* Even reclaimed space cannot fit a substantially larger replacement. */
+  size_t required_before=parsed.files[2].size;parsed.files[2].size+=8192;
   assert(filerExtractSave(&parsed,"vmc0:/",message,sizeof(message))<0&&strstr(message,"free space")&&delete_calls==before_deletes);
+  parsed.files[2].size=required_before;
   free_units=8192;delete_failure=1;
   assert(filerExtractSave(&parsed,"vmc0:/",message,sizeof(message))<0&&strstr(message,"remove the existing save"));
   assert(!access("vmc0:/PS2SAVE/stale",F_OK));delete_failure=0;
@@ -817,7 +877,7 @@ int main(int argc,char **argv){
  assert(filerCreateClipboardArchives("storage/progress-created/",SAVE_OUTPUT_PSU,message,sizeof(message))==3);
  assert(!save_progress.active&&!save_progress.action&&!save_progress.classic_drawn&&progress_ends>0);
  assert(progress_events>before_progress&&phase_events>before_phases&&progress_partial>before_partial&&progress_complete>before_complete);
- assert((seen_stages&71)==71&&seen_ordinals==14&&!nclipFiles); // read/prepare/create/verify, items 1..3.
+ assert((seen_stages&70)==70&&seen_ordinals==14&&!nclipFiles); // prepare/create/verify, items 1..3.
  // Extraction reports archive reads, parsing, actual output file bytes and Cut verification.
  memset(clipFiles,0,sizeof(clipFiles));strcpy(clipPath,"storage/progress-created/");nclipFiles=3;browser_cut=1;
  for(int i=0;i<3;i++)snprintf(clipFiles[i].name,sizeof(clipFiles[i].name),"BATCH-%c.psu",'A'+i);
@@ -841,9 +901,156 @@ int main(int argc,char **argv){
  assert(filerCreateClipboardArchives("storage/progress-classic-out/",SAVE_OUTPUT_PSU,message,sizeof(message))==1);
  assert(classic_events>0&&classic_closes>0&&progress_events==before_progress&&phase_events==before_phases&&!save_progress.active);
  dashboard_active=1;
+ /* An 8 MiB file must succeed when every allocation over 1 MiB is denied.
+  * Copy, Cut, second-buffer allocation failure and changed-source retention
+  * all run through the actual browser batch path, not the buffered helper. */
+ short_io=0;
+ for(int format=SAVE_OUTPUT_PSU;format<=SAVE_OUTPUT_PSV;format++)for(int mode=0;mode<3;mode++) {
+  char parent[MAX_PATH],out[MAX_PATH],source[MAX_PATH],target[MAX_PATH];
+  snprintf(parent,sizeof(parent),"storage/large-%d-%d/",format,mode);
+  snprintf(out,sizeof(out),"storage/large-out-%d-%d/",format,mode);
+  startArchiveBatch(parent,1,mode!=0);makeArchiveBatchItem(clipPath,0,0,0);assert(!mkdir(out,0700));
+  assert(snprintf(source,sizeof(source),"%sBATCH-A/data",parent)<(int)sizeof(source));
+  uint8_t block[65536];for(unsigned j=0;j<sizeof(block);j++)block[j]=(j*17+3)&255;
+  FILE *large=fopen(source,"wb");assert(large);
+  for(int j=0;j<128;j++)assert(fwrite(block,1,sizeof(block),large)==sizeof(block));
+  assert(!fclose(large));
+  if(mode==2){strcpy(changed_archive,source);extract_hook=1;}
+  bounded_archive=1;largest_request=0;allocation_rejections=buffer_allocations=0;
+  fail_buffer_allocation=mode==1?2:0;filerRememberArchiveClipboard(0);
+  int yields_before=async_yields;
+  assert(filerCreateClipboardArchives(out,format,message,sizeof(message))==(mode==2?0:1));
+  assert(!archive_clip_data&&!archive_stream_valid&&!allocation_rejections&&largest_request<=0x100000);
+  assert(buffer_allocations>=(mode?4:2)&&async_yields-yields_before>=128);
+  bounded_archive=0;fail_buffer_allocation=extract_hook=0;
+  assert((access(source,F_OK)==0)==(mode!=1));assert(nclipFiles==(mode==1?0:1));
+  assert(snprintf(target,sizeof(target),"%sBATCH-A.%s",out,format==SAVE_OUTPUT_PSU?"psu":"PSV")<(int)sizeof(target));
+  SaveArchive decoded={0};uint8_t *bytes=NULL;
+  assert(filerLoadSave(target,&decoded,&bytes,message,sizeof(message))==1);
+  int found=0;for(unsigned j=0;j<decoded.count;j++)if(!strcmp(decoded.files[j].name,"data")) {
+   assert(decoded.files[j].size==8*1024*1024);
+   for(size_t k=0;k<decoded.files[j].size;k++)assert(decoded.files[j].data[k]==block[k%sizeof(block)]);
+   found=1;
+  }
+  assert(found);saveArchiveFree(&decoded);free(bytes);assert(!handles);
+ }
+ /* Allocation failure precedes truncation; read, write-close and signature
+  * patch failures retain Cut sources and remove incomplete new archives. */
+ for(int failure=0;failure<4;failure++) {
+  char parent[MAX_PATH],out[MAX_PATH],target[MAX_PATH];
+  snprintf(parent,sizeof(parent),"storage/stream-fail-%d/",failure);
+  snprintf(out,sizeof(out),"storage/stream-fail-out-%d/",failure);
+  startArchiveBatch(parent,1,1);makeArchiveBatchItem(clipPath,0,0,0);assert(!mkdir(out,0700));
+  int format=failure==0?SAVE_OUTPUT_PSU:SAVE_OUTPUT_PSV;
+  assert(snprintf(target,sizeof(target),"%sBATCH-A.%s",out,failure==0?"psu":"PSV")<(int)sizeof(target));
+  if(failure==0)put(target,"original",8);
+  if(failure==1) {
+   char source[MAX_PATH];assert(snprintf(source,sizeof(source),"%sBATCH-A/data",parent)<(int)sizeof(source));
+   uint8_t block[65536]={0};FILE *large=fopen(source,"wb");assert(large);
+   for(int j=0;j<32;j++)assert(fwrite(block,1,sizeof(block),large)==sizeof(block));
+   assert(!fclose(large));
+  }
+  bounded_archive=1;buffer_allocations=0;fail_buffer_allocation=failure==0?1:0;
+  fail_payload_read=failure==1;fail_write_close=failure==2;fail_signature_patch=failure==3;
+  filerRememberArchiveClipboard(0);int completed=progress_complete;
+  assert(filerCreateClipboardArchives(out,format,message,sizeof(message))<0&&nclipFiles==1&&browser_cut);
+  assert(!handles&&progress_complete==completed);
+  bounded_archive=0;fail_buffer_allocation=fail_payload_read=fail_write_close=fail_signature_patch=0;
+  if(failure==0){char original[8];FILE *f=fopen(target,"rb");assert(f&&fread(original,1,8,f)==8&&!memcmp(original,"original",8)&&!fclose(f));}
+  else assert(access(target,F_OK)<0);
+ }
+ /* FAT-like paths may refer to a source file using different letter case. */
+ startArchiveBatch("storage/stream-self/",1,0);makeArchiveBatchItem(clipPath,0,0,0);
+ put("storage/stream-self/BATCH-A/BATCH-A.PSU","original",8);filerRememberArchiveClipboard(0);
+ assert(filerCreateClipboardArchives("storage/stream-self/BATCH-A/",SAVE_OUTPUT_PSU,message,sizeof(message))<0);
+ assert(strstr(message,"one of the source files"));
+ FILE *original=fopen("storage/stream-self/BATCH-A/BATCH-A.PSU","rb");char unchanged[8];
+ assert(original&&fread(unchanged,1,8,original)==8&&!memcmp(unchanged,"original",8)&&!fclose(original));
+ short_io=1;
+ /* Replacement preflight credits rounded file data and directory clusters
+  * on physical cards and VMCs; one-byte files still consume whole clusters. */
+ {
+  const char *roots[]={"mc0:/","mc1:/","vmc0:/","vmc1:/"};
+  uint8_t bytes[2048]={0};SaveArchiveEntry files[2]={0};SaveArchive replacement={0};
+  strcpy(files[0].name,"a");strcpy(files[1].name,"b");
+  for(int i=0;i<2;i++){files[i].data=bytes;files[i].size=1;files[i].mode=0x8497;}
+  replacement.files=files;replacement.count=2;replacement.folder.mode=0x8427;strcpy(replacement.folder.name,"ROOM");
+  for(unsigned port=0;port<sizeof(roots)/sizeof(roots[0]);port++) {
+   char root[16],target[MAX_PATH],a[MAX_PATH],b[MAX_PATH],nested[MAX_PATH],old[MAX_PATH];
+   snprintf(root,sizeof(root),"%.*s",(int)strlen(roots[port])-1,roots[port]);
+   assert(!mkdir(root,0700)||errno==EEXIST);
+   snprintf(target,sizeof(target),"%sROOM",roots[port]);
+   assert(snprintf(a,sizeof(a),"%s/a",target)<(int)sizeof(a));
+   assert(snprintf(b,sizeof(b),"%s/b",target)<(int)sizeof(b));
+   assert(snprintf(nested,sizeof(nested),"%s/old",target)<(int)sizeof(nested));
+   assert(snprintf(old,sizeof(old),"%s/c",nested)<(int)sizeof(old));
+   card_type=2;overwrite_answer=1;files[0].size=files[1].size=1;
+   /* New save: two data clusters, two directory clusters, one parent reserve. */
+   free_units=4;int deleted=delete_calls;
+   assert(filerExtractSave(&replacement,roots[port],message,sizeof(message))<0);
+   assert(strstr(message,"free space")&&delete_calls==deleted&&access(target,F_OK)<0);
+   free_units=5;assert(filerExtractSave(&replacement,roots[port],message,sizeof(message))==1);
+   /* Same-sized replacement fits a full card by reusing the parent entry. */
+   free_units=0;deleted=delete_calls;
+   assert(filerExtractSave(&replacement,roots[port],message,sizeof(message))==1&&delete_calls==deleted+1);
+   /* A 1025-byte file takes two clusters. Insufficient combined space does
+    * not delete the existing one-byte file; one free cluster makes it fit. */
+   files[1].size=1025;deleted=delete_calls;
+   assert(filerExtractSave(&replacement,roots[port],message,sizeof(message))<0&&strstr(message,"free space"));
+   assert(delete_calls==deleted&&!stat(b,&st)&&st.st_size==1);
+   free_units=1;assert(filerExtractSave(&replacement,roots[port],message,sizeof(message))==1);
+   assert(!stat(b,&st)&&st.st_size==1025);
+   /* Empty files use directory entries but no PS2 data clusters. */
+   files[0].size=files[1].size=0;free_units=0;
+   assert(filerExtractSave(&replacement,roots[port],message,sizeof(message))==1);
+   files[0].size=files[1].size=1;free_units=1;deleted=delete_calls;
+   assert(filerExtractSave(&replacement,roots[port],message,sizeof(message))<0&&delete_calls==deleted);
+   assert(!stat(a,&st)&&st.st_size==0);
+   free_units=2;assert(filerExtractSave(&replacement,roots[port],message,sizeof(message))==1);
+   /* A stale nested directory contributes its own data and directory space. */
+   assert(!unlink(a)&&!unlink(b)&&!mkdir(nested,0700));put(old,bytes,1);
+   files[1].size=1025;free_units=0;
+   assert(filerExtractSave(&replacement,roots[port],message,sizeof(message))==1&&access(nested,F_OK)<0);
+   /* An incomplete or failed measurement must not credit partial results. */
+   for(int failure=0;failure<3;failure++) {
+    reclaim_stat_error=failure==0;reclaim_read_budget=failure==1?5:0;reclaim_close_error=failure==2;
+    deleted=delete_calls;
+    assert(filerExtractSave(&replacement,roots[port],message,sizeof(message))<0&&strstr(message,"measure"));
+    assert(delete_calls==deleted&&!access(a,F_OK)&&!access(b,F_OK)&&!handles);
+    reclaim_stat_error=reclaim_read_budget=reclaim_close_error=0;
+    for(int fd=0;fd<1024;fd++)assert(!reclaim_dirs[fd]);
+   }
+  }
+  /* PS1 cards/VMCs reclaim 8 KiB blocks and never create save directories. */
+  uint8_t ps1_payload[3*8192]={0};memcpy(ps1_payload,"SC",2);
+  SaveArchiveEntry ps1_file={0};strcpy(ps1_file.name,"BLOCKTEST");ps1_file.mode=0x8497;
+  ps1_file.data=ps1_payload;ps1_file.size=2*8192;
+  SaveArchive ps1_save={0};ps1_save.ps1=ps1_save.count=1;ps1_save.files=&ps1_file;
+  for(unsigned port=0;port<sizeof(roots)/sizeof(roots[0]);port++) {
+   char target[MAX_PATH];snprintf(target,sizeof(target),"%sBLOCKTEST",roots[port]);card_type=1;free_units=1;
+   int directories=physical_mkdirs;
+   assert(filerExtractSave(&ps1_save,roots[port],message,sizeof(message))<0&&access(target,F_OK)<0);
+   free_units=2;assert(filerExtractSave(&ps1_save,roots[port],message,sizeof(message))==1);
+   free_units=0;assert(filerExtractSave(&ps1_save,roots[port],message,sizeof(message))==1);
+   ps1_file.size=3*8192;int deleted=delete_calls;
+   assert(filerExtractSave(&ps1_save,roots[port],message,sizeof(message))<0&&delete_calls==deleted);
+   assert(!stat(target,&st)&&st.st_size==2*8192);
+   free_units=1;assert(filerExtractSave(&ps1_save,roots[port],message,sizeof(message))==1);
+   assert(physical_mkdirs==directories&&!stat(target,&st)&&st.st_size==3*8192);ps1_file.size=2*8192;
+  }
+  /* Traversal is bounded before any deletion, even for an unusual deep save. */
+  card_type=2;free_units=0;char deep[MAX_PATH]="vmc0:/ROOM";
+  for(int level=0;level<16;level++){strcat(deep,"/d");assert(!mkdir(deep,0700));}
+  int deleted=delete_calls;
+  assert(filerExtractSave(&replacement,"vmc0:/",message,sizeof(message))<0&&strstr(message,"measure"));
+  assert(delete_calls==deleted&&!access(deep,F_OK)&&!handles);
+  card_type=2;free_units=8192;overwrite_answer=-1;
+ }
+ puts("PASS: physical MC0/MC1 and VMC0/VMC1 replacement space, exact-fit PS1 blocks/PS2 clusters, file rounding, empty files, nested folder reclamation, parent entry reuse and failure-before-delete guards");
+ puts("PASS: 8 MiB PSU/PSV Copy/Cut with a 1 MiB allocation cap, optional-buffer fallback, streamed source-change checks and source retention; allocation/read/close/signature-patch failure cleanup");
  assert(!handles);puts("PASS: real save import/export, direct extraction, MCS/PSU/PSV creation, PSU title/date/overwrite settings, direct PSU/PSV/MCS/PSX creation and extraction across seven device paths without rename, single/multiple Copy/Cut archive creation, partial retries, skips, retained sources, duplicate names and mixed PSV batches, archive-only extraction eligibility (including PS1 card saves with archive-like names), clipboard extension labels, Copy/Cut extraction and partial batches, measured read/write progress, batch ordinals, close-failure completion guards and classic popup fallback, metadata-only Copy/Cut and on-demand source restoration, flat-folder clipboard eligibility without icon.sys, nested/capped folder rejection, empty files, both physical PS1 slots without mkdir, short I/O, card types, space preflight and failed-write/close cleanup");
 }
-'''.replace('PRODUCTION_SAVES', os.environ.get('SAVE_TEST_SOURCE', str(root / 'src/filer_saves.c'))).replace('PRODUCTION_NAME_LIMITS', name_limits)
+'''.replace('PRODUCTION_SAVES', os.environ.get('SAVE_TEST_SOURCE', str(root / 'src/filer_saves.c'))).replace('PRODUCTION_NAME_LIMITS', name_limits).replace('PRODUCTION_BUFFER_POLICY', buffer_policy)
 
 with tempfile.TemporaryDirectory(prefix='save-import-') as folder:
     folder = Path(folder)
@@ -855,4 +1062,4 @@ with tempfile.TemporaryDirectory(prefix='save-import-') as folder:
     subprocess.run([os.environ.get('CC', 'cc'), '-std=c99', '-Wall', '-Wextra', *flags,
                     '-I', str(folder), '-I', str(root / 'include'), str(folder / 'test.c'),
                     str(root / 'src/save_archive.c'), str(root / 'src/save_lzari.c'), str(root / 'src/save_sign.c'), '-lz', '-o', str(exe)], check=True)
-    subprocess.run([str(exe), str(folder)], check=True, timeout=20)
+    subprocess.run([str(exe), str(folder)], check=True, timeout=60)

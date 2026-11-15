@@ -55,6 +55,7 @@ int dashWorkerDone(int);
 void dashLoadingRedraw(void);
 int mockCheckStatRpc(SifRpcClientData_t *);
 void dashIoInit(void);
+void DashIoYield(void);
 int __wrap_sceSifCallRpc(SifRpcClientData_t *,int,int,void *,int,void *,int,SifRpcEndFunc_t,void *);
 int __wrap_sceSifBindRpc(SifRpcClientData_t *,int,int);
 int __wrap_mcSync(int,int *,int *);
@@ -177,6 +178,16 @@ int main(void) {
     assert(!__wrap_sceSifCallRpc(&cd,1,0,send,17,&value,8,NULL,NULL));
     assert(!frames && !last_mode && value==UINT64_C(0xfedcba9876543210));
     dashIoInit();idle();value=0;
+    /* EE hashing can yield drawing without submitting or pumping I/O. */
+    {
+        int drawn=frames,submitted=calls,pumped=pump_count;
+        advance(20000);DashIoYield();assert(frames==drawn+1);idle();
+        assert(calls==submitted&&pump_count==pumped);
+        drawn=frames;DashIoYield();assert(frames==drawn); /* Throttled. */
+        advance(20000);tid=2;DashIoYield();tid=1;assert(frames==drawn);
+        active=0;DashIoYield();active=1;assert(frames==drawn);
+        frame_open=1;DashIoYield();frame_open=0;assert(frames==drawn);
+    }
     int before=frames,pumps=pump_count;
     assert(!__wrap_sceSifCallRpc(&cd,91,2,send,17,&value,8,completed,(void *)0x1234));
     assert(frames-before>=5 && frames-before<=8 && last_mode==3 && last_number==91);

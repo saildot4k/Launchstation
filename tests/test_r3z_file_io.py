@@ -45,13 +45,18 @@ static void *memalign(size_t alignment,size_t bytes) {
  assert(alignment==64 && alloc_calls<2);allocations[alloc_calls++]=bytes;
  return alloc_calls==fail_alloc?NULL:malloc(bytes);
 }
+
+'''
+code += next(line for line in copy.splitlines() if line.startswith('#define COPY_BUFFER_FAST_DEFAULT ')) + '\n'
+code += function(copy, 'int filerTransferBufferSize(')
+code += r'''
 struct buffers { int size,count,result; };
+
 static struct buffers buffers_for(const char *in,const char *out,u64 size) {
  int buffSize,buffCount=1,ret=0,out_fd=99,recurses=0;
  void *buff=NULL,*buff2=NULL;
  alloc_calls=closed=removed=0;
 '''
-code += next(line for line in copy.splitlines() if line.startswith('#define COPY_BUFFER_FAST_DEFAULT ')) + '\n'
 a = copy.index('\t/* Determine the block size.')
 b = copy.index('\n\told_size = written_size;', a)
 code += copy[a:b] + r'''

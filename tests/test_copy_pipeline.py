@@ -306,6 +306,7 @@ for name in ('MC_SFI', 'MC_ATTR_norm_folder', 'MC_ATTR_norm_file',
              'HDD_ATTR_save_folder', 'HDD_ATTR_save_prot_folder', 'COPY_BUFFER_FAST_DEFAULT'):
     definition = next(line for line in copy.splitlines() if line.startswith('#define ' + name + ' '))
     code = re.sub(r'^#define ' + name + r' .*$', definition, code, flags=re.MULTILINE)
+code+=function(copy,'int filerTransferBufferSize(')
 code+=function(mmce,'int mmce_fs_getstat(').replace('int mmce_fs_getstat(', 'static int mmce_fs_getstat(',1)
 for sig in ('static void ensurePathMemoryCardAccessible(',
             'static int ensurePathPcCardCfOnline(', 'static void normalizePcCardCfPath('):
