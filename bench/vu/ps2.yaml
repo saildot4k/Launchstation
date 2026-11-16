@@ -1,0 +1,14 @@
+# Standalone hardware self-test. Does not read or write Launchstation settings.
+project: launchstation-vu-probe
+targets:
+  - name: launchstation-vu-probe
+    type: ee
+    sources:
+      - main.c
+      - ../../src/dash_profile.c
+      - ../../src/dash_vu_math.c
+      - ../../src/dash_vu1.c
+      - ../../src/dash_vu1_tunnel.vsm
+    include_dirs: [../../include]
+    defines: [DASH_PROFILE=1, DASH_VU0=1, DASH_VU1=1]
+    libs: [gskit, dmakit, m]

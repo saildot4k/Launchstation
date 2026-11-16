@@ -1,4 +1,5 @@
 """Guard the native staged updater and release-integrity contract."""
+from source_groups import component_source
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
@@ -6,7 +7,7 @@ http_h = (root / "include/https_client.h").read_text()
 http_c = (root / "src/https_client.c").read_text()
 update = (root / "src/self_update.c").read_text()
 tools = (root / "src/dash_tools.c").read_text()
-settings = (root / "src/dash_settings.c").read_text()
+settings = component_source('src/dash_settings.c')
 yaml = (root / "ps2.yaml").read_text()
 workflow = (root / ".github/workflows/compile.yml").read_text()
 

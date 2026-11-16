@@ -51,7 +51,9 @@ jobs:
           python3 tests/test_ps1_vmc.py
           python3 tests/test_ps1_memory_cards.py
           python3 tests/test_ps1_card_rediscovery.py
+          python3 tests/test_ps1_card_open.py
           python3 tests/test_file_stat_errors.py
+          python3 tests/test_filer_tree.py
           python3 tests/test_copy_pipeline.py
           python3 tests/test_gamesave_titles.py
           python3 tests/test_udpfs_directory_errors.py
@@ -63,6 +65,7 @@ jobs:
           python3 tests/test_cooperative_io.py
           python3 tests/test_exec_ui_lifetime.py
           python3 tests/test_mmce_bus_restore.py
+          python3 tests/test_mmce_directory_read.py
           python3 tests/test_poweroff_init.py
           python3 tests/test_settings_save_prompt.py
           python3 tests/test_settings_navigation.py
@@ -108,7 +111,11 @@ jobs:
           python3 tests/test_r3z_oct15_backport.py
           python3 tests/test_background_only_hotkeys.py
           python3 tests/test_dashboard_present_buffers.py
+          python3 tests/test_vu_graphics.py
+          python3 tests/test_vu_profile.py
+          python3 tests/test_vu_renderer.py
           python3 tests/test_theme_motion.py
+          python3 tests/test_background_detail.py
           python3 tests/test_orb_seamless.py
           python3 tests/test_tile_styles.py
           python3 tests/test_rounded_borders.py
@@ -245,6 +252,19 @@ jobs:
         run: |
           python3 scripts/configure_ds34.py
           ps2build build -c .ps2-ds34.yaml -o build-ds34
+
+      - name: Cross-build experimental VU integration and hardware probe
+        run: |
+          python3 scripts/configure_vu.py both
+          ps2build build -c .ps2-vu-both.yaml -o build-vu-both
+          ps2build build -c bench/vu/ps2.yaml -o build-vu-probe
+
+      - name: Upload standalone VU hardware probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: Launchstation-VU-hardware-probe
+          path: build-vu-probe/bin/launchstation-vu-probe.elf
+          if-no-files-found: error
 
       - name: Verify installed-build identity in both release ELFs
         run: |

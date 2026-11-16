@@ -61,6 +61,8 @@ int DashFileTransferProgress(const char*,const char*,u64,u64,const DashTransferS
 int DashFileOperationStatus(const char*,const char*,u64,u64);
 void DashFileOperationEnd(void);void DashIoYield(void);void nonDialog(char*);void drawMsg(const char*);
 int filerCardInfo(const char *,VmcInfo *);
+int filerSaveKind(const char*,const FILEINFO*,int);
+int filerIsPs1Image(const char*);
 int filerExtractSave(const SaveArchive *, const char *, char *, int);
 int filerConfirmSaveOverwrite(const char *);
 int filerPrepareMemoryCardRead(int);int mcGetInfo(int,int,int*,int*,int*);int mcSync(int,void*,int*);
@@ -298,15 +300,21 @@ static void *archiveMemalign(size_t alignment,size_t bytes){
 #define malloc archiveMalloc
 #define calloc archiveCalloc
 #define memalign archiveMemalign
+#include "PRODUCTION_TRANSFER"
+#include "PRODUCTION_PROGRESS"
+#include "PRODUCTION_IO"
+#include "PRODUCTION_CARDS"
+#include "PRODUCTION_EXPORT"
 #include "PRODUCTION_SAVES"
 #undef malloc
 #undef calloc
 #undef memalign
+#include "PRODUCTION_FIXTURE"
 static int rememberAndProbe(int type){
  int opened=open_calls,listed=dir_calls,prepared=prepare_calls,progress=progress_events,phases=phase_events;
  filerRememberArchiveClipboard(type);
  filerArchiveClipboardKind();
- assert(opened==open_calls&&listed==dir_calls&&prepared==prepare_calls&&!archive_clip_data&&progress==progress_events&&phases==phase_events);
+ assert(opened==open_calls&&listed==dir_calls&&prepared==prepare_calls&&!archive_stream_valid&&progress==progress_events&&phases==phase_events);
  return filerProbeArchiveClipboard("storage/")!=FILER_SAVE_NONE;
 }
 static void put(const char *name,const void *p,size_t n){FILE *f=fopen(name,"wb");assert(f&&fwrite(p,1,n,f)==n);fclose(f);}
@@ -385,14 +393,14 @@ int main(int argc,char **argv){
  selected.stats.FileSizeByte=8192;uint8_t *archive;size_t archive_size;char archive_name[MAX_NAME];
  assert(filerSaveKind("mc0:/",&selected,1)==FILER_SAVE_PS1);
  for(int format=SAVE_OUTPUT_PSV;format<=SAVE_OUTPUT_PSX;format++) {
-  assert(filerCreateArchive("mc0:/BASLUS-TEST",&selected,FILER_SAVE_PS1,format,&archive,&archive_size,
+  assert(buildArchiveFixture("mc0:/BASLUS-TEST",&selected,FILER_SAVE_PS1,format,&archive,&archive_size,
                             archive_name,sizeof(archive_name),message,sizeof(message))==1);
   SaveArchive parsed;assert(saveArchiveParse(&parsed,archive,archive_size,archive_name)&&parsed.ps1&&parsed.files[0].size==8192);
   saveArchiveFree(&parsed);free(archive);
  }
  selected.stats.AttrFile=0x9027;
  assert(filerSaveKind("storage/",&selected,0)==FILER_SAVE_PS1);
- assert(filerCreateArchive("storage/BASLUS-TEST",&selected,FILER_SAVE_PS1,SAVE_OUTPUT_MCS,&archive,&archive_size,
+ assert(buildArchiveFixture("storage/BASLUS-TEST",&selected,FILER_SAVE_PS1,SAVE_OUTPUT_MCS,&archive,&archive_size,
                            archive_name,sizeof(archive_name),message,sizeof(message))==1);free(archive);
  unsigned char iconsys[964]={0},icon[257]={0},payload[123]={0};
  memcpy(iconsys,"PS2D",4);strcpy((char*)iconsys+260,"icon.icn");
@@ -402,19 +410,19 @@ int main(int argc,char **argv){
  strcpy(selected.name,"PS2SAVE");selected.stats.AttrFile=0x8427;
  assert(filerSaveKind("storage/",&selected,0)==FILER_SAVE_PS2);
  for(int format=SAVE_OUTPUT_PSU;format<=SAVE_OUTPUT_PSV;format++) {
-  assert(filerCreateArchive("storage/PS2SAVE/",&selected,FILER_SAVE_PS2,format,&archive,&archive_size,
+  assert(buildArchiveFixture("storage/PS2SAVE/",&selected,FILER_SAVE_PS2,format,&archive,&archive_size,
                             archive_name,sizeof(archive_name),message,sizeof(message))==1);
   char destination[MAX_PATH];snprintf(destination,sizeof(destination),"storage/%s",archive_name);
-  fail_after=0;assert(filerWriteArchive(archive,archive_size,format,destination,message,sizeof(message))<0);no_temps("storage");
-  fail_after=-1;fail_close=1;assert(filerWriteArchive(archive,archive_size,format,destination,message,sizeof(message))<0);no_temps("storage");
+  fail_after=0;assert(publishArchiveFixture(archive,archive_size,format,destination,message,sizeof(message))<0);no_temps("storage");
+  fail_after=-1;fail_close=1;assert(publishArchiveFixture(archive,archive_size,format,destination,message,sizeof(message))<0);no_temps("storage");
   fail_close=0;fail_rename=1;int renames_before=rename_calls;
-  assert(filerWriteArchive(archive,archive_size,format,destination,message,sizeof(message))==1&&rename_calls==renames_before);no_temps("storage");fail_rename=0;
+  assert(publishArchiveFixture(archive,archive_size,format,destination,message,sizeof(message))==1&&rename_calls==renames_before);no_temps("storage");fail_rename=0;
   if(format==SAVE_OUTPUT_PSU) {
    config.PSU_NoOverwrite=1;
-   assert(filerWriteArchive(archive,archive_size,format,destination,message,sizeof(message))==0&&strstr(message,"skipped"));
+   assert(publishArchiveFixture(archive,archive_size,format,destination,message,sizeof(message))==0&&strstr(message,"skipped"));
    config.PSU_NoOverwrite=0;
-   assert(filerWriteArchive(archive,archive_size,format,destination,message,sizeof(message))==1);no_temps("storage");
-  } else assert(filerWriteArchive(archive,archive_size,format,destination,message,sizeof(message))<0&&strstr(message,"already exists"));
+   assert(publishArchiveFixture(archive,archive_size,format,destination,message,sizeof(message))==1);no_temps("storage");
+  } else assert(publishArchiveFixture(archive,archive_size,format,destination,message,sizeof(message))<0&&strstr(message,"already exists"));
   strcpy(selected.name,archive_name);selected.stats.AttrFile=0x8497;selected.stats.FileSizeByte=archive_size;
   assert(filerSaveKind("storage/",&selected,0)==FILER_ARCHIVE_PS2);
   SaveArchive parsed;uint8_t *snapshot;assert(filerLoadSave(destination,&parsed,&snapshot,message,sizeof(message)));
@@ -429,7 +437,7 @@ int main(int argc,char **argv){
   int prompts=overwrite_prompts,before_deletes=delete_calls;
   assert(filerExtractSave(&parsed,"vmc0:/",message,sizeof(message))<0&&strstr(message,"canceled"));
   assert(overwrite_prompts==prompts+1&&delete_calls==before_deletes);
-  actual=readSource("vmc0:/PS2SAVE/data",&actual_size);
+  actual=filerSaveReadSource("vmc0:/PS2SAVE/data",&actual_size);
   assert(actual&&actual_size==sizeof(previous)&&!memcmp(actual,previous,actual_size));free(actual);
   overwrite_answer=1;exploit_answer=-1;
   assert(filerExtractSave(&parsed,"vmc0:/",message,sizeof(message))<0&&delete_calls==before_deletes);
@@ -443,7 +451,7 @@ int main(int argc,char **argv){
   assert(!access("vmc0:/PS2SAVE/stale",F_OK));delete_failure=0;
   assert(filerExtractSave(&parsed,"vmc0:/",message,sizeof(message))==1);
   assert(access("vmc0:/PS2SAVE/stale",F_OK)<0);
-  actual=readSource("vmc0:/PS2SAVE/data",&actual_size);
+  actual=filerSaveReadSource("vmc0:/PS2SAVE/data",&actual_size);
   assert(actual&&actual_size==sizeof(payload)&&!memcmp(actual,payload,actual_size));free(actual);
   overwrite_answer=-1;
   unlink("vmc0:/PS2SAVE/icon.sys");unlink("vmc0:/PS2SAVE/icon.icn");unlink("vmc0:/PS2SAVE/data");unlink("vmc0:/PS2SAVE/empty");rmdir("vmc0:/PS2SAVE");
@@ -458,7 +466,7 @@ int main(int argc,char **argv){
  for(int titles=0;titles<2;titles++)for(int huge=0;huge<2;huge++)for(int dated=0;dated<2;dated++)for(int nover=0;nover<2;nover++) {
   show_titles=titles;config.PSU_HugeNames=huge;config.PSU_DateNames=dated;config.PSU_NoOverwrite=nover;
   filerRememberArchiveClipboard(0);
-  assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+  assert(prepareArchiveFixture("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
   char expected[MAX_NAME];snprintf(expected,sizeof(expected),"%s%s.psu",
    huge?"PS2SAVE_Example_ Game_Save_":titles?"Example_ Game_Save_":"PS2SAVE",dated?"_2026-11-09_12-34-56":"");
   assert(!strcmp(archive_name,expected));
@@ -469,15 +477,15 @@ int main(int argc,char **argv){
  // Missing titles fall back to the game folder. Long titles fit without a keyboard.
  show_titles=0;config.PSU_HugeNames=config.PSU_DateNames=1;config.PSU_NoOverwrite=0;
  game_title="";
- assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+ assert(prepareArchiveFixture("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
  assert(!strcmp(archive_name,"PS2SAVE_2026-11-09_12-34-56.psu"));free(archive);
  char long_title[65];memset(long_title,'A',64);long_title[64]=0;game_title=long_title;
- assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+ assert(prepareArchiveFixture("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
  assert(strlen(archive_name)>80&&!strncmp(archive_name,"PS2SAVE_",8)&&strstr(archive_name,"_2026-11-09_12-34-56.psu"));free(archive);
- assert(filerCreateClipboardArchive("mc1:/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+ assert(prepareArchiveFixture("mc1:/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
  assert(strlen(archive_name)==32&&!strcmp(archive_name,"PS2SAVE_AAAAAAAAAAAAAAAAAAAA.psu"));free(archive);
  // PSU preferences leave the PS3-required PSV filename unchanged.
- assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSV,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+ assert(prepareArchiveFixture("storage/",SAVE_OUTPUT_PSV,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
  assert(!strcmp(archive_name,"PS2SAVE.PSV"));free(archive);
  config=(SETTING){0};game_title="";filerClearArchiveClipboard();
  // A device without native rename still creates archives and extracts them.
@@ -489,32 +497,32 @@ int main(int argc,char **argv){
   mkdir(devices[d],0700);char folder[MAX_PATH],destination[MAX_PATH];
   snprintf(folder,sizeof(folder),"%s/case%d/",devices[d],f);assert(!mkdir(folder,0700));
   FILEINFO item={0};strcpy(item.name,f<2?"PS2SAVE":"BASLUS-TEST");item.stats.AttrFile=f<2?0x8427:0x8497;
-  assert(filerCreateArchive(f<2?"storage/PS2SAVE/":"mc0:/BASLUS-TEST",&item,f<2?FILER_SAVE_PS2:FILER_SAVE_PS1,formats[f],&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+  assert(buildArchiveFixture(f<2?"storage/PS2SAVE/":"mc0:/BASLUS-TEST",&item,f<2?FILER_SAVE_PS2:FILER_SAVE_PS1,formats[f],&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
   assert(snprintf(destination,sizeof(destination),"%s%s",folder,archive_name)<(int)sizeof(destination));
-  assert(filerWriteArchive(archive,archive_size,formats[f],destination,message,sizeof(message))==1);
+  assert(publishArchiveFixture(archive,archive_size,formats[f],destination,message,sizeof(message))==1);
   SaveArchive roundtrip;assert(saveArchiveParse(&roundtrip,archive,archive_size,archive_name));
   assert(filerExtractSave(&roundtrip,folder,message,sizeof(message))==1);
   const char *id=f<2?"PS2SAVE":"BASLUS-TEST";
   assert(snprintf(destination,sizeof(destination),"%s%s/%s",folder,id,f<2?"data":id)<(int)sizeof(destination));
-  size_t actual_size;uint8_t *actual=readSource(destination,&actual_size);assert(actual);
+  size_t actual_size;uint8_t *actual=filerSaveReadSource(destination,&actual_size);assert(actual);
   assert(actual_size==(f<2?sizeof(payload):8192)&&!memcmp(actual,f<2?payload:save+128,actual_size));free(actual);
   if(f<2){assert(snprintf(destination,sizeof(destination),"%sPS2SAVE/empty",folder)<(int)sizeof(destination));assert(!stat(destination,&st)&&!st.st_size);}
   saveArchiveFree(&roundtrip);free(archive);no_temps(folder);
  }
  assert(rename_calls==renames_before);fail_rename=0;
  // Source folder metadata is retained in PSU, independent of naming choices.
- assert(filerCreateArchive("storage/PS2SAVE/",&selected,FILER_SAVE_PS2,SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+ assert(buildArchiveFixture("storage/PS2SAVE/",&selected,FILER_SAVE_PS2,SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
  const char old_psu[]="previous PSU backup";
  put("storage/replace.psu",old_psu,sizeof(old_psu));config.PSU_NoOverwrite=1;
- assert(filerWriteArchive(archive,archive_size,SAVE_OUTPUT_PSU,"storage/replace.psu",message,sizeof(message))==0&&strstr(message,"skipped"));
- size_t kept_size;uint8_t *kept=readSource("storage/replace.psu",&kept_size);
+ assert(publishArchiveFixture(archive,archive_size,SAVE_OUTPUT_PSU,"storage/replace.psu",message,sizeof(message))==0&&strstr(message,"skipped"));
+ size_t kept_size;uint8_t *kept=filerSaveReadSource("storage/replace.psu",&kept_size);
  assert(kept&&kept_size==sizeof(old_psu)&&!memcmp(kept,old_psu,kept_size));free(kept);no_temps("storage");
  config.PSU_NoOverwrite=0;
- assert(filerWriteArchive(archive,archive_size,SAVE_OUTPUT_PSU,"storage/replace.psu",message,sizeof(message))==1);
- kept=readSource("storage/replace.psu",&kept_size);
+ assert(publishArchiveFixture(archive,archive_size,SAVE_OUTPUT_PSU,"storage/replace.psu",message,sizeof(message))==1);
+ kept=filerSaveReadSource("storage/replace.psu",&kept_size);
  assert(kept&&kept_size==archive_size&&!memcmp(kept,archive,kept_size));free(kept);no_temps("storage");
  assert(!mkdir("storage/folder.psu",0700));put("storage/folder.psu/keep",old_psu,sizeof(old_psu));
- assert(filerWriteArchive(archive,archive_size,SAVE_OUTPUT_PSU,"storage/folder.psu",message,sizeof(message))<0&&!access("storage/folder.psu/keep",F_OK));
+ assert(publishArchiveFixture(archive,archive_size,SAVE_OUTPUT_PSU,"storage/folder.psu",message,sizeof(message))<0&&!access("storage/folder.psu/keep",F_OK));
  free(archive);
  // Copy/Cut stores metadata only; archive creation restores source drivers on demand.
  save[128]='S';
@@ -528,30 +536,30 @@ int main(int argc,char **argv){
   nclipFiles=1;browser_cut=0;card_type=1;
   int opened=open_calls,listed=dir_calls,prepared=prepare_calls;
   filerRememberArchiveClipboard(1);
-  assert(opened==open_calls&&listed==dir_calls&&prepared==prepare_calls&&!archive_clip_data);
+  assert(opened==open_calls&&listed==dir_calls&&prepared==prepare_calls&&!archive_stream_valid);
   source_loaded=0;generation++;
   for(int format=SAVE_OUTPUT_PSV;format<=SAVE_OUTPUT_PSX;format++) {
-   assert(filerCreateClipboardArchive("storage/",format,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1&&source_loaded);
+   assert(prepareArchiveFixture("storage/",format,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1&&source_loaded);
    SaveArchive parsed;assert(saveArchiveParse(&parsed,archive,archive_size,archive_name)&&parsed.ps1&&parsed.count==1);
    assert(!strcmp(parsed.files[0].name,"CLIP-SAVE")&&!memcmp(parsed.files[0].data,save+128,8192));saveArchiveFree(&parsed);
    snprintf(destination,sizeof(destination),"storage/COPY%d-%d.arc",slot,format);
-   assert(filerWriteArchive(archive,archive_size,format,destination,message,sizeof(message))==1);free(archive);
-   assert(filerFinishArchiveClipboard(destination,message,sizeof(message))==1&&nclipFiles==1&&!archive_clip_data);
+   assert(publishArchiveFixture(archive,archive_size,format,destination,message,sizeof(message))==1);free(archive);
+   assert(filerFinishArchiveClipboard(destination,message,sizeof(message))==1&&nclipFiles==1&&!archive_stream_valid);
   }
   // An unavailable/unmounted source cannot be recreated from an eager Copy snapshot.
   assert(!unlink(source));
-  assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_MCS,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&!archive);
+  assert(prepareArchiveFixture("storage/",SAVE_OUTPUT_MCS,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&!archive);
   put(source,save+128,8192);
-  if(slot>=2){vmcMounted[slot%2]=0;assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_MCS,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0);vmcMounted[slot%2]=1;}
+  if(slot>=2){vmcMounted[slot%2]=0;assert(prepareArchiveFixture("storage/",SAVE_OUTPUT_MCS,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0);vmcMounted[slot%2]=1;}
   // Cut removes unchanged data only after successful publication, even after a legitimate driver restore.
   browser_cut=1;
-  assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_MCS,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+  assert(prepareArchiveFixture("storage/",SAVE_OUTPUT_MCS,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
   snprintf(destination,sizeof(destination),"storage/CUT%d.mcs",slot);
-  fail_after=0;assert(filerWriteArchive(archive,archive_size,SAVE_OUTPUT_MCS,destination,message,sizeof(message))<0&&!access(source,F_OK));fail_after=-1;
-  assert(filerWriteArchive(archive,archive_size,SAVE_OUTPUT_MCS,destination,message,sizeof(message))==1);free(archive);
+  fail_after=0;assert(publishArchiveFixture(archive,archive_size,SAVE_OUTPUT_MCS,destination,message,sizeof(message))<0&&!access(source,F_OK));fail_after=-1;
+  assert(publishArchiveFixture(archive,archive_size,SAVE_OUTPUT_MCS,destination,message,sizeof(message))==1);free(archive);
   source_loaded=0;generation++;int before_deletes=delete_calls;
   assert(filerFinishArchiveClipboard(destination,message,sizeof(message))==1&&source_loaded&&access(source,F_OK)<0);
-  assert(delete_calls==before_deletes+1&&!nclipFiles&&!browser_cut&&!archive_clip_data);
+  assert(delete_calls==before_deletes+1&&!nclipFiles&&!browser_cut&&!archive_stream_valid);
  }
  // Eligibility comes from a copied/cut item; a generic flat folder needs no icon.sys.
  card_type=0;nclipFiles=1;browser_cut=0;strcpy(clipPath,"storage/");
@@ -560,18 +568,18 @@ int main(int argc,char **argv){
  assert(!mkdir("storage/FLAT",0700));put("storage/FLAT/data",save,32);
  assert(filerSaveKind(clipPath,&clipFiles[0],0)==FILER_SAVE_NONE);
  assert(rememberAndProbe(0)==1&&filerArchiveClipboardKind()==FILER_SAVE_PS2);
- assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+ assert(prepareArchiveFixture("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
  SaveArchive flat;assert(saveArchiveParse(&flat,archive,archive_size,archive_name));
  assert(!flat.ps1&&flat.count==1&&!strcmp(flat.folder.name,"FLAT")&&!strcmp(flat.files[0].name,"data"));
  assert(flat.files[0].size==32&&!memcmp(flat.files[0].data,save,32));saveArchiveFree(&flat);
- assert(filerWriteArchive(archive,archive_size,SAVE_OUTPUT_PSU,"storage/flat.psu",message,sizeof(message))==1);free(archive);
- assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSV,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&!archive&&strstr(message,"icon.sys"));
- assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);free(archive);
+ assert(publishArchiveFixture(archive,archive_size,SAVE_OUTPUT_PSU,"storage/flat.psu",message,sizeof(message))==1);free(archive);
+ assert(prepareArchiveFixture("storage/",SAVE_OUTPUT_PSV,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&!archive&&strstr(message,"icon.sys"));
+ assert(prepareArchiveFixture("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);free(archive);
  // A subdirectory added after an archive read keeps the Cut source safe.
  browser_cut=1;assert(!mkdir("storage/FLAT/subdir",0700));
  assert(!filerFinishArchiveClipboard("storage/flat.psu",message,sizeof(message))&&!access("storage/FLAT/data",F_OK));
  assert(!rmdir("storage/FLAT/subdir"));
- assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);free(archive);
+ assert(prepareArchiveFixture("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);free(archive);
  assert(filerFinishArchiveClipboard("storage/flat.psu",message,sizeof(message))==1&&access("storage/FLAT",F_OK)<0);
  // A PS1 backup wrapper with extra files uses PSU so Cut cannot discard those files.
  browser_cut=0;nclipFiles=1;strcpy(clipPath,"storage/");strcpy(clipFiles[0].name,"PS1EXTRA");
@@ -579,7 +587,7 @@ int main(int argc,char **argv){
  put("storage/PS1EXTRA/extra",save,32);
  assert(filerSaveKind(clipPath,&clipFiles[0],0)==FILER_SAVE_PS1);
  assert(rememberAndProbe(0)==1&&filerArchiveClipboardKind()==FILER_SAVE_PS2);
- assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+ assert(prepareArchiveFixture("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
  assert(saveArchiveParse(&flat,archive,archive_size,archive_name)&&flat.count==2&&!flat.ps1);
  saveArchiveFree(&flat);free(archive);
  // Nested folders are ineligible both with and without PS2 save icon metadata.
@@ -606,20 +614,20 @@ int main(int argc,char **argv){
  memset(&clipFiles[0],0,sizeof(clipFiles[0]));strcpy(clipFiles[0].name,"PS2SAVE");clipFiles[0].stats.AttrFile=0x8427;
  assert(rememberAndProbe(0)==1&&filerArchiveClipboardKind()==FILER_SAVE_PS2);
  for(int format=SAVE_OUTPUT_PSU;format<=SAVE_OUTPUT_PSV;format++) {
-  assert(filerCreateClipboardArchive("storage/",format,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+  assert(prepareArchiveFixture("storage/",format,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
   SaveArchive parsed;assert(saveArchiveParse(&parsed,archive,archive_size,archive_name)&&!parsed.ps1&&parsed.count==4);
   assert(!strcmp(parsed.folder.name,"PS2SAVE"));saveArchiveFree(&parsed);free(archive);
  }
  browser_cut=1;
- assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
- assert(filerWriteArchive(archive,archive_size,SAVE_OUTPUT_PSU,"storage/PS2SAVE/nested.psu",message,sizeof(message))==1);free(archive);
+ assert(prepareArchiveFixture("storage/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+ assert(publishArchiveFixture(archive,archive_size,SAVE_OUTPUT_PSU,"storage/PS2SAVE/nested.psu",message,sizeof(message))==1);free(archive);
  assert(!filerFinishArchiveClipboard("storage/PS2SAVE/nested.psu",message,sizeof(message))&&!access("storage/PS2SAVE/icon.sys",F_OK));
  unlink("storage/PS2SAVE/nested.psu");
- assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_PSV,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
- assert(filerWriteArchive(archive,archive_size,SAVE_OUTPUT_PSV,"storage/clipboard-ps2.PSV",message,sizeof(message))==1);free(archive);
+ assert(prepareArchiveFixture("storage/",SAVE_OUTPUT_PSV,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))==1);
+ assert(publishArchiveFixture(archive,archive_size,SAVE_OUTPUT_PSV,"storage/clipboard-ps2.PSV",message,sizeof(message))==1);free(archive);
  assert(filerFinishArchiveClipboard("storage/clipboard-ps2.PSV",message,sizeof(message))==1&&access("storage/PS2SAVE",F_OK)<0&&!nclipFiles);
  nclipFiles=2;assert(!rememberAndProbe(0)&&!filerArchiveClipboardKind());
- assert(filerCreateClipboardArchive("storage/",SAVE_OUTPUT_MCS,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&!archive);
+ assert(prepareArchiveFixture("storage/",SAVE_OUTPUT_MCS,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&!archive);
  filerClearArchiveClipboard();
  // Each clipboard entry produces its own archive, with bounded per-save memory.
  int batch_case=0;
@@ -632,14 +640,14 @@ int main(int argc,char **argv){
   int opened=open_calls,listed=dir_calls,prepared=prepare_calls;
   filerRememberArchiveClipboard(ps1&&!wrapped?1:0);
   assert(filerArchiveClipboardKind()==(ps1&&!wrapped?FILER_SAVE_PS1:FILER_SAVE_PS2));
-  assert(opened==open_calls&&listed==dir_calls&&prepared==prepare_calls&&!archive_clip_data);
+  assert(opened==open_calls&&listed==dir_calls&&prepared==prepare_calls&&!archive_stream_valid);
   source_loaded=0;generation++;
   assert(filerProbeArchiveClipboard(out)==(ps1?FILER_SAVE_PS1:FILER_SAVE_PS2)&&source_loaded);
   int ps1_formats[]={SAVE_OUTPUT_MCS,SAVE_OUTPUT_PSV,SAVE_OUTPUT_PSX};
   int format=ps1?ps1_formats[f]:f;
   fail_rename=1;int renamed=rename_calls;
   assert(filerCreateClipboardArchives(out,format,message,sizeof(message))==3);
-  assert(rename_calls==renamed&&nclipFiles==(cut?0:3)&&!browser_cut&&!archive_clip_data);fail_rename=0;
+  assert(rename_calls==renamed&&nclipFiles==(cut?0:3)&&!browser_cut&&!archive_stream_valid);fail_rename=0;
   for(int i=0;i<3;i++) {
    snprintf(path,sizeof(path),"%sBATCH-%c.%s",out,'A'+i,format==SAVE_OUTPUT_PSU?"psu":format==SAVE_OUTPUT_PSV?"PSV":format==SAVE_OUTPUT_MCS?"mcs":"psx");
    SaveArchive parsed;uint8_t *snapshot;assert(filerLoadSave(path,&parsed,&snapshot,message,sizeof(message)));
@@ -670,7 +678,7 @@ int main(int argc,char **argv){
  assert(filerCreateClipboardArchives("storage/batch-skipped-out/",SAVE_OUTPUT_PSU,message,sizeof(message))==0);
  assert(strstr(message,"2 archives created; 1 skipped")&&nclipFiles==1&&browser_cut&&!strcmp(clipFiles[0].name,"BATCH-B"));
  assert(!access("storage/batch-skipped/BATCH-B/data",F_OK)&&access("storage/batch-skipped/BATCH-A",F_OK)<0&&access("storage/batch-skipped/BATCH-C",F_OK)<0);
- size_t old_size;uint8_t *old_data=readSource("storage/batch-skipped-out/BATCH-B.psu",&old_size);assert(old_data&&old_size==8&&!memcmp(old_data,"old PSU",8));free(old_data);
+ size_t old_size;uint8_t *old_data=filerSaveReadSource("storage/batch-skipped-out/BATCH-B.psu",&old_size);assert(old_data&&old_size==8&&!memcmp(old_data,"old PSU",8));free(old_data);
  // A failure partway through consumes only completed Cuts; retry starts at the failed item.
  for(int write_failure=0;write_failure<2;write_failure++) {
   char source[100],out[100],target[150];
@@ -758,7 +766,7 @@ int main(int argc,char **argv){
  nclipFiles=0;filerClipboardExtractLabel(label,sizeof(label));assert(!strcmp(label,"Extract saves..."));
  assert(!filerCanImportClipboard());
  // Copy and Cut both extract directly into the supplied folder, with no picker.
- size_t fixture_size;uint8_t *fixture=readSource("input.mcs",&fixture_size);assert(fixture);
+ size_t fixture_size;uint8_t *fixture=filerSaveReadSource("input.mcs",&fixture_size);assert(fixture);
  assert(!mkdir("storage/archives",0700));
  for(int cut=0;cut<2;cut++) {
   char out[80];snprintf(out,sizeof(out),"storage/extracted-%d/",cut);assert(!mkdir(out,0700));
@@ -788,7 +796,7 @@ int main(int argc,char **argv){
   fail_after=-1;fail_close=delete_failure=extract_hook=0;source_loaded=restore_ok=1;
  }
  // Mixed PS1/PS2 batches use one action and keep iteration correct as Cut entries are consumed.
- size_t psu_size;uint8_t *psu_fixture=readSource("storage/flat.psu",&psu_size);assert(psu_fixture);
+ size_t psu_size;uint8_t *psu_fixture=filerSaveReadSource("storage/flat.psu",&psu_size);assert(psu_fixture);
  for(int cut=0;cut<2;cut++) {
   char out[80],target[120];snprintf(out,sizeof(out),"storage/extract-batch-%d/",cut);assert(!mkdir(out,0700));
   put("storage/archives/first.mcs",fixture,fixture_size);put("storage/archives/second.psu",psu_fixture,psu_size);
@@ -809,19 +817,19 @@ int main(int argc,char **argv){
   nclipFiles=1;browser_cut=0;clipIopResetGeneration=generation;dashboard_active=!cut;
   assert(filerImportClipboard(out,message,sizeof(message))==1);
   snprintf(target,sizeof(target),"%sFLAT/data",out);const uint8_t previous[]={9,8,7};
-  size_t original_size;uint8_t *original=readSource(target,&original_size);assert(original);
+  size_t original_size;uint8_t *original=filerSaveReadSource(target,&original_size);assert(original);
   put(target,previous,sizeof(previous));browser_cut=cut;
   int prompts=overwrite_prompts,before_deletes=delete_calls;
   assert(filerImportClipboard(out,message,sizeof(message))<0&&strstr(message,"canceled"));
   assert(overwrite_prompts==prompts+1&&delete_calls==before_deletes&&!save_progress.active);
   assert(nclipFiles==1&&browser_cut==cut&&!access("storage/archives/overwrite.psu",F_OK));
-  size_t actual_size;uint8_t *actual=readSource(target,&actual_size);
+  size_t actual_size;uint8_t *actual=filerSaveReadSource(target,&actual_size);
   assert(actual&&actual_size==sizeof(previous)&&!memcmp(actual,previous,actual_size));free(actual);
   overwrite_answer=1;
   assert(filerImportClipboard(out,message,sizeof(message))==1&&!save_progress.active);
   assert(overwrite_prompts==prompts+2&&nclipFiles==(cut?0:1)&&!browser_cut);
   assert((access("storage/archives/overwrite.psu",F_OK)<0)==cut);
-  actual=readSource(target,&actual_size);
+  actual=filerSaveReadSource(target,&actual_size);
   assert(actual&&actual_size==original_size&&!memcmp(actual,original,actual_size));free(actual);free(original);
   overwrite_answer=-1;dashboard_active=1;
  }
@@ -861,7 +869,7 @@ int main(int argc,char **argv){
    assert(snprintf(archive_path,sizeof(archive_path),"%sBATCH-%c.psu",archives,'A'+i)<(int)sizeof(archive_path));
    assert((access(archive_path,F_OK)<0)==(cut&&extracted));
    assert(snprintf(target,sizeof(target),"%sBATCH-%c/data",out,'A'+i)<(int)sizeof(target));
-   size_t actual_size;uint8_t *actual=readSource(target,&actual_size);assert(actual);
+   size_t actual_size;uint8_t *actual=filerSaveReadSource(target,&actual_size);assert(actual);
    assert(actual_size==(extracted?123:3)&&actual[0]==(extracted?i+1:9));free(actual);
   }
   if(cut)assert(!strcmp(clipFiles[0].name,scenario==0||scenario==2?"BATCH-A.psu":scenario==5?"BATCH-C.psu":"BATCH-B.psu"));
@@ -886,7 +894,7 @@ int main(int argc,char **argv){
  int before_open=open_calls;
  assert(filerImportClipboard("storage/",message,sizeof(message))<0&&strstr(message,"Incompatible drivers")&&open_calls==before_open);
  strcpy(clipFiles[0].name,"FLAT");clipFiles[0].stats.AttrFile=sceMcFileAttrSubdir;filerRememberArchiveClipboard(0);
- assert(filerCreateClipboardArchive("mx4sio:/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&strstr(message,"Incompatible drivers")&&open_calls==before_open);
+ assert(prepareArchiveFixture("mx4sio:/",SAVE_OUTPUT_PSU,&archive,&archive_size,archive_name,sizeof(archive_name),message,sizeof(message))<0&&strstr(message,"Incompatible drivers")&&open_calls==before_open);
  incompatible=0;
 
  // Actual archive actions drive the shared paste popup from measured I/O, with stable batch ordinals.
@@ -914,7 +922,8 @@ int main(int argc,char **argv){
  for(int failure=0;failure<2;failure++) {
   saveProgressBegin(1);saveProgressItem(1,"failure.psu","Creating archive");before_complete=progress_complete;
   if(failure)fail_close=1;else fail_after=1;
-  assert(filerWriteArchive(save,sizeof(save),SAVE_OUTPUT_PSU,"storage/progress-failure.psu",message,sizeof(message))<0);
+  assert(filerSaveWriteFileResult("storage/progress-failure.psu",save,sizeof(save),NULL)<0);
+  assert(!genRemove("storage/progress-failure.psu"));
   assert(progress_complete==before_complete&&access("storage/progress-failure.psu",F_OK)<0);
   fail_close=0;fail_after=-1;saveProgressEnd();
   assert(!save_progress.active&&!save_progress.action);
@@ -975,7 +984,7 @@ int main(int argc,char **argv){
   fail_buffer_allocation=mode==1?2:0;filerRememberArchiveClipboard(0);
   int yields_before=async_yields;
   assert(filerCreateClipboardArchives(out,format,message,sizeof(message))==(mode==2?0:1));
-  assert(!archive_clip_data&&!archive_stream_valid&&!allocation_rejections&&largest_request<=0x100000);
+  assert(!archive_stream_valid&&!allocation_rejections&&largest_request<=0x100000);
   assert(buffer_allocations>=(mode?4:2)&&async_yields-yields_before>=128);
   bounded_archive=0;fail_buffer_allocation=extract_hook=0;
   assert((access(source,F_OK)==0)==(mode!=1));assert(nclipFiles==(mode==1?0:1));
@@ -988,6 +997,28 @@ int main(int argc,char **argv){
    found=1;
   }
   assert(found);saveArchiveFree(&decoded);free(bytes);assert(!handles);
+ }
+ /* Cut extraction verification uses bounded storage even when the already
+  * decoded archive is larger than the transfer buffer budget. */
+ {
+  size_t length;uint8_t *snapshot=filerSaveReadSource("storage/large-out-0-0/BATCH-A.psu",&length);
+  assert(snapshot&&length>8*1024*1024);
+  for(int failure=0;failure<5;failure++) {
+   char source[MAX_PATH];snprintf(source,sizeof(source),"storage/verify-%d.psu",failure);put(source,snapshot,length);
+   memset(clipFiles,0,sizeof(clipFiles));strcpy(clipPath,"storage/");snprintf(clipFiles[0].name,sizeof(clipFiles[0].name),"verify-%d.psu",failure);
+   nclipFiles=1;browser_cut=1;clipIopResetGeneration=generation;
+   if(failure==1){FILE *f=fopen(source,"r+b");assert(f&&!fseek(f,256,SEEK_SET)&&fputc(snapshot[256]^1,f)!=EOF&&!fclose(f));}
+   if(failure==4){FILE *f=fopen(source,"ab");assert(f&&fputc(7,f)!=EOF&&!fclose(f));}
+   bounded_archive=1;allocation_rejections=buffer_allocations=0;largest_request=0;
+   fail_close=failure==2;fail_buffer_allocation=failure==3?1:0;
+   int deleted=delete_calls;
+   assert(finishExtractCut("storage/",source,snapshot,length,&clipFiles[0])==(failure==0));
+   assert(delete_calls==deleted+(failure==0)&&!handles&&!allocation_rejections&&largest_request<=0x100000);
+   assert((access(source,F_OK)<0)==(failure==0));
+   bounded_archive=fail_close=fail_buffer_allocation=0;
+  }
+  free(snapshot);
+  puts("PASS: 8 MiB Cut extraction verification with a 1 MiB allocation cap; changed bytes/length, failed close/allocation retain the source");
  }
  /* Allocation failure precedes truncation; read, write-close and signature
   * patch failures retain Cut sources and remove incomplete new archives. */
@@ -1103,14 +1134,22 @@ int main(int argc,char **argv){
  }
  puts("PASS: physical MC0/MC1 and VMC0/VMC1 replacement space, exact-fit PS1 blocks/PS2 clusters, file rounding, empty files, nested folder reclamation, parent entry reuse and failure-before-delete guards");
  puts("PASS: 8 MiB PSU/PSV Copy/Cut with a 1 MiB allocation cap, optional-buffer fallback, streamed source-change checks and source retention; allocation/read/close/signature-patch failure cleanup");
+ if(fixture_stream_loaded)archiveStreamFree(&fixture_stream);
  assert(!handles);puts("PASS: real save import/export, direct extraction, MCS/PSU/PSV creation, PSU title/date/overwrite settings, direct PSU/PSV/MCS/PSX creation and extraction across seven device paths without rename, single/multiple Copy/Cut archive creation, partial retries, skips, retained sources, duplicate names and mixed PSV batches, archive-only extraction eligibility (including PS1 card saves with archive-like names), clipboard extension labels, Copy/Cut extraction and partial batches, measured read/write progress, batch ordinals, close-failure completion guards and classic popup fallback, metadata-only Copy/Cut and on-demand source restoration, flat-folder clipboard eligibility without icon.sys, nested/capped folder rejection, empty files, both physical PS1 slots without mkdir, short I/O, card types, space preflight and failed-write/close cleanup");
 }
 '''.replace('PRODUCTION_SAVES', os.environ.get('SAVE_TEST_SOURCE', str(root / 'src/filer_saves.c'))).replace('PRODUCTION_NAME_LIMITS', name_limits).replace('PRODUCTION_BUFFER_POLICY', buffer_policy)
+
+code = code.replace('PRODUCTION_TRANSFER', str(root / 'src/filer_transfer.c'))
+code = code.replace('PRODUCTION_FIXTURE', str(root / 'tests/save_stream_fixture.h'))
+
+for token, module in [('PRODUCTION_PROGRESS', 'progress'), ('PRODUCTION_IO', 'io'), ('PRODUCTION_CARDS', 'cards'), ('PRODUCTION_EXPORT', 'export')]:
+    code = code.replace(token, str(root / ('src/filer_save_' + module + '.c')))
 
 with tempfile.TemporaryDirectory(prefix='save-import-') as folder:
     folder = Path(folder)
     for header in ('filer_saves.h', 'filer_shared.h', 'filer_actions.h', 'filer_copy.h', 'init.h', 'dash.h'):
         (folder / header).write_text(stub)
+    (folder / 'filer_saves_internal.h').write_text((root / 'include/filer_saves_internal.h').read_text())
     (folder / 'test.c').write_text(code)
     exe = folder / 'test'
     flags = ['-fsanitize=address,undefined', '-fno-omit-frame-pointer'] if os.environ.get('SANITIZE') else []

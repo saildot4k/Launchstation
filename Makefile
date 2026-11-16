@@ -16,6 +16,10 @@ SIO2MAN ?= 1
 PPC_UART ?= 0
 SIO_DEBUG ?= 0
 DEBUG ?= 0
+DASH_PROFILE ?= 0
+DASH_VU0 ?= 0
+DASH_VU1 ?= 0
+DASH_VU1_REFERENCE ?= 0
 LCDVD ?= LATEST#or LEGACY
 # ----------------------------- #
 .SILENT:
@@ -28,14 +32,14 @@ else
   EE_BIN = UNC-BOOT.ELF
   EE_BIN_PKD = BOOT.ELF
 endif
-EE_OBJS = main.o main_actions.o main_boot.o main_modules.o main_menu.o main_title.o main_info_screens.o main_console_info.o main_gameid.o main_gameid_table.o neutrino_gameid.o main_history.o remote_control.o pc_game_receiver.o init.o main_startup.o main_fileops.o main_exploit_installer.o kelf_signer.o config.o config_screen.o config_startup.o config_network.o config_advanced.o gui.o gui_colors.o virtual_keyboard.o elf.o draw.o draw_gs.o draw_text.o loader_elf.o filer.o filer_device.o filer_mount.o filer_fileops.o filer_actions.o filer_browser.o filer_copy.o \
-	gui_sort.o gui_texteditor.o gui_hdd0_format.o psu_functions.o save_sign.o save_archive.o save_lzari.o filer_saves.o \
+EE_OBJS = main.o main_actions.o main_boot.o main_modules.o main_menu.o main_title.o main_info_screens.o main_console_info.o main_gameid.o main_gameid_table.o neutrino_gameid.o main_history.o remote_control.o pc_game_receiver.o init.o main_startup.o main_fileops.o main_exploit_installer.o kelf_signer.o config.o config_screen.o config_startup.o config_network.o config_advanced.o gui.o gui_colors.o virtual_keyboard.o elf.o draw.o draw_gs.o draw_text.o loader_elf.o filer.o filer_device.o filer_mount.o filer_fileops.o filer_actions.o filer_tree.o filer_transfer.o filer_browser.o filer_menu.o filer_menu_rules.o filer_copy.o \
+	gui_sort.o gui_texteditor.o gui_hdd0_format.o psu_functions.o save_sign.o save_archive.o save_lzari.o filer_saves.o filer_save_export.o filer_save_cards.o filer_save_io.o filer_save_progress.o \
 	poweroff_irx.o iomanx_irx.o filexio_irx.o ps2dev9_irx.o dev9_poweroff_irx.o \
 	ps2hdd_irx.o ps2fs_irx.o usbd_irx.o mcman_irx.o mcserv_irx.o \
 	cdvd_irx.o xparam_irx.o vmcman_irx.o ps2kbd_irx.o \
 	hdd.o hdd_header_injector.o hdl_rpc.o hdl_info_irx.o editor.o editor_menu.o editor_input.o editor_rules.o editor_file.o timer.o icon.o lang.o popstarter.o popstarter_path.o popstarter_vcd.o popstarter_gameid.o popstarter_elf.o ember.o ember_gameid.o neutrino_iso.o gui_neutrino.o \
 	font_uLE.o makeicon.o chkesr.o allowdvdv_irx.o \
-	dash_main.o dash_clock_sync.o dash_ftp.o ftp_session.o dash_gfx.o dash_font.o dash_font_data.o dash_font_emotion_engine.o dash_font_emotion_engine_bold.o dash_icons.o dash_png.o dash_art.o dash_bg.o dash_bg_ps2.o dash_bg_geo.o dash_store.o dash_lib.o dash_devices.o dash_ui.o dash_home.o dash_apps.o dash_files.o dash_tools.o dash_settings.o dash_theme.o dash_themes.o dash_sound.o dash_worker.o dash_io.o dash_widgets.o dash_info.o dash_image.o dash_jpeg.o dash_editor.o dash_hdd.o dash_browser.o dash_exploit.o \
+	dash_main.o dash_clock_sync.o dash_ftp.o ftp_session.o dash_gfx.o dash_profile.o dash_vu_math.o dash_vu1.o dash_font.o dash_font_data.o dash_font_emotion_engine.o dash_font_emotion_engine_bold.o dash_icons.o dash_png.o dash_art.o dash_bg.o dash_bg_ps2.o dash_bg_geo.o dash_store.o dash_lib.o dash_devices.o dash_ui.o dash_home.o dash_apps.o dash_files.o dash_tools.o dash_settings.o dash_settings_clock.o dash_settings_theme.o dash_theme.o dash_themes.o dash_sound.o dash_worker.o dash_io.o dash_widgets.o dash_info.o dash_image.o dash_jpeg.o dash_editor.o dash_hdd.o dash_browser.o dash_exploit.o \
 	exploit_system_xlf_header.o exploit_xsystem_xlf_header.o exploit_dtl_system_xlf_header.o exploit_xlf_body.o \
 	exploit_osdsys_kernel.o exploit_osd110_kernel.o \
 	exploit_jpn_sys.o exploit_usa_sys.o exploit_eur_sys.o exploit_chn_sys.o \
@@ -44,6 +48,11 @@ EE_OBJS = main.o main_actions.o main_boot.o main_modules.o main_menu.o main_titl
 	audsrv_irx.o libsd_irx.o \
 	sfx_cursor_adp.o sfx_confirm_adp.o sfx_cancel_adp.o sfx_transition_adp.o sfx_message_adp.o sfx_boot_adp.o sfx_connect_adp.o sfx_disconnect_adp.o
 # Pad-button glyphs now come from the existing SDF atlas; no extra PNG objects.
+
+ifeq ($(DASH_VU1),1)
+EE_OBJS += dash_vu1_tunnel.vsm.o
+DVP_AS ?= $(if $(wildcard $(PS2DEV)/tools/dvp-as),$(PS2DEV)/tools/dvp-as,$(PS2DEV)/dvp/bin/dvp-as)
+endif
 
 EE_INCS := -I$(PS2DEV)/gsKit/include -I$(PS2SDK)/ports/include -Iinclude
 EE_INCS += -Ipackages/world/audsrv/include
@@ -61,6 +70,7 @@ endif
 EE_LIBS = -Wl,--start-group -lgskit -ldmakit -lpng -lz -ljpeg -lmc -lhdd -lkbd $(EE_MATH_LIB) \
 			-lcdvd -lc -lfileXio -lpatches -lpoweroff -ldebug -laudsrv
 EE_CFLAGS := -mgpopt -G10240 -G0 -DNEWLIB_PORT_AWARE -D_EE
+EE_CFLAGS += -DDASH_PROFILE=$(DASH_PROFILE) -DDASH_VU0=$(DASH_VU0) -DDASH_VU1=$(DASH_VU1) -DDASH_VU1_REFERENCE=$(DASH_VU1_REFERENCE)
 
 ifneq ($(DEBUG), 0)
     EE_CFLAGS += -DULE_DEBUG_BUILD
@@ -382,6 +392,11 @@ info2:
 	$(info MMCE=$(MMCE), IOP_RESET=$(IOP_RESET))
 
 #special recipe for compiling and dumping obj to subfolder
+ifeq ($(DASH_VU1),1)
+$(EE_OBJS_DIR)dash_vu1_tunnel.vsm.o: src/dash_vu1_tunnel.vsm | $(EE_OBJS_DIR)
+	$(DVP_AS) $< -o $@
+endif
+
 $(EE_OBJS_DIR)%.o: $(EE_SRC_DIR)%.c | $(EE_OBJS_DIR)
 	@echo -e "\033[1m CC  - $@\033[0m"
 	$(EE_CC) $(EE_CFLAGS) $(EE_INCS) -c $< -o $@

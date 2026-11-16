@@ -3,6 +3,7 @@
 Runs the production comparator and SJIS-aware title joiner (not a Python
 reimplementation) and checks UI gating, translations, and preserved devices.
 """
+from source_groups import component_source
 from pathlib import Path
 import re
 import subprocess
@@ -11,8 +12,8 @@ import tempfile
 root = Path(__file__).resolve().parents[1]
 sort = (root / "src/gui_sort.c").read_text()
 copy = (root / "src/filer_copy.c").read_text()
-browser = (root / "src/filer_browser.c").read_text()
-actions = (root / "src/filer_actions.c").read_text()
+browser = component_source('src/filer_browser.c')
+actions = component_source('src/filer_actions.c')
 dash = (root / "src/dash_browser.c").read_text()
 header = (root / "include/launchelf.h").read_text()
 shared = (root / "include/filer_shared.h").read_text()

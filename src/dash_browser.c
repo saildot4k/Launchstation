@@ -351,13 +351,18 @@ static void listDone(void *arg)
 	int i, o = 0;
 
 	if (!j->abandoned && j->gen == fb.gen && fb.files != NULL) {
-		if (j->n < 0 && (!strncmp(j->path, "mc0:", 4) || !strncmp(j->path, "mc1:", 4))) {
-			char card[8];
-			snprintf(card, sizeof(card), "mc%c:/", j->path[2]);
+		if (j->n < 0 && (!strncmp(j->path, "mc0:", 4) || !strncmp(j->path, "mc1:", 4) ||
+		                  !strncmp(j->path, "mmce0:", 6) || !strncmp(j->path, "mmce1:", 6))) {
+			char card[8], message[96];
+			if (!strncmp(j->path, "mmce", 4))
+				snprintf(card, sizeof(card), "mmce%c:/", j->path[4]);
+			else
+				snprintf(card, sizeof(card), "mc%c:/", j->path[2]);
+			snprintf(message, sizeof(message), "Memory card could not be read (error %d). Try opening it again.", j->n);
 			free(j->files);
 			free(j);
 			openDir("", card);
-			dashToast(DASH_TOAST_WARN, "Memory card could not be read. Try opening it again.");
+			dashToast(DASH_TOAST_WARN, message);
 			return;
 		}
 		for (i = 0; i < j->n && o < MAX_ENTRY; i++) {
@@ -911,9 +916,7 @@ static void opNewFolder(void)
 		openDir(fb.dir, name);
 }
 
-/* getFileSize() recurses with a MAX_ENTRY listing on the stack and may
- * start drivers, so it runs here on the UI thread (big stack), not on the
- * worker */
+/* Device preparation and measurement stay serialized on the UI thread. */
 static void opSize(void)
 {
 	static int idx[MAX_ENTRY];
@@ -927,9 +930,12 @@ static void opSize(void)
 	for (i = 0; i < n; i++) {
 		u64 s;
 		dashLoadingStatus(fb.files[idx[i]].name, i, n);
-		s = getFileSize(fb.dir, &fb.files[idx[i]]);
-		if ((s64)s > 0)
-			total += s;
+		if (getFileSize(fb.dir, &fb.files[idx[i]], &s) < 0 || s > ~(u64)0 - total) {
+			opDone();
+			dashModalMessage(DI_WARNING, "Size", "Could not measure all selected items.", NULL);
+			return;
+		}
+		total += s;
 	}
 	opDone();
 	if (total >= (u64)1024 * 1024 * 1024)
@@ -979,7 +985,6 @@ static void opCreateArchive(int kind)
 	static const char *const mixed_formats[] = {"PSV - PS3 export"};
 	DashMenuItem formats[3];
 	const char *const *labels;
-	const char *save_type;
 	char subtitle[48];
 	int count, choice, format, result, total = nclipFiles;
 	if (!kind || kind != filerArchiveClipboardKind() || !prepareOp()) return;
@@ -990,13 +995,12 @@ static void opCreateArchive(int kind)
 		dashModalMessage(DI_WARNING, "Archive not created", "Choose complete PS1 saves or folders with files and no subdirectories.", NULL);
 		return;
 	}
-	save_type = kind == FILER_SAVE_PS1 ? "PS1 save" : kind == FILER_SAVE_PS2 ? "PS2 save" : "PS1 and PS2 saves";
 	labels = kind == FILER_SAVE_PS1 ? ps1_formats : kind == FILER_SAVE_PS2 ? ps2_formats : mixed_formats;
 	count = kind == FILER_SAVE_PS1 ? 3 : kind == FILER_SAVE_PS2 ? 2 : 1;
 	for (int i = 0; i < count; i++) {
 		formats[i].icon = DI_MC;
 		formats[i].label = labels[i];
-		formats[i].detail = i == 1 || kind == FILER_SAVE_MIXED ? save_type : NULL;
+		formats[i].detail = kind == FILER_SAVE_MIXED ? "PS1 and PS2 saves" : NULL;
 		formats[i].disabled = 0;
 	}
 	if (total > 1) snprintf(subtitle, sizeof(subtitle), "%d saves - one archive per save", total);
@@ -1393,29 +1397,29 @@ static void actionsMenu(void)
 	int ids[44], n = 0, r;
 	char marked[24], sort_detail[48];
 	enum {
-		F_COPY,
-		F_CUT,
-		F_PASTE,
-		F_PASTE_RENAME,
-		F_CREATE,
-		F_IMPORT,
-		F_EXPORT_PS1,
-		F_DELETE,
-		F_RENAME,
-		F_NEWDIR,
-		F_NEWICON,
-		F_SIZE,
-		F_EDIT,
-		F_ARGS,
-		F_TITLECFG,
-		F_VMC0,
-		F_VMC1,
-		F_DATES,
-		F_SELALL,
+		F_COPY = COPY,
+		F_CUT = CUT,
+		F_PASTE = PASTE,
+		F_PASTE_RENAME = NUM_MENU,
+		F_CREATE = CREATE_ARCHIVE,
+		F_IMPORT = IMPORT_SAVE,
+		F_EXPORT_PS1 = EXPORT_PS1,
+		F_DELETE = DELETE,
+		F_RENAME = RENAME,
+		F_NEWDIR = NEWDIR,
+		F_NEWICON = NEWICON,
+		F_SIZE = GETSIZE,
+		F_EDIT = OPEN_TEXTEDITOR,
+		F_ARGS = NUM_MENU + 1,
+		F_TITLECFG = TITLE_CFG,
+		F_VMC0 = MOUNTVMC0,
+		F_VMC1 = MOUNTVMC1,
+		F_DATES = TIMEMANIP_CUSTOM,
+		F_SELALL = NUM_MENU + 2,
 		F_INVERT,
 		F_CLEARSEL,
-		F_USE_ARGS,
-		F_CLEAR_ARGS,
+		F_USE_ARGS = LAUNCH_ELF_ARGS,
+		F_CLEAR_ARGS = NUM_MENU + 5,
 		F_VIEW,
 		F_SORT,
 		F_BOOKMARK,
@@ -1451,9 +1455,9 @@ static void actionsMenu(void)
 		ADD(DI_PLUS, "Paste here", nclipFiles > 0 ? (browser_cut ? "move" : "copy") : NULL, !en[PASTE], F_PASTE);
 		if (en[PASTE])
 			ADD(DI_PASTE_RENAME, "Paste with new names...", NULL, 0, F_PASTE_RENAME);
-		if (en[CREATE_ARCHIVE])
+		if (filerMenuVisible(CREATE_ARCHIVE, en, FILER_MENU_NATIVE))
 			ADD(DI_MC, "Create archive...", nclipFiles > 1 ? "One archive per copied save" : "Save from clipboard", 0, F_CREATE);
-		if (en[IMPORT_SAVE])
+		if (filerMenuVisible(IMPORT_SAVE, en, FILER_MENU_NATIVE))
 			ADD(DI_MC, extract_label, browser_cut ? "Move saves from clipboard into this folder" : "Extract clipboard into this folder", 0, F_IMPORT);
 		if ((ps1_card && en[EXPORT_PS1]) || (en[COPY] && save_kind == FILER_CARD_PS1))
 			ADD(DI_MC, "Save card as...", "Whole PS1 card", 0, F_EXPORT_PS1);
@@ -1461,25 +1465,25 @@ static void actionsMenu(void)
 		ADD(DI_EDIT, "Rename...", NULL, f == NULL || !en[RENAME], F_RENAME);
 		if (!ps1_card)
 			ADD(DI_FOLDER, "New folder...", NULL, !en[NEWDIR], F_NEWDIR);
-		if (en[NEWICON])
+		if (filerMenuVisible(NEWICON, en, FILER_MENU_NATIVE))
 			ADD(DI_IMAGE, "Create folder icon...", "icon.sys", 0, F_NEWICON);
 		ADD(DI_INFO, "Size", NULL, !has_target || !en[GETSIZE], F_SIZE);
-		if (f != NULL && !isDir(f) && en[OPEN_TEXTEDITOR])
+		if (f != NULL && !isDir(f) && filerMenuVisible(OPEN_TEXTEDITOR, en, FILER_MENU_NATIVE))
 			ADD(DI_TEXT, "Open in Text Editor", NULL, 0, F_EDIT);
 		if (is_elf && !ps1_card) {
 			int args_disabled = isPcCardCfPath(fb.dir) ? 1 : 0;
 			ADD(DI_EDIT, "Start with arguments...", args_disabled ? "Direct launch unsupported" : NULL,
 			    args_disabled, F_ARGS);
-			if (en[TITLE_CFG])
+			if (filerMenuVisible(TITLE_CFG, en, FILER_MENU_NATIVE))
 				ADD(DI_SETTINGS, "Create title.cfg", NULL, 0, F_TITLECFG);
 		}
-		if (f != NULL && !isDir(f) && en[MOUNTVMC0]) {
+		if (f != NULL && !isDir(f) && filerMenuVisible(MOUNTVMC0, en, FILER_MENU_NATIVE)) {
 			ADD(DI_MC, "Mount as vmc0:", vmcMounted[0] ? "replaces the mounted one" : NULL, 0, F_VMC0);
 			ADD(DI_MC, "Mount as vmc1:", vmcMounted[1] ? "replaces the mounted one" : NULL, !en[MOUNTVMC1], F_VMC1);
 		}
-		if (en[TIMEMANIP_CUSTOM])
+		if (filerMenuVisible(TIMEMANIP_CUSTOM, en, FILER_MENU_NATIVE))
 			ADD(DI_CLOCK, "Folder dates...", "order the saves", 0, F_DATES);
-		if (f != NULL && !isDir(f) && en[LAUNCH_ELF_ARGS])
+		if (f != NULL && !isDir(f) && filerMenuVisible(LAUNCH_ELF_ARGS, en, FILER_MENU_NATIVE))
 			ADD(DI_LAUNCH_ARGS, "Use as launch arguments", "then choose the application", 0, F_USE_ARGS);
 		ADD(DI_SELECT_ALL, "Select all", NULL, fb.n == 0, F_SELALL);
 		ADD(DI_INVERT_SELECTION, "Invert selection", NULL, fb.n == 0, F_INVERT);

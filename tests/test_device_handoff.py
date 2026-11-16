@@ -1,4 +1,5 @@
 """Execute R3Z 4.80 ELF target/argv handling in exFAT and classic builds."""
+from source_groups import component_source
 from pathlib import Path
 import shutil
 import subprocess
@@ -52,7 +53,7 @@ for sig in ("static int parseUsbMassPathUnit(", "static int isHddPartyPath(",
             "static const char *normalizeExecArg0Path(", "static void RunLoaderElfInternal(",
             "void RunLoaderElf(", "void RunLoaderElfKeepIOPWithArgv0("):
     code += function(sig)
-browser = (root / "src/filer_browser.c").read_text()
+browser = component_source('src/filer_browser.c')
 code += function("int filerFormatUsbPathForDisplay(", browser)
 code += function("static void formatBrowserPathForDisplay(", browser)
 native = (root / "src/dash_browser.c").read_text()
@@ -123,7 +124,7 @@ int main(void) {
 }
 """
 config = (root / "src/config.c").read_text()
-settings = (root / "src/dash_settings.c").read_text()
+settings = component_source('src/dash_settings.c')
 assert "Modern_Device_Handoff" not in config
 assert "modern_device_handoff" not in config + settings
 assert "S_MODERN_HANDOFF" not in settings

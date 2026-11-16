@@ -1,5 +1,6 @@
 #ifndef LAUNCHELF_H
 #define LAUNCHELF_H
+#include "filer_types.h"
 #define HACK_FOLDER "BXEXEC-OPENTUNA"
 
 #if defined(SIO_DEBUG)
@@ -547,12 +548,12 @@ int get_CNF_string(char **CNF_p_p,
 char *preloadCNF(char *path);          //loads file into RAM it allocates
 
 /* filer.c */
-typedef struct
+struct FilerFileInfo
 {
 	char name[MAX_NAME];
 	unsigned char title[32 * 2 + 2]; /* optional separator and NUL */
 	sceMcTblGetDir stats;
-} FILEINFO;
+};
 
 #define MOUNT_LIMIT 4
 extern char mountedParty[MOUNT_LIMIT][MAX_NAME];

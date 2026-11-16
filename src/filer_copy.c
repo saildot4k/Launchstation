@@ -1088,24 +1088,18 @@ non_PSU_RESTORE_init:
 	}
 
 	filerCopyDiagStage("Allocating buffer");
-	buff = (char *)memalign(64, buffSize);  //Attempt buffer allocation
-	if (buff == NULL) {                     //if allocation fails
+	{
+		void *first, *second;
+		buffCount = filerAllocateTransferBuffers(buffSize, &first, &second);
+		buff = first; buff2 = second;
+	}
+	if (!buffCount) {
 		ret = -ENOMEM;
 		genClose(out_fd);
 		out_fd = -1;
 		if (PM_flag[recurses] != PM_PSU_BACKUP)
 			genRemove(out);
 		goto copy_file_exit_mem_err;
-	}
-	if (buffSize == COPY_BUFFER_FAST_DEFAULT) {
-		buff2 = (char *)memalign(64, buffSize);
-		if (buff2 != NULL)
-			buffCount = 2;
-#if FILEOP_TRACE
-		else if (trace_net_copy || trace_vmc_copy)
-			printf("[FILEOP] copy-double-buffer fallback in=%s out=%s buff=%d\n",
-			       in, out, buffSize);
-#endif
 	}
 
 	old_size = written_size;  //Note initial progress data pos

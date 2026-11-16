@@ -1,3 +1,4 @@
+from source_groups import component_source
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
@@ -5,7 +6,7 @@ launcher = (root / "src/neutrino_iso.c").read_text(encoding="utf-8")
 main_actions = (root / "src/main_actions.c").read_text(encoding="utf-8")
 main_fileops = (root / "src/main_fileops.c").read_text(encoding="utf-8")
 dash_browser = (root / "src/dash_browser.c").read_text(encoding="utf-8")
-dash_settings = (root / "src/dash_settings.c").read_text(encoding="utf-8")
+dash_settings = component_source('src/dash_settings.c')
 elf = (root / "src/elf.c").read_text(encoding="utf-8")
 config = (root / "src/config.c").read_text(encoding="utf-8")
 header = (root / "include/launchelf.h").read_text(encoding="utf-8")

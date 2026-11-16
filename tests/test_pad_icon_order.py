@@ -84,8 +84,8 @@ static void spriteBatchAddPhysical(float x1,float y1,float u1,float v1,float x2,
  quad.u2=floorf(u2*16)/16;quad.v2=floorf(v2*16)/16;
 }
 """
-start = header.index("enum DashIcon {")
-code += header[start:header.index("};", start) + 2] + "\n"
+code += '#include "' + str(root / 'include/dash_icons.h') + '"\n'
+
 for define in ("ICON_SIZE", "ICON_SLOT", "ICON_COLS", "SELECT_HALF_W",
                "APP_PART_SIZE", "APP_PART_SLOT", "APP_PART_X", "CLIP_ICON_Y"):
     code += re.search(r"^#define " + define + r" .+$", icons, re.M).group() + "\n"

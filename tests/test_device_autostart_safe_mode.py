@@ -1,11 +1,12 @@
 """Driver auto-start is removed; SELECT recovery boot still skips saved settings."""
+from source_groups import component_source
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 modules = (root / "src/main_modules.c").read_text()
 store = (root / "src/dash_store.c").read_text()
 devices = (root / "src/dash_devices.c").read_text()
-settings = (root / "src/dash_settings.c").read_text()
+settings = component_source('src/dash_settings.c')
 main = (root / "src/dash_main.c").read_text()
 header = (root / "include/dash_internal.h").read_text()
 

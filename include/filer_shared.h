@@ -14,26 +14,7 @@ typedef struct
 	unsigned short year;  // date/time (year)
 } PS2TIME __attribute__((aligned(2)));
 
-enum {
-	COPY,
-	CUT,
-	PASTE,
-	CREATE_ARCHIVE,
-	DELETE,
-	RENAME,
-	NEWDIR,
-	NEWICON,
-	MOUNTVMC0,
-	MOUNTVMC1,
-	GETSIZE,
-	OPEN_TEXTEDITOR,
-	LAUNCH_ELF_ARGS,
-	TIMEMANIP_CUSTOM,
-	TITLE_CFG,
-	IMPORT_SAVE,
-	EXPORT_PS1,
-	NUM_MENU
-};
+#include "filer_menu.h"
 
 #define PM_NORMAL 0       //PasteMode value for normal copies
 #define PM_PSU_BACKUP 1   //PasteMode value for gamesave backup from MC to PSU

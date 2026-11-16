@@ -258,6 +258,11 @@ int main(void) {
     OsdTime frozen=ot;
     anim_time+=5; osdTime(DASH_FX_OFF,&ot);
     assert(ot.hour==frozen.hour && ot.minute==frozen.minute && ot.second==frozen.second);
+    /* Detail remains Full at 0% motion; RTC ticks must still stay frozen. */
+    dashCfg.effects=0;clock_stuck=0;now_ms+=2000;
+    osdTime(DASH_FX_FULL,&ot);
+    assert(ot.hour==frozen.hour && ot.minute==frozen.minute && ot.second==frozen.second);
+    dashCfg.effects=100;clock_stuck=1;
     clock_valid=0; anim_time+=1; osdTime(DASH_FX_FULL,&ot);
     assert(ot.minute==1 && fabsf(ot.second-7.25f)<0.0001f);
     clock_valid=1; clock_stuck=0; now_ms=10500; osdTime(DASH_FX_FULL,&ot);

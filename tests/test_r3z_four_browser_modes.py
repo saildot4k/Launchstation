@@ -3,13 +3,14 @@
 Tests the exact production enum/predicates and guards classic/browser callsites.
 The native Files tab remains deliberately unchanged while PR #178 owns its UI.
 """
+from source_groups import component_source
 from pathlib import Path
 import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
 header = (root / "include/filer_shared.h").read_text(encoding="utf-8")
-classic = (root / "src/filer_browser.c").read_text(encoding="utf-8")
+classic = component_source('src/filer_browser.c')
 listing = (root / "src/filer.c").read_text(encoding="utf-8")
 sort = (root / "src/gui_sort.c").read_text(encoding="utf-8")
 copy = (root / "src/filer_copy.c").read_text(encoding="utf-8")

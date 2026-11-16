@@ -1,4 +1,5 @@
 """Run the real clock editor and chooser with scripted pad input and RTC spies."""
+from source_groups import component_source
 from pathlib import Path
 import re
 import shutil
@@ -6,7 +7,7 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-settings = (root / "src/dash_settings.c").read_text()
+settings = component_source('src/dash_settings.c')
 clock = (root / "src/dash_clock_sync.c").read_text()
 header = (root / "include/dash_internal.h").read_text()
 gfx = (root / "src/dash_gfx.c").read_text()
@@ -43,7 +44,7 @@ typedef struct { int icon; const char *label, *detail; int disabled; } DashMenuI
 #define DASH_VH 448
 #define DC(r,g,b,a) 0
 '''
-symbols = sorted(set(re.findall(r"\b(?:DI_|DASH_FS_|DASH_SND_|DASH_C_)\w+",
+symbols = sorted(set(re.findall(r"\b(?:DI_|DASH_FS_|DASH_C_)\w+",
                                function(settings, "static int editClockDateTime("))))
 code += "enum { " + ",".join(symbols + ["DI_CHECK", "DI_WARNING"]) + " };\n"
 input_start = header.rfind("enum {", 0, header.index("DASH_IN_UP"))
@@ -89,11 +90,7 @@ static void dashInputPoll(DashInput *in) {
 static unsigned dashInputShoulderRepeat(void) { return shoulder_input; }
 static void repeatShoulder(int button) { press(button<<16); }
 static void dashInputFlush(void) { if(!(flushes%2))panel_open=0;flushes++; }
-static void dashSoundPlay(int sound) {
-    if(sound==DASH_SND_CONFIRM)sounds[0]++;
-    else if(sound==DASH_SND_CANCEL)sounds[1]++;
-    else { assert(sound==DASH_SND_CURSOR);sounds[2]++; }
-}
+
 static float dashVisualUpdate(void) { ticks++;return 0.02f; }
 static float dashAnimSpeed(void) { return 1; }
 static float dashEaseOutCubic(float t) { return 1-(1-t)*(1-t)*(1-t); }
@@ -208,12 +205,16 @@ static int dashClockSyncInternet(char *result,int cap) {
     snprintf(result,cap,"%s",empty_error?"":sync_ok?"Clock verified":"Server timeout");return sync_ok;
 }
 '''
-code += function(settings, "static void syncClockFromInternet(") + "#endif\n"
-code += (function(settings, "static void clockFieldLimits(")
-         + function(settings, "static int editClockDateTime(")
-         + function(settings, "static void setClockManually(")
-         + function(settings, "static void setPs2Clock("))
+code += "#endif\n"
+code += '#include "' + str(root / 'src/dash_settings_clock.c') + '"\n'
+# The production module must include the real sound header before these
+# spies: supplying enums/prototypes here would mask a missing include.
 code += r'''
+void dashSoundPlay(int sound) {
+    if(sound==DASH_SND_CONFIRM)sounds[0]++;
+    else if(sound==DASH_SND_CANCEL)sounds[1]++;
+    else { assert(sound==DASH_SND_CURSOR);sounds[2]++; }
+}
 static void reset(void) {
     const int initial[]={2026,11,8,8,30,15},lo[]={2000,1,1,0,0,0},hi[]={2099,12,31,23,59,59};
     memcpy(minimum,lo,sizeof(lo));memcpy(maximum,hi,sizeof(hi));allow_wait=1;waits=0;
@@ -377,11 +378,11 @@ int main(void) {
     reset();expected_preferences.timezone_minutes=-300;
     selectControl(7);press(DASH_IN_R1);repeatShoulder(DASH_IN_R1);repeatShoulder(DASH_IN_R1);acceptAndCheck(current);
     /* Integration: chooser cancellation does no RTC work; editor cancellation never writes. */
-    reset();setPs2Clock();assert(menus==1 && !field_reads && !manual_writes && !messages);
-    reset();choice=0;allow_wait=0;setPs2Clock();assert(!field_reads && !manual_writes && !flushes);
-    reset();choice=0;press(DASH_IN_UP);press(DASH_IN_BACK);setPs2Clock();
+    reset();dashSettingsSetPs2Clock();assert(menus==1 && !field_reads && !manual_writes && !messages);
+    reset();choice=0;allow_wait=0;dashSettingsSetPs2Clock();assert(!field_reads && !manual_writes && !flushes);
+    reset();choice=0;press(DASH_IN_UP);press(DASH_IN_BACK);dashSettingsSetPs2Clock();
     assert(field_reads==1 && !manual_writes && !messages && flushes==2);
-    reset();choice=0;selectField(3);press(DASH_IN_UP);expected[3]++;press(DASH_IN_OK);setPs2Clock();
+    reset();choice=0;selectField(3);press(DASH_IN_UP);expected[3]++;press(DASH_IN_OK);dashSettingsSetPs2Clock();
     assert(manual_writes==1 && messages==1 && last_icon==DI_CHECK && !strcmp(last_title,"PS2 clock updated"));
     assert(!strcmp(last_detail,"08/11/2026 09:30:15"));
 #ifdef ETH
@@ -389,20 +390,20 @@ int main(void) {
 #endif
     reset();choice=0;preferences.use_12h=expected_preferences.use_12h=1;
     current[3]=expected[3]=0;selectControl(6);press(DASH_IN_UP);expected[3]=12;
-    press(DASH_IN_OK);setPs2Clock();
+    press(DASH_IN_OK);dashSettingsSetPs2Clock();
     assert(manual_writes==1 && !strcmp(last_detail,"08/11/2026 12:30:15 PM"));
-    reset();choice=0;manual_ok=0;press(DASH_IN_OK);setPs2Clock();
+    reset();choice=0;manual_ok=0;press(DASH_IN_OK);dashSettingsSetPs2Clock();
     assert(manual_writes==1 && messages==1 && last_icon==DI_WARNING && !strcmp(last_body,"RTC write failed"));
-    reset();choice=0;rtc_valid=0;memcpy(expected,lower,sizeof(expected));press(0);press(DASH_IN_OK);setPs2Clock();
+    reset();choice=0;rtc_valid=0;memcpy(expected,lower,sizeof(expected));press(0);press(DASH_IN_OK);dashSettingsSetPs2Clock();
     assert(manual_writes==1 && messages==1 && !strcmp(last_detail,"01/01/2000 00:00:00"));
 #ifdef ETH
-    reset();choice=1;allow_wait=0;setPs2Clock();assert(waits==1 && !begins && !syncs && !messages);
-    reset();choice=1;setPs2Clock();
+    reset();choice=1;allow_wait=0;dashSettingsSetPs2Clock();assert(waits==1 && !begins && !syncs && !messages);
+    reset();choice=1;dashSettingsSetPs2Clock();
     assert(syncs==1 && begins==1 && ends==1 && !loading && !field_reads && !manual_writes);
     assert(messages==1 && last_icon==DI_CHECK && !strcmp(last_title,"PS2 clock synchronized"));
-    reset();choice=1;sync_ok=0;setPs2Clock();
+    reset();choice=1;sync_ok=0;dashSettingsSetPs2Clock();
     assert(syncs==1 && ends==1 && !loading && last_icon==DI_WARNING && !strcmp(last_body,"Server timeout"));
-    reset();choice=1;sync_ok=0;empty_error=1;setPs2Clock();
+    reset();choice=1;sync_ok=0;empty_error=1;dashSettingsSetPs2Clock();
     assert(!strcmp(last_body,"No reliable Internet time was available."));
 #endif
     puts("PASS: centered single-row clock controls, 12/24-hour and AM/PM editing, hourly time-zone steps with fractional saved-offset preservation, staged DST preferences, accelerating shoulders, whole-year field, valid-date wrapping, leap years, stable animation, safe cancellation and RTC/Internet dispatch");
@@ -414,7 +415,9 @@ assert compiler, "Host C compiler required"
 with tempfile.TemporaryDirectory(prefix="launchstation-settings-clock-") as tmp:
     src, binary = Path(tmp) / "clock.c", Path(tmp) / "clock"
     src.write_text(code)
+    for name in ("dash_internal.h", "main_title.h", "init.h", "dash_settings_clock.h"):
+        (Path(tmp) / name).write_text("")
     for flags in ([], ["-DETH"]):
         subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
-                        *flags, str(src), "-lm", "-o", str(binary)], check=True)
+                        *flags, "-I", tmp, "-I", str(root / "include"), str(src), "-lm", "-o", str(binary)], check=True)
         subprocess.run([str(binary)], check=True, timeout=5)

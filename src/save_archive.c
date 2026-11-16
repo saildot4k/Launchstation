@@ -329,97 +329,43 @@ int saveArchiveFilename(const SaveArchive *s, int format, char *out, size_t size
 	return snprintf(out + used, size - used, ".%s", ext) < (int)(size - used);
 }
 
+typedef struct {
+	const SaveArchive *save;
+	uint8_t *output;
+	size_t length;
+} MemoryArchive;
+
+static int memoryArchiveRead(void *context, unsigned file, size_t offset, void *data, size_t size)
+{
+	MemoryArchive *memory = context;
+	const SaveArchiveEntry *entry = &memory->save->files[file];
+	if (offset > entry->size || size > entry->size - offset || (size && !entry->data)) return 0;
+	if (size) memcpy(data, entry->data + offset, size);
+	return 1;
+}
+
+static int memoryArchiveWrite(void *context, size_t offset, const void *data, size_t size)
+{
+	MemoryArchive *memory = context;
+	if (offset > memory->length || size > memory->length - offset) return 0;
+	memcpy(memory->output + offset, data, size);
+	return 1;
+}
+
 int saveArchiveBuild(const SaveArchive *s, int format, uint8_t **output, size_t *length)
 {
-	size_t total, pos, payload = 0;
-	uint8_t *out;
-	char checked[33];
-	const SaveArchiveEntry *icon = NULL;
+	uint8_t buffer[4096];
+	MemoryArchive memory = {s, NULL, 0};
+	SaveArchiveStreamIo io = {memoryArchiveRead, NULL, &memory, buffer, NULL, sizeof(buffer), NULL};
 	*output = NULL; *length = 0;
-	if (!s->files || !s->count || s->count > SAVE_ARCHIVE_FILES ||
-	    format < SAVE_OUTPUT_PSU || format > SAVE_OUTPUT_PSX ||
-	    (s->ps1 ? s->count != 1 || format == SAVE_OUTPUT_PSU : format >= SAVE_OUTPUT_MCS)) return 0;
-	if (!s->ps1 && (!(s->folder.mode & 0x20) || !nameCopy(checked, (const uint8_t *)s->folder.name, 33, 32))) return 0;
-	for (unsigned i = 0; i < s->count; i++) {
-		const SaveArchiveEntry *e = &s->files[i];
-		if (!nameCopy(checked, (const uint8_t *)e->name, 33, s->ps1 ? 20 : 32) ||
-		    e->size > SAVE_ARCHIVE_LIMIT || (e->size && !e->data) || (e->mode & 0x20)) return 0;
-		for (unsigned j = 0; j < i; j++) if (!strcmp(e->name, s->files[j].name)) return 0;
-		payload += e->size;
-		if (payload > SAVE_ARCHIVE_LIMIT) return 0;
-		if (!strcmp(e->name, "icon.sys")) icon = e;
-	}
-	if (s->ps1 && (!payload || payload % PS1_BLOCK_SIZE || payload > 15 * PS1_BLOCK_SIZE ||
-	               toupper(s->files[0].data[0]) != 'S' || toupper(s->files[0].data[1]) != 'C')) return 0;
-	if (s->ps1) total = payload + (format == SAVE_OUTPUT_MCS ? 128 : format == SAVE_OUTPUT_PSX ? 54 : 132);
-	else if (format == SAVE_OUTPUT_PSU) {
-		total = 1536;
-		for (unsigned i = 0; i < s->count; i++) total += 512 + ((s->files[i].size + 1023) & ~(size_t)1023);
-	} else {
-		/* PS3 needs icon.sys and the three icon references in its summary header. */
-		if (!icon || icon->size < 452 || memcmp(icon->data, "PS2D", 4)) return 0;
-		total = 168 + s->count * 68 + payload;
-	}
-	if (total > SAVE_ARCHIVE_LIMIT || !(out = calloc(1, total))) return 0;
-	if (format == SAVE_OUTPUT_PSX) {
-		/* Apollo's Action Replay layout: original game filename, zero padding,
-		 * then the unchanged SC payload. This is a single save, not a card. */
-		memcpy(out, s->files[0].name, strlen(s->files[0].name));
-		memcpy(out + 54, s->files[0].data, payload);
-	} else if (format == SAVE_OUTPUT_MCS) {
-		out[0] = 0x51; put32(out + 4, payload); out[8] = out[9] = 0xff;
-		memcpy(out + 10, s->files[0].name, strlen(s->files[0].name));
-		for (unsigned i = 0; i < 127; i++) out[127] ^= out[i];
-		memcpy(out + 128, s->files[0].data, payload);
-	} else if (format == SAVE_OUTPUT_PSU) {
-		psuHeader(out, &s->folder, s->folder.name, s->count + 2);
-		psuHeader(out + 512, &s->folder, ".", 0); psuHeader(out + 1024, &s->folder, "..", 0);
-		pos = 1536;
-		for (unsigned i = 0; i < s->count; i++) {
-			const SaveArchiveEntry *e = &s->files[i];
-			psuHeader(out + pos, e, e->name, e->size); pos += 512;
-			if (e->size) memcpy(out + pos, e->data, e->size);
-			pos += (e->size + 1023) & ~(size_t)1023;
-		}
-	} else {
-		SaveSigner signer;
-		memcpy(out, "\0VSP", 4);
-		/* Public format salt; no per-console credentials are needed. */
-		memcpy(out + 8, "Launchstation PSV", 17);
-		put32(out + 56, s->ps1 ? 20 : 44); put32(out + 60, s->ps1 ? 1 : 2);
-		if (s->ps1) {
-			put32(out + 64, payload); put32(out + 68, 132); put32(out + 72, 512);
-			put32(out + 92, payload); put32(out + 96, 0x9003);
-			memcpy(out + 100, s->files[0].name, strlen(s->files[0].name));
-			memcpy(out + 132, s->files[0].data, payload);
-		} else {
-			put32(out + 64, payload); put32(out + 100, s->count);
-			memcpy(out + 104, s->folder.created, 8); memcpy(out + 112, s->folder.modified, 8);
-			put32(out + 120, s->count + 2); put32(out + 124, s->folder.mode);
-			memcpy(out + 128, s->folder.name, strlen(s->folder.name));
-			pos = 168 + s->count * 68;
-			for (unsigned i = 0; i < s->count; i++) {
-				const SaveArchiveEntry *e = &s->files[i]; uint8_t *h = out + 168 + i * 68;
-				memcpy(h, e->created, 8); memcpy(h + 8, e->modified, 8);
-				put32(h + 16, e->size); put32(h + 20, e->mode);
-				memcpy(h + 24, e->name, strlen(e->name)); put32(h + 64, pos);
-				if (e == icon) { put32(out + 68, pos); put32(out + 72, e->size); }
-				for (unsigned j = 0; j < 3; j++) {
-					const uint8_t *ref = icon->data + 260 + j * 64;
-					if (!ref[0]) ref = icon->data + 260;
-					if (strlen(e->name) < 64 && !strncmp(e->name, (const char *)ref, 64)) {
-						put32(out + 76 + j * 8, pos); put32(out + 80 + j * 8, e->size);
-					}
-				}
-				if (e->size) memcpy(out + pos, e->data, e->size);
-				pos += e->size;
-			}
-			for (unsigned j = 0; j < 3; j++) if (!le32(out + 76 + j * 8)) { free(out); return 0; }
-		}
-		saveSignInit(&signer, out + 8, s->ps1 ? 1 : 2);
-		saveSignUpdate(&signer, out, total); saveSignFinish(&signer, out + 28);
-	}
-	*output = out; *length = total;
+	if (!s || !s->files || !s->count || s->count > SAVE_ARCHIVE_FILES) return 0;
+	for (unsigned i = 0; i < s->count; i++) if (s->files[i].size && !s->files[i].data) return 0;
+	if (!saveArchiveStream(s, format, &io, &memory.length)) return 0;
+	memory.output = malloc(memory.length);
+	if (!memory.output) return 0;
+	io.write = memoryArchiveWrite;
+	if (!saveArchiveStream(s, format, &io, length)) { free(memory.output); *length = 0; return 0; }
+	*output = memory.output;
 	return 1;
 }
 

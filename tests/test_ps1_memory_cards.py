@@ -3,6 +3,7 @@
 The fixtures cover both slots, PS1/PS2 changes, multi-block saves, bounded
 listings and failed card requests. They do not emulate physical SIO timing.
 """
+from source_groups import component_source
 from pathlib import Path
 import os
 import re
@@ -11,9 +12,9 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 filer = (root / 'src/filer.c').read_text()
-browser = (root / 'src/filer_browser.c').read_text()
+browser = component_source('src/filer_browser.c')
 dash = (root / 'src/dash_browser.c').read_text()
-shared = (root / 'include/filer_shared.h').read_text()
+shared = (root / 'include/filer_menu.h').read_text()
 header = (root / 'include/launchelf.h').read_text()
 fileops = (root / 'src/filer_fileops.c').read_text()
 texteditor = (root / 'src/gui_texteditor.c').read_text()
@@ -32,7 +33,7 @@ def function(source, signature):
 
 enum_start = shared.index('enum {')
 enum_end = shared.index('};', enum_start) + 2
-code = r'''
+code = '#include "' + str(root / 'src/filer_menu.c') + '"\n' + r'''
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -43,7 +44,8 @@ code = r'''
 #define MC_BROWSER_RETRY_DELAY_US 100000
 #define sceMcResSucceed 0
 #define sceMcResChangedCard -1
-#define sceMcResFailDetect -3
+#define sceMcResFailDetect2 -13
+#define sceMcResFailDetect -12
 #define sceMcFileAttrSubdir 0x20
 #define TRUE 1
 #define FALSE 0
@@ -61,7 +63,7 @@ static int mcGetDir(int port,int slot,const char *path,int flags,int max,sceMcTb
 static int mcSync(int mode,void *ignored,int *result){(void)ignored;assert(!mode);*result=dir_result<0?dir_result:dir_result<limit?dir_result:limit;return sync_return;}
 static int waitMemoryCardReadyForBrowse(int port){(void)port;return 0;}
 static void DelayThread(int delay){(void)delay;}
-'''+function(filer, 'int readMC(')+shared[enum_start:enum_end]+function(header, 'static inline unsigned char wle_ascii_tolower(')+function(header, 'static inline int wle_stricmp(')+'#define stricmp wle_stricmp\n'+function(fileops, 'int genCmpFileExt(')+r'''
+'''+function(filer, 'int readMC(')+function(header, 'static inline unsigned char wle_ascii_tolower(')+function(header, 'static inline int wle_stricmp(')+'#define stricmp wle_stricmp\n'+function(fileops, 'int genCmpFileExt(')+r'''
 static int nclipFiles,archive_kind,import_eligible=1;static FILEINFO clipFiles[MAX_ENTRY];
 #define FILER_SAVE_NONE 0
 static int filerArchiveClipboardKind(void){return nclipFiles>0?archive_kind:FILER_SAVE_NONE;}
@@ -175,7 +177,7 @@ int main(void){
  memset(&list[1],0x6b,sizeof(list[1]));assert(readMC("mc0:/",list,1)==1&&limit==1);
  assert((unsigned char)list[1].name[0]==0x6b);
  int calls=dir_calls;assert(!readMC("mc0:/",list,0)&&dir_calls==calls);
- handshake_result=-3;assert(readMC("mc0:/",list,2)==-3&&dir_calls==calls);handshake_result=0;
+ handshake_result=sceMcResFailDetect;assert(readMC("mc0:/",list,2)==sceMcResFailDetect&&dir_calls==calls);handshake_result=0;
  dir_start_result=-7;assert(readMC("mc0:/",list,2)==-7);dir_start_result=0;
  dir_result=-4;assert(readMC("mc0:/",list,2)==-4);dir_result=2;
  sync_return=0;assert(readMC("mc0:/",list,2)==sceMcResFailDetect);sync_return=1;
@@ -308,5 +310,42 @@ with tempfile.TemporaryDirectory(prefix='ps1-physical-') as folder:
     exe = folder / 'test'
     flags = ['-fsanitize=address,undefined', '-fno-omit-frame-pointer'] if os.environ.get('SANITIZE') else []
     subprocess.run([os.environ.get('CC', 'cc'), '-std=c99', '-Wall', '-Wextra', *flags,
-                    str(folder / 'test.c'), '-o', str(exe)], check=True)
+                    '-I', str(root / 'include'), str(folder / 'test.c'), '-o', str(exe)], check=True)
     subprocess.run([str(exe)], check=True, timeout=20)
+
+    # Compile the complete rules module independently. The runtime harness
+    # above defines its device spies before copying functions, which can hide
+    # missing production includes. Only the real init.h declares CF queries.
+    (folder / 'filer_shared.h').write_text(r'''
+#ifndef MENU_COMPILE_PLATFORM
+#define MENU_COMPILE_PLATFORM
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include "filer_types.h"
+#include "filer_menu.h"
+typedef uint32_t u32;
+#define TRUE 1
+#define FALSE 0
+#define sceMcFileAttrSubdir 0x20
+struct FilerFileInfo { char name[256];struct {unsigned AttrFile;}stats; };
+typedef struct {int HOSTwrite;} MenuCompileSettings;
+extern MenuCompileSettings *setting;
+extern int nclipFiles,host_elflist;
+extern FILEINFO clipFiles[32];
+int genCmpFileExt(const char *,const char *);
+int genCanRenamePath(const char *);
+#endif
+''')
+    (folder / 'filer_actions.h').write_text(
+        'int filerCanOrganizeFolderTimestamps(const char *);\n'
+        'int filerIsExploitProtectedPath(const char *,const FILEINFO *);\n')
+    (folder / 'gui_texteditor.h').write_text(
+        'int canOpenInTextEditor(const char *,const FILEINFO *);\n')
+    production_flags = ['-DWLE_PS2BUILD', '-DEXFAT', '-DXFROM', '-DDVRP',
+                        '-DMMCE', '-DMX4SIO', '-DETH', '-DUDPFS', '-DHOMEBREW_SIO2MAN']
+    for variant in ([], production_flags, [*production_flags, '-DDS34']):
+        subprocess.run([os.environ.get('CC', 'cc'), '-std=c99', '-Wall', '-Wextra', '-Werror',
+                        '-fsyntax-only', *variant, '-I', str(folder), '-I', str(root / 'include'),
+                        str(root / 'src/filer_menu_rules.c')], check=True)
+    print('PASS: complete menu rules module compiles independently with real device declarations in minimal and both release configurations')
