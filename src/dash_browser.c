@@ -985,7 +985,6 @@ static void opCreateArchive(int kind)
 	static const char *const mixed_formats[] = {"PSV - PS3 export"};
 	DashMenuItem formats[3];
 	const char *const *labels;
-	const char *save_type;
 	char subtitle[48];
 	int count, choice, format, result, total = nclipFiles;
 	if (!kind || kind != filerArchiveClipboardKind() || !prepareOp()) return;
@@ -996,13 +995,12 @@ static void opCreateArchive(int kind)
 		dashModalMessage(DI_WARNING, "Archive not created", "Choose complete PS1 saves or folders with files and no subdirectories.", NULL);
 		return;
 	}
-	save_type = kind == FILER_SAVE_PS1 ? "PS1 save" : kind == FILER_SAVE_PS2 ? "PS2 save" : "PS1 and PS2 saves";
 	labels = kind == FILER_SAVE_PS1 ? ps1_formats : kind == FILER_SAVE_PS2 ? ps2_formats : mixed_formats;
 	count = kind == FILER_SAVE_PS1 ? 3 : kind == FILER_SAVE_PS2 ? 2 : 1;
 	for (int i = 0; i < count; i++) {
 		formats[i].icon = DI_MC;
 		formats[i].label = labels[i];
-		formats[i].detail = i == 1 || kind == FILER_SAVE_MIXED ? save_type : NULL;
+		formats[i].detail = kind == FILER_SAVE_MIXED ? "PS1 and PS2 saves" : NULL;
 		formats[i].disabled = 0;
 	}
 	if (total > 1) snprintf(subtitle, sizeof(subtitle), "%d saves - one archive per save", total);

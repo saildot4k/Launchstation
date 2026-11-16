@@ -97,7 +97,7 @@ static int dashModalMenu(const char *title,const char *subtitle,const DashMenuIt
  const char *labels[3];assert(!strcmp(title,"Create archive")&&subtitle&&!strcmp(subtitle,nclipFiles>1?"2 saves - one archive per save":clipFiles[0].name));
  for(int i=0;i<count;i++) {
   assert(items[i].icon==DI_MC&&!items[i].disabled);labels[i]=items[i].label;
-  if(i==1||kind==FILER_SAVE_MIXED)assert(items[i].detail&&!strcmp(items[i].detail,kind==FILER_SAVE_PS1?"PS1 save":kind==FILER_SAVE_PS2?"PS2 save":"PS1 and PS2 saves"));
+  if(kind==FILER_SAVE_MIXED)assert(items[i].detail&&!strcmp(items[i].detail,"PS1 and PS2 saves"));
   else assert(!items[i].detail);
  }
  return dashModalChoice(title,labels,count,initial);
