@@ -43,7 +43,8 @@ sphere appears. They follow the console clock: all seven meet in one bright
 orb at :00, split into two groups at :30, three at :20 and :40, four at :15
 and :45, five at :12, :24, :36 and :48, and six at :10 and :50. The sphere is
 small at the top of the hour and grows as the hour goes by. At 0% background
-motion the orbs hold still; below 50% the trails are shorter.
+motion the orbs hold still. Low background detail shortens the trails;
+motion speed does not change their detail or the number of orbs.
 
 Every background is drawn procedurally from a few GS primitives. None of
 them uses or needs Sony BIOS data. The PS2-inspired scenes were designed
@@ -63,12 +64,20 @@ the colour-swap selection.
 * **Customize theme** opens the theme's customization groups.
 * **Screen calibration** contains video mode, X/Y position and screen reset.
 * **Background motion**: 0-200% in 10% steps. 0% freezes the scene, 100%
-  is the normal speed, and 200% doubles it.
+  is the normal speed, and 200% doubles it. This does not change visual detail.
+* **Background detail**: Low or High (default). Appears immediately below
+  Background motion for backgrounds with a reduced-detail version. Low
+  reduces elements, glow or trail samples; High keeps the complete scene,
+  including when motion is 0%. The choice stays fixed at any frame rate.
+  Supported presets: OSD Classic, PS2 Towers, PS2 Blue Mist, OSD Minimal,
+  System Clock, Boot Lines, Wireframe Cubes, Data Stream, BIOS Blue, CRT,
+  PSX, Crystal and Disc Error Red. Custom Light Streaks and Drift Clouds
+  backgrounds also support it. Other backgrounds hide this setting.
 * **Menu animation**: 0-200% in 10% steps. 0% makes transitions instant;
   larger values keep transitions moving for longer.
 * **Theme files & resets** contains import, export, theme name, reset to the
   current preset and restore OSD Classic.
-* **Reset appearance** restores screen calibration, motion, animation and
+* **Reset appearance** restores screen calibration, motion, detail, animation and
   OSD Classic together.
 
 **Theme editor.** Choose a group to open its page; Back returns to the group
@@ -408,7 +417,8 @@ primitives at most (PS2 Towers is the heaviest, about 500 quads).
 
 * *Background motion: 0%* freezes the scene; nonzero values keep real-time
   clock motion fluid. 100% is normal speed and 200% doubles scene motion.
-* Lower percentages use the lighter scene detail where appropriate.
+* *Background detail: Low* uses the lighter scene where supported; *High*
+  keeps full detail at every motion speed. Detail is never reduced automatically.
 * *Solid colour* costs nothing and is the safe fallback.
 * The app artwork background reuses the artwork cache; it never loads a
   file itself.

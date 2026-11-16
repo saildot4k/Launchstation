@@ -485,6 +485,7 @@ typedef struct
 	int start_section;
 	int view;
 	int effects; /* background motion, 0..200 % */
+	int bg_detail; /* 0 = Low, 1 = High; independent of motion */
 	int anim;    /* menu animation, 0..200 % */
 	int autoscan;
 	int artwork;
@@ -650,6 +651,7 @@ void dashDrawAppArt(DashApp *app, float x, float y, float w, float h, float focu
 //--------------------------------------------------------------
 // Background (dash_bg.c)
 //--------------------------------------------------------------
+int dashBgSupportsDetail(int bg);
 void dashBgInit(void);
 void dashBgUpdate(float dt);
 void dashBgDraw(void);

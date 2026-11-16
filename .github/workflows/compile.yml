@@ -115,6 +115,7 @@ jobs:
           python3 tests/test_vu_profile.py
           python3 tests/test_vu_renderer.py
           python3 tests/test_theme_motion.py
+          python3 tests/test_background_detail.py
           python3 tests/test_orb_seamless.py
           python3 tests/test_tile_styles.py
           python3 tests/test_rounded_borders.py

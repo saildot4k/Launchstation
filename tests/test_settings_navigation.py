@@ -34,6 +34,9 @@ code += "enum { " + ", ".join(icons) + " };\n"
 code += classic[classic.index("enum SETTING_LK {"):classic.index("};", classic.index("enum SETTING_LK {")) + 2]
 code += classic[classic.index("enum TV_mode {"):classic.index("};", classic.index("enum TV_mode {")) + 2]
 code += re.search(r"static const char \*const tv_names\[\] = [^;]+;", settings).group() + "\n"
+code += header[header.index("enum DashBgKind"):header.index("};",header.index("enum DashBgKind"))+2] + "\n"
+code += "static struct { int font,wallpaper,clock,bg; } dashTheme;\n"
+code += function((root / "src/dash_bg.c").read_text(), "int dashBgSupportsDetail(")
 code += declarations
 input_start = header.rfind("enum {", 0, header.index("DASH_IN_UP"))
 code += header[input_start:header.index("void dashInputPoll(")]
@@ -44,7 +47,6 @@ enum { DASH_SND_CANCEL };
 static void dashSoundPlay(int s) { assert(s == DASH_SND_CANCEL); }
 static void dashUiFocusPoke(void) {}
 static struct { int sound, bgm, artwork; } dashCfg;
-static struct { int font, wallpaper, clock; } dashTheme;
 static struct { int usbkbd_used,screen_x,screen_y,Init_Delay,timeout,TV_mode; char LK_Path[SETTING_LK_COUNT][MAX_PATH]; } config;
 static struct { int StartX,StartY; } gs_state={32,32}, *gsGlobal=&gs_state;
 static __typeof__(config) *setting = &config;
@@ -132,7 +134,7 @@ for signature in (
 # Baseline visible controls, excluding page links, scoped resets and the
 # separate panel-opacity alias (Panels already edits that same alpha).
 expected = """
-S_TVMODE S_SCREEN_X S_SCREEN_Y S_EFFECTS S_ANIM S_SCREEN_RESET
+S_TVMODE S_SCREEN_X S_SCREEN_Y S_EFFECTS S_BG_DETAIL S_ANIM S_SCREEN_RESET
 S_DISPLAY_THEME_RESET S_SOUND S_SVOL S_BGM S_BGMVOL S_START S_VIEW
 S_ARTWORK S_RECENT S_AUTOSCAN S_SCANPATHS S_RESCAN S_CLEAR_RECENT
 S_CONFIRM S_VKEY S_USBKBD S_USBKBD_FILE S_KBDMAP_FILE S_PATHPAD_LOCK
@@ -163,10 +165,32 @@ static void visit(int p,int depth) {
 static void press(int key) { DashInput in={.pressed=key}; settingsInput(&in); }
 static void select_id(int p,int id) {
     page=p;
-    for(item=0;item<pages[p].n;item++) if(pages[p].items[item].id==id) return;
+    for(item=0;item<pageItemCount(p);item++) if(pageItemAt(p,item)->type!=ST_PAGE && pageItemAt(p,item)->id==id) return;
     assert(0);
 }
 int main(void) {
+    /* Detail sits immediately below motion only for supported backgrounds.
+     * Changing presets must keep visible indexing and wrap navigation valid. */
+    for(int bg=0;bg<DASH_BG_COUNT;bg++) {
+        dashTheme.bg=bg;
+        int supported=dashBgSupportsDetail(bg), count=pageItemCount(P_APPEARANCE);
+        assert(count==pages[P_APPEARANCE].n-!supported);
+        select_id(P_APPEARANCE,S_EFFECTS);
+        int motion_row=item;
+        press(DASH_IN_DOWN);
+        assert(curItem()->id==(supported?S_BG_DETAIL:S_ANIM));
+        if(supported) { press(DASH_IN_DOWN);assert(curItem()->id==S_ANIM); }
+        assert(item==motion_row+1+supported);
+        press(DASH_IN_R2);assert(item==count-1);
+        press(DASH_IN_DOWN);assert(item==0);
+        press(DASH_IN_UP);assert(item==count-1);
+    }
+    dashTheme.bg=DASH_BG_TUNNEL;
+    page=P_APPEARANCE; item=pageItemCount(page)-1;
+    dashTheme.bg=DASH_BG_GRID;
+    assert(curItem()->id==S_DISPLAY_THEME_RESET && item==pageItemCount(page)-1);
+    dashTheme.bg=DASH_BG_TUNNEL;
+    page=P_ROOT;item=0;
     visit(P_ROOT,0);
     for(int p=0;p<P_COUNT;p++) assert(seen[p]);
     for(int i=0;i<NITEMS(expected);i++) assert(occurrences[expected[i]]==1);

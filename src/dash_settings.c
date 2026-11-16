@@ -36,6 +36,7 @@ enum SetId {
 	S_SCREEN_X,
 	S_SCREEN_Y,
 	S_EFFECTS,
+	S_BG_DETAIL,
 	S_ANIM,
 	S_LEGACY_THEME,
 	S_MENU_FRAME,
@@ -196,11 +197,12 @@ static const SetItem appearance_items[] = {
     {ST_PAGE, P_THEME, "Customize theme", "Background, colours, tiles, text, icons, clock and artwork background."},
     {ST_PAGE, P_SCREEN, "Screen calibration", "Video mode and picture position for your TV."},
     {ST_CHOICE, S_EFFECTS, "Background motion", "0% freezes backgrounds; 100% is normal; 200% doubles their motion."},
+    {ST_CHOICE, S_BG_DETAIL, "Background detail", "Low uses fewer background elements; High shows the complete scene. Motion speed is independent."},
     {ST_CHOICE, S_ANIM, "Menu animation", "0% makes transitions instant; higher values increase movement and transition duration."},
     {ST_CHOICE, S_T_PANEL_A, "Panel transparency", "0% makes panels fully opaque; 100% makes them fully transparent."},
     {ST_CHOICE, S_ICON_BACKING, "Control icon backings", "Show or hide backing shapes behind text-style controls and quick actions."},
     {ST_PAGE, P_THEME_MANAGE, "Theme files & resets", "Import, export, rename or reset your theme."},
-    {ST_ACTION, S_DISPLAY_THEME_RESET, "Reset appearance", "Restore screen calibration, motion, animation and the OSD Classic theme."},
+    {ST_ACTION, S_DISPLAY_THEME_RESET, "Reset appearance", "Restore screen calibration, motion, detail, animation and the OSD Classic theme."},
 };
 
 static const SetItem display_items[] = {
@@ -426,6 +428,31 @@ static const SetPage pages[P_COUNT] = {
     [P_THEME_MANAGE] = PAGE("Theme files & resets", DI_FOLDER, "Export writes a theme file immediately. Resets stay in this Settings session.", tmanage_items),
 };
 
+/* Appearance has one optional row, based on the active background type.
+ * Navigation, drawing and help all use these same visible indices. */
+static int pageItemVisible(const SetItem *it)
+{
+	return it->type != ST_CHOICE || it->id != S_BG_DETAIL || dashBgSupportsDetail(dashTheme.bg);
+}
+
+static int pageItemCount(int page_id)
+{
+	int i, n = 0;
+	for (i = 0; i < pages[page_id].n; i++)
+		if (pageItemVisible(&pages[page_id].items[i])) n++;
+	return n;
+}
+
+static const SetItem *pageItemAt(int page_id, int visible_index)
+{
+	int i;
+	for (i = 0; i < pages[page_id].n; i++) {
+		const SetItem *it = &pages[page_id].items[i];
+		if (pageItemVisible(it) && visible_index-- == 0) return it;
+	}
+	return NULL;
+}
+
 /* Root -> category -> subpage -> theme group is the deepest path. */
 #define PAGE_DEPTH 4
 /* Seven rows leave room for the two-line help text above the hint bar
@@ -514,6 +541,11 @@ static int choiceInfo(int id, int *cur, const char *const **names, const char **
 		case S_EFFECTS:
 			*names = pct_names, *cur = (dashCfg.effects + 5) / 10;
 			return 21;
+		case S_BG_DETAIL: {
+			static const char *const detail_names[] = {"Low", "High"};
+			*names = detail_names, *cur = dashCfg.bg_detail;
+			return 2;
+		}
 		case S_ANIM:
 			*names = pct_names, *cur = (dashCfg.anim + 5) / 10;
 			return 21;
@@ -1103,6 +1135,9 @@ static void setChoice(int id, int v)
 			break;
 		case S_EFFECTS:
 			dashCfg.effects = v * 10;
+			break;
+		case S_BG_DETAIL:
+			dashCfg.bg_detail = v;
 			break;
 		case S_ANIM:
 			dashCfg.anim = v * 10;
@@ -2003,7 +2038,7 @@ static void resetScreen(void)
 
 static void resetDisplayThemeDefaults(void)
 {
-	if (!dashModalConfirm("Reset display & theme defaults", "Restore the screen, motion, animation and OSD Classic theme defaults?", "Reset", 0))
+	if (!dashModalConfirm("Reset display & theme defaults", "Restore the screen, motion, detail, animation and OSD Classic theme defaults?", "Reset", 0))
 		return;
 	if (setting->TV_mode != TV_mode_AUTO && !previewVideoMode(TV_mode_AUTO))
 		return;
@@ -2022,6 +2057,7 @@ static void resetDisplayThemeDefaults(void)
 	setting->Popup_Opaque = DEF_POPUP_OPAQUE;
 	updateScreenMode();
 	dashCfg.effects = 100;
+	dashCfg.bg_detail = 1;
 	dashCfg.anim = 100;
 	dashThemeSetPreset(0);
 	classic_dirty = 1;
@@ -2051,7 +2087,7 @@ static int pickPng(char *out, int size, const char *what)
 
 static int themeSettingResettable(int id)
 {
-	return id == S_EFFECTS || id == S_ANIM || id == S_ARTWORK ||
+	return id == S_EFFECTS || id == S_BG_DETAIL || id == S_ANIM || id == S_ARTWORK ||
 	       (id >= S_T_BG && id <= S_T_WALLDIM);
 }
 
@@ -2064,6 +2100,11 @@ static int resetThemeSetting(int id)
 		return 0;
 	if (id == S_EFFECTS) {
 		dashCfg.effects = 100;
+		dash_dirty = 1;
+		return 1;
+	}
+	if (id == S_BG_DETAIL) {
+		dashCfg.bg_detail = 1;
 		dash_dirty = 1;
 		return 1;
 	}
@@ -2140,6 +2181,7 @@ static void runThemeAction(int id)
 			if (dashModalConfirm("Restore default theme", "Replace the current theme with OSD Classic? Saved theme folders are not affected.", "Restore", 0)) {
 				dashThemeSetPreset(0);
 				dashCfg.effects = 100;
+				dashCfg.bg_detail = 1;
 				dashCfg.anim = 100;
 				dash_dirty = 1;
 				dashToast(DASH_TOAST_OK, "Default theme restored");
@@ -2152,6 +2194,7 @@ static void runThemeAction(int id)
 			if (dashModalConfirm("Reset entire theme", body, "Reset", 0)) {
 				dashThemeSetPreset(p);
 				dashCfg.effects = 100;
+				dashCfg.bg_detail = 1;
 				dashCfg.anim = 100;
 				dash_dirty = 1;
 			}
@@ -2240,7 +2283,10 @@ static void runAction(int id)
 //--------------------------------------------------------------
 static const SetItem *curItem(void)
 {
-	return &pages[page].items[item];
+	int total = pageItemCount(page);
+	if (item >= total) item = total - 1;
+	if (item < 0) item = 0;
+	return pageItemAt(page, item);
 }
 
 static void settingsEnter(void)
@@ -2387,7 +2433,7 @@ static void settingsInput(const DashInput *in)
 		return;
 	}
 	it = curItem();
-	total = pages[page].n;
+	total = pageItemCount(page);
 	if (in->pressed & DASH_IN_UP) {
 		if (total > 0) {
 			int next = item > 0 ? item - 1 : total - 1;
@@ -2412,9 +2458,9 @@ static void settingsInput(const DashInput *in)
 			item = 0;
 		}
 	} else if (in->pressed & DASH_IN_R2) {
-		if (item != pages[page].n - 1) {
+		if (item != total - 1) {
 			dashUiFocusPoke();
-			item = pages[page].n - 1;
+			item = total - 1;
 		}
 	} else if (in->pressed & DASH_IN_BACK) {
 		if (page_depth) {
@@ -2493,7 +2539,10 @@ static void settingsDraw(void)
 	 * help still clears the footer hints. */
 	const float ix = DASH_SAFE_L, iy = 136, irow = 29, iw = DASH_SAFE_R - DASH_SAFE_L;
 	const SetPage *c = &pages[page];
+	int total = pageItemCount(page);
 	char trail[192];
+
+	curItem(); /* Clamp selection after a theme change hides the detail row. */
 
 	trail[0] = '\0';
 	for (i = 0; i < page_depth; i++) {
@@ -2514,15 +2563,15 @@ static void settingsDraw(void)
 		dashTextRight(ix + iw, 84, state, DASH_FS_CAPTION, state_col);
 	}
 
-	item_top = listCenteredTop(item, c->n, ITEM_ROWS);
+	item_top = listCenteredTop(item, total, ITEM_ROWS);
 	if (item_anim < item_top || item_anim >= item_top + ITEM_ROWS)
 		item_anim = (float)item;
 
 	/* items */
 	dashDrawPanelBox(DASH_PANE_L, iy - 6, DASH_PANE_W, ITEM_ROWS * irow + 12, 14);
 	dashDrawSelection(ix, iy + dashClampf(item_anim - item_top, 0, ITEM_ROWS - 1) * irow + 2, iw, irow - 5, 9, 1.0f);
-	for (i = item_top; i < c->n && i < item_top + ITEM_ROWS; i++) {
-		const SetItem *it = &c->items[i];
+	for (i = item_top; i < total && i < item_top + ITEM_ROWS; i++) {
+		const SetItem *it = pageItemAt(page, i);
 		float y = iy + (i - item_top) * irow;
 		int on = i == item, disabled = itemDisabled(it);
 		DashColor col = disabled ? DASH_C_TEXT3 : dashItemColor(on);
@@ -2638,7 +2687,7 @@ static void settingsDraw(void)
 		}
 		dashGfxPopAlpha();
 	}
-	dashDrawScrollbar(ix + iw + 10, iy, ITEM_ROWS * irow, item_top, ITEM_ROWS, c->n);
+	dashDrawScrollbar(ix + iw + 10, iy, ITEM_ROWS * irow, item_top, ITEM_ROWS, total);
 	/* help line */
 	{
 		const SetItem *it = curItem();

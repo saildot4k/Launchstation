@@ -152,6 +152,22 @@ static void expectLocation(const char *dir,int volume,int loaded){
 '''
 code += r'''
 int main(void) {
+    /* Missing key keeps High, and detail round-trips independently of speed. */
+    dashStoreDefaults();
+    int detail_reset=0;
+    settingsKv("Dash_Effects","50",&detail_reset);
+    assert(dashCfg.bg_detail==1 && dashCfg.effects==50);
+    settingsKv("Dash_BackgroundDetail","2",&detail_reset);assert(dashCfg.bg_detail==1);
+    settingsKv("Dash_BackgroundDetail","-1",&detail_reset);assert(dashCfg.bg_detail==1);
+    for(int detail=0;detail<=1;detail++) for(int speed=0;speed<=200;speed+=10) {
+        dashStoreDefaults();dashCfg.bg_detail=detail;dashCfg.effects=speed;
+        int length,reset=0;
+        char *text=dashStoreSettingsText(&dashCfg,&length);assert(text && length==(int)strlen(text));
+        dashStoreDefaults();
+        assert(dashKvParse(text,settingsKv,&reset)>0);
+        assert(dashCfg.bg_detail==detail && dashCfg.effects==speed);
+        free(text);
+    }
     /* Old settings are ignored; saving removes them and keeps supported values. */
     for (int mask=0; mask<128; mask++) {
         char config_text[512]; int scan_reset=0,length;

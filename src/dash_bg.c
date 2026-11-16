@@ -14,9 +14,8 @@
 //  5. the launch flash
 //
 //Every scene is built from cheap GS primitives. The background clock stops
-//when animations or background effects are off, so each scene doubles as
-//its own static variant; SUBTLE effects run at a slower pace with fewer
-//elements.
+//when background motion is off. Low/High detail selects the scene density
+//independently of its animation speed.
 //--------------------------------------------------------------
 #include "dash_internal.h"
 #include "dash_profile.h"
@@ -182,7 +181,7 @@ void dashBgUpdate(float dt)
 	for (i = 0; i < BG_TOWERS; i++)
 		towers[i].rot += towers[i].rot_speed * scene_dt;
 
-	if (dashCfg.effects >= 100) {
+	if (dashCfg.bg_detail) {
 		if (streak_t < 0.0f) {
 			streak_next -= scene_dt;
 			if (streak_next <= 0.0f) {
@@ -224,8 +223,6 @@ static void drawThemeLayers(void)
 
 	if (bg != NULL)
 		dashTexDraw(bg, 0, 0, DASH_VW, DASH_VH, DC(255, 255, 255, 255));
-	if (dashCfg.effects == DASH_FX_OFF)
-		return;
 	s1 = dashThemeTexture("stars1.png", 256, 128);
 	s2 = dashThemeTexture("stars2.png", 256, 128);
 	if (s1 == NULL && s2 == NULL)
@@ -547,41 +544,35 @@ void dashBgDrawStatic(void)
 	drawScene(DASH_FX_OFF);
 }
 
-/* Full effects remain the preference, but sustained slow frames temporarily
- * use the subtle path. The saved setting is never changed. Hysteresis keeps
- * an occasional IO stall from causing quality flapping. */
-static int bg_perf_reduced;
-static int bg_slow_frames;
-static int bg_fast_frames;
+/* Expose detail only for scenes whose Low and High paths differ. */
+int dashBgSupportsDetail(int bg)
+{
+	switch (bg) {
+		case DASH_BG_GRADIENT:
+		case DASH_BG_TUNNEL:
+		case DASH_BG_MIST:
+		case DASH_BG_TOWERS:
+		case DASH_BG_DISC:
+		case DASH_BG_ORBIT:
+		case DASH_BG_CLOCKRING:
+		case DASH_BG_LINES:
+		case DASH_BG_CUBES:
+		case DASH_BG_STREAM:
+		case DASH_BG_WAVE:
+		case DASH_BG_CRYSTAL:
+		case DASH_BG_STREAKS:
+		case DASH_BG_CLOUDS:
+			return 1;
+		default:
+			return 0;
+	}
+}
 
 static int effectiveFx(void)
 {
-	int requested = dashCfg.effects <= 0 ? DASH_FX_OFF :
-	                (dashCfg.effects < 100 ? DASH_FX_SUBTLE : DASH_FX_FULL);
-	float dt;
-
-	if (requested != DASH_FX_FULL) {
-		bg_perf_reduced = bg_slow_frames = bg_fast_frames = 0;
-		return requested;
-	}
-	dt = dashFrameDelta();
-	if (dt > 0.024f) {
-		if (bg_slow_frames < 1000)
-			bg_slow_frames++;
-		bg_fast_frames = 0;
-		if (bg_slow_frames >= 6)
-			bg_perf_reduced = 1;
-	} else {
-		bg_slow_frames = 0;
-		if (bg_perf_reduced && dt > 0.0f && dt < 0.0215f) {
-			if (++bg_fast_frames >= 600) {
-				bg_perf_reduced = 0;
-				bg_fast_frames = 0;
-			}
-		} else
-			bg_fast_frames = 0;
-	}
-	return bg_perf_reduced ? DASH_FX_SUBTLE : DASH_FX_FULL;
+	/* Motion changes only scene time, including a frozen scene at 0%.
+	 * Keep the user's detail choice at every speed and frame rate. */
+	return dashCfg.bg_detail ? DASH_FX_FULL : DASH_FX_SUBTLE;
 }
 
 void dashBgDraw(void)
