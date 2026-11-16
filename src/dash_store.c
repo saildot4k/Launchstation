@@ -241,6 +241,7 @@ void dashStoreDefaults(void)
 	dashCfg.start_section = DASH_SEC_HOME;
 	dashCfg.view = DASH_VIEW_GRID;
 	dashCfg.effects = 100;
+	dashCfg.bg_detail = 1;
 	dashCfg.anim = 100;
 	dashCfg.autoscan = 1;
 	dashCfg.artwork = 1;
@@ -303,6 +304,8 @@ static int settingsKv(const char *key, char *value, void *user)
 		dashCfg.view = clampInt(value, 0, DASH_VIEW_COUNT - 1, DASH_VIEW_GRID);
 	else if (!stricmp(key, "Dash_Effects"))
 		dashCfg.effects = percentSetting(value, 100);
+	else if (!stricmp(key, "Dash_BackgroundDetail"))
+		dashCfg.bg_detail = clampInt(value, 0, 1, 1);
 	else if (!stricmp(key, "Dash_Animations"))
 		dashCfg.anim = percentSetting(value, 100);
 	else if (!stricmp(key, "Dash_AutoScan"))
@@ -455,6 +458,7 @@ char *dashStoreSettingsText(const DashSettings *c, int *out_len)
 	                "Dash_StartSection = %d\r\n"
 	                "Dash_View = %d\r\n"
 	                "Dash_Effects = %d\r\n"
+	                "Dash_BackgroundDetail = %d\r\n"
 	                "Dash_Animations = %d\r\n"
 	                "Dash_AutoScan = %d\r\n"
 	                "Dash_Artwork = %d\r\n"
@@ -470,7 +474,7 @@ char *dashStoreSettingsText(const DashSettings *c, int *out_len)
 	                "Dash_HomeShortcuts = %d\r\n"
 	                "Dash_IconBacking = %d\r\n"
 	                "Dash_TemperatureFahrenheit = %d\r\n",
-	                c->enabled, c->start_section, c->view, c->effects,
+	                c->enabled, c->start_section, c->view, c->effects, c->bg_detail,
 	                c->anim, c->autoscan, c->artwork, c->recent_count,
 	                c->legacy_theme, c->intro_done, c->sound, c->sound_vol,
 	                c->bgm, c->bgm_vol, c->app_filter, c->files_mode,

@@ -351,13 +351,18 @@ static void listDone(void *arg)
 	int i, o = 0;
 
 	if (!j->abandoned && j->gen == fb.gen && fb.files != NULL) {
-		if (j->n < 0 && (!strncmp(j->path, "mc0:", 4) || !strncmp(j->path, "mc1:", 4))) {
-			char card[8];
-			snprintf(card, sizeof(card), "mc%c:/", j->path[2]);
+		if (j->n < 0 && (!strncmp(j->path, "mc0:", 4) || !strncmp(j->path, "mc1:", 4) ||
+		                  !strncmp(j->path, "mmce0:", 6) || !strncmp(j->path, "mmce1:", 6))) {
+			char card[8], message[96];
+			if (!strncmp(j->path, "mmce", 4))
+				snprintf(card, sizeof(card), "mmce%c:/", j->path[4]);
+			else
+				snprintf(card, sizeof(card), "mc%c:/", j->path[2]);
+			snprintf(message, sizeof(message), "Memory card could not be read (error %d). Try opening it again.", j->n);
 			free(j->files);
 			free(j);
 			openDir("", card);
-			dashToast(DASH_TOAST_WARN, "Memory card could not be read. Try opening it again.");
+			dashToast(DASH_TOAST_WARN, message);
 			return;
 		}
 		for (i = 0; i < j->n && o < MAX_ENTRY; i++) {
@@ -980,7 +985,6 @@ static void opCreateArchive(int kind)
 	static const char *const mixed_formats[] = {"PSV - PS3 export"};
 	DashMenuItem formats[3];
 	const char *const *labels;
-	const char *save_type;
 	char subtitle[48];
 	int count, choice, format, result, total = nclipFiles;
 	if (!kind || kind != filerArchiveClipboardKind() || !prepareOp()) return;
@@ -991,13 +995,12 @@ static void opCreateArchive(int kind)
 		dashModalMessage(DI_WARNING, "Archive not created", "Choose complete PS1 saves or folders with files and no subdirectories.", NULL);
 		return;
 	}
-	save_type = kind == FILER_SAVE_PS1 ? "PS1 save" : kind == FILER_SAVE_PS2 ? "PS2 save" : "PS1 and PS2 saves";
 	labels = kind == FILER_SAVE_PS1 ? ps1_formats : kind == FILER_SAVE_PS2 ? ps2_formats : mixed_formats;
 	count = kind == FILER_SAVE_PS1 ? 3 : kind == FILER_SAVE_PS2 ? 2 : 1;
 	for (int i = 0; i < count; i++) {
 		formats[i].icon = DI_MC;
 		formats[i].label = labels[i];
-		formats[i].detail = i == 1 || kind == FILER_SAVE_MIXED ? save_type : NULL;
+		formats[i].detail = kind == FILER_SAVE_MIXED ? "PS1 and PS2 saves" : NULL;
 		formats[i].disabled = 0;
 	}
 	if (total > 1) snprintf(subtitle, sizeof(subtitle), "%d saves - one archive per save", total);

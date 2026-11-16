@@ -44,7 +44,8 @@ code = '#include "' + str(root / 'src/filer_menu.c') + '"\n' + r'''
 #define MC_BROWSER_RETRY_DELAY_US 100000
 #define sceMcResSucceed 0
 #define sceMcResChangedCard -1
-#define sceMcResFailDetect -3
+#define sceMcResFailDetect2 -13
+#define sceMcResFailDetect -12
 #define sceMcFileAttrSubdir 0x20
 #define TRUE 1
 #define FALSE 0
@@ -176,7 +177,7 @@ int main(void){
  memset(&list[1],0x6b,sizeof(list[1]));assert(readMC("mc0:/",list,1)==1&&limit==1);
  assert((unsigned char)list[1].name[0]==0x6b);
  int calls=dir_calls;assert(!readMC("mc0:/",list,0)&&dir_calls==calls);
- handshake_result=-3;assert(readMC("mc0:/",list,2)==-3&&dir_calls==calls);handshake_result=0;
+ handshake_result=sceMcResFailDetect;assert(readMC("mc0:/",list,2)==sceMcResFailDetect&&dir_calls==calls);handshake_result=0;
  dir_start_result=-7;assert(readMC("mc0:/",list,2)==-7);dir_start_result=0;
  dir_result=-4;assert(readMC("mc0:/",list,2)==-4);dir_result=2;
  sync_return=0;assert(readMC("mc0:/",list,2)==sceMcResFailDetect);sync_return=1;
