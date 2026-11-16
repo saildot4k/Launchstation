@@ -27,6 +27,7 @@ code = r'''
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <malloc.h>
 #include <string.h>
 typedef uint64_t u64;
 #define FILEOP_TRACE 0
@@ -35,30 +36,32 @@ typedef uint64_t u64;
 #define UDPFS 1
 #define PM_PSU_BACKUP 1
 #define DPRINTF(...) ((void)0)
-static int PM_flag[1], alloc_calls, fail_alloc, closed, removed;
+static int alloc_calls, fail_alloc, closed, removed;
 static size_t allocations[2];
 static int isPcCardCfPath(const char *p) { return !strncmp(p,"cf",2); }
 static void filerCopyDiagStage(const char *s) { (void)s; }
 static int genClose(int fd) { assert(fd==99);closed++;return 0; }
 static int genRemove(const char *p) { (void)p;removed++;return 0; }
-static void *memalign(size_t alignment,size_t bytes) {
+static void *testMemalign(size_t alignment,size_t bytes) {
  assert(alignment==64 && alloc_calls<2);allocations[alloc_calls++]=bytes;
  return alloc_calls==fail_alloc?NULL:malloc(bytes);
 }
-struct buffers { int size,count,result; };
-static struct buffers buffers_for(const char *in,const char *out,u64 size) {
- int buffSize,buffCount=1,ret=0,out_fd=99,recurses=0;
- void *buff=NULL,*buff2=NULL;
- alloc_calls=closed=removed=0;
+
 '''
 code += next(line for line in copy.splitlines() if line.startswith('#define COPY_BUFFER_FAST_DEFAULT ')) + '\n'
-a = copy.index('\t/* Determine the block size.')
-b = copy.index('\n\told_size = written_size;', a)
-code += copy[a:b] + r'''
-copy_file_data_done:
-copy_file_exit_mem_err:
- ;struct buffers result={buffSize,buffCount,ret};
- free(buff2);free(buff);return result;
+code += function(copy, 'int filerTransferBufferSize(')
+code += '#define memalign testMemalign\n#include "' + str(root / 'src/filer_transfer.c') + '"\n#undef memalign\n'
+code += r'''
+struct buffers { int size,count,result; };
+static struct buffers buffers_for(const char *in,const char *out,u64 size) {
+ void *first,*second;
+ alloc_calls=closed=removed=0;
+ int capacity=filerTransferBufferSize(in,out,size);
+ int count=filerAllocateTransferBuffers(capacity,&first,&second);
+ int result=count?0:-ENOMEM;
+ if(!count){filerCopyDiagStage("Allocating buffer");genClose(99);genRemove(out);}
+ free(first);free(second);
+ return (struct buffers){capacity,count,result};
 }
 static int tune_calls,tune_fail_mask,rw_available,requests[3];
 static int fileXioSetRWBufferSize(int size) {
@@ -178,5 +181,5 @@ with tempfile.TemporaryDirectory(prefix='r3z-file-io-') as folder:
     flags = ['-fsanitize=address,undefined', '-fno-omit-frame-pointer'] if os.environ.get('SANITIZE') else []
     for variant in ([], ['-DTEST_LEGACY_MC=1']):
         subprocess.run([compiler, '-std=c99', '-Wall', '-Wextra', '-Werror', *flags, *variant,
-                        str(path / 'test.c'), '-o', str(path / 'test')], check=True)
+                        '-I', str(root / 'include'), str(path / 'test.c'), '-o', str(path / 'test')], check=True)
         subprocess.run([str(path / 'test')], check=True)

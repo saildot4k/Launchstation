@@ -1,12 +1,13 @@
 """Run the real SAS encoder, snapshot and MC/PFS timestamp writers on host mocks."""
 from datetime import datetime, timedelta
+from source_groups import component_source
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-source = (root / 'src/filer_actions.c').read_text()
+source = component_source('src/filer_actions.c')
 
 def function(signature):
     start = source.index(signature)

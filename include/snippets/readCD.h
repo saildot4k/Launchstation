@@ -25,6 +25,7 @@ int readCD(const char *path, FILEINFO *info, int max)
 	strcpy(dir, &path[5]);
 	CDVD_FlushCache();
 	n = CDVD_GetDir(dir, NULL, CDVD_GET_FILES_AND_DIRS, TocEntryList, MAX_ENTRY, dir);
+	if (n < 0) return n;
 
 	for (i = j = 0; i < n; i++) {
 		if (TocEntryList[i].fileProperties & 0x02 &&

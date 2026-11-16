@@ -3,6 +3,7 @@
 Drivers, card RPCs and mounts are adapters; this is not console validation.
 An optional filer_actions.c path reproduces defects in an earlier implementation.
 """
+from source_groups import component_source
 from pathlib import Path
 import shutil
 import subprocess
@@ -496,7 +497,7 @@ int main(void){
 '''
 
 # Both browsers use the shared menu capability check and preserve large names.
-browser = (root / 'src/filer_browser.c').read_text()
+browser = component_source('src/filer_browser.c')
 assert 'if (!genCanRenamePath(path))\n\t\tenable[RENAME] = FALSE;' in browser
 assert 'filenameKeyboard(tmp, MAX_NAME - 1, path)' in browser
 assert 'dashModalFilename("New name", name, MAX_NAME - 1, fb.dir)' in (root / 'src/dash_browser.c').read_text()

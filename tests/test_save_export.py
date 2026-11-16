@@ -15,9 +15,37 @@ code = r'''
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+typedef struct {const SaveArchive *save;uint8_t *data;size_t length;int fail_read,fail_write;} StreamTest;
+static int streamRead(void *context,unsigned file,size_t offset,void *data,size_t size) {
+    StreamTest *test=context;
+    if(test->fail_read)return 0;
+    assert(file<test->save->count&&offset<=test->save->files[file].size&&size<=test->save->files[file].size-offset);
+    if(size)memcpy(data,test->save->files[file].data+offset,size);
+    return 1;
+}
+static int streamWrite(void *context,size_t offset,const void *data,size_t size) {
+    StreamTest *test=context;
+    if(test->fail_write)return 0;
+    assert(offset<=test->length&&size<=test->length-offset);
+    memcpy(test->data+offset,data,size);return 1;
+}
 static void output(SaveArchive *save,int format,const char *path) {
     uint8_t *data=NULL;size_t length;SaveArchive parsed;
     assert(saveArchiveBuild(save,format,&data,&length));
+    /* Tiny buffers exercise entry boundaries, padding and PSV's signature patch.
+     * Every streamed byte must match the independently checked buffered writer. */
+    for(int second=0;second<2;second++) {
+        uint8_t first[71],next[71];size_t measured;
+        StreamTest test={save,calloc(1,length),length,0,0};assert(test.data);
+        SaveArchiveStreamIo io={streamRead,NULL,&test,first,second?next:NULL,sizeof(first),NULL};
+        assert(saveArchiveStream(save,format,&io,&measured)&&measured==length);
+        io.write=streamWrite;
+        assert(saveArchiveStream(save,format,&io,&measured)&&measured==length);
+        assert(!memcmp(data,test.data,length));
+        test.fail_read=1;assert(!saveArchiveStream(save,format,&io,&measured));test.fail_read=0;
+        test.fail_write=1;assert(!saveArchiveStream(save,format,&io,&measured));
+        free(test.data);
+    }
     assert(saveArchiveParse(&parsed,data,length,path)&&parsed.ps1==save->ps1&&parsed.count==save->count);
     for(unsigned i=0;i<parsed.count;i++) {
         assert(!strcmp(parsed.files[i].name,save->files[i].name));
@@ -72,7 +100,7 @@ int main(int argc,char **argv) {
     files[2].size=SAVE_ARCHIVE_LIMIT;assert(!saveArchiveBuild(&save,SAVE_OUTPUT_PSU,&bad,&n));files[2].size=sizeof(payload);
     save.folder.mode=0x8497;assert(!saveArchiveBuild(&save,SAVE_OUTPUT_PSU,&bad,&n));
     save.count=SAVE_ARCHIVE_FILES+1;assert(!saveArchiveBuild(&save,SAVE_OUTPUT_PSU,&bad,&n));
-    puts("PASS: PS1 MCS/PSX/PSV and PS2 PSU/PSV round trips, one/multiple/fifteen PS1 blocks, 20-byte and Q-prefixed names, metadata, empty files and bounds");
+    puts("PASS: PS1 MCS/PSX/PSV and PS2 PSU/PSV buffered/streamed byte equivalence, single/double buffers, reader/writer failures, round trips, one/multiple/fifteen PS1 blocks, 20-byte and Q-prefixed names, metadata, empty files and bounds");
 }
 '''
 

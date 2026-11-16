@@ -45,3 +45,11 @@ iop/pccf/.clangd
 # Obsolete local build output (may contain old generated credentials)
 .cloud-deps/
 .cache/cloud-deps/
+
+# Host test bytecode caches
+__pycache__/
+
+# Experimental VU profiles / separate build outputs
+.ps2-vu-*.yaml
+build-vu-*/
+bench/vu/.clangd

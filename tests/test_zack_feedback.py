@@ -1,8 +1,9 @@
+from source_groups import component_source
 from pathlib import Path
 root=Path(__file__).resolve().parents[1]
 hdr=(root/"include/dash_internal.h").read_text()
 store=(root/"src/dash_store.c").read_text()
-settings=(root/"src/dash_settings.c").read_text()
+settings=component_source('src/dash_settings.c')
 main=(root/"src/dash_main.c").read_text()
 ui=(root/"src/dash_ui.c").read_text()
 files=(root/"src/dash_files.c").read_text()

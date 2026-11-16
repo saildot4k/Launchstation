@@ -1,3 +1,4 @@
+from source_groups import component_source
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
@@ -5,9 +6,9 @@ ui = (root / "src/dash_ui.c").read_text(encoding="utf-8")
 browser = (root / "src/dash_browser.c").read_text(encoding="utf-8")
 files = (root / "src/dash_files.c").read_text(encoding="utf-8")
 devices = (root / "src/dash_devices.c").read_text(encoding="utf-8")
-settings = (root / "src/dash_settings.c").read_text(encoding="utf-8")
+settings = component_source('src/dash_settings.c')
 editor = (root / "src/dash_editor.c").read_text(encoding="utf-8")
-classic = (root / "src/filer_browser.c").read_text(encoding="utf-8")
+classic = component_source('src/filer_browser.c')
 
 # 54/74: seconds stay; layout changes instead of deleting precision.
 assert "menuTitleFormatClockTime(time_text, sizeof(time_text), hour, minute, second, use_12h)" in classic

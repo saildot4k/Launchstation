@@ -3,11 +3,12 @@
 Regression: with eight rows the two-line help started at y=380 and its second
 line was drawn over the button hints (bar background starts at y=394).
 """
+from source_groups import component_source
 from pathlib import Path
 import re
 
 root = Path(__file__).resolve().parents[1]
-settings = (root / "src/dash_settings.c").read_text(encoding="utf-8")
+settings = component_source('src/dash_settings.c')
 ui = (root / "src/dash_ui.c").read_text(encoding="utf-8")
 
 rows = int(re.search(r"#define ITEM_ROWS (\d+)", settings).group(1))

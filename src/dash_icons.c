@@ -6,6 +6,7 @@
 //No additional CT32 pad tile atlas or PNG decoding is needed at startup.
 //--------------------------------------------------------------
 #include "dash_internal.h"
+#include "dash_profile.h"
 
 #define ICON_SIZE 64
 #define ICON_SLOT 68
@@ -784,6 +785,9 @@ void dashIconsInit(void)
 
 	if (icons_ready)
 		return;
+#if DASH_PROFILE
+	uint32_t started = dashProfileNow();
+#endif
 	mem = (u8 *)memalign(128, ICON_TEX_W * ICON_TEX_H);
 	if (mem == NULL)
 		return;
@@ -832,6 +836,9 @@ void dashIconsInit(void)
 	SyncDCache(mem, mem + ICON_TEX_W * ICON_TEX_H);
 	SyncDCache(icon_clut, (u8 *)icon_clut + sizeof(icon_clut));
 	icons_ready = 1;
+#if DASH_PROFILE
+	dashProfileEnd(DASH_PROF_ICONS, started);
+#endif
 }
 
 void dashIconsShutdown(void)

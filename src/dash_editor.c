@@ -763,9 +763,9 @@ static int editorMenu(EdDoc *d)
 	ADD(DI_CUT, "Cut", NULL, !has_sel, M_CUT);
 	ADD(DI_PLUS, "Paste", NULL, clip == NULL, M_PASTE);
 	ADD(DI_SETTINGS, "Line endings", eol_names[d->eol], 0, M_EOL);
-	ADD(DI_BTN_UP, "Go to the start", NULL, 0, M_GOTO_TOP);
-	ADD(DI_BTN_DOWN, "Go to the end", NULL, 0, M_GOTO_END);
-	ADD(DI_LAUNCH_ARGS, "Use as launch arguments", NULL, d->len == 0, M_LAUNCH);
+	ADD(DI_BTN_DOWN, "Go to the start", NULL, 0, M_GOTO_TOP);
+	ADD(DI_BTN_UP, "Go to the end", NULL, 0, M_GOTO_END);
+	ADD(DI_LAUNCH_ARGS, "Use as launch arguments", NULL, 0, M_LAUNCH);
 	ADD(DI_CLOSE, "Close document", NULL, 0, M_CLOSE);
 	ADD(DI_BACK, "Exit Text Editor", NULL, 0, M_EXIT);
 #undef ADD

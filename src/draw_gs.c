@@ -123,7 +123,9 @@ void setupGS(void)
 
 	// Buffer Init
 	gsGlobal->PrimAAEnable = GS_SETTING_ON;
-	gsGlobal->DoubleBuffering = GS_SETTING_OFF;
+	/* The dashboard is the only shell; allocate both framebuffers at boot
+	 * so entering it does not reinitialize the video output. */
+	gsGlobal->DoubleBuffering = GS_SETTING_ON;
 	gsGlobal->ZBuffering = GS_SETTING_OFF;
 
 	// DMAC Init

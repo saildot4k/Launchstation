@@ -61,6 +61,14 @@ static s32 waitFrame(void)
 	return __real_DelayThread(250);
 }
 
+void DashIoYield(void)
+{
+	if (!canCooperate() || Timer() < io_next_frame) return;
+	io_waiting++;
+	waitFrame();
+	io_waiting--;
+}
+
 static void rpcComplete(void *unused)
 {
 	(void)unused;

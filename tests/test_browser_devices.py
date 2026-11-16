@@ -1,11 +1,12 @@
 """Execute shared root labels and browser/picker row rendering on the host."""
+from source_groups import component_source
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-browser = (root / 'src/filer_browser.c').read_text()
+browser = component_source('src/filer_browser.c')
 widgets = (root / 'src/dash_widgets.c').read_text()
 devices = (root / 'src/dash_devices.c').read_text()
 header = (root / 'include/dash_internal.h').read_text()

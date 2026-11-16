@@ -31,13 +31,13 @@ static void sha_block(SaveSha1 *s)
 	s->hash[0] += a; s->hash[1] += b; s->hash[2] += c; s->hash[3] += d; s->hash[4] += e;
 }
 
-static void sha_init(SaveSha1 *s)
+void saveHashInit(SaveSha1 *s)
 {
 	static const uint32_t initial[5] = {0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0};
 	memcpy(s->hash, initial, sizeof(initial)); s->bytes = s->used = 0;
 }
 
-static void sha_update(SaveSha1 *s, const uint8_t *data, unsigned length)
+void saveHashUpdate(SaveSha1 *s, const uint8_t *data, unsigned length)
 {
 	s->bytes += length;
 	while (length) {
@@ -49,14 +49,14 @@ static void sha_update(SaveSha1 *s, const uint8_t *data, unsigned length)
 	}
 }
 
-static void sha_finish(SaveSha1 *s, uint8_t digest[20])
+void saveHashFinish(SaveSha1 *s, uint8_t digest[20])
 {
 	uint32_t bits = s->bytes << 3;
 	uint8_t padding[72] = {0x80};
 	unsigned n = s->used < 56 ? 56 - s->used : 120 - s->used;
 	padding[n + 4] = bits >> 24; padding[n + 5] = bits >> 16;
 	padding[n + 6] = bits >> 8; padding[n + 7] = bits;
-	sha_update(s, padding, n + 8);
+	saveHashUpdate(s, padding, n + 8);
 	for (unsigned i = 0; i < 20; i++) digest[i] = s->hash[i / 4] >> (24 - (i % 4) * 8);
 }
 
@@ -163,19 +163,19 @@ int saveSignInit(SaveSigner *s, const uint8_t seed[20], int type)
         memset(key + 20, 0, 44);
     }
     for (unsigned i = 0; i < 64; i++) { s->outer[i] = key[i] ^ 0x5c; key[i] ^= 0x36; }
-    sha_init(&s->sha); sha_update(&s->sha, key, 64);
+    saveHashInit(&s->sha); saveHashUpdate(&s->sha, key, 64);
     return 1;
 }
 
 void saveSignUpdate(SaveSigner *s, const uint8_t *data, unsigned length)
 {
-    sha_update(&s->sha, data, length);
+    saveHashUpdate(&s->sha, data, length);
 }
 
 void saveSignFinish(SaveSigner *s, uint8_t digest[20])
 {
     uint8_t inner[20];
-    sha_finish(&s->sha, inner);
-    sha_init(&s->sha); sha_update(&s->sha, s->outer, 64);
-    sha_update(&s->sha, inner, 20); sha_finish(&s->sha, digest);
+    saveHashFinish(&s->sha, inner);
+    saveHashInit(&s->sha); saveHashUpdate(&s->sha, s->outer, 64);
+    saveHashUpdate(&s->sha, inner, 20); saveHashFinish(&s->sha, digest);
 }

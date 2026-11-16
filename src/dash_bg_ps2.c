@@ -43,6 +43,11 @@
 //             trails with depth fade, and merged orbs bloom into one.
 //--------------------------------------------------------------
 #include "dash_internal.h"
+#include "dash_profile.h"
+#include "dash_vu_math.h"
+#if DASH_VU1
+#include "dash_vu_renderer.h"
+#endif
 
 #define PI_F 3.14159265f
 #define TAU_F 6.28318531f
@@ -72,6 +77,13 @@ static OrbStyle menuOrbStyle(DashColor c);
 void dashBgSceneTunnel(float t, int fx)
 {
 	DashColor wall = dashTheme.bg1, far_c = dashTheme.bg2;
+#if DASH_PROFILE
+	uint32_t started = dashProfileNow();
+#endif
+#if DASH_VU1
+	float radii[TUN_RINGS + 1];
+	int vu_active, vu_drawn = 0;
+#endif
 	float travel = t * 0.095f;
 	float s = travel - (float)(int)travel;
 	int base_ring = (int)travel;
@@ -93,18 +105,63 @@ void dashBgSceneTunnel(float t, int fx)
 		ca[j] = dashCosf(a);
 		sa[j] = dashSinf(a);
 	}
+#if DASH_VU1
+	int vu_result = wall.a == 255 && far_c.a == 255 ? dashGfxVu1Begin(cx, cy) : 0;
+	vu_active = vu_result > 0;
+	if (vu_result < 0) dashRect(0, 0, DASH_VW, DASH_VH, far_c);
+#endif
 	z = 38.0f * powf(1.32f, -s);
 	for (k = 0; k <= TUN_RINGS; k++) {
 		float radius = 230.0f * 110.0f / z;
 		float fog = dashClampf(1.0f - (z - 38.0f) / 1100.0f, 0.0f, 1.0f);
 
 		bright[k] = fog * fog;
+#if DASH_VU1
+		radii[k] = radius;
+		if (vu_active) {
+			z *= 1.32f;
+			continue;
+		}
+#endif
 		for (j = 0; j <= TUN_SEGS; j += seg_step) {
 			px[k][j] = cx + ca[j] * radius * 1.18f;
 			py[k][j] = cy + sa[j] * radius;
 		}
 		z *= 1.32f;
 	}
+#if DASH_VU1
+	if (vu_active) {
+		int ok = 1;
+		for (k = TUN_RINGS - 1; k >= 0 && ok; k--) {
+			for (j = 0; j < TUN_SEGS && ok; j += seg_step) {
+				int j2 = j + seg_step;
+				float n = 0.5f + 0.5f * dashBgHash(k + base_ring, j);
+				float n2 = 0.5f + 0.5f * dashBgHash(k + base_ring + 1, j);
+				DashColor cn = colA(dashColorScale(wall, bright[k] * n), 255);
+				DashColor cf = colA(dashColorScale(wall, bright[k + 1] * n2), 255);
+
+				cn = dashColorLerp(far_c, cn, bright[k]);
+				cf = dashColorLerp(far_c, cf, bright[k + 1]);
+				uint32_t near_rgba = cn.r | ((uint32_t)cn.g << 8) | ((uint32_t)cn.b << 16) | (128u << 24);
+				uint32_t far_rgba = cf.r | ((uint32_t)cf.g << 8) | ((uint32_t)cf.b << 16) | (128u << 24);
+				ok = dashGfxVu1Quad(ca[j], sa[j], ca[j2], sa[j2], radii[k], radii[k+1], near_rgba, far_rgba);
+			}
+		}
+		int finished = dashGfxVu1End();
+		vu_drawn = ok && finished;
+		if (!vu_drawn) {
+			/* Recompute only on failure. Successful VU1 frames never build
+			 * the duplicate EE-projected vertex arrays. */
+			dashRect(0, 0, DASH_VW, DASH_VH, far_c);
+			for (k = 0; k <= TUN_RINGS; k++)
+				for (j = 0; j <= TUN_SEGS; j += seg_step) {
+					px[k][j] = cx + ca[j] * radii[k] * 1.18f;
+					py[k][j] = cy + sa[j] * radii[k];
+				}
+		}
+	}
+	if (!vu_drawn) {
+#endif
 	for (k = TUN_RINGS - 1; k >= 0; k--) {
 		for (j = 0; j < TUN_SEGS; j += seg_step) {
 			int j2 = j + seg_step;
@@ -120,6 +177,12 @@ void dashBgSceneTunnel(float t, int fx)
 			          cn, cn, cf, cf);
 		}
 	}
+#if DASH_VU1
+	}
+#endif
+#if DASH_PROFILE
+	dashProfileEnd(DASH_PROF_TUNNEL, started);
+#endif
 	dashGlow(cx, cy, 170, 130, colA(far_c, 200));
 	{
 		OrbStyle st = menuOrbStyle(DC(80, 160, 255, 255));
@@ -160,12 +223,9 @@ void dashBgSceneMist(float t, int fx)
 #define TW_PITCH 10.0f
 #define TW_HALF 3.7f
 
-typedef struct
-{
-	float x, y, h, lum;
-} TowerCell;
+typedef DashVuTower TowerCell;
 
-static TowerCell tw_cells[TW_N];
+static TowerCell tw_cells[TW_N] __attribute__((aligned(16)));
 static short tw_order[TW_N];
 static int tw_count;
 
@@ -255,6 +315,21 @@ void dashBgSceneTowers(float t, int fx)
 	/* the fog pool the field falls into */
 	dashGlow(cam.cx, cam.cy, 300, 230, colA(dashColorScale(fog, 0.7f), 150));
 
+#if DASH_VU0 || DASH_PROFILE
+	static DashVuProjection projected[TW_N] __attribute__((aligned(16)));
+	DashVuCamera camera __attribute__((aligned(16))) = {cam.ca, cam.sa, cam.cx, cam.cy, cam.cam_h, cam.f, TW_HALF, -40.0f};
+#if DASH_PROFILE
+	uint32_t started = dashProfileNow();
+#endif
+#if DASH_VU0
+	dashVuTowerProject(&camera, tw_cells, tw_count, projected);
+#else
+	dashVuTowerProjectCpu(&camera, tw_cells, tw_count, projected);
+#endif
+#if DASH_PROFILE
+	dashProfileEnd(DASH_PROF_TOWERS, started);
+#endif
+#endif
 	for (n = 0; n < tw_count; n++) {
 		const TowerCell *c;
 		float x0, x1, y0, y1;
@@ -275,6 +350,13 @@ void dashBgSceneTowers(float t, int fx)
 		/* ground level: well below the camera's view of the floor */
 		const float gh = -40.0f;
 
+#if DASH_VU0 || DASH_PROFILE
+		(void)gh;
+		memcpy(tx, projected[tw_order[n]].tx, sizeof(tx));
+		memcpy(ty, projected[tw_order[n]].ty, sizeof(ty));
+		memcpy(bx, projected[tw_order[n]].bx, sizeof(bx));
+		memcpy(by, projected[tw_order[n]].by, sizeof(by));
+#else
 		twProject(&cam, x0, y0, c->h, &tx[0], &ty[0]);
 		twProject(&cam, x1, y0, c->h, &tx[1], &ty[1]);
 		twProject(&cam, x0, y1, c->h, &tx[2], &ty[2]);
@@ -283,6 +365,7 @@ void dashBgSceneTowers(float t, int fx)
 		twProject(&cam, x1, y0, gh, &bx[1], &by[1]);
 		twProject(&cam, x0, y1, gh, &bx[2], &by[2]);
 		twProject(&cam, x1, y1, gh, &bx[3], &by[3]);
+#endif
 
 		/* the faces that look towards the camera axis */
 		if (x0 > 0.0f) /* -X face: corners 0,2 */
@@ -484,7 +567,7 @@ static void osdTime(int fx, OsdTime *o)
 		tick_t = now;
 		ready = 1;
 	}
-	if (fx != DASH_FX_OFF) {
+	if (fx != DASH_FX_OFF && dashCfg.effects > 0) {
 		float seconds;
 		int minutes;
 		/* Re-anchor only on a valid RTC tick or recovery, not on computed

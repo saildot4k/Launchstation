@@ -3,6 +3,7 @@
 Serializers and I/O are mocked; this is not console or filesystem validation.
 Pass an optional git ref to test the same assertions against the old source.
 """
+from source_groups import component_source
 from pathlib import Path
 import shutil
 import subprocess
@@ -12,7 +13,7 @@ import tempfile
 root = Path(__file__).resolve().parents[1]
 source = (subprocess.check_output(["git", "show", f"{sys.argv[1]}:src/dash_settings.c"],
                                   cwd=root, text=True) if len(sys.argv) > 1 else
-          (root / "src/dash_settings.c").read_text())
+          component_source('src/dash_settings.c'))
 
 
 def function(signature):

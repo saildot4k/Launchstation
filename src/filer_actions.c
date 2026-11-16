@@ -1,6 +1,7 @@
 #include "launchelf.h"
 #include "dash.h"
 #include "filer_actions.h"
+#include "filer_tree.h"
 #include "filer_shared.h"
 #include "gui_hdd0_format.h"
 #include "init.h"
@@ -276,58 +277,8 @@ int filerConfirmExploitModify(const char *path, const FILEINFO *file)
 	return filerConfirmExploitAction(path, file, LNG(Modify));
 }
 
-u64 getFileSize(const char *path, const FILEINFO *file)
-{
-	iox_stat_t stat;
-	u64 size, filesize;
-	FILEINFO files[MAX_ENTRY];
-	char dir[MAX_PATH], party[MAX_NAME];
-	int nfiles, i, ret;
 
-	if (!ensurePathDeviceStackReady(path))
-		return 0;
-
-	if (file->stats.AttrFile & sceMcFileAttrSubdir) {  //Folder object to size up
-		sprintf(dir, "%s%s/", path, file->name);
-		nfiles = getDir(dir, files);
-		for (i = size = 0; i < nfiles; i++) {
-			filesize = getFileSize(dir, &files[i]);  //recurse for each object in folder
-			if (filesize < 0)
-				return -1;
-			else
-				size += filesize;
-		}
-	} else {  //File object to size up
-		if (!strncmp(path, "hdd", 3)) {
-			getHddParty(path, file, party, dir);
-			ret = mountParty(party);
-			if (ret < 0)
-				return 0;
-			dir[3] = ret + '0';
-#ifdef DVRP
-		} else if (!strncmp(path, "dvr_hdd", 7)) {
-			getHddDVRPParty(path, file, party, dir);
-			ret = mountDVRPParty(party);
-			if (ret < 0)
-				return 0;
-			dir[7] = ret + '0';
-#endif
-		} else
-			sprintf(dir, "%s%s", path, file->name);
-#if defined(ETH) || defined(UDPFS)
-		if (!strncmp(dir, "host:/", 6))
-			makeHostPath(dir, dir);
-#endif
-		if (genGetStat(dir, &stat) < 0)
-			return 0;
-		size = ((u64)stat.hisize << 32) | (u64)stat.size;
-	}
-	return size;
-}
-//------------------------------
-//endfunc getFileSize
-//--------------------------------------------------------------
-//
+/* Timestamp tools. */
 enum {
 	CUSTOM_DATE_HOUR,
 	CUSTOM_DATE_MINUTE,
@@ -1842,11 +1793,11 @@ void make_title_cfg(const char *path, const FILEINFO *file, char *_msg0)
 //------------------------------
 //endfunc make_title_cfg
 //--------------------------------------------------------------
-int delete (const char *path, const FILEINFO *file)
+static int deleteTreeEntry(const char *path, const FILEINFO *file, void *context)
 {
-	FILEINFO files[MAX_ENTRY];
 	char party[MAX_NAME], dir[MAX_PATH], hdddir[MAX_PATH];
-	int nfiles, i, ret;
+	int ret;
+	(void)context;
 
 	if (!ensurePathDeviceStackReady(path))
 		return -1;
@@ -1869,7 +1820,7 @@ int delete (const char *path, const FILEINFO *file)
 		hdddir[7] = ret + '0';
 #endif
 	}
-	sprintf(dir, "%s%s", path, file->name);
+	if (snprintf(dir, sizeof(dir), "%s%s", path, file->name) >= (int)sizeof(dir) - 1) return -ENAMETOOLONG;
 	genLimObjName(dir, 0);
 #if defined(ETH) || defined(UDPFS)
 	if (!strncmp(dir, "host:/", 6))
@@ -1877,13 +1828,6 @@ int delete (const char *path, const FILEINFO *file)
 #endif
 	if (file->stats.AttrFile & sceMcFileAttrSubdir) {  //Is the object to delete a folder ?
 		strcat(dir, "/");
-		nfiles = getDir(dir, files);
-		if (nfiles < 0) return nfiles;
-		for (i = 0; i < nfiles; i++) {
-			ret = delete (dir, &files[i]);  //recursively delete contents of folder
-			if (ret < 0)
-				return -1;
-		}
 		if (!strncmp(dir, "mc", 2)) {
 			ensureMemoryCardPortAccessible(dir[2] - '0');
 			mcSync(0, NULL, NULL);
@@ -1901,7 +1845,7 @@ int delete (const char *path, const FILEINFO *file)
 			ret = genRmdir(dir);
 
 		} else {  //For all other devices
-			sprintf(dir, "%s%s", path, file->name);
+			if (snprintf(dir, sizeof(dir), "%s%s", path, file->name) >= (int)sizeof(dir) - 1) return -ENAMETOOLONG;
 			ret = genRmdir(dir);
 		}
 	} else {  //The object to delete is a file
@@ -1926,6 +1870,13 @@ int delete (const char *path, const FILEINFO *file)
 	}
 	return ret;
 }
+
+int delete (const char *path, const FILEINFO *file)
+{
+ if (!ensurePathDeviceStackReady(path)) return -1;
+ return filerWalkTree(path, file, deleteTreeEntry, NULL);
+}
+
 //--------------------------------------------------------------
 static int filerRenameHost(const char *old_path, const char *new_path, int directory, int case_alias)
 {

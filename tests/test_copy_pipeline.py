@@ -6,6 +6,7 @@ PSU archives use the real reader/writer helpers and matching MC table layout.
 This does not emulate a UDPFS server, libmc or physical memory cards.
 Optional copy/fileops source paths run the same matrix against negative controls.
 """
+from source_groups import component_source
 from pathlib import Path
 import re
 import shutil
@@ -14,7 +15,7 @@ import sys
 import tempfile
 root=Path(__file__).resolve().parents[1]
 copy=(Path(sys.argv[1]) if len(sys.argv)>1 else root/'src/filer_copy.c').read_text()
-browser=(root/'src/filer_browser.c').read_text()
+browser=component_source('src/filer_browser.c')
 mmce=(root/'iop/mmceman/src/mmce_fs.c').read_text()
 device=(root/'src/filer_device.c').read_text()
 hdd=(root/'src/gui_hdd0_format.c').read_text()
@@ -306,6 +307,8 @@ for name in ('MC_SFI', 'MC_ATTR_norm_folder', 'MC_ATTR_norm_file',
              'HDD_ATTR_save_folder', 'HDD_ATTR_save_prot_folder', 'COPY_BUFFER_FAST_DEFAULT'):
     definition = next(line for line in copy.splitlines() if line.startswith('#define ' + name + ' '))
     code = re.sub(r'^#define ' + name + r' .*$', definition, code, flags=re.MULTILINE)
+code+='#include "'+str(root/'src/filer_transfer.c')+'"\n'
+code+=function(copy,'int filerTransferBufferSize(')
 code+=function(mmce,'int mmce_fs_getstat(').replace('int mmce_fs_getstat(', 'static int mmce_fs_getstat(',1)
 for sig in ('static void ensurePathMemoryCardAccessible(',
             'static int ensurePathPcCardCfOnline(', 'static void normalizePcCardCfPath('):
@@ -814,5 +817,5 @@ with tempfile.TemporaryDirectory(prefix='copy-pipeline-') as folder:
     cc=shutil.which('gcc') or shutil.which('cc')
     if not cc: raise SystemExit('Host C compiler required')
     subprocess.run([cc,'-std=gnu99','-Werror=implicit-function-declaration','-I'+str(p),
-                    '-I'+str(root/'iop/mmceman/include'),str(p/'test.c'),'-o',str(exe)],check=True)
+                    '-I'+str(root/'include'),'-I'+str(root/'iop/mmceman/include'),str(p/'test.c'),'-o',str(exe)],check=True)
     subprocess.run([str(exe)],cwd=p,check=True,timeout=20)

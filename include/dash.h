@@ -49,6 +49,8 @@ int DashFileTransferProgress(const char *action, const char *name, u64 remaining
 /* Named stage before byte counts are known; index/count refer to batch items. */
 int DashFileOperationStatus(const char *action, const char *name, u64 index, u64 count);
 void DashFileOperationEnd(void);
+/* Drawing-only yield for bounded EE work; never polls or dispatches device I/O. */
+void DashIoYield(void);
 void DashFileDeleteProgress(const char *name);
 /* Batch save conflict: 1 continues, 0 skips, -1 cancels. UI thread only. */
 int DashSaveConflictChoice(const char *name);

@@ -342,26 +342,6 @@ static void formatBrowserPathForDisplay(const char *path, char *display_path)
 	snprintf(display_path, MAX_PATH, "%s", path);
 }
 
-static int isTitleCfgPathEligible(const char *path, int menu_disabled)
-{
-	return ((!strncmp(path, "mass", 4)) ||
-	        (!strncmp(path, "usb", 3)) ||
-	        (!strncmp(path, "mc0:", 4)) ||
-	        (!strncmp(path, "mc1:", 4)) ||
-#ifdef MMCE
-	        (!strncmp(path, "mmce", 4)) ||
-#endif
-#ifdef MX4SIO
-	        (!strncmp(path, "mx4sio", 6)) ||
-#endif
-#ifdef UDPFS
-	        (!strncmp(path, "udpfs", 5)) ||
-#endif
-	        (!strncmp(path, "ata", 3)) ||
-	        isPcCardCfPath(path) ||
-	        (isHddBrowserPath(path) && !menu_disabled));
-}
-
 enum {
 	PSU_ACTION_NONE = 0,
 	PSU_ACTION_CREATE,
@@ -404,136 +384,6 @@ static int classifyPsuAction(const char *destPath)
 	return PSU_ACTION_NONE;
 }
 
-/* Filename eligibility only; VMCMAN validates the complete card on mount. */
-static int isVmcImageName(const char *name)
-{
-	static const char *const extensions[] = {
-		"VMC", "MCD", "MC2", "BIN", "MCR", "MC", "SRM", "VM1",
-		"DDF", "PS", "PSM", "SAV", "PS2", "VM2", "RAW",
-		"GME", "VGS", "MEM", "VMP"
-	};
-
-	for (unsigned int i = 0; i < sizeof(extensions) / sizeof(extensions[0]); i++)
-		if (genCmpFileExt(name, extensions[i]))
-			return TRUE;
-	return FALSE;
-}
-
-/* Which file operations are allowed on `file` in `path` (read-only
- * devices, partition and device lists, the clipboard...). Shared by the
- * classic menu and the dashboard File Browser. */
-void filerMenuEnables(const char *path, const FILEINFO *file, int nmarked, int card_type, char enable[NUM_MENU])
-{
-	int menu_disabled = 0;
-	int write_disabled = 0;
-
-	memset(enable, TRUE, NUM_MENU);  //Assume that all menu items are legal by default
-
-	if (isPcCardCfPath(path)) {
-		if (!isPcCardCfOnline()) {
-			menu_disabled = 1;
-			write_disabled = 1;
-		}
-	}
-
-	//identify cases where write access is illegal, and disable menu items accordingly
-	if ((!strncmp(path, "cdfs", 4))  //Writing is always illegal for CDVD drive
-#if defined(ETH) && defined(UDPFS)
-	    || ((!strncmp(path, "host", 4) || !strncmp(path, "udpfs", 5))
-#elif defined(ETH)
-	    || ((!strncmp(path, "host", 4))
-#elif defined(UDPFS)
-	    || ((!strncmp(path, "udpfs", 5))
-#endif
-#if defined(ETH) || defined(UDPFS)
-	        && ((!setting->HOSTwrite)                         //host/udpfs writing is illegal if not enabled in CNF
-	            || (host_elflist && !strcmp(path, "host:/"))  //it's also illegal in elflist.txt
-	            ))
-#endif
-				)
-		write_disabled = 1;
-
-	if ((isHddRootPath(path) || !strcmp(path, "dvr_hdd0:/")) || path[0] == 0)  //No menu cmds in partition/device lists
-		menu_disabled = 1;
-
-	if (menu_disabled) {
-		enable[COPY] = FALSE;
-		enable[MOUNTVMC0] = FALSE;
-		enable[MOUNTVMC1] = FALSE;
-		enable[GETSIZE] = FALSE;
-	}
-	enable[TIMEMANIP_CUSTOM] = filerCanOrganizeFolderTimestamps(path);
-	if (genCmpFileExt(file->name, "ELF") && isTitleCfgPathEligible(path, menu_disabled))
-		enable[TITLE_CFG] = TRUE;
-	else
-		enable[TITLE_CFG] = FALSE;
-
-	enable[OPEN_TEXTEDITOR] = canOpenInTextEditor(path, file);
-	enable[LAUNCH_ELF_ARGS] = enable[OPEN_TEXTEDITOR];
-
-	if (isPcCardCfPath(path)) {
-		enable[MOUNTVMC0] = FALSE;
-		enable[MOUNTVMC1] = FALSE;
-		enable[LAUNCH_ELF_ARGS] = FALSE;
-		if (!isPcCardCfOnline())
-			enable[OPEN_TEXTEDITOR] = FALSE;
-	}
-
-
-	if (write_disabled || menu_disabled) {
-		enable[CUT] = FALSE;
-		enable[PASTE] = FALSE;
-		enable[DELETE] = FALSE;
-		enable[RENAME] = FALSE;
-		enable[NEWDIR] = FALSE;
-		enable[NEWICON] = FALSE;
-		enable[TITLE_CFG] = FALSE;
-	}
-	if (!genCanRenamePath(path))
-		enable[RENAME] = FALSE;
-
-	if (nmarked == 0) {
-		if (!strcmp(file->name, "..")) {
-			enable[COPY] = FALSE;
-			enable[CUT] = FALSE;
-			enable[DELETE] = FALSE;
-			enable[RENAME] = FALSE;
-			enable[GETSIZE] = FALSE;
-		}
-		if (filerIsExploitProtectedPath(path, file))
-			enable[RENAME] = FALSE;
-	} else {
-		enable[RENAME] = FALSE;
-	}
-
-	if (!isVmcImageName(file->name) || (file->stats.AttrFile & sceMcFileAttrSubdir) ||
-	    !strncmp(path, "vmc", 3) || !strncmp(path, "mc", 2)) {
-		enable[MOUNTVMC0] = FALSE;  //forbid insane VMC mounting
-		enable[MOUNTVMC1] = FALSE;  //forbid insane VMC mounting
-	}
-
-	enable[IMPORT_SAVE] = !write_disabled && !menu_disabled && genCanRenamePath(path) && filerCanImportClipboard();
-	enable[EXPORT_PS1] = !menu_disabled &&
-		((!(file->stats.AttrFile & sceMcFileAttrSubdir) && filerIsPs1Image(file->name)) ||
-		 (card_type == 1 && isMcLikePath(path)));
-	enable[CREATE_ARCHIVE] = !write_disabled && !menu_disabled && genCanRenamePath(path) &&
-	                         strncmp(path, "host", 4) && filerArchiveClipboardKind() != FILER_SAVE_NONE &&
-	                         !(card_type == 1 && isMcLikePath(path));
-	if (nclipFiles == 0) enable[PASTE] = FALSE;
-
-	/* PS1 cards are a flat list of save files, on both physical and VMC media. */
-	if (card_type == 1 && isMcLikePath(path)) {
-		enable[NEWDIR] = FALSE;
-		enable[NEWICON] = FALSE;
-		enable[OPEN_TEXTEDITOR] = FALSE;
-		enable[LAUNCH_ELF_ARGS] = FALSE;
-		enable[TITLE_CFG] = FALSE;
-		enable[TIMEMANIP_CUSTOM] = FALSE;
-		for (int i = 0; i < nclipFiles; i++)
-			if (clipFiles[i].stats.AttrFile & sceMcFileAttrSubdir) enable[PASTE] = FALSE;
-	}
-}
-
 static int menu(const char *path, FILEINFO *file, int card_type, const FILEINFO *save_file)
 {
 	u64 color;
@@ -562,7 +412,7 @@ static int menu(const char *path, FILEINFO *file, int card_type, const FILEINFO 
 	if (menu_len < 25) menu_len = 25; /* Save import/export labels. */
 	int menu_ch_w = menu_len + 1;                                 //Total characters in longest menu string
 	filerMenuEnables(path, file, nmarks, card_type, enable);
-	int menu_ch_h = NUM_MENU - !enable[MOUNTVMC0] - !enable[MOUNTVMC1]; //Visible menu lines
+	int menu_ch_h = filerMenuRowCount(enable, FILER_MENU_CLASSIC); //Visible menu lines
 	int mSprite_Y1 = 64;                                          //Top edge of sprite
 	int mSprite_X2 = SCREEN_WIDTH - 35;                           //Right edge of sprite
 	int mSprite_X1 = mSprite_X2 - (menu_ch_w + 3) * FONT_WIDTH;   //Left edge of sprite
@@ -617,7 +467,7 @@ static int menu(const char *path, FILEINFO *file, int card_type, const FILEINFO 
 
 			sel_y = -1;
 			for (i = 0, y = mSprite_Y1 + FONT_HEIGHT / 2; i < NUM_MENU; i++) {
-				if ((i == MOUNTVMC0 || i == MOUNTVMC1) && !enable[i])
+				if (!filerMenuVisible(i, enable, FILER_MENU_CLASSIC))
 					continue;
 				if (i == sel)
 					sel_y = y;
@@ -2152,7 +2002,7 @@ static void submenu_func_GetSize(char *mess, char *path, FILEINFO *files)
 
 	drawMsg(LNG(Checking_Size));
 	if (nmarks == 0) {
-		size = getFileSize(path, &files[browser_sel]);
+		if (getFileSize(path, &files[browser_sel], &size) < 0) size = (u64)-1;
 		sel = browser_sel;  //for stat checking
 		if ((size != (u64)-1) && (files[browser_sel].stats.AttrFile & sceMcFileAttrSubdir)) {
 			files[browser_sel].stats.FileSizeByte = (u32)size;
@@ -2161,8 +2011,7 @@ static void submenu_func_GetSize(char *mess, char *path, FILEINFO *files)
 	} else {
 		for (i = size = 0; i < browser_nfiles; i++) {
 			if (marks[i]) {
-				entry_size = getFileSize(path, &files[i]);
-				if (entry_size == (u64)-1) {
+				if (getFileSize(path, &files[i], &entry_size) < 0 || entry_size >= ~(u64)0 - size) {
 					size = (u64)-1;
 					break;
 				}

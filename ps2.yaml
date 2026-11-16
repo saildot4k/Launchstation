@@ -317,7 +317,11 @@ targets:
       - src/filer_mount.c
       - src/filer_fileops.c
       - src/filer_actions.c
+      - src/filer_tree.c
+      - src/filer_transfer.c
       - src/filer_browser.c
+      - src/filer_menu.c
+      - src/filer_menu_rules.c
       - src/filer_copy.c
       - src/gui_sort.c
       - src/gui_texteditor.c
@@ -327,6 +331,10 @@ targets:
       - src/save_sign.c
       - src/save_lzari.c
       - src/filer_saves.c
+      - src/filer_save_export.c
+      - src/filer_save_cards.c
+      - src/filer_save_io.c
+      - src/filer_save_progress.c
       - src/hdd.c
       - src/hdd_header_injector.c
       - src/hdl_rpc.c
@@ -356,6 +364,10 @@ targets:
       - src/dash_ftp.c
       - src/ftp_session.c
       - src/dash_gfx.c
+      - src/dash_profile.c
+      - src/dash_vu_math.c
+      - src/dash_vu1.c
+      - src/dash_vu1_tunnel.vsm
       - src/dash_font.c
       - src/dash_font_data.c
       - src/dash_font_emotion_engine.c
@@ -375,6 +387,8 @@ targets:
       - src/dash_files.c
       - src/dash_tools.c
       - src/dash_settings.c
+      - src/dash_settings_clock.c
+      - src/dash_settings_theme.c
       - src/dash_theme.c
       - src/dash_themes.c
       - src/dash_sound.c
