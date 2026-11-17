@@ -329,10 +329,26 @@ int main(void) {
   hddNavigate(down);assert(sel==0 && sel_anim==0);
   if(n>1) {hddNavigate(down);assert(sel==1 && sel_anim==0);}
  }
- hm.n=31;sel=3;sel_anim=3;page.pressed=DASH_IN_L2;
- hddNavigate(page);assert(sel==24 && sel_anim==24);
- sel=28;sel_anim=28;page.pressed=DASH_IN_R2;
- hddNavigate(page);assert(sel==7 && sel_anim==7);
+ /* HDD Manager pages ten partitions with D-pad Left/Right only. */
+ for(int n=0;n<=31;n++) {
+  hm.n=n;
+  for(int i=0;i<(n?n:1);i++) {
+   sel=i;sel_anim=i;hddNavigate(left);
+   assert(sel==(n?(i==0?n-1:(i<ROWS?0:i-ROWS)):0));
+   assert(sel_anim==(n && i==0?sel:i));
+   sel=i;sel_anim=i;hddNavigate(right);
+   assert(sel==(n?(i==n-1?0:(i+ROWS>=n?n-1:i+ROWS)):0));
+   assert(sel_anim==(n && i==n-1?sel:i));
+   sel=i;sel_anim=i;page.pressed=DASH_IN_L2|DASH_IN_R2;
+   hddNavigate(page);assert(sel==i && sel_anim==i);
+  }
+ }
+ hm.n=31;sel=3;sel_anim=3;
+ hddNavigate(left);assert(sel==0);
+ hddNavigate(left);assert(sel==30 && sel_anim==30);
+ sel=28;sel_anim=28;
+ hddNavigate(right);assert(sel==30);
+ hddNavigate(right);assert(sel==0 && sel_anim==0);
  for(norder=1;norder<=17;norder++) {
   sel=0;sel_anim=grid_cam=0;gridMove(&up);assert(sel==norder-1 && sel_anim==sel);
   gridMove(&down);assert(sel==0 && sel_anim==0 && grid_cam==0);
