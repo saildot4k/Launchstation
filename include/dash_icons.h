@@ -75,6 +75,7 @@ enum DashIcon {
 	DI_KEYBOARD,    /* wired keyboard with keys and a space bar */
 	DI_HIDE,        /* crossed-out eye for application visibility */
 	DI_UNDO,        /* counterclockwise arrow for reset actions */
+	DI_COMPACTFLASH, /* wide CF card with an inset connector/label panel */
 	DI_COUNT
 };
 

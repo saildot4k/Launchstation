@@ -12,7 +12,7 @@
 #define ICON_SLOT 68
 #define ICON_COLS 7
 #define ICON_TEX_W 512
-#define ICON_TEX_H 704
+#define ICON_TEX_H 736
 #define SELECT_HALF_W 0.68f
 
 /* Header shapes and action icons use the narrow right margin. Keep the
@@ -559,6 +559,27 @@ static float iconSdf(int id, V2 p)
 					                       0.075f, 0.16f, 0.025f, 0.035f));
 				d = U(d, sdSeg(p, -0.72f, 0.54f, 0.36f, 0.54f, 0.045f));
 				d = U(d, sdSeg(p, 0.54f, 0.54f, 0.72f, 0.54f, 0.045f));
+			}
+			break;
+		case DI_COMPACTFLASH:
+			{
+				/* Broad CF shell, inset top bay and shouldered face panel.
+				 * The shape stays open and theme-tinted at device-row sizes. */
+				static const V2 panel[] = {
+					{-0.50f, -0.56f}, {0.50f, -0.56f}, {0.58f, -0.48f},
+					{0.58f, -0.08f}, {0.70f, 0.10f}, {0.70f, 0.54f},
+					{0.60f, 0.62f}, {-0.60f, 0.62f}, {-0.70f, 0.54f},
+					{-0.70f, 0.10f}, {-0.58f, -0.08f}, {-0.58f, -0.48f}
+				};
+				int i;
+
+				d = sdBoxOutline(p, 0.0f, 0.02f, 0.86f, 0.76f, 0.055f, 0.055f);
+				for (i = 0; i < (int)(sizeof(panel) / sizeof(panel[0])); i++) {
+					V2 a = panel[i], b = panel[(i + 1) % (sizeof(panel) / sizeof(panel[0]))];
+					d = U(d, sdSeg(p, a.x, a.y, b.x, b.y, 0.045f));
+				}
+				d = U(d, sdBoxOutline(p, 0.0f, -0.31f, 0.42f, 0.16f, 0.02f, 0.04f));
+				d = U(d, sdBoxOutline(p, 0.0f, 0.22f, 0.43f, 0.29f, 0.035f, 0.04f));
 			}
 			break;
 		case DI_CHIP:
