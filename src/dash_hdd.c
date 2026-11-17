@@ -128,7 +128,7 @@ static int pfsMakeRoom(int limit)
 static int pfsMountForInfo(const char *dev)
 {
 	int i, ret;
-	char pfs[8];
+	char pfs[16];
 
 	for (i = 0; i < MOUNT_LIMIT; i++) {
 		if (!strcmp(mountedParty[i], dev)) {
@@ -229,7 +229,7 @@ static void scanRun(HddJob *j)
 
 static void pfsRun(HddJob *j)
 {
-	char dev[48], pfs[8];
+	char dev[48], pfs[16];
 	int idx, zfree, zsize;
 
 	snprintf(dev, sizeof(dev), "hdd0:%s", j->a);

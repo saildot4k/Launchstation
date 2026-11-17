@@ -250,6 +250,6 @@ assert compiler, "A host C compiler is required"
 with tempfile.TemporaryDirectory(prefix="hdd-mounts-") as directory:
     c, executable = Path(directory) / "check.c", Path(directory) / "check"
     c.write_text(code)
-    subprocess.run([compiler, "-std=c99", "-Wall", "-Wextra", "-Werror",
+    subprocess.run([compiler, "-std=c99", "-Wall", "-Wextra", "-Werror", "-Wformat-truncation=2",
                     str(c), "-o", str(executable)], check=True)
     subprocess.run([str(executable)], check=True, timeout=10)
