@@ -255,7 +255,7 @@ void dashStoreDefaults(void)
 	dashCfg.app_filter = 0;
 	dashCfg.files_mode = 0;
 	dashCfg.home_shortcuts = 1;
-	dashCfg.icon_backing = 1;
+	dashCfg.icon_backing = 0;
 	for (i = 0; i < (int)(sizeof(default_scan) / sizeof(default_scan[0])); i++)
 		dashStrCopy(dashCfg.scan[dashCfg.nscan++], default_scan[i], DASH_PATH_MAX);
 }
@@ -333,7 +333,7 @@ static int settingsKv(const char *key, char *value, void *user)
 	else if (!stricmp(key, "Dash_HomeShortcuts"))
 		dashCfg.home_shortcuts = clampInt(value, 0, 1, 1);
 	else if (!stricmp(key, "Dash_IconBacking"))
-		dashCfg.icon_backing = clampInt(value, 0, 1, 1);
+		dashCfg.icon_backing = clampInt(value, 0, 1, 0);
 	else if (!stricmp(key, "Dash_TemperatureFahrenheit"))
 		dashCfg.temp_fahrenheit = clampInt(value, 0, 1, 0);
 	else if (dashThemeStoreKey(key, value))

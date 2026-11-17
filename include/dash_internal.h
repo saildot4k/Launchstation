@@ -243,6 +243,7 @@ typedef struct
 extern DashTheme dashTheme;
 
 void dashThemeInit(void);
+int dashThemeDefaultPreset(void);
 int dashThemePresetCount(void);
 const DashThemePresetInfo *dashThemePresetInfo(int i);
 int dashThemePresetIndex(void); /* active preset, -1 = customised */
