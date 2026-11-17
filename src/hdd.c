@@ -204,7 +204,7 @@ typedef struct
 static const HDDSTATUSINFO HddStatusInfo[] = {
 	{3, "NO HDD", "No suitable HDD was detected by the HDD driver.\nCheck the drive, adapter, power, DEV9, or ATA stack."},
 	{2, "LOCKED", "The HDD was detected, but the driver could not\ncomplete the unlock/usability check."},
-	{1, "NO APA", "The HDD is usable, but no APA format was found.\nFormat the HDD before creating partitions."},
+	{1, "NO APA", "The HDD is usable, but no APA format was found.\nThe drive may use another filesystem."},
 	{0, "READY", "The HDD is detected, usable, and APA formatted."},
 	{-1, "EPERM", "Operation not permitted.\nThe HDD driver refused the status operation."},
 	{-2, "ENOENT", "The HDD device/path was not found.\nhdd0: may not be registered by the driver."},

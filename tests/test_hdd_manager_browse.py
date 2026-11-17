@@ -65,7 +65,7 @@ assert "DASH_IN_L1" not in manager and "DASH_IN_R1" not in manager
 assert "if (in.pressed & DASH_IN_MENU)" in manager
 assert "DASH_IN_OK" not in manager
 assert "DASH_IN_L2" not in manager and "DASH_IN_R2" not in manager
-assert '{-1, "Left/Right", "Page"}' in scene
+assert '{-1, "Left/Right", "Page"}' not in scene
 
 # The HDL title part of the raw APA name is highlighted (ID prefix dimmed),
 # so games are recognisable without any per-row HDL lookups.

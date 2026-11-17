@@ -15,6 +15,7 @@
 #include "dash_internal.h"
 #include "dash_sound.h"
 #include "hdd_header_injector.h"
+#include "hdd_filesystem.h"
 #include "hdl_rpc.h"
 #include "init.h"
 
@@ -47,6 +48,8 @@ static struct
 {
 	int status;
 	int present, formatted;
+	unsigned filesystem;
+	int filesystem_error;
 	u32 size_mb, used_mb, free_mb;
 	int scanned, scanning, overflow;
 	HddPart *parts;
@@ -81,6 +84,8 @@ typedef struct
 	/* scan */
 	HddPart *parts;
 	int n, overflow, status, present, formatted;
+	unsigned filesystem;
+	int filesystem_error;
 	u32 size_mb, used_mb;
 	/* pfs */
 	u32 pfs_total, pfs_free;
@@ -158,6 +163,17 @@ static int pfsMountForInfo(const char *dev)
 	return i;
 }
 
+static int hddReadFormatSector(void *context, uint32_t lba, void *sector)
+{
+	hddAtaTransfer_t transfer __attribute__((aligned(64)));
+
+	memset(&transfer, 0, sizeof(transfer));
+	transfer.lba = lba;
+	transfer.size = 1;
+	return fileXioDevctl((const char *)context, HDIOC_READSECTOR, &transfer,
+	                     sizeof(transfer), sector, 512);
+}
+
 static void scanRun(HddJob *j)
 {
 	iox_dirent_t de;
@@ -168,12 +184,26 @@ static void scanRun(HddJob *j)
 	if (!j->present)
 		return;
 	j->formatted = (hddCheckFormatted() >= 0);
+	if (j->formatted)
+		j->filesystem = HDD_FS_APA;
+	if (j->status == 0 || j->status == 1) {
+		int sectors = fileXioDevctl("hdd0:", HDIOC_TOTALSECTOR, NULL, 0, NULL, 0);
+		/* The capacity is an unsigned sector count carried in a signed RPC
+		 * result. Preserve capacities above 1 TiB without treating errno as size. */
+		if (sectors > 0 || sectors < -4095) {
+			unsigned additional = HDD_FS_UNKNOWN;
+
+			j->size_mb = (u32)sectors / SECTORS_PER_MB;
+			/* APA Jail can contain both APA and FAT/exFAT metadata. Check
+			 * independently and retain the driver-confirmed APA result. */
+			j->filesystem_error = hddProbeFilesystem(hddReadFormatSector, "hdd0:", (u32)sectors, &additional);
+			if (j->filesystem_error == 0)
+				j->filesystem |= additional;
+		} else
+			j->filesystem_error = sectors < 0 ? sectors : -EIO;
+	}
 	if (!j->formatted)
 		return;
-	{
-		int sectors = fileXioDevctl("hdd0:", HDIOC_TOTALSECTOR, NULL, 0, NULL, 0);
-		j->size_mb = (sectors > 0) ? (u32)sectors / SECTORS_PER_MB : 0;
-	}
 	j->parts = (HddPart *)malloc(sizeof(HddPart) * MAX_PARTITIONS);
 	if (j->parts == NULL) {
 		j->ret = -ENOMEM;
@@ -385,6 +415,8 @@ static int scan(void)
 	hm.status = j->status;
 	hm.present = j->present;
 	hm.formatted = j->formatted;
+	hm.filesystem = j->filesystem;
+	hm.filesystem_error = j->filesystem_error;
 	hm.size_mb = j->size_mb;
 	hm.used_mb = j->used_mb;
 	hm.overflow = j->overflow;
@@ -781,7 +813,20 @@ static void actStatus(void)
 {
 	char body[320], detail[48];
 
-	snprintf(body, sizeof(body), "%s", hddStatusInfoText(hm.status));
+	if ((hm.filesystem & HDD_FS_APA) && (hm.filesystem & (HDD_FS_EXFAT | HDD_FS_FAT32)))
+		snprintf(body, sizeof(body), "This drive contains APA partitions and %s volumes, a hybrid layout used by APA Jail. HDD Manager lists APA partitions. Browse FAT/exFAT files in File Browser.",
+		         hddFilesystemName(hm.filesystem & ~HDD_FS_APA));
+	else if (hm.filesystem == HDD_FS_APA && hm.filesystem_error < 0)
+		snprintf(body, sizeof(body), "APA partitions were detected. Checking for additional exFAT/FAT32 volumes failed (error %d). Refresh to try again.", hm.filesystem_error);
+	else if (hm.filesystem && hm.filesystem != HDD_FS_APA)
+		snprintf(body, sizeof(body), "The internal HDD contains %s volumes. Browse their files in File Browser. HDD Manager manages APA partitions.",
+		         hddFilesystemName(hm.filesystem));
+	else if (hm.status == 1 && hm.filesystem_error < 0)
+		snprintf(body, sizeof(body), "No APA format was found. The filesystem check failed (error %d). Refresh to try again.", hm.filesystem_error);
+	else if (hm.status == 1)
+		snprintf(body, sizeof(body), "No supported filesystem was identified. The drive may be unformatted, use another format, or contain damaged filesystem metadata.");
+	else
+		snprintf(body, sizeof(body), "%s", hddStatusInfoText(hm.status));
 	snprintf(detail, sizeof(detail), "HDIOC_STATUS %d: %s", hm.status, hddStatusShortText(hm.status));
 	dashModalMessage(DI_HDD, "HDD status", body, detail);
 }
@@ -1028,7 +1073,7 @@ static void partitionMenu(void)
 		if (has_cnf)
 			ADD(DI_SETTINGS, "Edit SYSTEM.CNF...", NULL, 0, A_SYSCNF);
 	}
-	ADD(DI_INFO, "HDD status", hddStatusShortText(hm.status), 0, A_STATUS);
+	ADD(DI_INFO, "HDD status", hm.filesystem ? hddFilesystemName(hm.filesystem) : hddStatusShortText(hm.status), 0, A_STATUS);
 	ADD(DI_REFRESH, "Refresh", NULL, 0, A_REFRESH);
 	if (!console_is_PSX && hm.present)
 		ADD(DI_WARNING, "Format HDD...", NULL, 0, A_FORMAT);
@@ -1210,8 +1255,11 @@ static void drawDetails(float scroll)
 
 	dashDrawCard(x, y, w, h, 16);
 	if (hm.n == 0 || sel >= hm.n) {
-		dashTextWrap(x + 16, y + 20, w - 32, 4, hm.formatted ? "No partitions." : "Format the HDD to create partitions.",
-		             DASH_FS_SMALL, DASH_C_TEXT2, 19);
+		if (hm.filesystem && !hm.formatted)
+			snprintf(line, sizeof(line), "%s volumes are accessed in File Browser. HDD Manager manages APA partitions.", hddFilesystemName(hm.filesystem));
+		else
+			snprintf(line, sizeof(line), "%s", hm.formatted ? "No APA partitions." : "No APA partition list is available.");
+		dashTextWrap(x + 16, y + 20, w - 32, 4, line, DASH_FS_SMALL, DASH_C_TEXT2, 19);
 		return;
 	}
 	p = &hm.parts[sel];
@@ -1260,13 +1308,26 @@ static void hddScene(void)
 	int i;
 	const HddPart *selected = (hm.n > 0 && sel < hm.n) ? &hm.parts[sel] : NULL;
 	float scroll = partNameScrollProgress(selected, dashUiFocusAge());
+	float title_right;
 
 	dashGfxBeginFrame();
 	dashBgDraw();
 	dashIcon(DI_HDD, 40, 20, 24, DASH_C_ACCENT);
-	dashTextS(72, 20, "HDD Manager", DASH_FS_TITLE, DASH_C_TEXT);
-	snprintf(line, sizeof(line), "Status: %s", hddStatusShortText(hm.status));
-	dashTextRight(DASH_SAFE_R, 26, line, DASH_FS_SMALL, hm.status == 0 ? DASH_C_OK : DASH_C_WARM);
+	title_right = dashTextS(72, 20, "HDD Manager", DASH_FS_TITLE, DASH_C_TEXT);
+	if (hm.filesystem)
+		snprintf(line, sizeof(line), "Format: %s%s", hddFilesystemName(hm.filesystem), hm.filesystem_error < 0 ? " + ?" : "");
+	else
+		snprintf(line, sizeof(line), "Status: %s", hddStatusShortText(hm.status));
+	{
+		float width = dashTextWidth(line, DASH_FS_SMALL);
+		float available = DASH_SAFE_R - title_right - 16;
+
+		if (width > available)
+			width = available;
+		if (width > 0)
+			dashTextFit(DASH_SAFE_R - width, 26, width, line, DASH_FS_SMALL,
+			            hm.filesystem && hm.filesystem_error == 0 ? DASH_C_OK : DASH_C_WARM);
+	}
 
 	if (hm.formatted && hm.size_mb > 0) {
 		fmtMB(a, sizeof(a), hm.used_mb);
@@ -1276,8 +1337,15 @@ static void hddScene(void)
 		snprintf(line, sizeof(line), "%s used  |  %s free  |  %s  |  %d partition%s%s", a, b, c, hm.n, hm.n == 1 ? "" : "s",
 		         hm.overflow ? " (list full)" : "");
 		dashTextFit(40, 78, 560, line, DASH_FS_CAPTION, DASH_C_TEXT2);
-	} else if (hm.scanned)
-		dashText(40, 64, hm.present ? "The HDD is not APA formatted." : "No HDD was found.", DASH_FS_SMALL, DASH_C_WARM);
+	} else if (hm.scanned) {
+		if (hm.filesystem)
+			snprintf(line, sizeof(line), "%s volumes detected. Browse files in File Browser.", hddFilesystemName(hm.filesystem));
+		else if (hm.status == 1)
+			snprintf(line, sizeof(line), "%s", hm.filesystem_error < 0 ? "Filesystem check failed. Refresh to try again." : "Filesystem not recognized; no APA format found.");
+		else
+			snprintf(line, sizeof(line), "%s", hm.present ? "The HDD is not ready for filesystem detection." : "No HDD was found.");
+		dashTextFit(40, 64, 560, line, DASH_FS_SMALL, hm.filesystem ? DASH_C_TEXT2 : DASH_C_WARM);
+	}
 
 	dashDrawPanelBox(LIST_X - 6, LIST_Y - 6, LIST_W + 12, ROWS * ROW_H + 12, 14);
 	if (hm.n > 0) {
@@ -1301,7 +1369,7 @@ static void hddScene(void)
 	}
 	drawDetails(scroll);
 	{
-		DashHint h[] = {{DI_BTN_TRIANGLE, NULL, "Actions"}, {-1, "Left/Right", "Page"}, {dashBackIcon(), NULL, "Exit"}};
+		DashHint h[] = {{DI_BTN_TRIANGLE, NULL, "Actions"}, {dashBackIcon(), NULL, "Exit"}};
 		dashDrawHints(h, (int)(sizeof(h) / sizeof(h[0])));
 	}
 	dashDrawNotifications();

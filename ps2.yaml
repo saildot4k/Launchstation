@@ -336,6 +336,7 @@ targets:
       - src/filer_save_io.c
       - src/filer_save_progress.c
       - src/hdd.c
+      - src/hdd_filesystem.c
       - src/hdd_header_injector.c
       - src/hdl_rpc.c
       - src/editor.c
