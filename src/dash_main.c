@@ -38,7 +38,7 @@ static float frame_dt;
 static int boot_phase;         /* 0 none, 1 init delay, 2 auto-launch countdown */
 static u64 boot_phase_end;
 static char boot_auto_title[DASH_TITLE_MAX];
-static int startup_audio_pending, startup_audio_ready, startup_boot_sound;
+static int startup_audio_pending, startup_audio_ready;
 
 /* The selected screen (including a modal MISC tool) must be visible before
  * audio module/sample/sidecar IO. Present calls this only between frames;
@@ -49,8 +49,6 @@ void dashStartupAudioAfterPresent(void)
 	    fade_in < 0.95f || DashIoBusy())
 		return;
 	startup_audio_pending = 0;
-	if (startup_boot_sound)
-		dashSoundRequestBoot();
 	dashSoundMaintain();
 }
 
@@ -1133,7 +1131,6 @@ void DashRun(const MainExecuteContext *ctx, int from_boot)
 	background_only = 0; /* never persist hidden UI across launches/restarts */
 	startup_audio_pending = 1;
 	startup_audio_ready = 0;
-	startup_boot_sound = from_boot;
 	exec_ctx = *ctx;
 
 	dashGfxCheckScreenChange();

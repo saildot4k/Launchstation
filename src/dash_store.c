@@ -239,7 +239,7 @@ void dashStoreDefaults(void)
 	memset(&dashCfg, 0, sizeof(dashCfg));
 	dashCfg.enabled = 1;
 	dashCfg.start_section = DASH_SEC_HOME;
-	dashCfg.view = DASH_VIEW_GRID;
+	dashCfg.view = DASH_VIEW_LIST;
 	dashCfg.effects = 100;
 	dashCfg.bg_detail = 1;
 	dashCfg.anim = 100;
@@ -250,7 +250,7 @@ void dashStoreDefaults(void)
 	dashCfg.intro_done = 0;
 	dashCfg.sound = 1;
 	dashCfg.sound_vol = 80;
-	dashCfg.bgm = 1;
+	dashCfg.bgm = 0;
 	dashCfg.bgm_vol = 80;
 	dashCfg.app_filter = 0;
 	dashCfg.files_mode = 0;
@@ -301,7 +301,7 @@ static int settingsKv(const char *key, char *value, void *user)
 	else if (!stricmp(key, "Dash_StartSection"))
 		dashCfg.start_section = clampInt(value, 0, DASH_SEC_COUNT - 1, DASH_SEC_HOME);
 	else if (!stricmp(key, "Dash_View"))
-		dashCfg.view = clampInt(value, 0, DASH_VIEW_COUNT - 1, DASH_VIEW_GRID);
+		dashCfg.view = clampInt(value, 0, DASH_VIEW_COUNT - 1, DASH_VIEW_LIST);
 	else if (!stricmp(key, "Dash_Effects"))
 		dashCfg.effects = percentSetting(value, 100);
 	else if (!stricmp(key, "Dash_BackgroundDetail"))
@@ -323,7 +323,7 @@ static int settingsKv(const char *key, char *value, void *user)
 	else if (!stricmp(key, "Dash_SoundVolume"))
 		dashCfg.sound_vol = clampInt(value, 0, 100, 80);
 	else if (!stricmp(key, "Dash_BGM"))
-		dashCfg.bgm = clampInt(value, 0, 1, 1);
+		dashCfg.bgm = clampInt(value, 0, 1, 0);
 	else if (!stricmp(key, "Dash_BGMVolume"))
 		dashCfg.bgm_vol = clampInt(value, 0, 100, 80);
 	else if (!stricmp(key, "Dash_AppFilter"))

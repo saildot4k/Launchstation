@@ -431,13 +431,14 @@ back.
 
 The dashboard plays short sound effects through the ps2sdk `audsrv`
 audio server: cursor moves, confirm/cancel in dialogs, section switches,
-toasts, the startup boot sound, and device connect/disconnect. They are
+toasts, and device connect/disconnect. Startup does not play a sound effect. They are
 Sony ADP samples embedded in the ELF (no files needed at runtime).
 
 Settings > Sound has *Interface sounds* (the UI effects) and
 *Background music* (the music track), each with its own volume
 (`Dash_Sound` / `Dash_SoundVolume` / `Dash_BGM` / `Dash_BGMVolume` in
-DASHBOARD.CNF, all on at 80% by default). The two switches are independent;
+DASHBOARD.CNF). Interface sounds default to On, background music to Off;
+both volume settings default to 80%. The two switches are independent;
 turning off interface effects keeps enabled music playing. Muting or disabling
 music preserves the interface volume. Effects use only voices 0–22, including
 when a busy voice needs a fallback; voice 23 stays reserved for music.
