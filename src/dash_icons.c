@@ -1,7 +1,7 @@
 //--------------------------------------------------------------
 //File name:   dash_icons.c
 //Dashboard icon set, rasterized once from signed distance functions into
-//one 512x704 PSMT8 alpha atlas (64x64 icons, tinted by vertex colour).
+//one 512x800 PSMT8 alpha atlas (64x64 icons, tinted by vertex colour).
 //The pad glyphs use the same theme-aware SDF atlas as other icons.
 //No additional CT32 pad tile atlas or PNG decoding is needed at startup.
 //--------------------------------------------------------------
@@ -12,7 +12,7 @@
 #define ICON_SLOT 68
 #define ICON_COLS 7
 #define ICON_TEX_W 512
-#define ICON_TEX_H 736
+#define ICON_TEX_H 800
 #define SELECT_HALF_W 0.68f
 
 /* Header shapes and action icons use the narrow right margin. Keep the
@@ -580,6 +580,48 @@ static float iconSdf(int id, V2 p)
 				}
 				d = U(d, sdBoxOutline(p, 0.0f, -0.31f, 0.42f, 0.16f, 0.02f, 0.04f));
 				d = U(d, sdBoxOutline(p, 0.0f, 0.22f, 0.43f, 0.29f, 0.035f, 0.04f));
+			}
+			break;
+		case DI_HDD_MANAGER:
+			/* Hard-drive platter and actuator above two partition blocks. */
+			d = sdBoxOutline(p, 0.0f, -0.38f, 0.70f, 0.55f, 0.045f, 0.05f);
+			d = U(d, sdRing(p, -0.15f, -0.43f, 0.33f, 0.045f));
+			d = U(d, sdRing(p, -0.15f, -0.43f, 0.075f, 0.035f));
+			d = U(d, sdSeg(p, 0.49f, -0.12f, -0.01f, -0.48f, 0.055f));
+			d = U(d, sdCircle(p, 0.49f, -0.12f, 0.085f));
+			d = U(d, sdBoxOutline(p, 0.45f, -0.73f, 0.13f, 0.065f, 0.01f, 0.025f));
+			d = U(d, sdSeg(p, 0.0f, 0.26f, 0.0f, 0.38f, 0.045f));
+			for (k = 0; k < 2; k++) {
+				float side = k ? 1.0f : -1.0f;
+				d = U(d, sdSeg(p, 0.0f, 0.38f, side * 0.26f, 0.55f, 0.045f));
+				d = U(d, sdTriP(p, side * 0.39f, 0.51f, side * 0.24f, 0.63f, side * 0.18f, 0.43f));
+				d = U(d, sdBoxOutline(p, side * 0.41f, 0.81f, 0.34f, 0.16f, 0.035f, 0.04f));
+				d = U(d, sdSeg(p, side * 0.41f, 0.66f, side * 0.41f, 0.96f, 0.03f));
+			}
+			break;
+		case DI_PARTITION:
+			{
+				/* Stacked disk behind three separated partition sectors. */
+				V2 q = {(p.x + 0.40f) / 0.54f, (p.y + 0.62f) / 0.21f};
+				float disk = U(sdBox(p, -0.40f, -0.02f, 0.54f, 0.60f, 0.0f),
+				               sdCircle(q, 0.0f, 0.0f, 1.0f) * 0.21f);
+				q.y = (p.y - 0.58f) / 0.21f;
+				disk = U(disk, sdCircle(q, 0.0f, 0.0f, 1.0f) * 0.21f);
+				for (k = 0; k < 3; k++) {
+					float cy = -0.62f + k * 0.42f;
+					q.y = (p.y - cy) / 0.21f;
+					float seam = fmaxf2(fabsf(sdCircle(q, 0.0f, 0.0f, 1.0f) * 0.21f) - 0.035f,
+					                       cy - p.y);
+					disk = S(disk, seam);
+				}
+				disk = S(disk, sdCircle(p, 0.23f, 0.30f, 0.68f));
+				float main = fmaxf2(sdCircle(p, 0.23f, 0.30f, 0.59f),
+				                       fminf2(p.x - 0.23f, 0.8660254f * (p.x - 0.23f) - 0.5f * (p.y - 0.30f)));
+				float upper = fmaxf2(sdCircle(p, 0.40f, 0.14f, 0.59f),
+				                        fmaxf2(0.40f - p.x, p.y - 0.14f));
+				float lower = fmaxf2(sdCircle(p, 0.40f, 0.42f, 0.59f),
+				                        fmaxf2(0.42f - p.y, 0.5f * (p.y - 0.42f) - 0.8660254f * (p.x - 0.40f)));
+				d = U(disk, U(main, U(upper, lower)));
 			}
 			break;
 		case DI_CHIP:

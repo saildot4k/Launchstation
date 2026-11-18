@@ -44,7 +44,7 @@ static const Tool tools[] = {
     {TA_MISC, DI_DISC, "Start disc", "Boot the disc in the drive: PS2 and PS1 games, DVD Video (with the console's player) and ESR discs.", NULL, 0, MISC(Misc_PS2Disc)},
     {TA_HEADER, -1, "STORAGE", NULL, NULL, 0, 0},
     {TA_USB_DIAG, DI_USB, "USB unit diagnostics", "Load USB drivers if needed, then inspect cached units or manually probe logical USB unit 0 or 1 one at a time.", "Each manual probe is a synchronous IOP request and could freeze a failing console. Logical units may not match physical USB ports.", 0, 0},
-    {TA_MISC, DI_HDD, "HDD Manager", "Create, remove, rename and expand APA partitions, view HDL game information and format the internal HDD.", "Partition changes and formatting are permanent.", 0, MISC(Misc_HddManager)},
+    {TA_MISC, DI_HDD_MANAGER, "HDD Manager", "Create, remove, rename and expand APA partitions, view HDL game information and format the internal HDD.", "Partition changes and formatting are permanent.", 0, MISC(Misc_HddManager)},
     {TA_MISC, DI_MC, "Memory card exploit installer", "Install a memory card system-update exploit for this console, another model or region, or PSX/DESR.", "Writes system folders to the memory card. Follow the on-screen checks carefully.", 0, MISC(Misc_Exploit_Installer)},
     {TA_HEADER, -1, "SYSTEM", NULL, NULL, 0, 0},
     {TA_MISC, DI_APP, "PS2 system browser", "Leave Launchstation and open the console's own Browser.", NULL, 2, MISC(Misc_PS2Browser)},

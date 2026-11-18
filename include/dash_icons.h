@@ -76,6 +76,8 @@ enum DashIcon {
 	DI_HIDE,        /* crossed-out eye for application visibility */
 	DI_UNDO,        /* counterclockwise arrow for reset actions */
 	DI_COMPACTFLASH, /* wide CF card with an inset connector/label panel */
+	DI_PARTITION, /* stacked disk with separated pie-style partitions */
+	DI_HDD_MANAGER, /* hard drive branching into two partition blocks */
 	DI_COUNT
 };
 

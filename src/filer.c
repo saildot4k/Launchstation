@@ -587,6 +587,14 @@ static int getHddUnitFromDevice(const char *device)
 	return device[3] - '0';
 }
 
+static int hddPartyNameCmp(const void *a, const void *b)
+{
+	const char *x = (const char *)a, *y = (const char *)b;
+	int rank = hddPartitionPriority(x) - hddPartitionPriority(y);
+
+	return rank ? rank : stricmp(x, y);
+}
+
 static void setPartyListForDevice(const char *device)
 {
 	iox_dirent_t dirEnt;
@@ -604,6 +612,9 @@ static void setPartyListForDevice(const char *device)
 		if (hddNparties[unit] >= MAX_PARTITIONS)
 			break;
 		if ((dirEnt.stat.attr != ATTR_MAIN_PARTITION) || (dirEnt.stat.mode != FS_TYPE_PFS))
+			continue;
+		/* The boot partition belongs in HDD Manager, never the file browser. */
+		if (!stricmp(dirEnt.name, "__mbr"))
 			continue;
 
 		//Patch this to see if new CB versions use valid PFS format
@@ -634,6 +645,8 @@ static void setPartyListForDevice(const char *device)
 		}
 	}
 	fileXioDclose(hddFd);
+	if (hddNparties[unit] > 1)
+		qsort(hddParties[unit], hddNparties[unit], sizeof(hddParties[unit][0]), hddPartyNameCmp);
 }
 
 void setPartyList(void)

@@ -291,7 +291,7 @@ static void fbSortFiles(FILEINFO *files, int n)
 	}
 }
 
-/* partition lists keep the drive's order, as in the classic browser */
+/* Partition lists keep the order supplied by the shared listing code. */
 static int isPartitionList(const char *dir)
 {
 	return (!strncmp(dir, "hdd", 3) && dir[3] >= '0' && dir[3] <= '9' && !strcmp(dir + 4, ":/")) ||
@@ -1628,7 +1628,7 @@ static void actionsMenu(void)
 static int fileIcon(const FILEINFO *f)
 {
 	if (isDir(f))
-		return DI_FOLDER;
+		return isPartitionList(fb.dir) ? DI_PARTITION : DI_FOLDER;
 	if (genCmpFileExt(f->name, "ELF") || genCmpFileExt(f->name, "KELF") || genCmpFileExt(f->name, "XLF"))
 		return DI_APP;
 	if (genCmpFileExt(f->name, "PNG") || genCmpFileExt(f->name, "JPG") || genCmpFileExt(f->name, "JPEG"))

@@ -16,6 +16,7 @@
 #include "dash_sound.h"
 #include "hdd_header_injector.h"
 #include "hdd_filesystem.h"
+#include "gui_sort.h"
 #include "hdl_rpc.h"
 #include "init.h"
 
@@ -390,8 +391,11 @@ static int partCmp(const void *a, const void *b)
 {
 	const HddPart *x = (const HddPart *)a, *y = (const HddPart *)b;
 
-	/* system first, then PFS, then HDL games, then the rest */
-	static const int order[] = {1, 2, 0, 3};
+	static const int order[] = {0, 1, 2, 2}; /* PFS, HDL games, other types */
+	int xrank = hddPartitionPriority(x->name), yrank = hddPartitionPriority(y->name);
+
+	if (xrank != yrank)
+		return xrank - yrank;
 	if (order[x->type] != order[y->type])
 		return order[x->type] - order[y->type];
 	return stricmp(x->name, y->name);
@@ -1137,7 +1141,7 @@ static int typeIcon(const HddPart *p)
 {
 	switch (p->type) {
 		case HP_PFS:
-			return DI_FOLDER;
+			return DI_PARTITION;
 		case HP_HDL:
 			return DI_DISC;
 		case HP_SYSTEM:
@@ -1309,7 +1313,7 @@ static void hddScene(void)
 
 	dashGfxBeginFrame();
 	dashBgDraw();
-	dashIcon(DI_HDD, 40, 20, 24, DASH_C_ACCENT);
+	dashIcon(DI_HDD_MANAGER, 40, 20, 24, DASH_C_ACCENT);
 	title_right = dashTextS(72, 20, "HDD Manager", DASH_FS_TITLE, DASH_C_TEXT);
 	if (hm.filesystem)
 		snprintf(line, sizeof(line), "Format: %s%s", hddFilesystemName(hm.filesystem), hm.filesystem_error < 0 ? " + ?" : "");

@@ -1851,7 +1851,9 @@ int getFilePath(char *out, int cnfmode)
 						drawChar('*', x - 6, y, setting->color[COLOR_TEXT]);
 				} else {  //if Icons must be used in front of file/folder names
 					if (files[top + i].stats.AttrFile & sceMcFileAttrSubdir) {
-						iconbase = ICON_FOLDER;
+						iconbase = ((isHddRootPath(path) || !strcmp(path, "dvr_hdd0:/")) &&
+						            strcmp(files[top + i].name, ".") && strcmp(files[top + i].name, ".."))
+						               ? ICON_PARTITION : ICON_FOLDER;
 						iconcolr = COLOR_GRAPH1;
 					} else {
 						iconbase = ICON_FILE;
