@@ -44,7 +44,7 @@ static int dash_active,swapKeys,worker,loading,frames,begins,ends,polls,parks;
 static u32 paddata;
 static u64 tick,release_at,busy_until,parked_until,park_during_poll;
 static int settle_calls,fail_settle,launches,last_mode,editor_result,args_result,args_clears;
-static int recent,errors;
+static int recent,errors,quiet_waits;
 static int music_gain,effects_gain,suspends,shutdowns,run_game,handoff_result;
 static u64 dispatched_at,editor_hold;
 static u64 Timer(void) { return tick; }
@@ -85,7 +85,8 @@ static int dashTextEditorEx(const char *path,int mode) {
     return editor_result;
 }
 static int settleBackgroundWork(const char *title) {
-    (void)title;settle_calls++;tick+=1500;
+    assert(title==NULL || !strcmp(title,"Preparing Neutrino"));
+    quiet_waits+=title==NULL;settle_calls++;tick+=1500;
     return settle_calls!=fail_settle;
 }
 static int argSidecarExists(const char *path) { (void)path;return 0; }
@@ -141,7 +142,7 @@ static void reset(int saved,int mapping,u64 hold) {
     memset(&exec_ctx,0,sizeof(exec_ctx));exec_ctx.main_msg=message;
     config.reboot_iop_elf_load=saved;swapKeys=mapping;
     dash_active=1;worker=loading=frames=begins=ends=polls=parks=0;
-    settle_calls=fail_settle=launches=last_mode=recent=errors=args_clears=0;
+    settle_calls=fail_settle=launches=last_mode=recent=errors=args_clears=quiet_waits=0;
     editor_result=args_result=1;editor_hold=0;
     music_gain=10;effects_gain=60;suspends=shutdowns=run_game=handoff_result=0;
     tick=5000;release_at=tick+hold;busy_until=parked_until=park_during_poll=0;
@@ -191,6 +192,7 @@ int main(void) {
         assert(launches==1 && last_mode==(!saved?MAIN_ELF_IOP_REBOOT:MAIN_ELF_IOP_KEEP));
         assert(dispatched_at==9000 && config.reboot_iop_elf_load==saved && !exec_ctx.elf_iop_mode);
         assert(polls==101 && errors==1); /* simulated loader return */
+        assert(quiet_waits==2 && begins==1); /* only the actual launch overlay */
         paddata=0;dashLaunchApp(&selected,0);
         assert(launches==2 && last_mode==(saved?MAIN_ELF_IOP_REBOOT:MAIN_ELF_IOP_KEEP));
         reset(saved,mapping,100);dashLaunchApp(&selected,DASH_LAUNCH_PENDING_ARGS);
@@ -225,7 +227,7 @@ int main(void) {
     }
     puts("PASS: Neutrino options retain audio, Run stops it at handoff, cancellation and failed preparation restore playback");
     puts("PASS: one-second hold inverts both saved modes/mappings, tap/release, keyboard/automatic, worker/IOP safety and fresh samples");
-    puts("PASS: real app dispatch carries a one-launch mode across preparation, failures and arguments without saving it; game-image policies retained");
+    puts("PASS: real app dispatch uses quiet preparation waits, carries a one-launch mode across failures and arguments without saving it; game-image policies retained");
 }
 '''
 # The two actual handoffs must use the same per-launch mode for cleanup and

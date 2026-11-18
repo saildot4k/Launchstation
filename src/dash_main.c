@@ -577,7 +577,7 @@ void dashLaunchApp(DashApp *app, int with_args_prompt)
 	}
 	if (with_args_prompt == 1 || with_args_prompt == DASH_LAUNCH_PENDING_ARGS) {
 		/* arguments already loaded by the editor or its "Use" action */
-	} else if (!settleBackgroundWork(iso_launch ? NULL : "Finishing up")) {
+	} else if (!settleBackgroundWork(NULL)) {
 		return; /* the user backed out while saves/driver work finished */
 	} else if ((copy.flags & DASH_APP_HAS_ARGS) && !argSidecarExists(path)) {
 		char args[1024];
@@ -593,9 +593,9 @@ void dashLaunchApp(DashApp *app, int with_args_prompt)
 	if (dashArtTakeDirty())
 		dashLibSaveCache();
 	dashStorePushRecent(copy.path);
-	/* the recent list, cache and anything the worker picked up meanwhile
-	 * (e.g. drivers restarted after the Text Editor) are written first */
-	if (!settleBackgroundWork(iso_launch ? NULL : title)) {
+	/* Finish recent/cache saves and any queued work before handoff. Keep the
+	 * current scene visible instead of showing unrelated device-check status. */
+	if (!settleBackgroundWork(NULL)) {
 		LaunchArgsClear();
 		return;
 	}
