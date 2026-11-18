@@ -542,7 +542,7 @@ static void devInput(const DashInput *in)
 		items[n].icon = DI_REFRESH, items[n].label = (d->state == DASH_DEV_READY) ? "Check again" : "Detect now", items[n].detail = NULL,
 		items[n].disabled = (d->icon == DI_MC || d->icon == DI_DISC), ids[n++] = 1;
 		if (d->icon == DI_HDD && !strncmp(d->mount, "hdd", 3))
-			items[n].icon = DI_HDD, items[n].label = "HDD Manager", items[n].detail = NULL, items[n].disabled = 0, ids[n++] = 2;
+			items[n].icon = DI_HDD_MANAGER, items[n].label = "HDD Manager", items[n].detail = NULL, items[n].disabled = 0, ids[n++] = 2;
 		if (d->icon == DI_DISC)
 			items[n].icon = DI_PLAY, items[n].label = "Start disc", items[n].detail = NULL, items[n].disabled = 0, ids[n++] = 3;
 		/* Exact model discovery happens only through this user-selected sheet. */

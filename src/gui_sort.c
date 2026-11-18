@@ -1,6 +1,18 @@
 #include "gui_sort.h"
 #include "filer_shared.h"
 
+int hddPartitionPriority(const char *name)
+{
+	static const char *const first[] = {"__mbr", "__net", "__system", "__sysconf", "__common"};
+	int i, count = (int)(sizeof(first) / sizeof(first[0]));
+
+	for (i = 0; i < count; i++) {
+		if (!stricmp(name, first[i]))
+			return i;
+	}
+	return count;
+}
+
 // cmpFile returns negative when entry a should be ordered before b.
 int cmpFile(FILEINFO *a, FILEINFO *b)
 {

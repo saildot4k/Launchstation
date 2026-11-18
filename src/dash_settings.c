@@ -202,7 +202,7 @@ static const SetItem appearance_items[] = {
     {ST_CHOICE, S_T_PANEL_A, "Panel transparency", "0% makes panels fully opaque; 100% makes them fully transparent."},
     {ST_CHOICE, S_ICON_BACKING, "Control icon backings", "Show or hide backing shapes behind text-style controls and quick actions."},
     {ST_PAGE, P_THEME_MANAGE, "Theme files & resets", "Import, export, rename or reset your theme."},
-    {ST_ACTION, S_DISPLAY_THEME_RESET, "Reset appearance", "Restore screen calibration, motion, detail, animation and the OSD Classic theme."},
+    {ST_ACTION, S_DISPLAY_THEME_RESET, "Reset appearance", "Restore screen calibration, motion, detail, animation, control icon backings and the PS2 Towers theme."},
 };
 
 static const SetItem display_items[] = {
@@ -394,7 +394,7 @@ static const SetItem tmanage_items[] = {
     {ST_ACTION, S_T_SAVE, "Export theme to folder...", "Writes the current preview to a shareable theme folder immediately. This does not save the Settings session."},
     {ST_ACTION, S_T_LOAD, "Load theme from folder...", "Themes are folders in THEMES/ next to DASHBOARD.CNF, each with a theme.cfg."},
     {ST_ACTION, S_T_RESTORE_PRESET, "Reset entire theme", "Undo every change and go back to the preset this theme started from."},
-    {ST_ACTION, S_T_DEFAULT, "Restore default theme", "OSD Classic with its original settings."},
+    {ST_ACTION, S_T_DEFAULT, "Restore default theme", "PS2 Towers with glow on and Regular font style."},
 };
 
 #define PAGE(name, icon, help, items) {name, icon, help, items, NITEMS(items)}
@@ -2038,7 +2038,7 @@ static void resetScreen(void)
 
 static void resetDisplayThemeDefaults(void)
 {
-	if (!dashModalConfirm("Reset display & theme defaults", "Restore the screen, motion, detail, animation and OSD Classic theme defaults?", "Reset", 0))
+	if (!dashModalConfirm("Reset display & theme defaults", "Restore the screen, motion, detail, animation, control icon backing and PS2 Towers theme defaults?", "Reset", 0))
 		return;
 	if (setting->TV_mode != TV_mode_AUTO && !previewVideoMode(TV_mode_AUTO))
 		return;
@@ -2059,7 +2059,8 @@ static void resetDisplayThemeDefaults(void)
 	dashCfg.effects = 100;
 	dashCfg.bg_detail = 1;
 	dashCfg.anim = 100;
-	dashThemeSetPreset(0);
+	dashCfg.icon_backing = 0;
+	dashThemeSetPreset(dashThemeDefaultPreset());
 	classic_dirty = 1;
 	dash_dirty = 1;
 	dashToast(DASH_TOAST_OK, "Display and theme defaults restored");
@@ -2178,11 +2179,12 @@ static void runThemeAction(int id)
 			dashSettingsSaveTheme();
 			break;
 		case S_T_DEFAULT:
-			if (dashModalConfirm("Restore default theme", "Replace the current theme with OSD Classic? Saved theme folders are not affected.", "Restore", 0)) {
-				dashThemeSetPreset(0);
+			if (dashModalConfirm("Restore default theme", "Replace the current theme with PS2 Towers? Saved theme folders are not affected.", "Restore", 0)) {
+				dashThemeSetPreset(dashThemeDefaultPreset());
 				dashCfg.effects = 100;
 				dashCfg.bg_detail = 1;
 				dashCfg.anim = 100;
+				dashCfg.icon_backing = 0;
 				dash_dirty = 1;
 				dashToast(DASH_TOAST_OK, "Default theme restored");
 			}

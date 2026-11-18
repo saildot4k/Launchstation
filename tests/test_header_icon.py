@@ -11,7 +11,7 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 icons = (root / "src/dash_icons.c").read_text()
-header = (root / "include/dash_internal.h").read_text()
+header = (root / "include/dash_icons.h").read_text()
 ui = (root / "src/dash_ui.c").read_text()
 
 

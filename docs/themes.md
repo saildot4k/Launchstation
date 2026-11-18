@@ -14,9 +14,9 @@ same active theme.
 
 | Theme | Background | Look |
 |-------|------------|------|
-| **OSD Classic** (default) | System tunnel | Indigo tunnel like the PS2 system menu backdrop with the main menu's clock orbs, OSDSYS highlight blue, accent-bar selection |
+| OSD Classic | System tunnel | Indigo tunnel like the PS2 system menu backdrop with the main menu's clock orbs, OSDSYS highlight blue, accent-bar selection |
 | Classic Black | Solid colour | Plain black; the lightest background. Change its colour to get any solid colour |
-| PS2 Towers | PS2 towers | Faster drifting/rotating tower field seen from above, blue fog pool, three moving lights |
+| **PS2 Towers** (default) | PS2 towers | Faster drifting/rotating tower field seen from above, blue fog pool, three moving lights; glow on and Regular font style |
 | PS2 Blue Mist | Blue mist | Midnight blue-to-black gradient with moving translucent blue mist |
 | OSD Minimal | Orbit lights | The main menu's seven clock orbs on near black; no panels, selection by text colour only |
 | System Clock | Clock ring | System Configuration's twelve-rod clock: the ring turns with the seconds, the current hour's rod is lit and fills with the minutes, the orbs fly inside |
@@ -76,9 +76,10 @@ the colour-swap selection.
 * **Menu animation**: 0-200% in 10% steps. 0% makes transitions instant;
   larger values keep transitions moving for longer.
 * **Theme files & resets** contains import, export, theme name, reset to the
-  current preset and restore OSD Classic.
-* **Reset appearance** restores screen calibration, motion, detail, animation and
-  OSD Classic together.
+  current preset and restore PS2 Towers.
+* **Reset appearance** restores screen calibration, motion, detail, animation,
+  control icon backings and PS2 Towers together. Control icon backings default
+  to off.
 
 **Theme editor.** Choose a group to open its page; Back returns to the group
 list with its previous selection. Every change previews immediately and
@@ -97,7 +98,7 @@ puts that group back to the values of the preset the theme started from.
 
 Motion, animation and Panel transparency belong to Appearance. Transparency
 uses 0% for fully opaque panels and 100% for fully transparent panels. The
-default OSD Classic theme uses 30% transparency. The Panels colour under
+default PS2 Towers theme uses about 33% transparency. The Panels colour under
 Interface colours edits opacity, where 70% opacity corresponds to 30%
 transparency. Group resets only reset that group's
 controls; resetting Tiles & menus does not change panel opacity. Clock
@@ -392,7 +393,7 @@ The active theme is stored in **DASHBOARD.CNF** as `Theme_*` keys:
 Edits are written about a second after the last button press (and always
 before an application starts or a classic screen opens), so adjusting a
 colour does not write the memory card on every step. Older dashboard
-versions ignore these keys; a DASHBOARD.CNF without them loads OSD Classic.
+versions ignore these keys; a DASHBOARD.CNF without them loads PS2 Towers.
 LAUNCHELF.CNF is never touched.
 
 The optional PSBBN layers in `<dashboard folder>/THEME/` (`background.png`,
@@ -404,7 +405,7 @@ The optional PSBBN layers in `<dashboard folder>/THEME/` (`background.png`,
 * *Reset ...* at the end of each editor group resets only that group.
 * *Appearance > Theme files & resets > Reset entire theme*: back to the preset the
   current theme started from.
-* *Appearance > Theme files & resets > Restore default theme*: back to OSD Classic.
+* *Appearance > Theme files & resets > Restore default theme*: back to PS2 Towers.
 * *Appearance > Reset appearance*: restores screen calibration and theme together.
 * Deleting the `Theme_*` lines from DASHBOARD.CNF (or the file) also
   restores the default.

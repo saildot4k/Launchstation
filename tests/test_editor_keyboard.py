@@ -235,6 +235,7 @@ static int dashBackIcon(void) { return 1; }
 static void dashGfxPresent(void) {}
 '''
 ui = (root / 'src/dash_ui.c').read_text()
+code += function('float dashButtonTextY(', ui)
 code += function('static float buttonWidth(', ui) + function('float dashButtonWidth(', ui)
 for signature in ('static void kbInsert(', 'static void kbDelete(', 'static int kbUsb(',
                   'static void kbDrawHints(', 'static int modalKeyboard(', 'int dashModalKeyboard(', 'int dashModalFilename(',

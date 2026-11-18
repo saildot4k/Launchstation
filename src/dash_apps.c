@@ -218,7 +218,7 @@ void dashAppActions(DashApp *a)
 	int n = 0, r;
 
 	items[n].icon = DI_PLAY, items[n].label = "Start", items[n].detail = NULL, items[n].disabled = 0, ids[n++] = 0;
-	items[n].icon = DI_EDIT, items[n].label = "Start with arguments...", items[n].detail = NULL, items[n].disabled = 0, ids[n++] = 1;
+	items[n].icon = DI_LAUNCH_ARGS, items[n].label = "Start with arguments...", items[n].detail = NULL, items[n].disabled = 0, ids[n++] = 1;
 	items[n].icon = DI_STAR, items[n].label = fav ? "Remove from Favorites" : "Add to Favorites", items[n].detail = NULL, items[n].disabled = 0, ids[n++] = 2;
 	items[n].icon = DI_PIN, items[n].label = pin ? "Unpin from Home" : "Pin to Home", items[n].detail = NULL, items[n].disabled = 0, ids[n++] = 3;
 	items[n].icon = DI_INFO, items[n].label = "Details", items[n].detail = NULL, items[n].disabled = 0, ids[n++] = 4;

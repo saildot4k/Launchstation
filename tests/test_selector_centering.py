@@ -61,7 +61,10 @@ for draw in ("dashTextRight", "dashTextScroll", "dashTextFit"):
 buttons = ui[ui.index("static int modalButtons("):ui.index("int dashModalConfirm(")]
 button_h = num(buttons, r"button_h = ([\d.]+)f")
 assert button_h <= irow, "Confirmation selection must not exceed a normal row"
-lists.append(("Confirm button", 0, button_h, buttons, r"dashTextCenter\(bx0 \+ bw \* 0\.5f \+ 10, by \+ ([\d.]+)f, ok_label, DASH_FS_SMALL", SMALL))
+# Confirmation labels and their 22px icons use the same centerline.
+assert "dashButtonTextY(by + 3.0f, DASH_FS_SMALL), ok_label" in buttons
+assert "dashButtonTextY(by + 3.0f, DASH_FS_SMALL), cancel_label" in buttons
+assert abs(3 + 22 / 2 - button_h / 2) <= 1.0
 
 for name, top, height, text, pattern, scale in lists:
     ty = num(text, pattern)

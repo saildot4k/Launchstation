@@ -43,6 +43,7 @@ typedef unsigned char u8;
 #define DASH_MAX_APPS 512
 #define DASH_VIEW_COUNT 4
 #define DASH_VIEW_GRID 0
+#define DASH_VIEW_LIST 1
 '''
 code += header[header.index("enum DashSection"):header.index("enum DashView")]
 end = header.index("} DashSettings;") + len("} DashSettings;")
