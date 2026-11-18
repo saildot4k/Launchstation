@@ -1472,7 +1472,7 @@ static void actionsMenu(void)
 			ADD(DI_TEXT, "Open in Text Editor", NULL, 0, F_EDIT);
 		if (is_elf && !ps1_card) {
 			int args_disabled = isPcCardCfPath(fb.dir) ? 1 : 0;
-			ADD(DI_EDIT, "Start with arguments...", args_disabled ? "Direct launch unsupported" : NULL,
+			ADD(DI_LAUNCH_ARGS, "Start with arguments...", args_disabled ? "Direct launch unsupported" : NULL,
 			    args_disabled, F_ARGS);
 			if (filerMenuVisible(TITLE_CFG, en, FILER_MENU_NATIVE))
 				ADD(DI_SETTINGS, "Create title.cfg", NULL, 0, F_TITLECFG);

@@ -48,7 +48,7 @@ assert "const char *label = (p->type == HP_HDL" not in scene
 assert "drawPartName(LIST_X + 30, y + 1.5f, LIST_W - 110, label, col, i == sel, scroll);" in scene
 
 # Idle browsing may read PFS usage but must not perform synchronous HDL
-# title queries. Only Rename game in Actions may request them.
+# title queries. Only Rename game in Options may request them.
 idle = manager[manager.index("if (hm.n > 0 && Timer() - last_move > 180)"):
                manager.index("sel_anim = dashApproach(", manager.index("if (hm.n > 0 && Timer() - last_move > 180)"))]
 assert "loadPfsInfo(sel);" in idle
@@ -59,7 +59,7 @@ assert "loadGameInfo(p);" in rename
 assert 'A_GAME_INFO' not in menu
 assert '"HDD status"' in menu
 assert 'Triangle > Game info' not in details
-assert '{DI_BTN_TRIANGLE, NULL, "Actions"}' in scene
+assert '{DI_BTN_TRIANGLE, NULL, "Options"}' in scene
 assert '"L1"' not in scene and '"R1"' not in scene
 assert "DASH_IN_L1" not in manager and "DASH_IN_R1" not in manager
 assert "if (in.pressed & DASH_IN_MENU)" in manager

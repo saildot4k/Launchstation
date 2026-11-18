@@ -636,13 +636,13 @@ static int pickSize(const char *title, int min_mb, int max_mb, int start_mb)
 				float hx = x + 24, hy = y + h - 36;
 				hx += dashDrawButton(hx, hy, DI_BTN_LEFT, NULL) + 2;
 				hx += dashDrawButton(hx, hy, DI_BTN_RIGHT, NULL) + 4;
-				hx = dashTextS(hx, hy + 4.5f, "128 MB", DASH_FS_SMALL, DASH_C_TEXT2) + 10;
+				hx = dashTextS(hx, dashButtonTextY(hy, DASH_FS_SMALL), "128 MB", DASH_FS_SMALL, DASH_C_TEXT2) + 10;
 				hx += dashDrawButton(hx, hy, -1, "L1") + 2;
 				hx += dashDrawButton(hx, hy, -1, "R1") + 4;
-				hx = dashTextS(hx, hy + 4.5f, "1 GB", DASH_FS_SMALL, DASH_C_TEXT2) + 10;
+				hx = dashTextS(hx, dashButtonTextY(hy, DASH_FS_SMALL), "1 GB", DASH_FS_SMALL, DASH_C_TEXT2) + 10;
 				hx += dashDrawButton(hx, hy, -1, "L2") + 2;
 				hx += dashDrawButton(hx, hy, -1, "R2") + 4;
-				hx = dashTextS(hx, hy + 4.5f, "10 GB", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
+				hx = dashTextS(hx, dashButtonTextY(hy, DASH_FS_SMALL), "10 GB", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
 				dashModalHintRow(hx, hy, dashOkIcon(), "OK", dashBackIcon(), "Cancel");
 			}
 			dashGfxPresent();
@@ -1370,7 +1370,7 @@ static void hddScene(void)
 	}
 	drawDetails(scroll);
 	{
-		DashHint h[] = {{DI_BTN_TRIANGLE, NULL, "Actions"}, {dashBackIcon(), NULL, "Exit"}};
+		DashHint h[] = {{DI_BTN_TRIANGLE, NULL, "Options"}, {dashBackIcon(), NULL, "Exit"}};
 		dashDrawHints(h, (int)(sizeof(h) / sizeof(h[0])));
 	}
 	dashDrawNotifications();

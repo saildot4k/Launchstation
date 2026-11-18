@@ -51,6 +51,7 @@ input_start = header.rfind("enum {", 0, header.index("DASH_IN_UP"))
 code += header[input_start:header.index("};", input_start) + 2] + "\n"
 code += function(clock, "static int manualLeap(") + function(clock, "int dashClockDaysInMonth(")
 code += function(gfx, "float dashApproach(")
+code += function(ui, "float dashButtonTextY(")
 code += function(title, "void menuTitleFormatClockDate(") + function(title, "void menuTitleFormatClockTime(")
 code += r'''
 static int inputs[512], input_count, input_index, shoulder_input;
@@ -129,7 +130,10 @@ static void dashTextCenter(float x,float y,const char *text,float size,DashColor
 static float dashTextWidth(const char *text,float size) { (void)size;return strlen(text)*font_width; }
 static float dashTextS(float x,float y,const char *text,float size,DashColor color) {
     (void)color;float right=x+dashTextWidth(text,size);
-    if(y==footer_y+4.5f)footer_right=right;
+    if(footer_y>=0) {
+        assert(fabsf(y+16*size-(footer_y+11))<0.001f);
+        footer_right=right;
+    }
     return right;
 }
 static void dashTextFit(float x,float y,float w,const char *text,float size,DashColor color) {

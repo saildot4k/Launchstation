@@ -804,6 +804,8 @@ void dashModalBackdrop(float k);
 void dashModalPanel(float x, float y, float w, float h, float k);
 void dashModalHintRow(float x, float y, int ok_icon, const char *ok, int back_icon, const char *back);
 float dashDrawButton(float x, float y, int icon, const char *key);
+/* Text origin sharing the centerline of a 22px button glyph. */
+float dashButtonTextY(float button_y, float text_scale);
 float dashButtonWidth(int icon, const char *key); /* same sizing without drawing */
 
 /* Shared native keyboard for the editor and single-line naming dialogs. */

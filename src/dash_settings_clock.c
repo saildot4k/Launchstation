@@ -161,13 +161,13 @@ static int editClockDateTime(int fields[6], MenuClockSettings *settings)
 
 			hx += dashDrawButton(hx, hy, DI_BTN_LEFT, NULL) + 2;
 			hx += dashDrawButton(hx, hy, DI_BTN_RIGHT, NULL) + 4;
-			hx = dashTextS(hx, hy + 4.5f, "Field", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
+			hx = dashTextS(hx, dashButtonTextY(hy, DASH_FS_SMALL), "Field", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
 			hx += dashDrawButton(hx, hy, DI_BTN_UP, NULL) + 2;
 			hx += dashDrawButton(hx, hy, DI_BTN_DOWN, NULL) + 4;
-			hx = dashTextS(hx, hy + 4.5f, "Change", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
+			hx = dashTextS(hx, dashButtonTextY(hy, DASH_FS_SMALL), "Change", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
 			hx += dashDrawButton(hx, hy, -1, "L1") + 2;
 			hx += dashDrawButton(hx, hy, -1, "R1") + 4;
-			hx = dashTextS(hx, hy + 4.5f, "10", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
+			hx = dashTextS(hx, dashButtonTextY(hy, DASH_FS_SMALL), "10", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
 			dashModalHintRow(hx, hy, dashOkIcon(), "Apply", dashBackIcon(), "Cancel");
 		}
 		dashGfxPopOffset();
