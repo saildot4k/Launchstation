@@ -45,7 +45,7 @@ static struct {
 static struct { int start_section; } dashCfg;
 static MainExecuteContext exec_ctx;
 static int dash_active,dash_inited,background_only,section,boot_phase;
-static int startup_audio_pending,startup_audio_ready,startup_boot_sound;
+static int startup_audio_pending,startup_audio_ready;
 static int io_busy,worker_busy,parked,frame_active;
 static int screen_entered,library_open,displayed_tool,frames,audio_calls,boot_sounds;
 static int held_key,external_success,misc_success,settle_ok,launches;
@@ -71,7 +71,7 @@ static void dashSoundMaintain(void) {
  /* Slow module/sidecar IO keeps rendering without re-entering startup. */
  io_busy=1;for(int i=0;i<20;i++)present();io_busy=0;
 }
-static void dashSoundRequestBoot(void) { assert(!audio_calls);boot_sounds++; }
+void dashSoundRequestBoot(void) { boot_sounds++; }
 '''
 code += function('void dashStartupAudioAfterPresent(')
 code += r'''
@@ -160,7 +160,7 @@ static void reset(int start,int delay,int timeout,const char *target) {
  dashCfg.start_section=start;now_ms=1000;held_key=-1;dash_active=dash_inited=0;
  screen_entered=library_open=displayed_tool=frames=audio_calls=boot_sounds=audio_tool=0;
  boot_phase=io_busy=worker_busy=parked=frame_active=launches=external_success=misc_success=0;
- startup_audio_pending=startup_audio_ready=startup_boot_sound=0;fade_in=1;
+ startup_audio_pending=startup_audio_ready=0;fade_in=1;
 }
 static void show(void) { for(int i=0;i<8;i++)present(); }
 int main(void) {
@@ -170,8 +170,8 @@ int main(void) {
   assert(!audio_calls&&startup_audio_pending&&fade_in==0.25f);
   assert(section==(start==DASH_SEC_APPS?DASH_SEC_HOME:start));
   assert(library_open==(start==DASH_SEC_APPS));
-  show();assert(audio_calls==1&&boot_sounds==boot&&fade_in==1);
-  show();assert(audio_calls==1&&boot_sounds==boot);
+  show();assert(audio_calls==1&&boot_sounds==0&&fade_in==1);
+  show();assert(audio_calls==1&&boot_sounds==0);
  }
  /* A configured target at zero seconds remains disabled. */
  reset(DASH_SEC_FILES,0,0,"mc0:/BOOT.ELF");DashRun(&ctx,1);show();assert(audio_calls==1&&!launches);
@@ -210,9 +210,9 @@ int main(void) {
   reset(DASH_SEC_FILES,0,0,"");DashRun(&ctx,1);
   if(!busy)io_busy=1;else if(busy==1)worker_busy=1;else parked=1;
   show();assert(!audio_calls&&startup_audio_pending);
-  io_busy=worker_busy=parked=0;present();assert(audio_calls==1&&boot_sounds==1);
+  io_busy=worker_busy=parked=0;present();assert(audio_calls==1&&!boot_sounds);
  }
- puts("PASS: selected screens and modal targets precede audio; one fade, launch delays/cancel/disabled targets, external handoffs, failure recovery and IO/reentrant-frame guards");
+ puts("PASS: selected screens and modal targets precede audio without a startup cue; one fade, launch delays/cancel/disabled targets, external handoffs, failure recovery and IO/reentrant-frame guards");
 }
 '''
 

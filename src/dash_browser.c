@@ -291,7 +291,7 @@ static void fbSortFiles(FILEINFO *files, int n)
 	}
 }
 
-/* partition lists keep the drive's order, as in the classic browser */
+/* Partition lists keep the order supplied by the shared listing code. */
 static int isPartitionList(const char *dir)
 {
 	return (!strncmp(dir, "hdd", 3) && dir[3] >= '0' && dir[3] <= '9' && !strcmp(dir + 4, ":/")) ||
@@ -1472,7 +1472,7 @@ static void actionsMenu(void)
 			ADD(DI_TEXT, "Open in Text Editor", NULL, 0, F_EDIT);
 		if (is_elf && !ps1_card) {
 			int args_disabled = isPcCardCfPath(fb.dir) ? 1 : 0;
-			ADD(DI_EDIT, "Start with arguments...", args_disabled ? "Direct launch unsupported" : NULL,
+			ADD(DI_LAUNCH_ARGS, "Start with arguments...", args_disabled ? "Direct launch unsupported" : NULL,
 			    args_disabled, F_ARGS);
 			if (filerMenuVisible(TITLE_CFG, en, FILER_MENU_NATIVE))
 				ADD(DI_SETTINGS, "Create title.cfg", NULL, 0, F_TITLECFG);
@@ -1628,7 +1628,7 @@ static void actionsMenu(void)
 static int fileIcon(const FILEINFO *f)
 {
 	if (isDir(f))
-		return DI_FOLDER;
+		return isPartitionList(fb.dir) ? DI_PARTITION : DI_FOLDER;
 	if (genCmpFileExt(f->name, "ELF") || genCmpFileExt(f->name, "KELF") || genCmpFileExt(f->name, "XLF"))
 		return DI_APP;
 	if (genCmpFileExt(f->name, "PNG") || genCmpFileExt(f->name, "JPG") || genCmpFileExt(f->name, "JPEG"))
@@ -1792,7 +1792,7 @@ static void browserDrawBody(void)
 			sz[0] = '\0';
 			if (details) {
 				fmtSize(sz, sizeof(sz), f);
-				if (time_valid && f->stats._Modify.Year)
+				if (!isPartitionList(fb.dir) && time_valid && f->stats._Modify.Year)
 					filerDateEditorFormat(&f->stats._Modify, date, sizeof(date));
 				if (date[0])
 					meta_left -= dashTextWidth(date, DASH_FS_CAPTION);

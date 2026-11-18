@@ -164,13 +164,14 @@ enum {
 	P_PSX,
 	P_CRYSTAL,
 	P_DISC,
-	P_COUNT
+	P_COUNT,
+	P_DEFAULT = P_TOWERS
 };
 
 static const DashThemePresetInfo presets[P_COUNT] = {
-    {"osd", "OSD Classic", "The system tunnel with the main menu's clock orbs, OSDSYS blue. The default."},
+    {"osd", "OSD Classic", "The system tunnel with the main menu's clock orbs, OSDSYS blue."},
     {"black", "Classic Black", "Plain black. The lightest background, adjustable to any colour."},
-    {"towers", "PS2 Towers", "The opening tower field, seen from above in fog."},
+    {"towers", "PS2 Towers", "The opening tower field, seen from above in fog. The default."},
     {"mist", "PS2 Blue Mist", "Midnight blue-to-black gradient with moving blue mist."},
     {"minimal", "OSD Minimal", "The main menu's seven clock orbs and their light trails on near black."},
     {"clockring", "System Clock", "The System Configuration clock: turning rods, the orbs flying inside."},
@@ -229,7 +230,7 @@ static void base(DashTheme *t)
 void dashThemeLoadPreset(int i, DashTheme *t)
 {
 	if (i < 0 || i >= P_COUNT)
-		i = P_OSD;
+		i = P_DEFAULT;
 	base(t);
 	dashStrCopy(t->name, presets[i].name, sizeof(t->name));
 
@@ -250,6 +251,8 @@ void dashThemeLoadPreset(int i, DashTheme *t)
 			t->bg1 = DC(150, 148, 190, 255); /* tower walls */
 			t->bg2 = DC(40, 76, 170, 255);   /* fog */
 			t->panel = DC(2, 3, 10, 170);
+			t->glow = 1;
+			t->bold = 0;
 			break;
 		case P_DISC:
 			t->bg = DASH_BG_DISC;
@@ -436,6 +439,11 @@ void dashThemeLoadPreset(int i, DashTheme *t)
 	}
 }
 
+int dashThemeDefaultPreset(void)
+{
+	return P_DEFAULT;
+}
+
 int dashThemePresetCount(void)
 {
 	return P_COUNT;
@@ -604,7 +612,7 @@ void dashThemeInit(void)
 	if (theme_ready)
 		return;
 	theme_ready = 1;
-	theme_preset = P_OSD;
+	theme_preset = P_DEFAULT;
 	theme_custom = 0;
 	dashThemeLoadPreset(theme_preset, &dashTheme);
 	dashThemeValidate(&dashTheme);
@@ -614,7 +622,7 @@ void dashThemeInit(void)
 void dashThemeSetPreset(int i)
 {
 	if (i < 0 || i >= P_COUNT)
-		i = P_OSD;
+		i = P_DEFAULT;
 	theme_preset = i;
 	theme_custom = 0;
 	dashThemeLoadPreset(i, &dashTheme);
@@ -891,10 +899,10 @@ int dashThemeSerialize(const DashTheme *t, char *buf, int cap, const char *prefi
 void dashThemeStoreBegin(void)
 {
 	dashThemeInit();
-	store_preset = P_OSD;
+	store_preset = P_DEFAULT;
 	store_custom = 0;
 	store_seen = 0;
-	dashThemeLoadPreset(P_OSD, &dashTheme);
+	dashThemeLoadPreset(store_preset, &dashTheme);
 }
 
 int dashThemeStoreKey(const char *key, char *value)
@@ -905,7 +913,7 @@ int dashThemeStoreKey(const char *key, char *value)
 	store_seen = 1;
 	if (!stricmp(key, "preset")) {
 		int p = dashThemeFindPreset(value);
-		store_preset = (p >= 0) ? p : P_OSD;
+		store_preset = (p >= 0) ? p : P_DEFAULT;
 		dashThemeLoadPreset(store_preset, &dashTheme);
 	} else if (!stricmp(key, "custom"))
 		store_custom = parseBool(value, 0);
@@ -1051,7 +1059,7 @@ int dashThemeFolderRead(const char *folder, DashTheme *out)
 		text = dashLoadTextFile(path, 16 * 1024, &len);
 		if (text == NULL)
 			continue; /* not in this root: try the next */
-		/* start from the default so a sparse theme.cfg still makes sense */
+		/* Preserve the OSD base for existing sparse theme folders. */
 		dashThemeLoadPreset(P_OSD, out);
 		out->name[0] = '\0';
 		ctx.t = out;
@@ -1129,7 +1137,7 @@ int dashThemeFolderLoad(const char *folder)
 		text = dashLoadTextFile(path, 16 * 1024, &len);
 		if (text == NULL)
 			continue; /* not in this root: try the next */
-		/* start from the default so a sparse theme.cfg still makes sense */
+		/* Preserve the OSD base for existing sparse theme folders. */
 		dashThemeLoadPreset(P_OSD, &t);
 		t.name[0] = '\0';
 		ctx.t = &t;
@@ -1199,7 +1207,7 @@ int dashThemeBasePreset(void)
 void dashThemeRestore(const DashTheme *t, int preset, int custom)
 {
 	dashTheme = *t;
-	theme_preset = (preset >= 0 && preset < P_COUNT) ? preset : P_OSD;
+	theme_preset = (preset >= 0 && preset < P_COUNT) ? preset : P_DEFAULT;
 	theme_custom = custom ? 1 : 0;
 	dashThemeValidate(&dashTheme);
 	dashThemeApply();
