@@ -42,6 +42,8 @@ void filerDateEditorAdjust(FilerDateEditor *e, int delta);
 int filerDateEditorFieldCount(void);
 void filerDateEditorField(const sceMcStDateTime *ts, int position, char *text, int size, const char **name, const char **sep);
 void filerDateEditorFormat(const sceMcStDateTime *ts, char *out, int size);
+/* Byte range of the editable field in filerDateEditorFormat output. */
+void filerDateEditorFieldRange(int position, int *offset, int *length);
 int filerIsExploitProtectedPath(const char *path, const FILEINFO *file);
 int filerConfirmExploitDelete(const char *path, const FILEINFO *file);
 int filerConfirmExploitModify(const char *path, const FILEINFO *file);

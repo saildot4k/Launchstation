@@ -1045,6 +1045,21 @@ void filerDateEditorField(const sceMcStDateTime *ts, int position, char *text, i
 	*sep = (position < 2) ? ":" : (position == 2) ? "   " : (position < 5) ? "/" : "";
 }
 
+void filerDateEditorFieldRange(int position, int *offset, int *length)
+{
+	char time_text[16];
+	int use_12h, date_format, field;
+
+	menuTitleGetClockFormat(&use_12h, &date_format);
+	field = getCustomDateFieldForDisplayPosition(position, date_format);
+	*offset = getCustomDateFieldOffset(field, date_format);
+	*length = field == CUSTOM_DATE_YEAR ? 4 : 2;
+	if (field >= CUSTOM_DATE_YEAR) {
+		menuTitleFormatClockTime(time_text, sizeof(time_text), 0, 0, 0, use_12h);
+		*offset += strlen(time_text) + 1;
+	}
+}
+
 void filerDateEditorFormat(const sceMcStDateTime *ts, char *out, int size)
 {
 	int use_12h, date_format;
