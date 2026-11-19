@@ -37,10 +37,24 @@ typedef struct { u8 r,g,b,a; } DashColor;
 typedef struct { int unused; } GSTEXTURE;
 static GSTEXTURE icon_tex;
 static int icons_ready=1, draws, tints, clock_reads;
-static u64 now_ms;
+static u64 now_ms,last_frame_ms;
 static u64 Timer(void) { clock_reads++; return now_ms; }
 static float dashClampf(float v,float lo,float hi) { return v<lo?lo:v>hi?hi:v; }
 static DashColor dashIconTint(DashColor c) { tints++; c.g=17; return c; }
+static struct { int icon_backing; } dashCfg;
+#define DASH_SELECT_EXTRA_W 4.0f
+static DashColor DC(int r,int g,int b,int a) { return (DashColor){r,g,b,a}; }
+static void dashRoundedBorder(float x,float y,float w,float h,float r,DashColor c) {
+    (void)x;(void)y;(void)w;(void)h;(void)r;(void)c;
+}
+static void dashSpriteBatchBegin(GSTEXTURE *tex,DashColor c) { (void)tex;(void)c;assert(!"Unexpected static icon"); }
+static void dashSpriteBatchEnd(void) {}
+static void dashSpriteBatchAdd(float x,float y,float u,float v,float x2,float y2,float u2,float v2) {
+    (void)x;(void)y;(void)u;(void)v;(void)x2;(void)y2;(void)u2;(void)v2;
+}
+static void dashSpriteBatchAddAligned(float x,float y,float u,float v,float x2,float y2,float u2,float v2) {
+    dashSpriteBatchAdd(x,y,u,v,x2,y2,u2,v2);
+}
 static struct { float x[4],y[4],u[4],v[4]; DashColor c; } quads[2];
 static void dashTexDrawQuadUV(GSTEXTURE *tex,
     float x1,float y1,float u1,float v1, float x2,float y2,float u2,float v2,
@@ -61,9 +75,10 @@ for macro in ("ICON_SIZE", "ICON_SLOT", "ICON_COLS", "ICON_TEX_W", "ICON_TEX_H",
 start = header.index("enum DashIcon {")
 code += header[start:header.index("};", start) + 2] + "\n"
 code += icons[icons.index("typedef struct"):icons.index("static inline int clutSwizzle(")]
+code += function((root / "src/dash_main.c").read_text(), "u64 dashFrameTimeMs(")
 for signature in ("static void initHeaderIconParts(", "static void initClipboardIcons(",
                   "static void drawHeaderIconPart(",
-                  "void dashHeaderIcon("):
+                  "void dashHeaderIcon(", "void dashIcon("):
     code += function(icons, signature)
 code += r'''
 static u8 atlas[ICON_TEX_W*ICON_TEX_H], before_clipboard[ICON_TEX_W*ICON_TEX_H];
@@ -74,9 +89,9 @@ static void check_at(u64 ms,float degrees)
     const float radians=degrees*3.14159265358979323846f/180;
     const float cs=cosf(radians),sn=sinf(radians);
     const DashColor color={123,234,210,211};
-    now_ms=ms;draws=tints=clock_reads=0;
+    now_ms=last_frame_ms=ms;draws=tints=clock_reads=0;
     dashHeaderIcon(cx,cy,size,color);
-    assert(draws==2 && tints==1 && clock_reads==1);
+    assert(draws==2 && tints==1 && clock_reads==0);
     for(int part=0;part<2;part++) {
         float sine=part==0?-sn:sn;
         float vx=quads[part].x[1]-quads[part].x[0];
@@ -89,6 +104,26 @@ static void check_at(u64 ms,float degrees)
                quads[part].c.b==210 && quads[part].c.a==211);
         assert(quads[part].u[0]==APP_PART_X && quads[part].u[1]==APP_PART_X+APP_PART_SLOT);
         assert(quads[part].v[0]==part*APP_PART_SLOT && quads[part].v[2]==(part+1)*APP_PART_SLOT);
+    }
+    /* Rendering many ELF icons can advance real time during the same frame.
+     * Every copy must keep the header's phase, at every application icon size. */
+    const int ids[]={DI_APP,DI_EXEC};
+    const float sizes[]={14,18,26,48,96};
+    for(int id=0;id<2;id++) for(int i=0;i<5;i++) {
+        float sz=sizes[i], span=sz*APP_PART_SLOT/APP_PART_SIZE;
+        now_ms+=137; draws=tints=0;
+        dashIcon(ids[id],cx-sz/2,cy-sz/2,sz,color);
+        assert(draws==2 && tints==1 && clock_reads==0);
+        for(int part=0;part<2;part++) {
+            float vx=quads[part].x[1]-quads[part].x[0];
+            float vy=quads[part].y[1]-quads[part].y[0];
+            assert(fabsf(vx/span-cs)<0.00001f);
+            assert(fabsf(vy/span-(part==0?-sn:sn))<0.00001f);
+            float sx=0,sy=0;
+            for(int k=0;k<4;k++) {sx+=quads[part].x[k];sy+=quads[part].y[k];}
+            assert(fabsf(sx/4-cx)<0.0001f && fabsf(sy/4-cy)<0.0001f);
+            assert(quads[part].c.r==color.r && quads[part].c.g==17 && quads[part].c.a==color.a);
+        }
     }
 }
 int main(void)
@@ -147,7 +182,7 @@ int main(void)
     dashHeaderIcon(0,0,0,(DashColor){255,255,255,255});
     dashHeaderIcon(0,0,26,(DashColor){255,255,255,0});
     assert(!draws && !tints && !clock_reads);
-    puts("PASS: header atlas layers, fixed center/tint, opposite 30-second turns and smooth cycle wrap");
+    puts("PASS: header and ELF/application icons share opposite 30-second turns and exactly the same frame phase at five sizes, including cycle wraps and long uptime; fixed centers, tint and atlas layers");
 }
 '''
 assert "initHeaderIconParts(mem);" in function(icons, "void dashIconsInit(")

@@ -121,6 +121,11 @@ float dashFrameDelta(void)
 	return frame_dt;
 }
 
+u64 dashFrameTimeMs(void)
+{
+	return last_frame_ms;
+}
+
 /* Main, modal and tool loops share the same clock. Nested dialogs consume
  * elapsed time here, so returning to their caller never counts it twice.
  * Keep this visual-only: no section input/update, device polling or IO. */

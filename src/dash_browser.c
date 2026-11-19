@@ -1125,16 +1125,40 @@ static void tsProgress(int done, int total, const char *folder)
 
 #define TS_ROWS 9
 #define TS_ROW_H 22.0f
+#define TS_LIST_H ((TS_ROWS + 1) * TS_ROW_H)
 
-/* Keep only ordering and confirmation hints inside the editor. */
+/* The selected folder owns half a blank row on each side, including edges. */
+static float tsRowY(float list_y, int index, int top, int selected)
+{
+	float extra = index < selected ? 0.0f : index == selected ? 0.5f : 1.0f;
+	return list_y + (index - top + extra) * TS_ROW_H;
+}
+
+/* Only the edited folder changes rank. Carry its current visual position
+ * through that move so every row keeps its identity while the model sorts. */
+static void tsMoveRow(float *rows, int from, int to)
+{
+	float moving;
+
+	if (rows == NULL || from == to)
+		return;
+	moving = rows[from];
+	if (from < to)
+		memmove(&rows[from], &rows[from + 1], (to - from) * sizeof(*rows));
+	else
+		memmove(&rows[to + 1], &rows[to], (from - to) * sizeof(*rows));
+	rows[to] = moving;
+}
+
 static void tsDrawHints(float x, float y, float w)
 {
 	const DashHint hints[] = {
-	    {DI_BTN_R1, NULL, "Up"}, {DI_BTN_R2, NULL, "Down"},
-	    {dashOkIcon(), NULL, "Apply"}, {dashBackIcon(), NULL, "Cancel"}
+	    {DI_BTN_L1, NULL, "Up/Down"},
+	    {dashOkIcon(), NULL, "Add"}, {dashBackIcon(), NULL, "Subtract"},
+	    {DI_BTN_SELECT, NULL, "Cancel"}, {DI_BTN_START, NULL, "Save"}
 	};
 	const int count = sizeof(hints) / sizeof(hints[0]);
-	float total = 0.0f, gap;
+	float total = dashButtonWidth(DI_BTN_R1, NULL) + 2.0f, gap;
 	float text_y = y + 11.0f - 16.0f * DASH_FS_SMALL;
 	int i;
 
@@ -1145,63 +1169,132 @@ static void tsDrawHints(float x, float y, float w)
 	if (gap < 0.0f)
 		gap = 0.0f;
 	for (i = 0; i < count; i++) {
-		x += dashDrawButton(x, y, hints[i].button, NULL) + 4.0f;
-		x = dashTextS(x, text_y, hints[i].label, DASH_FS_SMALL, DASH_C_TEXT2) + gap;
+		x += dashDrawButton(x, y, hints[i].button, NULL);
+		if (i == 0) {
+			x += 2.0f;
+			x += dashDrawButton(x, y, DI_BTN_R1, NULL);
+		}
+		x = dashTextS(x + 4.0f, text_y, hints[i].label, DASH_FS_SMALL, DASH_C_TEXT2) + gap;
 	}
 }
 
-/* native date editor: the folders newest first, the edited one moving as
- * its date changes */
+static void tsDrawFolderRow(const FilerDateEditor *e, int index, int selected, float x, float y, float w)
+{
+	const FILEINFO *folder = &e->folders[index];
+	float center_y = y + TS_ROW_H * 0.5f;
+	float text_y = center_y - 16.0f * DASH_FS_SMALL;
+	char date[40];
+	int offset = 0, length = 0;
+	float date_x, field_x = 0.0f, field_w = 0.0f;
+	int changed = filerDateEditorChanged(e, index);
+	DashColor col = selected ? DASH_C_TEXT : DASH_C_TEXT2;
+
+	filerDateEditorFormat(&folder->stats._Modify, date, sizeof(date));
+	date_x = x + w - 28 - dashTextWidth(date, DASH_FS_SMALL);
+	if (selected) {
+		dashDrawSelection(x + 16, y + 1, w - 32, TS_ROW_H - 2, 6, 1.0f);
+		filerDateEditorFieldRange(e->position, &offset, &length);
+		if (offset >= 0 && length > 0 && offset + length <= (int)strlen(date)) {
+			field_x = date_x + dashTextWidthN(date, offset, DASH_FS_SMALL);
+			field_w = dashTextWidthN(date + offset, length, DASH_FS_SMALL);
+			dashPanel(field_x - 2, y + 1, field_w + 4, TS_ROW_H - 2, 3,
+			          dashColorA(DASH_C_ACCENT, 0.20f));
+			dashPanelBorder(field_x - 2, y + 1, field_w + 4, TS_ROW_H - 2, 3,
+			                dashColorA(DASH_C_ACCENT, 0.90f));
+		}
+	}
+	dashIcon(changed ? DI_CLOCK : DI_FOLDER, x + 24, center_y - 7, 14, changed ? DASH_C_OK : col);
+	dashTextFit(x + 46, text_y, date_x - (x + 46) - 16, folder->name, DASH_FS_SMALL, col);
+	dashTextRight(x + w - 28, text_y, date, DASH_FS_SMALL, col);
+}
+
+/* Edit directly in the selected folder's existing timestamp column. */
 static int tsEdit(FilerDateEditor *e)
 {
 	const float w = 580.0f, h = 372.0f;
 	const float x = (DASH_VW - w) * 0.5f, y = (DASH_VH - h) * 0.5f;
 	const float list_y = y + 70.0f;
 	int nfields = filerDateEditorFieldCount(), top = 0, idx, i;
-	float open = 0.0f;
+	float open = 0.0f, camera;
+	float *rows = (float *)malloc(e->count * sizeof(*rows));
 	DashInput in;
 
+	idx = filerDateEditorSync(e);
+	if (idx < 0)
+		idx = 0;
+	top = listCenteredTop(idx, e->count, TS_ROWS);
+	camera = top * TS_ROW_H;
+	if (rows != NULL) {
+		for (i = 0; i < e->count; i++)
+			rows[i] = tsRowY(0, i, 0, idx);
+	}
 	dashInputFlush();
 	while (1) {
+		u32 edits;
+		int from;
+		float dt, speed, blend;
+
 		dashInputPoll(&in);
-		if (in.pressed & DASH_IN_BACK) {
+		if (in.pressed & DASH_IN_SELECT) {
+			free(rows);
 			dashSoundPlay(DASH_SND_CANCEL);
 			dashInputFlush();
 			return 0;
 		}
-		if (in.pressed & DASH_IN_OK) {
+		if (in.pressed & DASH_IN_START) {
+			free(rows);
 			dashSoundPlay(DASH_SND_CONFIRM);
 			dashInputFlush();
 			return 1;
 		}
+		if (in.pressed & DASH_IN_UP)
+			filerDateEditorSelect(e, -1);
+		if (in.pressed & DASH_IN_DOWN)
+			filerDateEditorSelect(e, 1);
+		if (in.pressed & (DASH_IN_UP | DASH_IN_DOWN)) {
+			idx = filerDateEditorSync(e);
+			if (idx < 0)
+				idx = 0;
+		}
+		from = idx;
 		if (in.pressed & DASH_IN_LEFT)
 			e->position = (e->position + nfields - 1) % nfields;
 		if (in.pressed & DASH_IN_RIGHT)
 			e->position = (e->position + 1) % nfields;
-		if (in.pressed & DASH_IN_UP)
+		edits = in.pressed | in.text_repeat;
+		if (edits & DASH_IN_OK)
 			filerDateEditorAdjust(e, 1);
-		if (in.pressed & DASH_IN_DOWN)
+		else if (edits & DASH_IN_BACK)
 			filerDateEditorAdjust(e, -1);
 		if (in.pressed & DASH_IN_L1)
-			filerDateEditorSelect(e, -1);
-		if (in.pressed & DASH_IN_L2)
-			filerDateEditorSelect(e, 1);
-		if (in.pressed & DASH_IN_R1)
 			filerDateEditorMoveNextTo(e, 1);
-		if (in.pressed & DASH_IN_R2)
+		if (in.pressed & DASH_IN_R1)
 			filerDateEditorMoveNextTo(e, 0);
-		if (in.pressed & (DASH_IN_LEFT | DASH_IN_RIGHT | DASH_IN_UP | DASH_IN_DOWN | DASH_IN_L1 | DASH_IN_R1 | DASH_IN_L2 | DASH_IN_R2))
+		if ((in.pressed & (DASH_IN_LEFT | DASH_IN_RIGHT | DASH_IN_UP | DASH_IN_DOWN | DASH_IN_L1 | DASH_IN_R1)) ||
+		    (edits & (DASH_IN_OK | DASH_IN_BACK)))
 			dashSoundPlay(DASH_SND_CURSOR);
 
 		idx = filerDateEditorSync(e);
 		if (idx < 0)
 			idx = 0;
+		tsMoveRow(rows, from, idx);
 		top = listCenteredTop(idx, e->count, TS_ROWS);
-		open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dashVisualUpdate());
+		dt = dashVisualUpdate();
+		speed = 14.0f * dashAnimSpeed();
+		open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dt);
+		if (rows != NULL) {
+			/* Share one easing factor across the list, even for large folders. */
+			blend = dashApproach(0.0f, 1.0f, speed, dt);
+			camera = dashApproach(camera, top * TS_ROW_H, speed, dt);
+			for (i = 0; i < e->count; i++) {
+				float target = tsRowY(0, i, 0, idx);
+				float delta = target - rows[i];
+				rows[i] = delta > -0.01f && delta < 0.01f ? target : rows[i] + delta * blend;
+			}
+		} else
+			camera = top * TS_ROW_H;
 		{
-			float oe = dashEaseOutCubic(open), fx, fy;
-			char text[32], date[40];
-			const char *name = "", *sep = "";
+			float oe = dashEaseOutCubic(open);
 
 			dashRenderScene();
 			dashModalBackdrop(oe);
@@ -1210,40 +1303,20 @@ static int tsEdit(FilerDateEditor *e)
 			dashIcon(DI_CLOCK, x + 24, y + 18, 24, DASH_C_ACCENT);
 			dashTextS(x + 58, y + 20, "Folder dates", DASH_FS_LABEL, DASH_C_TEXT);
 			dashTextFit(x + 58, y + 46, w - 82, fb.dir, DASH_FS_CAPTION, DASH_C_TEXT3);
-			for (i = top; i < e->count && i < top + TS_ROWS; i++) {
-				float ry = list_y + (i - top) * TS_ROW_H;
-				float center_y = ry + TS_ROW_H * 0.5f;
-				float text_y = center_y - 16.0f * DASH_FS_SMALL;
-				int changed = memcmp(&e->folders[i].stats._Modify, &e->original[i], sizeof(sceMcStDateTime)) != 0;
-				DashColor col = (i == idx) ? DASH_C_TEXT : changed ? DASH_C_ACCENT : DASH_C_TEXT2;
-
-				if (i == idx)
-					dashDrawSelection(x + 16, ry + 1, w - 32, TS_ROW_H - 2, 6, 1.0f);
-				dashIcon(DI_FOLDER, x + 24, center_y - 7, 14, col);
-				dashTextFit(x + 46, text_y, w - 290, e->folders[i].name, DASH_FS_SMALL, col);
-				filerDateEditorFormat(&e->folders[i].stats._Modify, date, sizeof(date));
-				dashTextRight(x + w - 28, text_y, date, DASH_FS_SMALL, col);
+			dashGfxScissor(x + 14, list_y, w - 28, TS_LIST_H);
+			/* Include rows entering/leaving the viewport until their slide ends.
+			 * Draw the edited folder last to keep it visible during crossings. */
+			for (i = 0; i < e->count; i++) {
+				float ry = rows != NULL ? list_y + rows[i] - camera : tsRowY(list_y, i, top, idx);
+				if (i != idx && ry + TS_ROW_H > list_y && ry < list_y + TS_LIST_H)
+					tsDrawFolderRow(e, i, 0, x, ry, w);
 			}
-			dashDrawScrollbar(x + w - 16, list_y, TS_ROWS * TS_ROW_H, top, TS_ROWS, e->count);
-
-			/* the edited date, one box per field */
-			fy = list_y + TS_ROWS * TS_ROW_H + 12.0f;
-			fx = x + 28.0f;
-			for (i = 0; i < nfields; i++) {
-				float bw;
-				filerDateEditorField(e->timestamp, i, text, sizeof(text), &name, &sep);
-				bw = dashTextWidth(text, DASH_FS_LABEL) + 14.0f;
-				if (i == e->position)
-					dashDrawSelection(fx - 2, fy - 3, bw, 28, 6, 1.0f);
-				dashText(fx + 5, fy, text, DASH_FS_LABEL, i == e->position ? DASH_C_TEXT : DASH_C_TEXT2);
-				fx += bw;
-				if (sep[0]) {
-					dashText(fx, fy, sep, DASH_FS_LABEL, DASH_C_TEXT3);
-					fx += dashTextWidth(sep, DASH_FS_LABEL) + 2.0f;
-				}
+			if (idx < e->count) {
+				float ry = rows != NULL ? list_y + rows[idx] - camera : tsRowY(list_y, idx, top, idx);
+				tsDrawFolderRow(e, idx, 1, x, ry, w);
 			}
-			filerDateEditorField(e->timestamp, e->position, text, sizeof(text), &name, &sep);
-			dashText(fx + 16, fy + 5, name, DASH_FS_SMALL, DASH_C_ACCENT);
+			dashGfxScissorReset();
+			dashDrawScrollbar(x + w - 16, list_y, TS_LIST_H, top, TS_ROWS, e->count);
 			tsDrawHints(x + 24, y + h - 36, w - 48);
 			dashGfxPopAlpha();
 		}

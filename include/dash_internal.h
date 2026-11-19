@@ -951,6 +951,8 @@ float dashTime(void);
 /* Visual-only tick, once before each dashboard/modal frame. No input or IO. */
 float dashVisualUpdate(void);
 float dashFrameDelta(void); /* measured delta of that tick, for draw-time easing */
+/* Timestamp shared by every icon drawn during the current visual frame. */
+u64 dashFrameTimeMs(void);
 float dashUiFocusAge(void); /* seconds since the focused item changed */
 float dashAnimSpeed(void);
 float dashSectionAnim(void); /* 0..1 section-transition clock */
