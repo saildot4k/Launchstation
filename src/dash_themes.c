@@ -17,11 +17,11 @@
 //  Folders are only read when the user loads one from SETTINGS, so a
 //  missing or broken theme can never block startup.
 //* Every value is validated: out-of-range numbers are clamped, unknown
-//  keys and malformed values are ignored and unreadable text colours are
+//  keys and malformed values are ignored and unreadable text colors are
 //  replaced, so no theme can make the dashboard unusable.
 //
 //Visual direction: the PS2 presets follow the design language documented
-//by the osdbits OSDSYS reverse-engineering notes (restrained colour swaps
+//by the osdbits OSDSYS reverse-engineering notes (restrained color swaps
 //for selection, the {30,110,156} highlight blue, near-black backdrops,
 //indigo menu tunnel, red disc-error atmosphere). No Sony resource data is
 //used; every background is procedural.
@@ -44,7 +44,7 @@ static int store_custom;
 static int store_seen;
 
 //--------------------------------------------------------------
-// Colour helpers
+// Color helpers
 //--------------------------------------------------------------
 DashColor dashColorMix(DashColor a, DashColor b, float t)
 {
@@ -113,7 +113,7 @@ static const char *const bg_ids[DASH_BG_COUNT] = {
     "solid", "gradient", "tunnel", "mist", "towers", "disc", "orbit", "clockring", "grid",
     "lines", "cubes", "stream", "tiles", "brushed", "wave", "crystal", "streaks", "clouds", "image"};
 static const char *const bg_names[DASH_BG_COUNT] = {
-    "Solid colour", "Gradient", "System tunnel", "Blue mist", "PS2 towers", "Disc error red",
+    "Solid color", "Gradient", "System tunnel", "Blue mist", "PS2 towers", "Disc error red",
     "Orbit lights", "Clock ring", "Memory card grid", "Boot lines", "Wireframe cubes",
     "Data stream", "Memory card tiles", "Brushed console", "Ribbons", "Crystal",
     "Light streaks", "Drift clouds", "Wallpaper image"};
@@ -170,7 +170,7 @@ enum {
 
 static const DashThemePresetInfo presets[P_COUNT] = {
     {"osd", "OSD Classic", "The system tunnel with the main menu's clock orbs, OSDSYS blue."},
-    {"black", "Classic Black", "Plain black. The lightest background, adjustable to any colour."},
+    {"black", "Classic Black", "Plain black. The lightest background, adjustable to any color."},
     {"towers", "PS2 Towers", "The opening tower field, seen from above in fog. The default."},
     {"mist", "PS2 Blue Mist", "Midnight blue-to-black gradient with moving blue mist."},
     {"minimal", "OSD Minimal", "The main menu's seven clock orbs and their light trails on near black."},
@@ -182,7 +182,7 @@ static const DashThemePresetInfo presets[P_COUNT] = {
     {"mcblue", "Memory Card Blue", "Muted memory card blue with a tiled motif."},
     {"brushed", "Brushed Console", "Charcoal with a fine matte finish."},
     {"biosblue", "BIOS Blue", "Clean blue system screen, white text, cyan focus."},
-    {"mono", "Monochrome", "Black, white and grey. Colour only marks the selection."},
+    {"mono", "Monochrome", "Black, white and grey. Color only marks the selection."},
     {"crt", "CRT", "Dark gradient with an understated scanline overlay."},
     {"psx", "PSX", "Charcoal and silver ribbons."},
     {"crystal", "Crystal", "The previous dashboard look: towers, stars and glow."},
@@ -294,7 +294,7 @@ void dashThemeLoadPreset(int i, DashTheme *t)
 			break;
 		case P_CLOCKRING:
 			t->bg = DASH_BG_CLOCKRING;
-			t->bg1 = DC(167, 217, 255, 255); /* rod colour */
+			t->bg1 = DC(167, 217, 255, 255); /* rod color */
 			t->bg2 = DC(34, 24, 60, 255);
 			t->warn = DC(236, 226, 80, 255);
 			t->panel = DC(4, 2, 12, 150);
@@ -1089,7 +1089,7 @@ char *dashThemeFolderText(int *out_len)
 		return NULL;
 	len = snprintf(buf, cap,
 	               "# Launchstation dashboard theme\r\n"
-	               "# Colours: #RRGGBB or #RRGGBBAA (AA = opacity). Image paths are relative\r\n"
+	               "# Colors: #RRGGBB or #RRGGBBAA (AA = opacity). Image paths are relative\r\n"
 	               "# to this folder unless they contain a device (mc0:/...).\r\n");
 	len += dashThemeSerialize(&dashTheme, buf + len, cap - len, "");
 	*out_len = len;
@@ -1186,7 +1186,7 @@ int dashThemeFolderExport(const char *folder)
 		return -1;
 	len = snprintf(buf, cap,
 	               "# Launchstation dashboard theme\r\n"
-	               "# Colours: #RRGGBB or #RRGGBBAA (AA = opacity). Image paths are relative\r\n"
+	               "# Colors: #RRGGBB or #RRGGBBAA (AA = opacity). Image paths are relative\r\n"
 	               "# to this folder unless they contain a device (mc0:/...).\r\n");
 	len += dashThemeSerialize(&dashTheme, buf + len, cap - len, "");
 	ret = dashWriteFile(path, buf, len);
@@ -1275,7 +1275,7 @@ void dashThemeResetGroup(int group)
 }
 
 /* Theme edits are saved once the pad has been idle for a moment, so
- * adjusting a colour does not write the memory card on every step. */
+ * adjusting a color does not write the memory card on every step. */
 void dashThemeMarkDirty(void)
 {
 	theme_dirty = 1;

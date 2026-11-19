@@ -1,7 +1,7 @@
 //--------------------------------------------------------------
 //File name:   dash_icons.c
 //Dashboard icon set, rasterized once from signed distance functions into
-//one 512x800 PSMT8 alpha atlas (64x64 icons, tinted by vertex colour).
+//one 512x800 PSMT8 alpha atlas (64x64 icons, tinted by vertex color).
 //The pad glyphs use the same theme-aware SDF atlas as other icons.
 //No additional CT32 pad tile atlas or PNG decoding is needed at startup.
 //--------------------------------------------------------------
@@ -972,6 +972,22 @@ void dashIcon(int id, float x, float y, float size, DashColor c)
 		dashSpriteBatchAdd(x - pad, y - pad, u0, v0, x + size + pad, y + size + pad, u0 + slot, v0 + slot);
 	dashSpriteBatchEnd();
 }
+/* Reuse the Back arrow tile with horizontally reversed texture coordinates,
+ * keeping inline adjustment arrows identical in shape, size and alignment. */
+void dashIconForward(float x, float y, float size, DashColor c)
+{
+	float u = (DI_BACK % ICON_COLS) * ICON_SLOT;
+	float v = (DI_BACK / ICON_COLS) * ICON_SLOT;
+	float pad = size * 2.0f / ICON_SIZE;
+
+	if (!icons_ready || size <= 0.0f || c.a == 0)
+		return;
+	dashSpriteBatchBegin(&icon_tex, dashIconTint(c));
+	dashSpriteBatchAdd(x - pad, y - pad, u + ICON_SLOT, v,
+	                   x + size + pad, y + size + pad, u, v + ICON_SLOT);
+	dashSpriteBatchEnd();
+}
+
 /* Rotate a filtered atlas tile in virtual coordinates, before PAL scaling. */
 static void drawHeaderIconPart(int part, float cx, float cy, float size, float cs, float sn, DashColor c)
 {
@@ -1011,8 +1027,8 @@ void dashHeaderIcon(float cx, float cy, float size, DashColor c)
 	drawHeaderIconPart(1, cx, cy, size, cs, sn, c);
 }
 
-/* Theme icon tint: TEXT keeps the caller's colour, ACCENT leans it towards
- * the accent colour (keeping its brightness), MONO removes the colour. */
+/* Theme icon tint: TEXT keeps the caller's color, ACCENT leans it towards
+ * the accent color (keeping its brightness), MONO removes the color. */
 DashColor dashIconTint(DashColor c)
 {
 	int l = (c.r * 77 + c.g * 150 + c.b * 29) >> 8;

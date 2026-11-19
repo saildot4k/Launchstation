@@ -2,8 +2,8 @@
 //File name:   dash_bg_geo.c
 //Quiet geometric background scenes. All of them are a handful of flat
 //or gouraud primitives (or one small procedural texture), keep most of
-//the screen empty and move slowly, if at all. Colours: dashTheme.bg1 is
-//the drawing colour, dashTheme.bg2 the base.
+//the screen empty and move slowly, if at all. Colors: dashTheme.bg1 is
+//the drawing color, dashTheme.bg2 the base.
 //--------------------------------------------------------------
 #include "dash_internal.h"
 

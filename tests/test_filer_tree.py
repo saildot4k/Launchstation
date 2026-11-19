@@ -111,6 +111,12 @@ with tempfile.TemporaryDirectory(prefix='filer-tree-') as folder:
     (folder / 'filer_tree.h').write_text(platform)
     (folder / 'filer_shared.h').write_text(platform)
     (folder / 'gui_hdd0_format.h').write_text(platform)
+    (folder / 'filer_size_cache.h').write_text(r'''
+#include "filer_tree.h"
+static int filerSizeCacheGet(const char *p,const FILEINFO *f,u64 *n){(void)p;(void)f;(void)n;return 0;}
+static unsigned filerSizeCacheRevision(void){return 0;}
+static void filerSizeCachePut(const char *p,const FILEINFO *f,u64 n,unsigned r){(void)p;(void)f;(void)n;(void)r;}
+''')
     (folder / 'test.c').write_text(code)
     flags = ['-fsanitize=address,undefined', '-fno-omit-frame-pointer'] if os.environ.get('SANITIZE') else []
     subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-Wall', '-Wextra', '-Werror', *flags,

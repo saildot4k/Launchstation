@@ -1,4 +1,5 @@
 #include "launchelf.h"
+#include "filer_size_cache.h"
 #include "dash.h"
 #include "filer_actions.h"
 #include "filer_tree.h"
@@ -1906,6 +1907,7 @@ static int deleteTreeEntry(const char *path, const FILEINFO *file, void *context
 			ret = genRemove(dir);
 		}
 	}
+	if (ret >= 0) filerSizeCacheInvalidate(dir);
 	return ret;
 }
 
@@ -2048,6 +2050,9 @@ int Rename(const char *path, const FILEINFO *file, const char *name)
 	             (!strncmp(dir, "host", 4) && dir[length - 1] == '\\') ? "" : "/", name) >= (int)sizeof(new_path))
 		return -ENAMETOOLONG;
 	if (!strcmp(old_path, new_path) && !strncmp(old_path, "host", 4)) return 0;
+	/* A failed driver rename can still have applied its new spelling. */
+	filerSizeCacheInvalidate(old_path);
+	filerSizeCacheInvalidate(new_path);
 	if (strcmp(file->name, name) && !stricmp(file->name, name))
 		return filerRenameCaseOnly(old_path, new_path, file->name, name, !!(file->stats.AttrFile & sceMcFileAttrSubdir));
 	return filerRenameSiblingOnce(old_path, new_path, !!(file->stats.AttrFile & sceMcFileAttrSubdir));
@@ -2118,6 +2123,11 @@ int newdir(const char *path, const char *name)
 		strcat(dir, name);
 		genLimObjName(dir, 0);
 		ret = filerMkdirNoOverwrite(dir);
+	}
+	if (ret >= 0) {
+		char created[MAX_PATH];
+		if (snprintf(created, sizeof(created), "%s%s", path, name) < (int)sizeof(created))
+			filerSizeCacheInvalidate(created);
 	}
 	return ret;
 }

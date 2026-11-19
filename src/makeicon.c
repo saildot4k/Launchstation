@@ -107,7 +107,7 @@ struct icon_framedata
 	uv[1] = v * 4096;
 //--------------------------------------------------------------
 // draw a char using the system font (16x16)
-void tex_drawChar(unsigned int c, int x, int y, u16 colour)
+void tex_drawChar(unsigned int c, int x, int y, u16 color)
 {
 	int i, j, k, pixBase, pixMask;
 	u8 *cm;
@@ -162,7 +162,7 @@ void tex_drawChar(unsigned int c, int x, int y, u16 colour)
 // NOTE: I added in the ability for \n to be part of the string, don't know if its
 // necessary though, although there are some cases where it doesnt work
 
-int tex_printXY(const unsigned char *s, int x, int y, u16 colour)
+int tex_printXY(const unsigned char *s, int x, int y, u16 color)
 {
 	unsigned int c1, c2;
 	int i;
@@ -196,7 +196,7 @@ int tex_printXY(const unsigned char *s, int x, int y, u16 colour)
 		//Here we know there is room for at least one char on current row
 		if (c1 != 0xFF) {  // Normal character
 		norm_char:
-			tex_drawChar(c1, x, y, colour);
+			tex_drawChar(c1, x, y, color);
 			x += text_spacing;
 			continue;
 		}  //End if for normal character
@@ -209,7 +209,7 @@ int tex_printXY(const unsigned char *s, int x, int y, u16 colour)
 		if ((c2 < '0') || (c2 > '='))    //if the sequence is illegal
 			continue;                    //then just ignore it
 		c1 = (c2 - '0') * 2 + 0x100;     //generate adjusted char code > 0xFF
-		tex_drawChar(c1, x, y, colour);  //render this base character to texture
+		tex_drawChar(c1, x, y, color);  //render this base character to texture
 		x += text_spacing;
 		if ((c2 > '4') && (c2 < ':'))  //if this is a normal-width character
 			continue;                  //continue with the next loop
@@ -217,7 +217,7 @@ int tex_printXY(const unsigned char *s, int x, int y, u16 colour)
 		//'ÿ4'=FilledBox 'ÿ:'=Pad_Rt 'ÿ;'=Pad_Dn 'ÿ<'=Pad_Lt 'ÿ='=Pad_Up
 		if (x > ICON_WIDTH - ICON_MARGIN - 2 * FONT_WIDTH)  //if out of room for compound character ?
 			goto force_newrow;                              //then cut this row here.
-		tex_drawChar(c1 + 1, x, y, colour);                 //render 2nd half of compound character
+		tex_drawChar(c1 + 1, x, y, color);                 //render 2nd half of compound character
 		x += text_spacing;
 	}  // ends while(1)
 	if (x > x_max)

@@ -39,7 +39,7 @@ static float list_top_anim = -1.0f;
 #define GRID_PITCH_Y 100.0f
 #define GRID_CARD 84.0f
 #define GRID_TOP 104.0f
-#define LIST_ROWS 9
+#define LIST_ROWS ((int)((DASH_PANE_B - 104.0f + 3.0f) / LIST_ROW_H))
 #define LIST_ROW_H DASH_LIST_ROW_H
 
 static int matchFilter(const DashApp *a)
@@ -91,6 +91,7 @@ void dashAppsRebuildView(void)
 			sel = i;
 	if (sel >= norder)
 		sel = norder > 0 ? norder - 1 : 0;
+	sel_anim = (float)sel;
 	dashHomeRebuild();
 }
 
@@ -368,12 +369,23 @@ static void move(int delta)
 		float target = (sel / GRID_COLS - 1) * GRID_PITCH_Y;
 		float maxcam = ((norder - 1) / GRID_COLS - 2) * GRID_PITCH_Y;
 		sel_anim = (float)sel;
+		list_top_anim = -1.0f;
 		if (target > maxcam)
 			target = maxcam;
 		grid_cam = target > 0 ? target : 0.0f;
 	}
 	if (sel != old)
 		dashUiFocusPoke();
+}
+
+static void appPage(int direction)
+{
+	int next = listPageIndex(sel, norder, LIST_ROWS, direction);
+	if ((direction < 0 && next > sel) || (direction > 0 && next < sel)) {
+		sel_anim = (float)next;
+		list_top_anim = -1.0f;
+	}
+	move(next - sel);
 }
 
 static void appsInput(const DashInput *in)
@@ -412,9 +424,9 @@ static void appsInput(const DashInput *in)
 		if (in->pressed & DASH_IN_DOWN)
 			move(1);
 		if (in->pressed & (DASH_IN_L2 | DASH_IN_LEFT))
-			move(-LIST_ROWS);
+			appPage(-1);
 		if (in->pressed & (DASH_IN_R2 | DASH_IN_RIGHT))
-			move(LIST_ROWS);
+			appPage(1);
 	} else {
 		if (in->pressed & (DASH_IN_LEFT | DASH_IN_UP))
 			move(-1);
@@ -585,11 +597,11 @@ static void drawList(void)
 	top = listCenteredTop(sel, norder, LIST_ROWS);
 	list_top_anim = listSlideTop(list_top_anim, top, sel, norder, LIST_ROWS,
 	                             dashApproach(0.0f, 1.0f, 14.0f * dashAnimSpeed(), dashFrameDelta()));
-	if (sel_anim < top || sel_anim >= top + LIST_ROWS)
+	if (sel_anim < 0 || sel_anim >= norder)
 		sel_anim = (float)sel;
 
-	dashDrawPanelBox(lx - 6, ly - 6, lw + 12, LIST_ROWS * LIST_ROW_H + 12, 14);
-	dashGfxScissor(lx - 6, ly - 4, lw + 12, LIST_ROWS * LIST_ROW_H + 8);
+	dashDrawPanelBox(lx - 6, ly - 6, lw + 12, DASH_PANE_B - (ly - 6), 14);
+	dashGfxScissor(lx - 6, ly - 4, lw + 12, DASH_PANE_B - (ly - 4));
 	{
 		float fy = ly + (sel_anim - list_top_anim) * LIST_ROW_H;
 		if (fy >= ly - LIST_ROW_H && fy < ly + LIST_ROWS * LIST_ROW_H) {
@@ -617,13 +629,13 @@ static void drawList(void)
 		dashGfxPopAlpha();
 	}
 	dashGfxScissorReset();
-	dashDrawScrollbar(lx + lw + 10, ly, LIST_ROWS * LIST_ROW_H, top, LIST_ROWS, norder);
+	dashDrawScrollbar(lx + lw + 10, ly, DASH_PANE_B - ly, top, LIST_ROWS, norder);
 
 	/* detail panel */
 	if (a != NULL) {
 		char dev[48];
 
-		dashDrawCard(dx, dy, dw, 290, 16);
+		dashDrawCard(dx, dy, dw, DASH_PANE_B - dy, 16);
 		dashGfxPushAlpha(appOpacity(a));
 		dashDrawAppArt(a, dx + (dw - 132) * 0.5f, dy + 14, 132, 132, 1.0f, 0);
 		dashTextScrollProgress(dx + 14, dy + 156, dw - 28, a->title, DASH_FS_LABEL, DASH_C_TEXT, scroll);

@@ -32,7 +32,7 @@ enum CONFIG_SCREEN {
 	CONFIG_SCREEN_COL_GRAPH4_G,
 	CONFIG_SCREEN_COL_GRAPH4_B,
 
-	//First option after colour selectors
+	//First option after color selectors
 	CONFIG_SCREEN_AFT_COLORS,
 	CONFIG_SCREEN_TV_MODE = CONFIG_SCREEN_AFT_COLORS,
 	CONFIG_SCREEN_TV_STARTX,
@@ -101,7 +101,7 @@ void Config_Screen(void)
 				else if (s >= CONFIG_SCREEN_AFT_COLORS)
 					s = CONFIG_SCREEN_COL_LAST;  //if s beyond color settings
 				else if (s >= CONFIG_SCREEN_COL_FIRST + 3)
-					s -= 3;  //if s in a color beyond the first colour, step to preceding color
+					s -= 3;  //if s in a color beyond the first color, step to preceding color
 			} else if (new_pad & PAD_RIGHT) {
 				event |= 2;  //event |= valid pad command
 				if (s >= CONFIG_SCREEN_MENU_FRAME)
@@ -111,7 +111,7 @@ void Config_Screen(void)
 				else if (s >= CONFIG_SCREEN_TV_MODE)
 					s = CONFIG_SCREEN_TV_STARTX;
 				else if (s >= CONFIG_SCREEN_COL_LAST)
-					s = CONFIG_SCREEN_AFT_COLORS;  //if s in the last colour, move it to the first control after colour selection.
+					s = CONFIG_SCREEN_AFT_COLORS;  //if s in the last color, move it to the first control after color selection.
 				else
 					s += 3;
 			} else if ((!swapKeys && new_pad & PAD_CROSS) || (swapKeys && new_pad & PAD_CIRCLE)) {  //User pressed CANCEL=>Subtract/Clear
@@ -234,7 +234,7 @@ void Config_Screen(void)
 				sprintf(c, "\xFF"
 				           "4");
 				printXY(c, x + (space * (i + 1)) - FONT_WIDTH, y, setting->color[i], TRUE, 0);
-				}  //ends loop for colour RGB values
+				}  //ends loop for color RGB values
 				y += FONT_HEIGHT * 2;
 				bool_label_width = (int)strlen(LNG(TV_mode));
 				if ((int)strlen(LNG(Screen_X_offset)) > bool_label_width)
@@ -292,16 +292,16 @@ void Config_Screen(void)
 			x = Menu_start_x;
 			y = Menu_start_y;
 
-			if (s < CONFIG_SCREEN_AFT_COLORS) {  //if cursor indicates a colour component
+			if (s < CONFIG_SCREEN_AFT_COLORS) {  //if cursor indicates a color component
 				int colnum = s / 3;
 				int comnum = s - colnum * 3;
 				x += (space * (colnum + 1)) - (FONT_WIDTH * 4);
 				y += (2 + comnum) * FONT_HEIGHT;
-			} else {                                                                      //if cursor indicates anything after colour components
-				y += (s - CONFIG_SCREEN_AFT_COLORS + 6) * FONT_HEIGHT + FONT_HEIGHT / 2;  //adjust y for cursor beyond colours
+			} else {                                                                      //if cursor indicates anything after color components
+				y += (s - CONFIG_SCREEN_AFT_COLORS + 6) * FONT_HEIGHT + FONT_HEIGHT / 2;  //adjust y for cursor beyond colors
 				//Here y is almost correct, except for additional group spacing
 				if (s >= CONFIG_SCREEN_AFT_COLORS)  //if cursor at or beyond TV mode choice
-					y += FONT_HEIGHT / 2;           //adjust for half-row space below colours
+					y += FONT_HEIGHT / 2;           //adjust for half-row space below colors
 				if (s >= CONFIG_SCREEN_TV_STARTX)   //if cursor at or beyond screen offsets
 					y += FONT_HEIGHT / 2;           //adjust for half-row space below TV mode choice
 				if (s >= CONFIG_SCREEN_MENU_FRAME)  //if cursor at or beyond 'Menu Frame'
@@ -312,7 +312,7 @@ void Config_Screen(void)
 			drawChar(LEFT_CUR, x, y, setting->color[COLOR_TEXT]);  //draw cursor
 
 			//Tooltip section
-			if (s < CONFIG_SCREEN_AFT_COLORS || s == CONFIG_SCREEN_TV_STARTX || s == CONFIG_SCREEN_TV_STARTY) {  //if cursor at a colour component or a screen offset
+			if (s < CONFIG_SCREEN_AFT_COLORS || s == CONFIG_SCREEN_TV_STARTX || s == CONFIG_SCREEN_TV_STARTY) {  //if cursor at a color component or a screen offset
 				if (swapKeys)
 					len = sprintf(c, "\xFF"
 					                 "1:%s \xFF"

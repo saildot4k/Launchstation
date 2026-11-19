@@ -253,7 +253,7 @@ static float drawButton(float x, float y, int icon, const char *key)
 void dashDrawHints(const DashHint *hints, int n)
 {
 	float total = 0.0f, x;
-	float y = 400.0f;
+	float y = DASH_FOOTER_Y;
 	int i;
 
 	/* Measure exactly what the drawing loop below advances by, so every
@@ -571,7 +571,7 @@ void dashDrawSelection(float x, float y, float w, float h, float r, float streng
 			dashPanelBorder(x, y, w, h, r, dashColorA(DASH_C_ACCENT, strength * 0.9f));
 			break;
 		case DASH_HL_TEXT:
-			/* OSDSYS: the selection is only a colour swap of the text */
+			/* OSDSYS: the selection is only a color swap of the text */
 			break;
 		default:
 			dashPanel(x, y, w, h, r, fill);
@@ -729,7 +729,7 @@ static void modalBackdrop(float k)
 
 static void modalPanel(float x, float y, float w, float h, float k)
 {
-	/* modal surface: the panel colour lifted and made nearly opaque, so
+	/* modal surface: the panel color lifted and made nearly opaque, so
 	 * dialogs stay readable over any background */
 	DashColor top = dashColorLighten(DASH_C_PANEL, 0.14f), bot = dashColorLighten(DASH_C_PANEL, 0.06f);
 	DashColor edge = dashColorA(DASH_C_ACCENT, 0.24f);
@@ -829,6 +829,7 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 		return -1;
 	}
 	sel_anim = (float)sel;
+	top_anim = (float)listCenteredTop(sel, n, rows);
 	y = (DASH_VH - h) * 0.5f;
 	modal_preview = NULL;
 	if (preview != NULL)
@@ -844,8 +845,10 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 			while (items[s].disabled && s != sel);
 			if (s != sel)
 				dashSoundPlay(DASH_SND_CURSOR);
-			if (s > sel)
-				sel_anim = (float)s; /* wrapped past the first enabled row */
+			if (s > sel) {
+				sel_anim = (float)s;
+				top_anim = -1.0f;
+			}
 			sel = s;
 		}
 		if (in.pressed & DASH_IN_DOWN) {
@@ -855,9 +858,29 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 			while (items[s].disabled && s != sel);
 			if (s != sel)
 				dashSoundPlay(DASH_SND_CURSOR);
-			if (s < sel)
-				sel_anim = (float)s; /* wrapped past the last enabled row */
+			if (s < sel) {
+				sel_anim = (float)s;
+				top_anim = -1.0f;
+			}
 			sel = s;
+		}
+		if (edit == NULL && (in.pressed & (DASH_IN_LEFT | DASH_IN_RIGHT))) {
+			int direction = (in.pressed & DASH_IN_LEFT) ? -1 : 1;
+			int first = modalEnabledEdge(items, n, 0), last = modalEnabledEdge(items, n, 1), next;
+			if (direction < 0 && sel == first) next = last;
+			else if (direction > 0 && sel == last) next = first;
+			else {
+				next = listPageIndex(sel, n, rows, direction);
+				if (next < first) next = first;
+				if (next > last) next = last;
+				while (items[next].disabled) next += direction;
+			}
+			if (next != sel) dashSoundPlay(DASH_SND_CURSOR);
+			if ((direction < 0 && next > sel) || (direction > 0 && next < sel)) {
+				sel_anim = (float)next;
+				top_anim = -1.0f;
+			}
+			sel = next;
 		}
 		if (in.pressed & DASH_IN_L2) {
 			int first = modalEnabledEdge(items, n, 0);
@@ -893,7 +916,7 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 			return -1;
 		}
 		top = listCenteredTop(sel, n, rows);
-		if (sel_anim < top || sel_anim >= top + rows)
+		if (top_anim < 0 || sel_anim < 0 || sel_anim >= n)
 			sel_anim = (float)sel;
 		if (preview != NULL) {
 			if (sel != previewed) {
@@ -903,7 +926,7 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 		}
 
 		float dt = dashVisualUpdate();
-		sel_anim = dashApproach(sel_anim, (float)sel, 22.0f * dashAnimSpeed(), dt);
+		sel_anim = dashApproach(sel_anim, (float)sel, 14.0f * dashAnimSpeed(), dt);
 		top_anim = listSlideTop(top_anim, top, sel, n, rows,
 		                        dashApproach(0.0f, 1.0f, 14.0f * dashAnimSpeed(), dt));
 		open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dt);
@@ -972,11 +995,6 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 			dashDrawScrollbar(x + w - 12, ly, rows * row_h - 4, top, rows, n);
 			{
 				float hx = x + 24, hy = y + h - 36;
-				if (edit != NULL) {
-					hx += drawButton(hx, hy, DI_BTN_LEFT, NULL) + 2;
-					hx += drawButton(hx, hy, DI_BTN_RIGHT, NULL) + 8;
-					hx = dashTextS(hx, dashButtonTextY(hy, DASH_FS_SMALL), "Change", DASH_FS_SMALL, DASH_C_TEXT2) + 20;
-				}
 				modalHintRow(hx, hy, dashOkIcon(), "Select", dashBackIcon(), "Back");
 			}
 		}

@@ -240,11 +240,11 @@ LaunchELF v4.21a beta (2008.07.21)
 -Embedded virtual memory card driver by Polo35 and ubergeek42, and implemented its use in FileBrowser. Note that vmc0: and vmc1: will not be shown in FileBrowser until some VMC file has been mounted, using new commands in the R1 menu of FileBrowser.
 
 LaunchELF v4.21 (2008.07.20)
--Changed FileBrowser icon colour assignment to use Color5, Colour6, and Color7 for folders, ELF files, and generic files, respectively
--Changed default colour values for FileBrowser icons to be yellow, green, white, used for folders, ELF files, and generic files, respectively. This change also affects HddManager pie charts as they use two of the same colour definitions
+-Changed FileBrowser icon color assignment to use Color5, Colour6, and Color7 for folders, ELF files, and generic files, respectively
+-Changed default color values for FileBrowser icons to be yellow, green, white, used for folders, ELF files, and generic files, respectively. This change also affects HddManager pie charts as they use two of the same color definitions
 
 LaunchELF v4.20 (2008.07.17)
--Implemented an icon mode for the FileBrowser, where each file/folder name will now be prefixed with a small coloured icon. The icon shape for folders is different from that for files, and three different colours are used. One for folders, another for ELFs, and a third for all other files.
+-Implemented an icon mode for the FileBrowser, where each file/folder name will now be prefixed with a small colored icon. The icon shape for folders is different from that for files, and three different colors are used. One for folders, another for ELFs, and a third for all other files.
 -Implemented a new CNF variable 'FB_NoIcons', which may be set to disable the new FileBrowser mode. By default it is zero, enabling the new mode. There is no entry in the configuration menus for this variable, so you must add or change it by text editor (as yet).
 
 LaunchELF v4.19 (2008.07.17)
@@ -276,7 +276,7 @@ LaunchELF v4.13d beta (2008.06.12)
 -Implemented "Load Skin CNF" and "Save Skin CNF" commands in "Screen Settings". The save skin command will create a CNF file similar to LAUNCHELF.CNF, but containing only 18 variables relevant to skins. The load skin command can accept either such files created by the save skin command or a complete LAUNCHELF.CNF file. In the latter case only 18 variables relevant to skins will be loaded, with the rest of the CNF file being ignored. It is also allowed to edit skin files to remove variables, which will then be unaltered when such a skin file is loaded.
 
 LaunchELF v4.13c beta (2008.06.11)
--Fixed a bug in cursor movement for colours in "Screen Settings"
+-Fixed a bug in cursor movement for colors in "Screen Settings"
 -Implemented uLE-related file selection. Using R3 on a file in FileBrowser will return a pathname like "uLE:/filename.ext" (assuming "filename.ext" was selected). Reference to a file with the "uLE:/" prefix will cause a search for that file in some uLE-related folders. First the active CNF folder, then the SYS-CONF folders of memory cards, starting with mc0 unless the active CNF folder is on mc1. Using R3 on a folder in FileBrowser will just navigate to active CNF folder.
 
 LaunchELF v4.13b beta (2008.06.01)
@@ -310,7 +310,7 @@ outside source file additions and changes:
  libcdvd\iop\ps2lib_ioman.h
 
 LaunchELF v4.12 Betas (2007.05.10) through (2007.06.17)
--Added support for GUI-like skin JPG for alternative use in main launch menu. This is largely based on a design contributed by 'suloku' in the ps2-scene forums. Note that when such a skin is in use the skin JPGs will be reloaded at each entry to and exit from the main menu, so they must then be on continuously available media. Note also that the brightness setting is shared between the two skins, as are all the text colour settings, so the GUI skin needs to have average brightness and colour tone similar to the main skin.
+-Added support for GUI-like skin JPG for alternative use in main launch menu. This is largely based on a design contributed by 'suloku' in the ps2-scene forums. Note that when such a skin is in use the skin JPGs will be reloaded at each entry to and exit from the main menu, so they must then be on continuously available media. Note also that the brightness setting is shared between the two skins, as are all the text color settings, so the GUI skin needs to have average brightness and color tone similar to the main skin.
 -Corrected interlace setting in distributed LAUNCHELF.CNF to reflect the current default, which is to have interlace active (as opposed to original default).
 -Adjusted timestamp display for compatibility to methods in Windows XP, for use with host: browsing (affects only timestamps with raw year value larger than 2256)
 -Fixed a bug in browser changes preventing user from manually canceling transfers
@@ -530,7 +530,7 @@ LaunchELF v3.87 (2006.08.10)
 -Fixed a gsKit buffer overflow that could crash program on text-rich screens, by allocating 50% greater buffer. This fix should cure all crashing reported both for TextEditor and for FileBrowser.
 -Increased line thickness to 3 (for frames etc), to minimize interlace flicker.
 -Tweaked various dialogs to work better with the new line thickness
--Modified virtual keyboard of FileBrowser to use highlight colour for cursors
+-Modified virtual keyboard of FileBrowser to use highlight color for cursors
 -Modified JPG Brightness scale to widen the range from 32..224 to 16..240
 
 LaunchELF v3.86 (2006.08.08)
@@ -592,8 +592,8 @@ LaunchELF v3.78 (2006.06.12)
 -Made some changes to various text messages for better english and consistency
 -Changed TextEditor to use 'Select' button to toggle virtual keyboard OFF as well as ON
 -Fixed a TextEditor bug that caused insert mode to be missed when cursor at CR+LF line end, thus causing the CR+LF combo to be overwritten when entering a character.
--Tweaked TextEditor colour brightness, from 255 to 160 as max component value
--Fixed TextEditor popups to use standard GUI colours and to obey the Popup_Opaque flag
+-Tweaked TextEditor color brightness, from 255 to 160 as max component value
+-Fixed TextEditor popups to use standard GUI colors and to obey the Popup_Opaque flag
 
 LaunchELF v3.77 (2006.06.11)
 -Merged in the text editor contributed by Polo
@@ -623,8 +623,8 @@ LaunchELF v3.73 (2006.06.02)
 -Raised an index limit for partition arrays from 100 to 400 for larger disk support
 -Added progress messages to GetHddInfo function (mainly for debugging)
 -Changed HddManager to cause partition list refresh for the FileBrowser when needed
--Changed HddManager to use configurable colours
--Added four more configurable colours to Screen Settings for GUI graphs (eg: HddManager)
+-Changed HddManager to use configurable colors
+-Added four more configurable colors to Screen Settings for GUI graphs (eg: HddManager)
 -Merged HddManager contributed by Polo. It can be launched as MISC/HddManager
 
 LaunchELF v3.72 (2006.05.24)
@@ -715,10 +715,10 @@ LaunchELF v3.61 (2006.04.18)
 -Slightly modified CD init for MISC/PS2Disc launching (eliminated a rare error case)
 
 LaunchELF v3.60  (2006.04.11)
--Split the background colour usage into one colour used by libito/GS for pixels outside of the normal screen area, and another used inside the normal screen area. The former will now always be max black (value 0) while the latter will remain as used previously. This change eliminates the inconsistent colouring of screen borders, making them consistently black from now on. 
+-Split the background color usage into one color used by libito/GS for pixels outside of the normal screen area, and another used inside the normal screen area. The former will now always be max black (value 0) while the latter will remain as used previously. This change eliminates the inconsistent coloring of screen borders, making them consistently black from now on.
 -Added configurable option for opaque popup menus to the 'SCREEN SETTINGS' submenu.
 -Fixed a bug in loadSkin function, that prevented skins from being loaded from HDD folders using long path strings (as for deeply nestled folders or very long names). That bug may have caused other errors too, depending on path strings used
--Fixed a cosmetic bug that affected top right corner of menu frame in filebrowser, when using simple colour setup instead of JPG skin.
+-Fixed a cosmetic bug that affected top right corner of menu frame in filebrowser, when using simple color setup instead of JPG skin.
 
 LaunchELF v3.59  (2006.04.04)
 -Modified 'CONFIG' so that 'CANCEL' restores original skin state
@@ -746,10 +746,10 @@ LaunchELF v3.56  (2006.04.02)
 -Fixed a skin problem by adding 'itoGsFinish()' calls after skin texture load calls
 
 LaunchELF v3.55  (2006.03.30)
--dlanor: Rearranged colour configuration in 'SCREEN SETTINGS' to make more room
+-dlanor: Rearranged color configuration in 'SCREEN SETTINGS' to make more room
 -dlanor: Moved menu title configuration to 'SCREEN SETTINGS'
--dlanor: Added colour patches and descriptive labels to colour configuration
--dlanor: Changed colour configuration format to hex, so as to match CNF file
+-dlanor: Added color patches and descriptive labels to color configuration
+-dlanor: Changed color configuration format to hex, so as to match CNF file
 -Polo35: Moved skin configuration to 'SCREEN SETTINGS'
 -Polo35: Added JPG skin preview
 

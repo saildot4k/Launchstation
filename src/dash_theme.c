@@ -38,8 +38,8 @@ static inline u64 rgbaq(int r, int g, int b, int a)
 
 /* Background of the classic screens: a pure function of Y (so partial
  * redraws stay seamless) derived from the active theme's background
- * colours, plus the user's classic background colour as a tint so the
- * classic colour skins still matter. */
+ * colors, plus the user's classic background color as a tint so the
+ * classic color skins still matter. */
 static void gradColor(float t, int *r, int *g, int *b)
 {
 	u64 bg = setting->color[COLOR_BACKGR];
@@ -53,10 +53,10 @@ static void gradColor(float t, int *r, int *g, int *b)
 		t = 1.0f;
 	dashThemeBaseColors(&dashTheme, &top, &bot);
 	if (dashTheme.bg == DASH_BG_SOLID)
-		/* single-colour themes keep a hint of depth */
+		/* single-color themes keep a hint of depth */
 		top = dashColorLighten(top, 0.03f);
 	else
-		/* the upper colour only as a glow, like the dashboard's scenes */
+		/* the upper color only as a glow, like the dashboard's scenes */
 		top = dashColorLerp(bot, top, 0.6f);
 	top = dashColorScale(top, k);
 	bot = dashColorScale(bot, k);
@@ -83,7 +83,7 @@ void DashThemeBackgroundRect(int x1, int y1, int x2, int y2)
 
 void DashThemePopupRect(int x1, int y1, int x2, int y2)
 {
-	/* the theme's panel, tinted a little towards the selection colour */
+	/* the theme's panel, tinted a little towards the selection color */
 	DashColor tint = dashColorMix(dashTheme.panel, dashTheme.select, 0.3f);
 	DashColor top = dashColorLighten(tint, 0.14f), bot = dashColorLighten(tint, 0.06f);
 
@@ -95,7 +95,7 @@ void DashThemePopupRect(int x1, int y1, int x2, int y2)
 
 void DashThemeFrame(int x1, int y1, int x2, int y2, u64 color)
 {
-	/* soft two-tone border: user frame colour lifted towards the accent */
+	/* soft two-tone border: user frame color lifted towards the accent */
 	int r = (int)(color & 0xFF), g = (int)((color >> 8) & 0xFF), b = (int)((color >> 16) & 0xFF);
 	u64 c;
 
@@ -122,10 +122,10 @@ void DashThemeFrame(int x1, int y1, int x2, int y2, u64 color)
 	gsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
 }
 
-void DashThemeChar(unsigned int c, int x, int y, u64 colour)
+void DashThemeChar(unsigned int c, int x, int y, u64 color)
 {
 	gsGlobal->PrimAlphaEnable = GS_SETTING_ON;
-	dashFontLegacyChar(c, x, y, colour);
+	dashFontLegacyChar(c, x, y, color);
 	gsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
 }
 

@@ -13,6 +13,7 @@
 //  loaded on the UI thread.
 //--------------------------------------------------------------
 #include "dash_internal.h"
+#include "filer_size_cache.h"
 #include "dash_sound.h"
 #include "hdd_header_injector.h"
 #include "hdd_filesystem.h"
@@ -292,6 +293,9 @@ static void hddJobRun(void *arg)
 	HddJob *j = (HddJob *)arg;
 	char in[48], out[48];
 
+	if (j->op == HOP_CREATE || j->op == HOP_REMOVE || j->op == HOP_RENAME ||
+	    j->op == HOP_FORMAT || j->op == HOP_INJECT)
+		filerSizeCacheInvalidate("hdd0:/");
 	switch (j->op) {
 		case HOP_SCAN:
 			scanRun(j);
@@ -1122,7 +1126,7 @@ static void partitionMenu(void)
 #define LIST_Y 108.0f
 #define LIST_W 300.0f
 #define ROW_H 26.0f
-#define ROWS 10
+#define ROWS ((int)((DASH_PANE_B - LIST_Y + 3.0f) / ROW_H))
 #define DET_X 356.0f
 #define DET_W 244.0f
 
@@ -1252,7 +1256,7 @@ static void usageBar(float x, float y, float w, u32 used, u32 total, DashColor c
 
 static void drawDetails(float scroll)
 {
-	float x = DET_X, y = LIST_Y - 6, w = DET_W, h = ROWS * ROW_H + 12;
+	float x = DET_X, y = LIST_Y - 6, w = DET_W, h = DASH_PANE_B - y;
 	char a[48], b[48], line[96];
 	HddPart *p;
 
@@ -1352,9 +1356,9 @@ static void hddScene(void)
 
 	top_anim = listSlideTop(top_anim, top, sel, hm.n, ROWS,
 	                        dashApproach(0.0f, 1.0f, 14.0f * dashAnimSpeed(), dashFrameDelta()));
-	dashDrawPanelBox(LIST_X - 6, LIST_Y - 6, LIST_W + 12, ROWS * ROW_H + 12, 14);
+	dashDrawPanelBox(LIST_X - 6, LIST_Y - 6, LIST_W + 12, DASH_PANE_B - (LIST_Y - 6), 14);
 	if (hm.n > 0) {
-		dashGfxScissor(LIST_X - 4, LIST_Y - 4, LIST_W + 8, ROWS * ROW_H + 8);
+		dashGfxScissor(LIST_X - 4, LIST_Y - 4, LIST_W + 8, DASH_PANE_B - (LIST_Y - 4));
 		dashDrawSelection(LIST_X, LIST_Y + (sel_anim - top_anim) * ROW_H, LIST_W, ROW_H - 3, 8, 1.0f);
 		for (i = (int)top_anim; i < hm.n && i < top_anim + ROWS; i++) {
 			HddPart *p = &hm.parts[i];
@@ -1370,7 +1374,7 @@ static void hddScene(void)
 			dashTextRight(LIST_X + LIST_W - 10, y + 2, a, DASH_FS_CAPTION, DASH_C_TEXT3);
 		}
 		dashGfxScissorReset();
-		dashDrawScrollbar(LIST_X + LIST_W + 8, LIST_Y, ROWS * ROW_H, top, ROWS, hm.n);
+		dashDrawScrollbar(LIST_X + LIST_W + 8, LIST_Y, DASH_PANE_B - LIST_Y, top, ROWS, hm.n);
 	}
 	drawDetails(scroll);
 	{
@@ -1422,15 +1426,17 @@ void dashHddManager(void)
 			/* Match File Browser paging: stop at each endpoint before wrapping. */
 			if (in.pressed & DASH_IN_LEFT) {
 				wrapped |= sel == 0;
-				sel = sel == 0 ? hm.n - 1 : (sel < ROWS ? 0 : sel - ROWS);
+				sel = listPageIndex(sel, hm.n, ROWS, -1);
 			}
 			if (in.pressed & DASH_IN_RIGHT) {
 				wrapped |= sel == hm.n - 1;
-				sel = sel == hm.n - 1 ? 0 : (sel + ROWS >= hm.n ? hm.n - 1 : sel + ROWS);
+				sel = listPageIndex(sel, hm.n, ROWS, 1);
 			}
 		}
-		if (wrapped)
+		if (wrapped) {
 			sel_anim = (float)sel;
+			top_anim = -1.0f;
+		}
 		if (sel != prev) {
 			dashSoundPlay(DASH_SND_CURSOR);
 			dashUiFocusPoke();
@@ -1446,13 +1452,13 @@ void dashHddManager(void)
 		if (sel >= hm.n)
 			sel = hm.n > 0 ? hm.n - 1 : 0;
 		top = listCenteredTop(sel, hm.n, ROWS);
-		if (sel_anim < top || sel_anim >= top + ROWS)
+		if (sel_anim < 0 || sel_anim >= hm.n)
 			sel_anim = (float)sel;
 		/* Keep PFS usage polling as before; HDL title RPCs are explicit
 		 * (Rename game) and never run on cursor movement. */
 		if (hm.n > 0 && Timer() - last_move > 180)
 			loadPfsInfo(sel);
-		sel_anim = dashApproach(sel_anim, (float)sel, 20.0f * dashAnimSpeed(), dashVisualUpdate());
+		sel_anim = dashApproach(sel_anim, (float)sel, 14.0f * dashAnimSpeed(), dashVisualUpdate());
 		dashRenderScene();
 		dashGfxPresent();
 	}

@@ -168,6 +168,8 @@ static void dashInputPoll(DashInput *in) {
                         scroll_scenario==3?DASH_IN_DOWN:
                         scroll_scenario==4?DASH_IN_R2:
                         scroll_scenario==5?DASH_IN_L2:0;
+        else if(f==2 && scroll_scenario>=6)
+            in->pressed=scroll_scenario==6?DASH_IN_RIGHT:DASH_IN_LEFT;
         else
             in->pressed=DASH_IN_OK;
     }
@@ -310,6 +312,23 @@ int main(void) {
         assert(dashModalMenu("wrap/jump",NULL,long_menu,20,bottom?0:19)==(bottom?19:0));
         assert(scroll_top==(bottom?11:0) && renders==1);
     }
+    /* Warm the viewport before paging so both the camera and focus glide. */
+    reset();scroll_scenario=6;
+    assert(dashModalMenu("page right",NULL,long_menu,20,0)==13);
+    assert(scroll_top==9 && renders==2);
+    reset();scroll_scenario=7;
+    assert(dashModalMenu("page left",NULL,long_menu,20,19)==6);
+    assert(scroll_top==2 && renders==2);
+    for(int i=0;i<20;i++)long_menu[i].disabled=i<4 || i>15;
+    reset();scroll_scenario=6;
+    assert(dashModalMenu("last enabled page",NULL,long_menu,20,8)==15);
+    reset();scroll_scenario=7;
+    assert(dashModalMenu("first enabled page",NULL,long_menu,20,11)==4);
+    reset();scroll_scenario=6;
+    assert(dashModalMenu("enabled wrap right",NULL,long_menu,20,15)==4);
+    reset();scroll_scenario=7;
+    assert(dashModalMenu("enabled wrap left",NULL,long_menu,20,4)==15);
+    for(int i=0;i<20;i++)long_menu[i].disabled=0;
     /* Both endpoints fit in short popups, so visibility alone cannot detect
      * a sweep through intervening entries during wraparound. */
     for(int count=2;count<=20;count++) {

@@ -1,4 +1,5 @@
 #include "launchelf.h"
+#include "filer_size_cache.h"
 #include "filer_shared.h"
 #include "init.h"
 
@@ -245,6 +246,7 @@ int genRmdir(char *path)
 	t0 = Timer();
 #endif
 	ret = fileXioRmdir(rmdir_path);
+	if (ret >= 0) filerSizeCacheInvalidate(rmdir_path);
 #if FILEOP_TRACE
 	t1 = Timer();
 	printf("[FILEOP] rmdir path=%s ret=%d dt=%llu ms\n",
@@ -284,6 +286,7 @@ int genRemove(char *path)
 	t0 = Timer();
 #endif
 	ret = fileXioRemove(rm_path);
+	if (ret >= 0) filerSizeCacheInvalidate(rm_path);
 #if FILEOP_TRACE
 	t1 = Timer();
 	printf("[FILEOP] remove path=%s ret=%d dt=%llu ms\n",
@@ -471,6 +474,10 @@ int genRenameNoReplace(const char *from, const char *to)
 		/* VMCMAN accepts a sibling leaf; other filesystems accept paths. */
 		ret = fileXioRename(old_path, !strncmp(old_path, "vmc", 3) ? new_leaf : new_path);
 	}
+	if (ret >= 0) {
+		filerSizeCacheInvalidate(old_path);
+		filerSizeCacheInvalidate(new_path);
+	}
 	return ret;
 }
 
@@ -499,6 +506,7 @@ int genMkdir(const char *path, int mode)
 	t0 = Timer();
 #endif
 	ret = fileXioMkdir(mkdir_path, mode);
+	if (ret >= 0) filerSizeCacheInvalidate(mkdir_path);
 #if FILEOP_TRACE
 	t1 = Timer();
 	printf("[FILEOP] mkdir path=%s mode=0x%x ret=%d dt=%llu ms\n",
@@ -536,6 +544,7 @@ int genOpen(const char *path, int mode)
 	t0 = Timer();
 #endif
 	fd = fileXioOpen(open_path, mode, fileMode);
+	filerSizeCacheOpened(fd, open_path, mode);
 #if FILEOP_TRACE
 	t1 = Timer();
 	printf("[FILEOP] open req=%s mapped=%s mode=0x%x fd=%d dt=%llu ms\n",
@@ -579,6 +588,7 @@ int genOpen(const char *path, int mode)
 	t0 = Timer();
 #endif
 	fd = fileXioOpen(alt_path, mode, fileMode);
+	filerSizeCacheOpened(fd, alt_path, mode);
 #if FILEOP_TRACE
 	t1 = Timer();
 	printf("[FILEOP] open-fallback req=%s mapped=%s mode=0x%x fd=%d dt=%llu ms\n",
@@ -745,6 +755,7 @@ int genClose(int fd)
 	t0 = Timer();
 #endif
 	ret = fileXioClose(fd);
+	if (ret >= 0) filerSizeCacheClosed(fd);
 #if FILEOP_TRACE
 	t1 = Timer();
 	printf("[FILEOP] close fd=%d ret=%d dt=%llu ms\n",

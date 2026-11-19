@@ -1,7 +1,7 @@
 # Dashboard themes
 
 The dashboard has a theme engine: one theme holds every visual value the
-dashboard uses (background, colours, selection style, corners, font,
+dashboard uses (background, colors, selection style, corners, font,
 icons, clock and the app-artwork wallpaper). You can pick a built-in
 preset, change any value with the controller, save the result as a theme
 folder, and load theme folders that you or others made on a PC. Nothing
@@ -15,10 +15,10 @@ same active theme.
 | Theme | Background | Look |
 |-------|------------|------|
 | OSD Classic | System tunnel | Indigo tunnel like the PS2 system menu backdrop with the main menu's clock orbs, OSDSYS highlight blue, accent-bar selection |
-| Classic Black | Solid colour | Plain black; the lightest background. Change its colour to get any solid colour |
+| Classic Black | Solid color | Plain black; the lightest background. Change its color to get any solid color |
 | **PS2 Towers** (default) | PS2 towers | Faster drifting/rotating tower field seen from above, blue fog pool, three moving lights; glow on and Regular font style |
 | PS2 Blue Mist | Blue mist | Midnight blue-to-black gradient with moving translucent blue mist |
-| OSD Minimal | Orbit lights | The main menu's seven clock orbs on near black; no panels, selection by text colour only |
+| OSD Minimal | Orbit lights | The main menu's seven clock orbs on near black; no panels, selection by text color only |
 | System Clock | Clock ring | System Configuration's twelve-rod clock: the ring turns with the seconds, the current hour's rod is lit and fills with the minutes, the orbs fly inside |
 | Memory Card Grid | Memory card grid | Sparse block grid in thin lines |
 | Boot Lines | Boot lines | Soft light traces |
@@ -27,7 +27,7 @@ same active theme.
 | Memory Card Blue | Memory card tiles | Muted blue-grey with a tiled memory card motif |
 | Brushed Console | Brushed console | Charcoal with a fine matte finish |
 | BIOS Blue | Gradient | Clean blue system screen, white text, cyan focus |
-| Monochrome | Solid colour | Black, white and grey; only the selection has colour |
+| Monochrome | Solid color | Black, white and grey; only the selection has color |
 | CRT | Gradient + scanlines | Understated scanlines over the background only |
 | PSX | Ribbons | Charcoal with silver ribbons |
 | Crystal | Crystal | The previous dashboard look (crystal towers, stars, glow, initials tiles) |
@@ -51,7 +51,7 @@ them uses or needs Sony BIOS data. The PS2-inspired scenes were designed
 from the behaviour documented by the osdbits OSDSYS reverse-engineering
 notes: the menu backdrop tunnel, the tower heightfield and its look-down
 camera, the illegal-disc clouds, the System Configuration clock ring, and
-the colour-swap selection.
+the color-swap selection.
 
 ## Settings
 
@@ -88,50 +88,50 @@ puts that group back to the values of the preset the theme started from.
 
 | Group | Options |
 |-------|---------|
-| Background | Background type, Colour, Second colour, Brightness (10-200 %), CRT scanlines, Wallpaper image... |
-| Interface colours | Text, Secondary text, Muted text, Selected text, Accent, Selection (with opacity), Panels (with opacity), Borders (with opacity), Warnings |
-| Tiles & menus | Tile style (memory card, rounded, chamfered, floating object, crystal slab), Selection style (solid bar, accent bar, outline, text colour), Corners (square, soft, round), Glow |
+| Background | Background type, Color, Second color, Brightness (10-200 %), CRT scanlines, Wallpaper image... |
+| Interface colors | Text, Secondary text, Muted text, Selected text, Accent, Selection (with opacity), Panels (with opacity), Borders (with opacity), Warnings |
+| Tiles & menus | Tile style (memory card, rounded, chamfered, floating object, crystal slab), Selection style (solid bar, accent bar, outline, text color), Corners (square, soft, round), Glow |
 | Text | Font (Roboto, System, Emotion Engine), external System font file, Text size (90-115 %), Style (Regular/Bold), Text shadow |
-| Icons | Icon colour (text colours, accent, monochrome), Default app icon (application, device, initials), Custom app icon image... |
+| Icons | Icon color (text colors, accent, monochrome), Default app icon (application, device, initials), Custom app icon image... |
 | Clock | Clock (off, standard, system), Position (header, footer), Hours (system, 24-hour, 12-hour), Seconds, Date (system, YYYY/MM/DD, MM/DD/YYYY, DD/MM/YYYY, off) |
 | Artwork background | App artwork background (off, focused app), Artwork dimming. Enable artwork loading under Settings > Home & applications. |
 
 Motion, animation and Panel transparency belong to Appearance. Transparency
 uses 0% for fully opaque panels and 100% for fully transparent panels. The
-default PS2 Towers theme uses about 33% transparency. The Panels colour under
-Interface colours edits opacity, where 70% opacity corresponds to 30%
+default PS2 Towers theme uses about 33% transparency. The Panels color under
+Interface colors edits opacity, where 70% opacity corresponds to 30%
 transparency. Group resets only reset that group's
 controls; resetting Tiles & menus does not change panel opacity. Clock
 format controls are unavailable while the clock is off; artwork-background
 controls explain their artwork-loading dependency when unavailable.
 
-### Colour editor
+### Color editor
 
-Any colour row opens the colour editor, drawn next to the live dashboard:
+Any color row opens the color editor, drawn next to the live dashboard:
 
 | Button | Action |
 |--------|--------|
 | Up / Down | Red, Green, Blue, (Opacity), quick picks |
-| Left / Right | -1 / +1 (on the quick-pick row: previous / next colour) |
+| Left / Right | -1 / +1 (on the quick-pick row: previous / next color) |
 | L1 / R1 (or L2 / R2) | -16 / +16 |
-| Confirm | Keep the colour |
-| Cancel | Restore the previous colour |
+| Confirm | Keep the color |
+| Cancel | Restore the previous color |
 
-The quick picks are PS2 system-menu colours (OSDSYS highlight blue, its
+The quick picks are PS2 system-menu colors (OSDSYS highlight blue, its
 cyan, the menu indigo, clock-rod blue, disc-error red, the configuration
 title yellow...) and neutral greys. Opacity is offered for Selection,
 Panels and Borders; a checker board behind the preview shows it.
 
-When you confirm, the theme is checked: a text colour too close to its
+When you confirm, the theme is checked: a text color too close to its
 background is replaced so the menus stay readable, and a message tells you
 when this happened.
 
 ## Background, wallpaper and artwork
 
-* **Solid colour / gradient**: *Colour* is the solid colour or the
-  gradient top, *Second colour* the gradient bottom.
-* **Scenes**: *Colour* tints the scene (tower walls, clouds, lights, grid
-  lines...), *Second colour* is its base.
+* **Solid color / gradient**: *Color* is the solid color or the
+  gradient top, *Second color* the gradient bottom.
+* **Scenes**: *Color* tints the scene (tower walls, clouds, lights, grid
+  lines...), *Second color* is its base.
 * **Wallpaper image**: pick a PNG with the File Browser. It is
   cover-fitted (aspect ratio kept, excess cropped) to the 4:3 screen. When
   the file is missing or cannot be read, the gradient is shown instead.
@@ -240,10 +240,10 @@ unchanged (see [dashboard.md](dashboard.md#artwork-optional)). Applications
 without artwork get:
 
 * **Application** (default): a PS2-style program icon (a window with a
-  disc emblem) on a tile in the theme's colours, with the device as a
+  disc emblem) on a tile in the theme's colors, with the device as a
   small badge.
 * **Device**: the icon of the device the application is on.
-* **Initials**: the previous coloured tile with the application's initials.
+* **Initials**: the previous colored tile with the application's initials.
 
 A theme can provide its own default application icon PNG (*Custom app icon
 image...* or `app_icon =` in theme.cfg). Up to 128x128 is kept; alpha is
@@ -324,12 +324,12 @@ clock_position = header
 | `preset` | a built-in preset id (see below); applied where it appears, so put it first |
 | `background` | `solid`, `gradient`, `tunnel`, `mist`, `towers`, `disc`, `orbit`, `clockring`, `grid`, `lines`, `cubes`, `stream`, `tiles`, `brushed`, `wave`, `crystal`, `streaks`, `clouds`, `image` |
 | `image` | wallpaper PNG for `background = image` |
-| `background_color`, `background_color2` | colour |
+| `background_color`, `background_color2` | color |
 | `brightness` | 10-200 (%) |
 | `scanlines` | 0 / 1 |
-| `text`, `text_secondary`, `text_muted`, `text_selected` | colour |
-| `accent`, `accent2`, `warning`, `error`, `success` | colour |
-| `selection`, `panel`, `border` | colour with opacity (`#RRGGBBAA`) |
+| `text`, `text_secondary`, `text_muted`, `text_selected` | color |
+| `accent`, `accent2`, `warning`, `error`, `success` | color |
+| `selection`, `panel`, `border` | color with opacity (`#RRGGBBAA`) |
 | `highlight` | `fill`, `bar`, `outline`, `text` |
 | `tile_style` | `memory_card` (default), `rounded`, `chamfered`, `floating`, `crystal` |
 | `corners` | `square`, `soft`, `round` |
@@ -347,7 +347,7 @@ clock_position = header
 | `wallpaper` | `off`, `focused` (app artwork background) |
 | `wallpaper_dim` | 0-90 (%) |
 
-Colours: `#RRGGBB`, `#RRGGBBAA`, `RRGGBB` or `r, g, b[, a]` in decimal.
+Colors: `#RRGGBB`, `#RRGGBBAA`, `RRGGBB` or `r, g, b[, a]` in decimal.
 Yes/no values also accept `on/off`, `yes/no`, `true/false`. Enumerations
 also accept their number.
 
@@ -392,7 +392,7 @@ The active theme is stored in **DASHBOARD.CNF** as `Theme_*` keys:
 
 Edits are written about a second after the last button press (and always
 before an application starts or a classic screen opens), so adjusting a
-colour does not write the memory card on every step. Older dashboard
+color does not write the memory card on every step. Older dashboard
 versions ignore these keys; a DASHBOARD.CNF without them loads PS2 Towers.
 LAUNCHELF.CNF is never touched.
 
@@ -420,7 +420,7 @@ primitives at most (PS2 Towers is the heaviest, about 500 quads).
   clock motion fluid. 100% is normal speed and 200% doubles scene motion.
 * *Background detail: Low* uses the lighter scene where supported; *High*
   keeps full detail at every motion speed. Detail is never reduced automatically.
-* *Solid colour* costs nothing and is the safe fallback.
+* *Solid color* costs nothing and is the safe fallback.
 * The app artwork background reuses the artwork cache; it never loads a
   file itself.
 * Theme images are loaded once, on first use, from devices whose driver is

@@ -178,6 +178,11 @@ float dashGfxScaleY(void)
 	return g_sy;
 }
 
+float dashGfxViewportHeight(void)
+{
+	return g_sy > 0.0f ? (float)SCREEN_HEIGHT / g_sy : (float)DASH_VH;
+}
+
 /* Align text translations in physical framebuffer coordinates, after modal
  * offsets and PAL scaling. In interlaced FIELD mode, both fields must keep
  * the same line-pair phase. Preserve progressive subpixel animation. */

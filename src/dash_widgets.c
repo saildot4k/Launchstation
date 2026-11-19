@@ -1098,20 +1098,22 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 		}
 		if ((in.pressed & DASH_IN_LEFT) && n_rows > 0) {
 			wrapped |= sel == 0;
-			sel = sel == 0 ? n_rows - 1 : (sel < rows ? 0 : sel - rows);
+			sel = listPageIndex(sel, n_rows, rows, -1);
 			dashSoundPlay(DASH_SND_CURSOR);
 		}
 		if ((in.pressed & DASH_IN_RIGHT) && n_rows > 0) {
 			wrapped |= sel == n_rows - 1;
-			sel = sel == n_rows - 1 ? 0 : (sel + rows >= n_rows ? n_rows - 1 : sel + rows);
+			sel = listPageIndex(sel, n_rows, rows, 1);
 			dashSoundPlay(DASH_SND_CURSOR);
 		}
 		if (in.pressed & DASH_IN_L2)
 			sel = 0;
 		if (in.pressed & DASH_IN_R2)
 			sel = n_rows > 0 ? n_rows - 1 : 0;
-		if (wrapped)
+		if (wrapped) {
 			sel_anim = (float)sel;
+			top_anim = -1.0f;
+		}
 		if (in.pressed & DASH_IN_MENU) {
 			result = 0;
 			break;
@@ -1199,10 +1201,10 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 		}
 
 		top = listCenteredTop(sel, n_rows, rows);
-		if (sel_anim < top || sel_anim >= top + rows)
+		if (top_anim < 0 || sel_anim < 0 || sel_anim >= n_rows)
 			sel_anim = (float)sel;
 		float dt = dashVisualUpdate();
-		sel_anim = dashApproach(sel_anim, (float)sel, 22.0f * dashAnimSpeed(), dt);
+		sel_anim = dashApproach(sel_anim, (float)sel, 14.0f * dashAnimSpeed(), dt);
 		top_anim = listSlideTop(top_anim, top, sel, n_rows, rows,
 		                        dashApproach(0.0f, 1.0f, 14.0f * dashAnimSpeed(), dt));
 		open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dt);

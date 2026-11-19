@@ -54,10 +54,10 @@ lists.append(("Folder picker", 0, num(w, r"w = 480\.0f, row_h = ([\d.]+)f") - 3,
 
 color_editor = s[s.index("static void colorEditor("):s.index("static int previewVideoMode(")]
 color_row = num(color_editor, r"ry \+= ([\d.]+)f")
-assert color_row == fb + 3, "Colour picker rows must match File Browser spacing"
+assert color_row == fb + 3, "Color picker rows must match File Browser spacing"
 assert "dashDrawSelection(x + 12, ry, w - 24, " + row_define + " - 3" in color_editor
 color_bar = color_row - 3
-lists.append(("Colour picker", 0, color_bar, color_editor, r"dashText\(x \+ 24, ry \+ ([\d.]+)f, ch_names\[i\], DASH_FS_SMALL", SMALL))
+lists.append(("Color picker", 0, color_bar, color_editor, r"dashText\(x \+ 24, ry \+ ([\d.]+)f, ch_names\[i\], DASH_FS_SMALL", SMALL))
 
 ui = src("dash_ui.c")
 menu = ui[ui.index("static int modalMenu("):ui.index("int dashModalChoice(")]

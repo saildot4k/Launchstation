@@ -16,7 +16,7 @@
 //  Towers     The opening's tower field: a grid of square prisms seen from
 //             above, heights from a radial heightfield with a per-cell
 //             tweak, lighter tops, sides fogged to black at the floor, a
-//             blue fog pool in the middle, three small coloured point
+//             blue fog pool in the middle, three small colored point
 //             lights and a slow camera roll. Drawn outermost first, which
 //             is a correct painter's order for a look-down camera.
 //  Disc       The illegal-disc screen: dark maroon, red cloud blobs
