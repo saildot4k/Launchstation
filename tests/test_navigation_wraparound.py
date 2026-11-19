@@ -106,7 +106,7 @@ typedef unsigned long long u64;
 typedef struct { char name[MAX_NAME]; } FILEINFO;
 static struct {
  int sel,top,n,ndevs,nmarked,loading,gen,free_valid,ps1_free,card_type;
- char dir[MAX_PATH],want_sel[MAX_NAME];float sel_anim;
+ char dir[MAX_PATH],want_sel[MAX_NAME];float sel_anim,top_anim;
  FILEINFO *files;unsigned char *mark;u64 free_bytes;
 } fb;
 enum { FB_SORT_STORED,FB_SORT_NAME,FB_SORT_TITLE,FB_SORT_SIZE,FB_SORT_DATE };

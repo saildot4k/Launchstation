@@ -1037,7 +1037,7 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 {
 	int sel = 0, top = 0, result = 0;
 	const int rows = 10;
-	float open = 0.0f, sel_anim = 0.0f;
+	float open = 0.0f, sel_anim = 0.0f, top_anim = -1.0f;
 	float w = 480.0f, row_h = DASH_LIST_ROW_H;
 	float h = 96.0f + rows * row_h + 48.0f;
 	float x = (DASH_VW - w) * 0.5f, y = (DASH_VH - h) * 0.5f;
@@ -1203,6 +1203,8 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 			sel_anim = (float)sel;
 		float dt = dashVisualUpdate();
 		sel_anim = dashApproach(sel_anim, (float)sel, 22.0f * dashAnimSpeed(), dt);
+		top_anim = listSlideTop(top_anim, top, sel, n_rows, rows,
+		                        dashApproach(0.0f, 1.0f, 14.0f * dashAnimSpeed(), dt));
 		open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dt);
 		{
 			float oe = dashEaseOutCubic(open);
@@ -1223,9 +1225,9 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 
 			dashGfxScissor(lx - 4, ly - 2, lw + 8, rows * row_h + 4);
 			if (n_rows > 0)
-				dashDrawSelection(lx, ly + (sel_anim - top) * row_h, lw, row_h - 3, 9, 1.0f);
-			for (i = top; i < n_rows && i < top + rows; i++) {
-				float ry = ly + (i - top) * row_h;
+				dashDrawSelection(lx, ly + (sel_anim - top_anim) * row_h, lw, row_h - 3, 9, 1.0f);
+			for (i = (int)top_anim; i < n_rows && i < top_anim + rows; i++) {
+				float ry = ly + (i - top_anim) * row_h;
 				DashColor c = dashItemColor(i == sel);
 				int icon;
 				const char *label;

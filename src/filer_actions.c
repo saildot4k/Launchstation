@@ -766,8 +766,10 @@ static int selectCustomDateEditorFolder(FILEINFO *folders, sceMcStDateTime *orig
 	if (editing_index < 0)
 		return 0;
 
-	next_index = editing_index + direction;
-	if (next_index < 0 || next_index >= folder_count)
+	next_index = (editing_index + direction) % folder_count;
+	if (next_index < 0)
+		next_index += folder_count;
+	if (next_index == editing_index)
 		return 0;
 
 	snprintf(selected_name, selected_name_size, "%s", folders[next_index].name);

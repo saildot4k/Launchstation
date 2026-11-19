@@ -810,7 +810,7 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 	/* Match File Browser row spacing. Nine rows leave safe margins for a
 	 * subtitle and footer on 4:3/interlaced TVs. */
 	const int max_rows = 9;
-	float sel_anim, open = 0.0f;
+	float sel_anim, open = 0.0f, top_anim = -1.0f;
 	float w = 400.0f, row_h = DASH_LIST_ROW_H;
 	int rows = (n < max_rows) ? n : max_rows;
 	float list_y = subtitle ? 74.0f : 54.0f;
@@ -904,6 +904,8 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 
 		float dt = dashVisualUpdate();
 		sel_anim = dashApproach(sel_anim, (float)sel, 22.0f * dashAnimSpeed(), dt);
+		top_anim = listSlideTop(top_anim, top, sel, n, rows,
+		                        dashApproach(0.0f, 1.0f, 14.0f * dashAnimSpeed(), dt));
 		open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dt);
 		{
 			float oe = dashEaseOutCubic(open);
@@ -921,11 +923,11 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 				dashTextFit(x + 24, y + 44, w - 48, subtitle, DASH_FS_CAPTION, DASH_C_TEXT3);
 			dashGfxScissor(x + 8, ly - 2, w - 16, rows * row_h + 4);
 			{
-				float fy = ly + (sel_anim - top) * row_h;
+				float fy = ly + (sel_anim - top_anim) * row_h;
 				dashDrawSelection(x + 14, fy, w - 28, row_h - 3, 9, 1.0f);
 			}
-			for (i = top; i < n && i < top + rows; i++) {
-				float ry = ly + (i - top) * row_h;
+			for (i = (int)top_anim; i < n && i < top_anim + rows; i++) {
+				float ry = ly + (i - top_anim) * row_h;
 				DashColor c = items[i].disabled ? DASH_C_TEXT3 : dashItemColor(i == sel);
 				float tx = x + 28;
 				dashGfxPushAlpha(items[i].disabled ? DASH_DISABLED_ALPHA : 1.0f);

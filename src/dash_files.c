@@ -158,6 +158,7 @@ static int nfdevs;
 static int fsel;
 static float fsel_anim;
 static int ftop;
+static float ftop_anim = -1.0f;
 
 static void fAdd(int kind, int icon, int index, const char *label, const char *detail)
 {
@@ -220,6 +221,7 @@ static void filesRebuild(void)
 
 static void filesEnter(void)
 {
+	ftop_anim = -1.0f;
 	filesRebuild();
 	fsel_anim = (float)fsel;
 }
@@ -335,18 +337,20 @@ static void filesDraw(void)
 	dashDrawSectionTitle(lx, 68, "Files", "the complete Launchstation file manager");
 
 	ftop = listCenteredTop(fsel, nfentries, rows);
+	ftop_anim = listSlideTop(ftop_anim, ftop, fsel, nfentries, rows,
+	                         dashApproach(0.0f, 1.0f, 14.0f * dashAnimSpeed(), dashFrameDelta()));
 	if (fsel_anim < ftop || fsel_anim >= ftop + rows)
 		fsel_anim = (float)fsel;
 
 	dashDrawPanelBox(lx - 6, ly - 6, lw + 12, rows * row_h + 12, 14);
 	dashGfxScissor(lx - 6, ly - 4, lw + 12, rows * row_h + 8);
 	{
-		float fy = ly + (fsel_anim - ftop) * row_h;
+		float fy = ly + (fsel_anim - ftop_anim) * row_h;
 		dashDrawSelection(lx, fy, lw, row_h - 3, 9, 1.0f);
 	}
-	for (i = ftop; i < nfentries && i < ftop + rows; i++) {
+	for (i = (int)ftop_anim; i < nfentries && i < ftop_anim + rows; i++) {
 		FileEntry *f = &fentries[i];
-		float y = ly + (i - ftop) * row_h;
+		float y = ly + (i - ftop_anim) * row_h;
 
 		if (f->kind == FE_HEADER) {
 			dashText(lx + 8, y + 7, f->label, DASH_FS_CAPTION, DASH_C_ACCENT);

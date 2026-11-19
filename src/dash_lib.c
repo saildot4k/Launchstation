@@ -226,7 +226,7 @@ int dashLibDeviceIcon(const char *path)
 	if (isPcCardCfPath(path))
 		return DI_COMPACTFLASH;
 	if (!strncmp(path, "mmce", 4) || !strncmp(path, "mx4sio", 6))
-		return DI_SDCARD;
+		return DI_MICROSD;
 	if (!strncmp(path, "cdfs", 4) || !strncmp(path, "cdrom", 5))
 		return DI_DISC;
 	if (!strncmp(path, "udpfs", 5) || !strncmp(path, "host", 4))

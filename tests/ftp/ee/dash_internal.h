@@ -3,6 +3,7 @@
 #include "launchelf.h"
 #define DASH_VW 640
 #define DASH_VH 448
+#define DASH_LIST_ROW_H 24.0f
 #define DI_NETWORK 1
 #define DI_NETWORK_FOLDER 3
 #define DI_WARNING 2

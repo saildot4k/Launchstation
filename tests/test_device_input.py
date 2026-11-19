@@ -281,7 +281,8 @@ int main(void) {
 devices = read("src/dash_devices.c")
 device_types = header[header.index("enum DashDevState"):
                       header.index("void dashDevicesInit(void)")]
-symbols = sorted(set(re.findall(r"\b(?:DI_|DASH_SND_|SCECd)\w+", devices)) | {"DI_TOOLS"})
+library_icon = function(read("src/dash_lib.c"), "int dashLibDeviceIcon(")
+symbols = sorted(set(re.findall(r"\b(?:DI_|DASH_SND_|SCECd)\w+", devices + library_icon)) | {"DI_TOOLS"})
 devcode = common + device_types + "enum { " + ",".join(symbols) + " };\n"
 devcode += r"""
 #define MMCE 1
@@ -413,6 +414,7 @@ static int getPcCardCfCapacitySectors(u32 *s) { (void)s; return -1; }
 static int loadPcCardCfModules(void) { return 0; }
 """
 devcode += re.sub(r"^#include[^\n]*\n", "", devices, flags=re.M)
+devcode += library_icon
 devcode += "static DashDevice devs[DASH_MAX_DEVICES]; static int ndevs;\n"
 devcode += function(read("src/dash_files.c"), "static int devSelectable(")
 # Compile the browser's real root-list assembly to catch duplicate VMCs and capacity loss.
@@ -644,6 +646,16 @@ int main(void) {
     }
     assert(opens==before && loads==before_loads);
     puts("PASS: both HDD units probe independently; every root fits without duplicate VMCs or enumeration IO");
+    /* Configured-folder menus and root pickers must use the same artwork
+     * as every device the File Browser model exposes, including PSX/CF. */
+    for(int all=0;all<2;all++) for(int psx=0;psx<2;psx++) {
+        boot_show_all_devices=all; console_is_PSX=psx;
+        int count=dashDevicesList(ds,DASH_MAX_DEVICES);
+        for(int i=0;i<count;i++) assert(dashLibDeviceIcon(ds[i].mount)==ds[i].icon);
+    }
+    assert(dashLibDeviceIcon("mmce:/APPS")==DI_MICROSD);
+    assert(dashLibDeviceIcon("mx4sio:/APPS")==DI_MICROSD);
+    puts("PASS: configured-folder and picker device icons match the File Browser model across all roots");
     puts("PASS: driver-only/failed/empty/late roots, lazy device entries, MMCE units, reboot invalidation, boot source, no draw IO");
     /* Offline first attempt: cache the result without rebooting. A server
      * appearing later is not enough to repair this resident test ministack. */

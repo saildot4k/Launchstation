@@ -595,7 +595,8 @@ void dashLaunchApp(DashApp *app, int with_args_prompt)
 	snprintf(title, sizeof(title), "Starting %s", copy.title);
 	if (dashArtTakeDirty())
 		dashLibSaveCache();
-	dashStorePushRecent(copy.path);
+	if (dashCfg.recent_count > 0)
+		dashStorePushRecent(copy.path);
 	/* Finish recent/cache saves and any queued work before handoff. Keep the
 	 * current scene visible instead of showing unrelated device-check status. */
 	if (!settleBackgroundWork(NULL)) {

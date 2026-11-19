@@ -85,7 +85,7 @@ code += r'''
 static const struct { int action; } tools[]={{TA_HEADER},{1},{1}};
 #define NTOOLS 3
 static int tsel=1;
-static float tsel_anim=1;
+static float tsel_anim=1,ttop_anim=-1;
 '''
 code += function(tools, "static int tMove(") + function(tools, "static void toolsEnter(")
 code += r'''

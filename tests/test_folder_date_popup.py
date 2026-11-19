@@ -66,7 +66,7 @@ static int expected_position, expected_selected, expected_changed, names, dates,
 static int buttons, labels, group_buttons;
 static float group_x[5], group_right[5], last_button_right, hint_y;
 static DashInput events[128];
-static int motion_test, motion_selected, last_folder;
+static int motion_test, motion_selected, last_folder, motion_initial=20;
 static float motion_y[128][40], last_icon_y, motion_text_y;
 static float animation_speed=1, visual_dt=0.016f;
 static int next_event, event_count, adjustment, frames;
@@ -209,7 +209,7 @@ static void dashGfxScissor(float x,float y,float w,float h) { (void)x;(void)y;(v
 static void dashGfxScissorReset(void) {}
 static void dashDrawScrollbar(float x,float y,float h,int top,int rows,int count) { (void)x;(void)y;(void)h;(void)top;(void)rows;(void)count; }
 static void dashGfxPresent(void) {
-    if(motion_test) assert(last_folder==(frames?motion_selected:20));
+    if(motion_test) assert(last_folder==(frames?motion_selected:motion_initial));
     frames++;
 }
 '''
@@ -330,9 +330,22 @@ int main(void) {
     next_event=event_count=0; queue(DASH_IN_SELECT|DASH_IN_BACK,0);
     assert(tsEdit(&e)==0 && adjustment==0);
     strcpy(e.selected,e.folders[0].name); timestamp=e.folders[0].stats._Modify;
-    run(&e,DASH_IN_L1|DASH_IN_UP,0,DASH_IN_START); assert(filerDateEditorSync(&e)==0);
-    strcpy(e.selected,e.folders[39].name); timestamp=e.folders[39].stats._Modify;
-    run(&e,DASH_IN_R1|DASH_IN_DOWN,0,DASH_IN_START); assert(filerDateEditorSync(&e)==39);
+    unchanged=timestamp;
+    run(&e,DASH_IN_L1,0,DASH_IN_START);
+    assert(filerDateEditorSync(&e)==0 && !memcmp(&timestamp,&unchanged,sizeof(timestamp)));
+    FILEINFO before_navigation[40]; memcpy(before_navigation,folders,sizeof(folders));
+    run(&e,DASH_IN_UP,0,DASH_IN_START); assert(filerDateEditorSync(&e)==39);
+    assert(!memcmp(folders,before_navigation,sizeof(folders)));
+    unchanged=timestamp;
+    run(&e,DASH_IN_R1,0,DASH_IN_START);
+    assert(filerDateEditorSync(&e)==39 && !memcmp(&timestamp,&unchanged,sizeof(timestamp)));
+    run(&e,DASH_IN_DOWN,0,DASH_IN_START); assert(filerDateEditorSync(&e)==0);
+    assert(!memcmp(folders,before_navigation,sizeof(folders)));
+    e.count=1;
+    run(&e,DASH_IN_UP|DASH_IN_L1,0,DASH_IN_START); assert(filerDateEditorSync(&e)==0);
+    run(&e,DASH_IN_DOWN|DASH_IN_R1,0,DASH_IN_START); assert(filerDateEditorSync(&e)==0);
+    e.count=0; assert(!filerDateEditorSelect(&e,-1) && !filerDateEditorSelect(&e,1));
+    e.count=40;
     /* The visual position follows the edited folder through any rank change. */
     float positions[40];
     for(int i=0;i<40;i++) positions[i]=i;
@@ -390,7 +403,24 @@ int main(void) {
     assert(motion_y[1][18]>motion_y[0][18]);
     assert(motion_y[2][18]<motion_y[1][18] && motion_y[2][18]>motion_y[0][18]);
     assert(fabsf(motion_y[62][18]-motion_y[0][18])<0.02f);
-    puts("PASS: inline date fields in all clock/date formats; centered row content and half-row gaps at every list position; ordered hints in one aligned row, both confirm mappings; navigation, add/subtract repeat, one-second reorder, START save and SELECT cancel; changed clock icons and original folder icons on revert, with stable text colors; animated swaps, date-driven rank changes, centered scrolling, viewport edges, reversals and motion off");
+    /* Wrapping selection lands visibly at the opposite endpoint immediately. */
+    for(int direction=0;direction<2;direction++) {
+        for(int i=0;i<40;i++) {
+            snprintf(folders[i].name,sizeof(folders[i].name),"Folder %02d",i);
+            folders[i].stats._Modify=(sceMcStDateTime){0,20,59-i,13,1,3,2024};
+            original[i]=folders[i].stats._Modify;
+        }
+        int initial=direction?39:0, target=direction?0:39;
+        strcpy(e.selected,folders[initial].name); timestamp=folders[initial].stats._Modify;
+        memcpy(before_navigation,folders,sizeof(folders));
+        next_event=event_count=frames=0; motion_initial=initial; motion_selected=target;
+        queue(0,0); queue(direction?DASH_IN_DOWN:DASH_IN_UP,0); queue(DASH_IN_START,0);
+        motion_test=1; assert(tsEdit(&e)==1 && frames==2); motion_test=0;
+        float expected=tsRowY(108,target,listCenteredTop(target,40,TS_ROWS),target)+TS_ROW_H*0.5f-16*DASH_FS_SMALL;
+        assert(fabsf(motion_y[1][target]-expected)<0.001f);
+        assert(!memcmp(folders,before_navigation,sizeof(folders)));
+    }
+    puts("PASS: folder navigation wraps immediately at both ends without changing timestamps; reordering stops at the ends; inline date fields in all clock/date formats; centered row content and half-row gaps at every list position; ordered hints in one aligned row, both confirm mappings; navigation, add/subtract repeat, one-second reorder, START save and SELECT cancel; changed clock icons and original folder icons on revert, with stable text colors; animated swaps, date-driven rank changes, centered scrolling, viewport edges, reversals and motion off");
 }
 '''
 compiler = shutil.which("gcc") or shutil.which("cc")

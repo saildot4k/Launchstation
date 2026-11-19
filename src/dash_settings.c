@@ -461,6 +461,7 @@ static const SetItem *pageItemAt(int page_id, int visible_index)
 static int page = P_ROOT, item;
 static int item_top;
 static float item_anim;
+static float item_top_anim = -1.0f;
 static struct { int page, item, top; } page_stack[PAGE_DEPTH];
 static int page_depth;
 
@@ -474,6 +475,7 @@ static void openPage(int next)
 	page = next;
 	item = item_top = 0;
 	item_anim = 0.0f;
+	item_top_anim = -1.0f;
 }
 
 static void backPage(void)
@@ -485,6 +487,7 @@ static void backPage(void)
 	item = page_stack[page_depth].item;
 	item_top = page_stack[page_depth].top;
 	item_anim = (float)item;
+	item_top_anim = -1.0f;
 }
 
 /* Unsaved-changes session: opened when SETTINGS is entered, closed when
@@ -2296,6 +2299,7 @@ static void settingsEnter(void)
 	/* Navigation survives tab changes independently of Save/Discard sessions.
 	 * The first visit starts at the overview via the static defaults above. */
 	item_anim = (float)item;
+	item_top_anim = -1.0f;
 	sessionBegin();
 }
 
@@ -2566,15 +2570,18 @@ static void settingsDraw(void)
 	}
 
 	item_top = listCenteredTop(item, total, ITEM_ROWS);
+	item_top_anim = listSlideTop(item_top_anim, item_top, item, total, ITEM_ROWS,
+	                             dashApproach(0.0f, 1.0f, 14.0f * dashAnimSpeed(), dashFrameDelta()));
 	if (item_anim < item_top || item_anim >= item_top + ITEM_ROWS)
 		item_anim = (float)item;
 
 	/* items */
 	dashDrawPanelBox(DASH_PANE_L, iy - 6, DASH_PANE_W, ITEM_ROWS * irow + 12, 14);
-	dashDrawSelection(ix, iy + dashClampf(item_anim - item_top, 0, ITEM_ROWS - 1) * irow, iw, irow - 3, 9, 1.0f);
-	for (i = item_top; i < total && i < item_top + ITEM_ROWS; i++) {
+	dashGfxScissor(ix - 4, iy - 4, iw + 8, ITEM_ROWS * irow + 8);
+	dashDrawSelection(ix, iy + (item_anim - item_top_anim) * irow, iw, irow - 3, 9, 1.0f);
+	for (i = (int)item_top_anim; i < total && i < item_top_anim + ITEM_ROWS; i++) {
 		const SetItem *it = pageItemAt(page, i);
-		float y = iy + (i - item_top) * irow;
+		float y = iy + (i - item_top_anim) * irow;
 		int on = i == item, disabled = itemDisabled(it);
 		DashColor col = disabled ? DASH_C_TEXT3 : dashItemColor(on);
 
@@ -2689,6 +2696,7 @@ static void settingsDraw(void)
 		}
 		dashGfxPopAlpha();
 	}
+	dashGfxScissorReset();
 	dashDrawScrollbar(ix + iw + 10, iy, ITEM_ROWS * irow, item_top, ITEM_ROWS, total);
 	/* help line */
 	{

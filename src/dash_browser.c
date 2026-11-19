@@ -40,7 +40,7 @@ static struct
 	int loading;
 	int gen;
 	int sel, top;
-	float sel_anim;
+	float sel_anim, top_anim;
 	char want_sel[MAX_NAME]; /* select this name once the listing arrives */
 	DashDevice devs[DASH_MAX_DEVICES];
 	int ndevs;
@@ -393,6 +393,7 @@ static void listDone(void *arg)
 		 * and highlight now, before the first frame of the parent listing. */
 		revealSelection();
 		fb.sel_anim = (float)fb.sel;
+		fb.top_anim = -1.0f;
 	}
 	if (j->quiet_input && browser_usb_jobs > 0) {
 		browser_usb_jobs--;
@@ -465,6 +466,7 @@ static void openDirInternal(const char *dir, const char *select)
 	fb.card_type = 0;
 	fb.sel = fb.top = 0;
 	fb.sel_anim = 0.0f;
+	fb.top_anim = -1.0f;
 	fb.want_sel[0] = '\0';
 	if (select != NULL)
 		dashStrCopy(fb.want_sel, select, sizeof(fb.want_sel));
@@ -1231,7 +1233,7 @@ static int tsEdit(FilerDateEditor *e)
 	dashInputFlush();
 	while (1) {
 		u32 edits;
-		int from;
+		int from, navigation_wrap;
 		float dt, speed, blend;
 
 		dashInputPoll(&in);
@@ -1247,6 +1249,9 @@ static int tsEdit(FilerDateEditor *e)
 			dashInputFlush();
 			return 1;
 		}
+		navigation_wrap = e->count > 1 &&
+		                  (((in.pressed & DASH_IN_UP) && idx == 0) ||
+		                   ((in.pressed & DASH_IN_DOWN) && idx == e->count - 1));
 		if (in.pressed & DASH_IN_UP)
 			filerDateEditorSelect(e, -1);
 		if (in.pressed & DASH_IN_DOWN)
@@ -1283,6 +1288,13 @@ static int tsEdit(FilerDateEditor *e)
 		speed = 14.0f * dashAnimSpeed();
 		open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dt);
 		if (rows != NULL) {
+			/* Navigation wraps directly to the other endpoint; timestamp
+			 * edits still animate through the folders whose order changes. */
+			if (navigation_wrap) {
+				camera = top * TS_ROW_H;
+				for (i = 0; i < e->count; i++)
+					rows[i] = tsRowY(0, i, 0, idx);
+			}
 			/* Share one easing factor across the list, even for large folders. */
 			blend = dashApproach(0.0f, 1.0f, speed, dt);
 			camera = dashApproach(camera, top * TS_ROW_H, speed, dt);
@@ -1859,12 +1871,14 @@ static void browserDrawBody(void)
 		dashTextScroll(x + text_offset, y, width - text_offset, clipboard, DASH_FS_CAPTION, DASH_C_ACCENT);
 	}
 
+	fb.top_anim = listSlideTop(fb.top_anim, fb.top, fb.sel, rows_total, FB_ROWS,
+	                           dashApproach(0.0f, 1.0f, 14.0f * dashAnimSpeed(), dashFrameDelta()));
 	dashDrawPanelBox(DASH_PANE_L, FB_Y - 6, DASH_PANE_W, FB_ROWS * FB_ROW_H + 12, 14);
 	dashGfxScissor(FB_X - 4, FB_Y - 4, FB_W + 8, FB_ROWS * FB_ROW_H + 8);
 	if (rows_total > 0 && !fb.loading)
-		dashDrawSelection(FB_X, FB_Y + (fb.sel_anim - fb.top) * FB_ROW_H, FB_W, FB_ROW_H - 3, 8, 1.0f);
-	for (i = fb.top; i < rows_total && i < fb.top + FB_ROWS && !fb.loading; i++) {
-		float y = FB_Y + (i - fb.top) * FB_ROW_H;
+		dashDrawSelection(FB_X, FB_Y + (fb.sel_anim - fb.top_anim) * FB_ROW_H, FB_W, FB_ROW_H - 3, 8, 1.0f);
+	for (i = (int)fb.top_anim; i < rows_total && i < fb.top_anim + FB_ROWS && !fb.loading; i++) {
+		float y = FB_Y + (i - fb.top_anim) * FB_ROW_H;
 		DashColor col = dashItemColor(i == fb.sel);
 
 		if (fb.dir[0] == '\0') {

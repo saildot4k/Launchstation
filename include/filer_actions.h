@@ -37,8 +37,8 @@ typedef struct
 extern const FilerTimestampUi *filerTimestampUi;
 int filerDateEditorSync(FilerDateEditor *e); /* index of the edited folder */
 int filerDateEditorChanged(const FilerDateEditor *e, int index); /* date/time differs from the original */
-int filerDateEditorSelect(FilerDateEditor *e, int direction);
-int filerDateEditorMoveNextTo(FilerDateEditor *e, int newer);
+int filerDateEditorSelect(FilerDateEditor *e, int direction); /* folder navigation wraps */
+int filerDateEditorMoveNextTo(FilerDateEditor *e, int newer); /* reordering stops at either end */
 void filerDateEditorAdjust(FilerDateEditor *e, int delta);
 int filerDateEditorFieldCount(void);
 void filerDateEditorField(const sceMcStDateTime *ts, int position, char *text, int size, const char **name, const char **sep);
