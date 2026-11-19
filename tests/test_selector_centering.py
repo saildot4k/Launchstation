@@ -9,7 +9,8 @@ from pathlib import Path
 import re
 
 root = Path(__file__).resolve().parents[1]
-src = lambda f: (root / "src" / f).read_text(encoding="utf-8")
+row_define = re.search(r"^#define DASH_LIST_ROW_H (.+)$", (root / "include/dash_internal.h").read_text(), re.M).group(1)
+src = lambda f: (root / "src" / f).read_text(encoding="utf-8").replace("DASH_LIST_ROW_H", row_define)
 SMALL, CAPTION = 0.66, 0.60
 
 
@@ -22,8 +23,8 @@ def num(text, pattern):
 lists = []
 s = src("dash_settings.c")
 irow = num(s, r"irow = (\d+)")
-lists.append(("Settings", 2, irow - 5, s, r"dashTextFit\(ix \+ 38, y \+ ([\d.]+)f, iw - 70, it->label", SMALL))
-lists.append(("Settings value", 2, irow - 5, s, r"dashTextFit\(vx, y \+ ([\d.]+)f, maxw, v,", SMALL))
+lists.append(("Settings", 0, irow - 3, s, r"dashTextFit\(ix \+ 38, y \+ ([\d.]+)f, iw - 70, it->label", SMALL))
+lists.append(("Settings value", 0, irow - 3, s, r"dashTextFit\(vx, y \+ ([\d.]+)f, maxw, v,", SMALL))
 t = src("dash_tools.c")
 lists.append(("Tools", 0, num(t, r"ly = 102, row_h = (\d+)") - 3, t, r"dashTextFit\(lx \+ 34, y \+ ([\d.]+)f, lw - 44, tools\[i\]\.name", SMALL))
 f = src("dash_files.c")
@@ -32,6 +33,16 @@ a = src("dash_apps.c")
 lists.append(("Applications", 0, num(a, r"#define LIST_ROW_H ([\d.]+)f") - 3, a, r"dashTextFit\(lx \+ 38, y \+ ([\d.]+), lw - 64, e->title", SMALL))
 b = src("dash_browser.c")
 fb = num(b, r"#define FB_ROW_H ([\d.]+)f") - 3
+assert irow == fb + 3, "Settings rows must match File Browser spacing"
+assert num(a, r"#define LIST_ROW_H ([\d.]+)f") == fb + 3, "Applications list rows must match File Browser spacing"
+home = src("dash_home.c")
+assert 'if (library_open) {\n\t\tif (dashAppsScreen.draw)\n\t\t\tdashAppsScreen.draw();' in home
+assert 'dashTexDrawFit(t, lx + 8, y + 0.5f, 20, 20,' in a
+assert 'lx + 9, y + 1.5f, 18,' in a
+assert 'lx + lw - 22, y + 3.5f, 14,' in a
+assert num(t, r"ly = 102, row_h = ([\d.]+)f") == fb + 3, "Tools rows must match File Browser spacing"
+assert 'if (tools[i].action == TA_HEADER)' in t and 'y + 7, tools[i].name, DASH_FS_CAPTION' in t
+assert 'dashTextFit(ix, 112, iw, c->help' in s
 lists.append(("File Browser", 0, fb, b, r"dashTextFit\(FB_X \+ 34, y(?: \+ ([\d.]+))?, label_w, label", SMALL))
 lists.append(("File Browser size", 0, fb, b, r"dashTextRight\(size_right, y \+ ([\d.]+), sz", CAPTION))
 h = src("dash_hdd.c")
@@ -43,24 +54,25 @@ lists.append(("Folder picker", 0, num(w, r"w = 480\.0f, row_h = ([\d.]+)f") - 3,
 
 color_editor = s[s.index("static void colorEditor("):s.index("static int previewVideoMode(")]
 color_row = num(color_editor, r"ry \+= ([\d.]+)f")
-assert color_row == irow, "Colour picker rows must match Settings spacing"
-color_bar = num(color_editor, r"dashDrawSelection\(x \+ 12, ry \+ 2, w - 24, ([\d.]+)")
-lists.append(("Colour picker", 2, color_bar, color_editor, r"dashText\(x \+ 24, ry \+ ([\d.]+)f, ch_names\[i\], DASH_FS_SMALL", SMALL))
+assert color_row == fb + 3, "Colour picker rows must match File Browser spacing"
+assert "dashDrawSelection(x + 12, ry, w - 24, " + row_define + " - 3" in color_editor
+color_bar = color_row - 3
+lists.append(("Colour picker", 0, color_bar, color_editor, r"dashText\(x \+ 24, ry \+ ([\d.]+)f, ch_names\[i\], DASH_FS_SMALL", SMALL))
 
 ui = src("dash_ui.c")
 menu = ui[ui.index("static int modalMenu("):ui.index("int dashModalChoice(")]
 menu_row = num(menu, r"row_h = ([\d.]+)f")
-assert menu_row == irow, "Popup rows must match Settings spacing"
-menu_bar = menu_row - num(menu, r"dashDrawSelection\(x \+ 14, fy \+ 2, w - 28, row_h - ([\d.]+)")
-lists.append(("Popup menu", 2, menu_bar, menu, r"dashTextFit\(tx, ry \+ ([\d.]+)f, label_w, items\[i\]\.label, DASH_FS_SMALL", SMALL))
+assert menu_row == fb + 3, "Popup rows must match File Browser spacing"
+menu_bar = menu_row - num(menu, r"dashDrawSelection\(x \+ 14, fy, w - 28, row_h - ([\d.]+)")
+lists.append(("Popup menu", 0, menu_bar, menu, r"dashTextFit\(tx, ry \+ ([\d.]+)f, label_w, items\[i\]\.label, DASH_FS_SMALL", SMALL))
 # Horizontal placement reserves space for arrows on editable rows. Check the
 # vertical baseline for short, scrolling and clipped values independently.
 for draw in ("dashTextRight", "dashTextScroll", "dashTextFit"):
-    lists.append((f"Popup {draw[8:]}", 2, menu_bar, menu,
+    lists.append((f"Popup {draw[8:]}", 0, menu_bar, menu,
                   rf"{draw}\([^,\n]+, ry \+ ([\d.]+)f, (?:detail_w, )?items\[i\]\.detail, DASH_FS_CAPTION", CAPTION))
 buttons = ui[ui.index("static int modalButtons("):ui.index("int dashModalConfirm(")]
 button_h = num(buttons, r"button_h = ([\d.]+)f")
-assert button_h <= irow, "Confirmation selection must not exceed a normal row"
+assert button_h >= 22, "Confirmation actions must fit their controller glyphs"
 # Confirmation labels and their 22px icons use the same centerline.
 assert "dashButtonTextY(by + 3.0f, DASH_FS_SMALL), ok_label" in buttons
 assert "dashButtonTextY(by + 3.0f, DASH_FS_SMALL), cancel_label" in buttons
@@ -72,3 +84,15 @@ for name, top, height, text, pattern, scale in lists:
     assert -1.0 <= off <= 1.0, f"{name}: text centre is {off:+.1f} px from the selection bar centre"
     print(f"  {name:18s} {off:+.1f} px")
 print("PASS: row text is centred in the selection bar on every list")
+assert num(w, r"w = 480\.0f, row_h = ([\d.]+)f") == fb + 3
+assert num(b, r"#define TS_ROW_H ([\d.]+)f") == fb + 3
+assert num(src("dash_main.c"), r"row_h = ([\d.]+)f, k;") == fb + 3
+info = src("dash_info.c")
+assert "return style == SL_GAP ? " + row_define + " * 0.5f : " + row_define + ";" in info
+assert "body_lines * " + row_define in buttons
+# The largest list and selected-row gap must still clear the popup footer.
+rows = int(re.search(r"#define TS_ROWS (\d+)", b).group(1))
+h = float(re.search(r"w = 580\.0f, h = ([\d.]+)f", b).group(1))
+assert 70 + (rows + 1) * (fb + 3) + 12 <= h - 36
+assert 96 + 10 * (fb + 3) + 48 <= 448 - 40
+print("PASS: menus, pickers, folder dates, color selectors, launch-key rows and information rows share File Browser spacing and clear their footers")

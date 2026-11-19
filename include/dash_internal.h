@@ -17,6 +17,9 @@
 #define DASH_VW 640
 #define DASH_VH 448
 
+/* File Browser row pitch, shared by popup lists and text rows. */
+#define DASH_LIST_ROW_H 24.0f
+
 /* Conservative CRT safe area (virtual coordinates). */
 #define DASH_SAFE_L 40
 #define DASH_SAFE_R 600

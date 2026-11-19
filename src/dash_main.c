@@ -879,7 +879,7 @@ static void lkLabel(int lk, char *out, int size)
 static void quickLaunchDraw(void)
 {
 	int i, n = 0, col;
-	float w = 520.0f, h, x, y, row_h = 28.0f, k;
+	float w = 520.0f, h, x, y, row_h = DASH_LIST_ROW_H, k;
 	char label[64];
 
 	if (!ql_down || !(paddata & PAD_SELECT) || Timer() - ql_since < 250)

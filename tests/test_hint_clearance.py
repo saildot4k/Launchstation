@@ -8,12 +8,13 @@ from pathlib import Path
 import re
 
 root = Path(__file__).resolve().parents[1]
-settings = component_source('src/dash_settings.c')
+row_define = re.search(r"^#define DASH_LIST_ROW_H (.+)$", (root / "include/dash_internal.h").read_text(), re.M).group(1)
+settings = component_source('src/dash_settings.c').replace("DASH_LIST_ROW_H", row_define)
 ui = (root / "src/dash_ui.c").read_text(encoding="utf-8")
 
 rows = int(re.search(r"#define ITEM_ROWS (\d+)", settings).group(1))
-geo = re.search(r"const float ix = [^,]+, iy = (\d+), irow = (\d+), iw = [^;]+;", settings)
-iy, irow = int(geo.group(1)), int(geo.group(2))
+geo = re.search(r"const float ix = [^,]+, iy = (\d+), irow = ([\d.]+)f?, iw = [^;]+;", settings)
+iy, irow = float(geo.group(1)), float(geo.group(2))
 wrap = re.search(r"dashTextWrap\(ix, iy \+ ITEM_ROWS \* irow \+ (\d+), iw, (\d+), help, DASH_FS_CAPTION, DASH_C_TEXT3, (\d+)\)", settings)
 gap, lines, line_h = (int(g) for g in wrap.groups())
 
@@ -36,6 +37,8 @@ print("PASS: panel borders disappear with transparent panels")
 
 # The extra file row must leave a full status line above the same footer.
 browser = (root / "src/dash_browser.c").read_text(encoding="utf-8")
+row_define = re.search(r"^#define DASH_LIST_ROW_H (.+)$", (root / "include/dash_internal.h").read_text(), re.M).group(1)
+browser = browser.replace("DASH_LIST_ROW_H", row_define)
 file_rows = int(re.search(r"#define FB_ROWS (\d+)", browser).group(1))
 file_y = float(re.search(r"#define FB_Y ([\d.]+)f", browser).group(1))
 file_row_h = float(re.search(r"#define FB_ROW_H ([\d.]+)f", browser).group(1))

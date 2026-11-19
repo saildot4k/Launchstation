@@ -48,7 +48,7 @@ static void sheetAdd(Sheet *s, int style, const char *fmt, ...)
 
 static float lineH(int style)
 {
-	return style == SL_GAP ? 10.0f : style == SL_HEAD ? 24.0f : 20.0f;
+	return style == SL_GAP ? DASH_LIST_ROW_H * 0.5f : DASH_LIST_ROW_H;
 }
 
 static void sheetShow(int icon, const char *title, const char *subtitle, const Sheet *s)
@@ -70,9 +70,9 @@ static void sheetShow(int icon, const char *title, const char *subtitle, const S
 		if (in.pressed & (DASH_IN_OK | DASH_IN_BACK | DASH_IN_MENU))
 			break;
 		if (in.pressed & DASH_IN_DOWN)
-			scroll_target += 40.0f;
+			scroll_target += 2.0f * DASH_LIST_ROW_H;
 		if (in.pressed & DASH_IN_UP)
-			scroll_target -= 40.0f;
+			scroll_target -= 2.0f * DASH_LIST_ROW_H;
 		if (in.pressed & DASH_IN_R2)
 			scroll_target += body_h;
 		if (in.pressed & DASH_IN_L2)
@@ -101,9 +101,9 @@ static void sheetShow(int icon, const char *title, const char *subtitle, const S
 				float lh = lineH(l->style);
 				if (ly + lh > body_y - 4 && ly < body_y + body_h + 4) {
 					if (l->style == SL_HEAD)
-						dashText(x + 28, ly + 4, l->text, DASH_FS_SMALL, DASH_C_ACCENT);
+						dashText(x + 28, ly, l->text, DASH_FS_SMALL, DASH_C_ACCENT);
 					else if (l->style != SL_GAP)
-						dashTextFit(x + 28, ly + 1, w - 60, l->text, DASH_FS_SMALL,
+						dashTextFit(x + 28, ly, w - 60, l->text, DASH_FS_SMALL,
 						            l->style == SL_MUTED ? DASH_C_TEXT3 : DASH_C_TEXT2);
 				}
 				ly += lh;

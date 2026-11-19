@@ -929,7 +929,7 @@ static void colorEditor(const char *title, int id)
 	classic = isClassicColor(id);
 	orig = *c;
 	nrows = (alpha ? 4 : 3) + 1; /* channels + swatch row */
-	h = 94.0f + nrows * 29.0f + 64.0f;
+	h = 94.0f + nrows * DASH_LIST_ROW_H + 64.0f;
 	y = (DASH_VH - h) * 0.5f + 10.0f;
 	for (i = 0; i < NSWATCH; i++)
 		if (swatches[i].r == c->r && swatches[i].g == c->g && swatches[i].b == c->b)
@@ -1021,10 +1021,10 @@ static void colorEditor(const char *title, int id)
 				snprintf(hex, sizeof(hex), "#%02X%02X%02X", c->r, c->g, c->b);
 			dashText(x + 20, y + 46, hex, DASH_FS_SMALL, DASH_C_TEXT2);
 
-			for (i = 0; i < nrows; i++, ry += 29.0f) {
+			for (i = 0; i < nrows; i++, ry += DASH_LIST_ROW_H) {
 				int on = (i == row);
 				if (on)
-					dashDrawSelection(x + 12, ry + 2, w - 24, 24, 9, 1.0f);
+					dashDrawSelection(x + 12, ry, w - 24, DASH_LIST_ROW_H - 3, 9, 1.0f);
 				if (i < nrows - 1) {
 					int v = (i == 0) ? c->r : (i == 1) ? c->g : (i == 2) ? c->b : c->a;
 					DashColor lo = DC(c->r, c->g, c->b, 255), hi = lo;
@@ -1038,18 +1038,18 @@ static void colorEditor(const char *title, int id)
 						lo.b = 0, hi.b = 255;
 					else
 						lo = DC(40, 40, 40, 255), hi = DC(230, 230, 230, 255);
-					dashText(x + 24, ry + 4.0f, ch_names[i], DASH_FS_SMALL, dashItemColor(on));
-					dashRectGradH(bx, ry + 9, bw, 10, lo, hi);
-					dashRect(bx + bw * v / 255.0f - 1.5f, ry + 4, 3, 20, on ? DASH_C_TEXT : DASH_C_TEXT2);
+					dashText(x + 24, ry + 0.0f, ch_names[i], DASH_FS_SMALL, dashItemColor(on));
+					dashRectGradH(bx, ry + 5.5f, bw, 10, lo, hi);
+					dashRect(bx + bw * v / 255.0f - 1.5f, ry + 2.5f, 3, 16, on ? DASH_C_TEXT : DASH_C_TEXT2);
 					snprintf(num, sizeof(num), "%d", v);
-					dashTextRight(x + w - 24, ry + 4.0f, num, DASH_FS_SMALL, dashItemColor(on));
+					dashTextRight(x + w - 24, ry + 0.0f, num, DASH_FS_SMALL, dashItemColor(on));
 				} else {
 					int k;
 					float sx = x + 24, ssz = (w - 48) / NSWATCH;
 					for (k = 0; k < NSWATCH; k++) {
-						dashRect(sx + k * ssz + 1, ry + 4, ssz - 2, 20, swatches[k]);
+						dashRect(sx + k * ssz + 1, ry + 2.5f, ssz - 2, 16, swatches[k]);
 						if (on && k == sw)
-							dashPanelBorder(sx + k * ssz - 1, ry + 2, ssz + 2, 24, 3, DASH_C_TEXT);
+							dashPanelBorder(sx + k * ssz - 1, ry, ssz + 2, DASH_LIST_ROW_H - 3, 3, DASH_C_TEXT);
 					}
 				}
 			}
@@ -2539,7 +2539,7 @@ static void settingsDraw(void)
 	 * y=62): ~7 px of clear space above the breadcrumb's capitals (#135). */
 	/* Only the header lanes move; the list keeps ITEM_ROWS rows so its two-line
 	 * help still clears the footer hints. */
-	const float ix = DASH_SAFE_L, iy = 136, irow = 29, iw = DASH_SAFE_R - DASH_SAFE_L;
+	const float ix = DASH_SAFE_L, iy = 136, irow = DASH_LIST_ROW_H, iw = DASH_SAFE_R - DASH_SAFE_L;
 	const SetPage *c = &pages[page];
 	int total = pageItemCount(page);
 	char trail[192];
@@ -2571,7 +2571,7 @@ static void settingsDraw(void)
 
 	/* items */
 	dashDrawPanelBox(DASH_PANE_L, iy - 6, DASH_PANE_W, ITEM_ROWS * irow + 12, 14);
-	dashDrawSelection(ix, iy + dashClampf(item_anim - item_top, 0, ITEM_ROWS - 1) * irow + 2, iw, irow - 5, 9, 1.0f);
+	dashDrawSelection(ix, iy + dashClampf(item_anim - item_top, 0, ITEM_ROWS - 1) * irow, iw, irow - 3, 9, 1.0f);
 	for (i = item_top; i < total && i < item_top + ITEM_ROWS; i++) {
 		const SetItem *it = pageItemAt(page, i);
 		float y = iy + (i - item_top) * irow;
@@ -2591,25 +2591,25 @@ static void settingsDraw(void)
 			                                          it->id == S_T_RESETCAT || it->id == S_T_RESTORE_PRESET ||
 			                                          it->id == S_T_DEFAULT) ? DI_UNDO : DI_PLAY) :
 			               it->type == ST_INFO ? DI_INFO : DI_SETTINGS;
-			dashIcon(row_icon, ix + 12, y + 7, 15, col);
+			dashIcon(row_icon, ix + 12, y + 3, 15, col);
 		}
 		if (it->type == ST_INFO) {
 			char buf[64];
 			snprintf(buf, sizeof(buf), "%s / %s", ip, netmask);
-			dashText(ix + 38, y + 4.0f, it->label, DASH_FS_SMALL, DASH_C_TEXT3);
-			dashTextRight(ix + iw - 12, y + 4.0f, buf, DASH_FS_SMALL, DASH_C_TEXT2);
+			dashText(ix + 38, y + 0.0f, it->label, DASH_FS_SMALL, DASH_C_TEXT3);
+			dashTextRight(ix + iw - 12, y + 0.0f, buf, DASH_FS_SMALL, DASH_C_TEXT2);
 			dashGfxPopAlpha();
 			continue;
 		}
 		if (it->type == ST_PAGE) {
-			dashTextFit(ix + 38, y + 4.0f, iw - 70, it->label, DASH_FS_SMALL, col);
-			dashIcon(DI_PLAY, ix + iw - 22, y + 9, 12, DASH_C_TEXT3);
+			dashTextFit(ix + 38, y + 0.0f, iw - 70, it->label, DASH_FS_SMALL, col);
+			dashIcon(DI_PLAY, ix + iw - 22, y + 4.5f, 12, DASH_C_TEXT3);
 			dashGfxPopAlpha();
 			continue;
 		}
 		{
 			float label_w = it->type == ST_ACTION ? iw - 70 : iw * 0.56f - 50;
-			dashTextFit(ix + 38, y + 4.0f, label_w, it->label, DASH_FS_SMALL, col);
+			dashTextFit(ix + 38, y + 0.0f, label_w, it->label, DASH_FS_SMALL, col);
 		}
 		if (it->type == ST_COLOR) {
 			int alpha;
@@ -2618,9 +2618,9 @@ static void settingsDraw(void)
 				char hex[12];
 				float sx = ix + iw - 50;
 				snprintf(hex, sizeof(hex), "#%02X%02X%02X", cv->r, cv->g, cv->b);
-				dashTextRight(sx - 10, y + 4.0f, hex, DASH_FS_SMALL, on ? DASH_C_TEXT2 : DASH_C_TEXT3);
-				dashRect(sx, y + 6, 36, 15, DC(cv->r, cv->g, cv->b, alpha ? (cv->a < 40 ? 40 : cv->a) : 255));
-				dashPanelBorder(sx - 1, y + 5, 38, 17, 2, dashColorA(DASH_C_TEXT, 0.35f));
+				dashTextRight(sx - 10, y + 0.0f, hex, DASH_FS_SMALL, on ? DASH_C_TEXT2 : DASH_C_TEXT3);
+				dashRect(sx, y + 3, 36, 15, DC(cv->r, cv->g, cv->b, alpha ? (cv->a < 40 ? 40 : cv->a) : 255));
+				dashPanelBorder(sx - 1, y + 2, 38, 17, 2, dashColorA(DASH_C_TEXT, 0.35f));
 			}
 		} else if (it->type == ST_CHOICE) {
 			const char *const *names;
@@ -2634,13 +2634,13 @@ static void settingsDraw(void)
 					vw = maxw;
 				vx = ix + iw - 20 - vw;
 				if (on && !disabled) {
-					dashIcon(DI_BACK, vx - 22, y + 7, 12, DASH_C_ACCENT);
-					dashIcon(DI_PLAY, ix + iw - 16, y + 8, 10, DASH_C_ACCENT);
+					dashIcon(DI_BACK, vx - 22, y + 4.5f, 12, DASH_C_ACCENT);
+					dashIcon(DI_PLAY, ix + iw - 16, y + 5.5f, 10, DASH_C_ACCENT);
 				}
 				if (on)
-					dashTextScroll(vx, y + 4.0f, maxw, names[cur], DASH_FS_SMALL, disabled ? DASH_C_TEXT3 : (n == 2 && names == onoff && cur == 1) ? DASH_C_OK : DASH_C_ACCENT);
+					dashTextScroll(vx, y + 0.0f, maxw, names[cur], DASH_FS_SMALL, disabled ? DASH_C_TEXT3 : (n == 2 && names == onoff && cur == 1) ? DASH_C_OK : DASH_C_ACCENT);
 				else
-					dashTextFit(vx, y + 4.0f, maxw, names[cur], DASH_FS_SMALL, disabled ? DASH_C_TEXT3 : DASH_C_ACCENT);
+					dashTextFit(vx, y + 0.0f, maxw, names[cur], DASH_FS_SMALL, disabled ? DASH_C_TEXT3 : DASH_C_ACCENT);
 			}
 		} else if (it->type == ST_NUMBER || it->type == ST_PATH || it->type == ST_IP || it->type == ST_LKEY) {
 			char text[MAX_PATH], leaf[MAX_PATH];
@@ -2676,16 +2676,16 @@ static void settingsDraw(void)
 					vw = maxw;
 				vx = ix + iw - 20 - vw;
 				if (on && !disabled && it->type == ST_NUMBER) {
-					dashIcon(DI_BACK, vx - 22, y + 7, 12, DASH_C_ACCENT);
-					dashIcon(DI_PLAY, ix + iw - 16, y + 8, 10, DASH_C_ACCENT);
+					dashIcon(DI_BACK, vx - 22, y + 4.5f, 12, DASH_C_ACCENT);
+					dashIcon(DI_PLAY, ix + iw - 16, y + 5.5f, 10, DASH_C_ACCENT);
 				}
 				if (on)
-					dashTextScroll(vx, y + 4.0f, maxw, v, DASH_FS_SMALL, set && !disabled ? DASH_C_ACCENT : DASH_C_TEXT3);
+					dashTextScroll(vx, y + 0.0f, maxw, v, DASH_FS_SMALL, set && !disabled ? DASH_C_ACCENT : DASH_C_TEXT3);
 				else
-					dashTextFit(vx, y + 4.0f, maxw, v, DASH_FS_SMALL, set && !disabled ? DASH_C_ACCENT : DASH_C_TEXT3);
+					dashTextFit(vx, y + 0.0f, maxw, v, DASH_FS_SMALL, set && !disabled ? DASH_C_ACCENT : DASH_C_TEXT3);
 			}
 		} else {
-			dashIcon(DI_PLAY, ix + iw - 22, y + 8, 12, DASH_C_TEXT3);
+			dashIcon(DI_PLAY, ix + iw - 22, y + 4.5f, 12, DASH_C_TEXT3);
 		}
 		dashGfxPopAlpha();
 	}

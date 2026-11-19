@@ -807,11 +807,11 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 {
 	int sel = initial, top = 0, i, previewed = -1;
 	void (*preview)(int) = modal_preview;
-	/* Match Settings row spacing and typography. Nine compact rows still
-	 * leave safe margins for a subtitle and footer on 4:3/interlaced TVs. */
+	/* Match File Browser row spacing. Nine rows leave safe margins for a
+	 * subtitle and footer on 4:3/interlaced TVs. */
 	const int max_rows = 9;
 	float sel_anim, open = 0.0f;
-	float w = 400.0f, row_h = 29.0f;
+	float w = 400.0f, row_h = DASH_LIST_ROW_H;
 	int rows = (n < max_rows) ? n : max_rows;
 	float list_y = subtitle ? 74.0f : 54.0f;
 	float h = list_y + rows * row_h + 48.0f;
@@ -922,7 +922,7 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 			dashGfxScissor(x + 8, ly - 2, w - 16, rows * row_h + 4);
 			{
 				float fy = ly + (sel_anim - top) * row_h;
-				dashDrawSelection(x + 14, fy + 2, w - 28, row_h - 5, 9, 1.0f);
+				dashDrawSelection(x + 14, fy, w - 28, row_h - 3, 9, 1.0f);
 			}
 			for (i = top; i < n && i < top + rows; i++) {
 				float ry = ly + (i - top) * row_h;
@@ -930,7 +930,7 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 				float tx = x + 28;
 				dashGfxPushAlpha(items[i].disabled ? DASH_DISABLED_ALPHA : 1.0f);
 				if (items[i].icon >= 0) {
-					dashIcon(items[i].icon, x + 26, ry + 5, 18, c);
+					dashIcon(items[i].icon, x + 26, ry + 2, 16, c);
 					tx = x + 54;
 				}
 				{
@@ -952,17 +952,17 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 							detail_w -= 38.0f;
 							right -= 16.0f;
 							vw = dw < detail_w ? dw : detail_w;
-							dashIcon(DI_BACK, right - vw - 22, ry + 7, 12, DASH_C_ACCENT);
-							dashIcon(DI_PLAY, x + w - 28, ry + 8, 10, DASH_C_ACCENT);
+							dashIcon(DI_BACK, right - vw - 22, ry + 4.5f, 12, DASH_C_ACCENT);
+							dashIcon(DI_PLAY, x + w - 28, ry + 5.5f, 10, DASH_C_ACCENT);
 						}
 						if (dw <= detail_w)
-							dashTextRight(right, ry + 4.5f, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
+							dashTextRight(right, ry + 1.0f, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
 						else if (i == sel)
-							dashTextScroll(right - detail_w, ry + 4.5f, detail_w, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
+							dashTextScroll(right - detail_w, ry + 1.0f, detail_w, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
 						else
-							dashTextFit(right - detail_w, ry + 4.5f, detail_w, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
+							dashTextFit(right - detail_w, ry + 1.0f, detail_w, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
 					}
-					dashTextFit(tx, ry + 4.0f, label_w, items[i].label, DASH_FS_SMALL, c);
+					dashTextFit(tx, ry + 0.0f, label_w, items[i].label, DASH_FS_SMALL, c);
 				}
 				dashGfxPopAlpha();
 			}
@@ -1046,7 +1046,7 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 		if (body_lines > 6)
 			body_lines = 6;
 	}
-	h = 92.0f + body_lines * 22.0f + (detail ? 24.0f : 0.0f) + 44.0f;
+	h = 92.0f + body_lines * DASH_LIST_ROW_H + (detail ? DASH_LIST_ROW_H : 0.0f) + 44.0f;
 	y = (DASH_VH - h) * 0.5f;
 	dashInputFlush();
 
@@ -1095,9 +1095,9 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 		dashIcon(icon, x + 26, y + 24, 36, icon_col);
 		dashTextScrollTimed(x + 76, y + 28, w - 106, title, DASH_FS_LABEL, DASH_C_TEXT, title_age);
 		if (body)
-			dashTextWrap(x + 30, y + 78, w - 60, 6, body, DASH_FS_SMALL, DASH_C_TEXT2, 22);
+			dashTextWrap(x + 30, y + 78, w - 60, 6, body, DASH_FS_SMALL, DASH_C_TEXT2, DASH_LIST_ROW_H);
 		if (detail) {
-			float dy = y + 84 + body_lines * 22.0f;
+			float dy = y + 84 + body_lines * DASH_LIST_ROW_H;
 			dashTextScrollTimed(x + 30, dy, w - 60, detail, DASH_FS_CAPTION, DASH_C_TEXT3, title_age);
 		}
 		{

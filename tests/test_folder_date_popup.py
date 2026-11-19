@@ -11,6 +11,8 @@ actions = (root / "src/filer_actions.c").read_text()
 title = (root / "src/main_title.c").read_text()
 header = (root / "include/filer_actions.h").read_text()
 ui_header = (root / "include/dash_internal.h").read_text()
+row_define = re.search(r"^#define DASH_LIST_ROW_H (.+)$", ui_header, re.M).group(1)
+source = source.replace("DASH_LIST_ROW_H", row_define)
 
 
 def function(text, signature):
@@ -143,7 +145,7 @@ static void dashDrawSelection(float x,float y,float w,float h,float radius,float
     (void)radius; (void)strength;
     if(geometry) {
         assert(expected_selected && x==46 && w==548);
-        assert(y==row_y+1 && h==20); selections++;
+        assert(y==row_y+1 && h==TS_ROW_H-2); selections++;
     }
 }
 static DashColor dashColorA(DashColor color,float alpha) { (void)alpha; return color; }
@@ -151,7 +153,7 @@ static void dashPanel(float x,float y,float w,float h,float radius,DashColor col
     (void)radius; (void)color;
     if(geometry) {
         assert(expected_selected && fabsf(x-(field_x-2))<0.001f);
-        assert(fabsf(w-field_w-4)<0.001f && y==row_y+1 && h==20); panels++;
+        assert(fabsf(w-field_w-4)<0.001f && y==row_y+1 && h==TS_ROW_H-2); panels++;
     }
 }
 static void dashPanelBorder(float x,float y,float w,float h,float r,DashColor c) { dashPanel(x,y,w,h,r,c); }
@@ -159,7 +161,7 @@ static void dashIcon(int icon,float x,float y,float size,DashColor color) {
     (void)color;
     if(motion_test && x==54 && size==14) last_icon_y=y;
     if(geometry) {
-        assert(icon==(expected_changed?DI_CLOCK:DI_FOLDER) && x==54 && size==14 && y+size/2==row_y+11);
+        assert(icon==(expected_changed?DI_CLOCK:DI_FOLDER) && x==54 && size==14 && y+size/2==row_y+TS_ROW_H*0.5f);
         assert(color==(expected_changed?DASH_C_OK:expected_selected?DASH_C_TEXT:DASH_C_TEXT2));
     }
 }
@@ -173,7 +175,7 @@ static void dashTextFit(float x,float y,float w,const char *text,float scale,Das
     if(geometry) {
         float date_x=582-dashTextWidth(formatted,scale);
         assert(color==(expected_selected?DASH_C_TEXT:DASH_C_TEXT2));
-        assert(x==76 && fabsf(y+16*scale-row_y-11)<0.001f);
+        assert(x==76 && fabsf(y+16*scale-row_y-TS_ROW_H*0.5f)<0.001f);
         assert(w>0 && fabsf(x+w+16-date_x)<0.001f && text[0]); names++;
     }
 }
@@ -183,7 +185,7 @@ static void dashTextRight(float x,float y,const char *text,float scale,DashColor
     if(geometry) {
         assert(color==(expected_selected?DASH_C_TEXT:DASH_C_TEXT2));
         assert(x==582 && !strcmp(text,formatted));
-        assert(fabsf(y+16*scale-row_y-11)<0.001f); dates++;
+        assert(fabsf(y+16*scale-row_y-TS_ROW_H*0.5f)<0.001f); dates++;
     }
 }
 static void dashInputFlush(void) {}

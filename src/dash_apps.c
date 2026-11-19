@@ -5,7 +5,7 @@
 //  GRID      5 x 3 artwork cards
 //  LIST      compact rows + large detail panel
 //  CAROUSEL  horizontal collection with depth (PSBBN/LUNA inspired)
-//SELECT cycles the view (saved), Triangle opens options.
+//Triangle opens options, including the saved view choice.
 //--------------------------------------------------------------
 #include "dash_internal.h"
 
@@ -39,7 +39,7 @@ static float view_anim = 1.0f;
 #define GRID_CARD 84.0f
 #define GRID_TOP 104.0f
 #define LIST_ROWS 9
-#define LIST_ROW_H 31.0f
+#define LIST_ROW_H DASH_LIST_ROW_H
 
 static int matchFilter(const DashApp *a)
 {
@@ -434,11 +434,6 @@ static void appsInput(const DashInput *in)
 			dashHomeRebuild();
 	} else if (in->pressed & DASH_IN_MENU)
 		appsMenu();
-	else if (in->pressed & DASH_IN_SELECT) {
-		dashCfg.view = (dashCfg.view + 1) % DASH_VIEW_COUNT;
-		view_anim = 0.0f;
-		dashStoreSaveSettings();
-	}
 }
 
 static void appsUpdate(float dt)
@@ -605,16 +600,16 @@ static void drawList(void)
 
 		dashGfxPushAlpha(appOpacity(e));
 		if (t != NULL)
-			dashTexDrawFit(t, lx + 6, y + 2, 24, 24, DC(255, 255, 255, 255));
+			dashTexDrawFit(t, lx + 8, y + 0.5f, 20, 20, DC(255, 255, 255, 255));
 		else
-			dashIcon(dashTheme.app_icon_style == DASH_APPICON_SYSTEM ? DI_EXEC : dashLibDeviceIcon(e->path), lx + 9, y + 5, 18,
+			dashIcon(dashTheme.app_icon_style == DASH_APPICON_SYSTEM ? DI_EXEC : dashLibDeviceIcon(e->path), lx + 9, y + 1.5f, 18,
 			         dashTheme.app_icon_style == DASH_APPICON_MONOGRAM ? dashColorHue(e->hue, 120, 230, 255) : dashItemColor(on));
 		if (on)
-			dashTextScrollProgress(lx + 38, y + 3, lw - 64, e->title, DASH_FS_SMALL, dashItemColor(1), scroll);
+			dashTextScrollProgress(lx + 38, y + 0, lw - 64, e->title, DASH_FS_SMALL, dashItemColor(1), scroll);
 		else
-			dashTextFit(lx + 38, y + 3, lw - 64, e->title, DASH_FS_SMALL, dashItemColor(0));
+			dashTextFit(lx + 38, y + 0, lw - 64, e->title, DASH_FS_SMALL, dashItemColor(0));
 		if (dashStoreIsFavorite(e->path))
-			dashIcon(DI_STAR, lx + lw - 22, y + 6, 14, DASH_C_WARM);
+			dashIcon(DI_STAR, lx + lw - 22, y + 3.5f, 14, DASH_C_WARM);
 		dashGfxPopAlpha();
 	}
 	dashDrawScrollbar(lx + lw + 10, ly, LIST_ROWS * LIST_ROW_H, top, LIST_ROWS, norder);
@@ -745,7 +740,7 @@ static void appsDraw(void)
 
 static void appsHints(void)
 {
-	DashHint h[5];
+	DashHint h[4];
 	int n = 0;
 
 	if (norder == 0) {
@@ -757,7 +752,6 @@ static void appsHints(void)
 		h[n].button = dashOkIcon(), h[n].key = NULL, h[n].label = "Start", n++;
 		h[n].button = DI_BTN_SQUARE, h[n].key = NULL, h[n].label = "Favorite", n++;
 		h[n].button = DI_BTN_TRIANGLE, h[n].key = NULL, h[n].label = "Options", n++;
-		h[n].button = -1, h[n].key = "SELECT", h[n].label = "View", n++;
 	}
 	h[n].button = dashBackIcon(), h[n].key = NULL, h[n].label = "Home", n++;
 	dashDrawHints(h, n);

@@ -638,7 +638,7 @@ static void toolsUpdate(float dt)
 
 static void toolsDraw(void)
 {
-	const float lx = DASH_SAFE_L, ly = 102, row_h = 29, lw = 300;
+	const float lx = DASH_SAFE_L, ly = 102, row_h = DASH_LIST_ROW_H, lw = 300;
 	const int rows = 10;
 	const Tool *t = &tools[tsel];
 	int i;
@@ -661,10 +661,10 @@ static void toolsDraw(void)
 			dashText(lx + 8, y + 7, tools[i].name, DASH_FS_CAPTION, DASH_C_ACCENT);
 			continue;
 		}
-		dashIcon(tools[i].icon, lx + 10, y + 5, 16, dashItemColor(i == tsel));
-		dashTextFit(lx + 34, y + 3.0f, lw - 44, tools[i].name, DASH_FS_SMALL, dashItemColor(i == tsel));
+		dashIcon(tools[i].icon, lx + 10, y + 2, 16, dashItemColor(i == tsel));
+		dashTextFit(lx + 34, y + 0.0f, lw - 44, tools[i].name, DASH_FS_SMALL, dashItemColor(i == tsel));
 		if (tools[i].confirm == 2 || tools[i].note)
-			dashGlow(lx + lw - 14, y + 13, 4, 4, tools[i].confirm == 2 ? DASH_C_DANGER : DASH_C_WARM);
+			dashGlow(lx + lw - 14, y + 10.5f, 4, 4, tools[i].confirm == 2 ? DASH_C_DANGER : DASH_C_WARM);
 	}
 	dashGfxScissorReset();
 	dashDrawScrollbar(lx + lw + 10, ly, rows * row_h, ttop, rows, NTOOLS);

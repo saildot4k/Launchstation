@@ -49,7 +49,7 @@ static void dashGfxScissorPush(float x,float y,float w,float h) {
 }
 static void dashGfxScissorPop(void) { assert(depth==1);depth--;pops++; }
 '''
-for macro in ("DASH_SAFE_L", "DASH_SAFE_R", "DASH_PANE_R", "DASH_FS_SMALL",
+for macro in ("DASH_LIST_ROW_H", "DASH_SAFE_L", "DASH_SAFE_R", "DASH_PANE_R", "DASH_FS_SMALL",
               "DASH_FS_LABEL", "DASH_FS_CAPTION"):
     code += re.search(r"^#define " + macro + r" .+$", header, re.M).group() + "\n"
 for macro in ("LIST_ROWS", "LIST_ROW_H"):

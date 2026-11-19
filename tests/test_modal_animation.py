@@ -34,6 +34,9 @@ shell = read("src/dash_main.c")
 ui = read("src/dash_ui.c")
 gfx = read("src/dash_gfx.c")
 header = read("include/dash_internal.h")
+row_define = re.search(r"^#define DASH_LIST_ROW_H (.+)$", header, re.M)
+if row_define:
+    ui = ui.replace("DASH_LIST_ROW_H", row_define.group(1))
 orbs = read("src/dash_bg_ps2.c")
 widgets = read("src/dash_widgets.c")
 menu = (function(ui, "static int modalMenu(") + function(ui, "int dashModalMenu(")
@@ -44,7 +47,7 @@ button_icons = function(ui, "int dashOkIcon(") + function(ui, "int dashBackIcon(
 symbols = sorted(set(re.findall(r"\b(?:DI_|DASH_FS_|DASH_SND_|DASH_HL_)\w+",
                                menu + buttons + button_icons)))
 colors = sorted(set(re.findall(r"\bDASH_C_\w+", menu + buttons)))
-code = r"""
+code = "#define TEST_MENU_SELECTION_TOP " + ("0" if row_define else "2") + "\n" + r"""
 #include <assert.h>
 #include <math.h>
 #include <stdint.h>
@@ -83,7 +86,7 @@ static void recordSelection(float x,float y,float w,float h,float r,float a) {
 static void recordScrollbar(float x,float y,float h,int top,int rows,int count) {
     (void)x;
     scroll_top=top; scroll_rows=rows; scroll_count=count;
-    selection_row=top+(selection_y-y-2)/((h+4)/rows);
+    selection_row=top+(selection_y-y-TEST_MENU_SELECTION_TOP)/((h+4)/rows);
     if(scroll_scenario) assert(selection_y>=y && selection_y<y+h);
 }
 static u64 Timer(void) { return now_ms; }
@@ -429,7 +432,8 @@ if len(sys.argv) == 1:
 menu = function(ui, "static int modalMenu(")
 assert "detail ? 90" not in menu
 assert "detail_w = avail - label_w - 14.0f;" in menu
-assert "dashTextFit(tx, ry + 4.0f, label_w, items[i].label, DASH_FS_SMALL," in menu
+label_offset = "0.0f" if row_define else "4.0f"
+assert f"dashTextFit(tx, ry + {label_offset}, label_w, items[i].label, DASH_FS_SMALL," in menu
 key_icon = function(ui, "static int keyIcon(")
 assert '"START"' in key_icon and '"L1"' in key_icon and '"R3"' in key_icon
 assert "dashIconsPadPng()" not in key_icon

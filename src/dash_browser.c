@@ -26,7 +26,7 @@ int IsTextEditorFileType(const char *path);
 
 /* Eleven rows leave room for status text above the shared footer hints. */
 #define FB_ROWS 11
-#define FB_ROW_H 24.0f
+#define FB_ROW_H DASH_LIST_ROW_H
 #define FB_X DASH_SAFE_L
 #define FB_Y 100.0f
 #define FB_W (DASH_SAFE_R - DASH_SAFE_L)
@@ -1124,7 +1124,7 @@ static void tsProgress(int done, int total, const char *folder)
 }
 
 #define TS_ROWS 9
-#define TS_ROW_H 22.0f
+#define TS_ROW_H DASH_LIST_ROW_H
 #define TS_LIST_H ((TS_ROWS + 1) * TS_ROW_H)
 
 /* The selected folder owns half a blank row on each side, including edges. */
