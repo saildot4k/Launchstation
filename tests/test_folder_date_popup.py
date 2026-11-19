@@ -32,6 +32,7 @@ code = r'''
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 typedef unsigned int u32;
@@ -62,7 +63,10 @@ static char formatted[40];
 static int expected_position, expected_selected, expected_changed, names, dates, selections, panels;
 static int buttons, labels, group_buttons;
 static float group_x[5], group_right[5], last_button_right, hint_y;
-static DashInput events[32];
+static DashInput events[128];
+static int motion_test, motion_selected, last_folder;
+static float motion_y[128][40], last_icon_y, motion_text_y;
+static float animation_speed=1, visual_dt=0.016f;
 static int next_event, event_count, adjustment, frames;
 static int dashOkIcon(void) { return mapping ? DI_BTN_CROSS : DI_BTN_CIRCLE; }
 static int dashBackIcon(void) { return mapping ? DI_BTN_CIRCLE : DI_BTN_CROSS; }
@@ -153,6 +157,7 @@ static void dashPanel(float x,float y,float w,float h,float radius,DashColor col
 static void dashPanelBorder(float x,float y,float w,float h,float r,DashColor c) { dashPanel(x,y,w,h,r,c); }
 static void dashIcon(int icon,float x,float y,float size,DashColor color) {
     (void)color;
+    if(motion_test && x==54 && size==14) last_icon_y=y;
     if(geometry) {
         assert(icon==(expected_changed?DI_CLOCK:DI_FOLDER) && x==54 && size==14 && y+size/2==row_y+11);
         assert(color==(expected_changed?DASH_C_OK:expected_selected?DASH_C_TEXT:DASH_C_TEXT2));
@@ -160,6 +165,11 @@ static void dashIcon(int icon,float x,float y,float size,DashColor color) {
 }
 static void dashTextFit(float x,float y,float w,const char *text,float scale,DashColor color) {
     (void)color;
+    if(motion_test && x==76) {
+        assert(sscanf(text,"Folder %d",&last_folder)==1 && last_folder>=0 && last_folder<40);
+        assert(fabsf(y+16*scale-last_icon_y-7)<0.001f);
+        motion_y[frames][last_folder]=y; motion_text_y=y;
+    }
     if(geometry) {
         float date_x=582-dashTextWidth(formatted,scale);
         assert(color==(expected_selected?DASH_C_TEXT:DASH_C_TEXT2));
@@ -169,6 +179,7 @@ static void dashTextFit(float x,float y,float w,const char *text,float scale,Das
 }
 static void dashTextRight(float x,float y,const char *text,float scale,DashColor color) {
     (void)color;
+    if(motion_test) assert(fabsf(y-motion_text_y)<0.001f);
     if(geometry) {
         assert(color==(expected_selected?DASH_C_TEXT:DASH_C_TEXT2));
         assert(x==582 && !strcmp(text,formatted));
@@ -184,9 +195,8 @@ static int listCenteredTop(int selected,int count,int rows) {
     int top=selected-(rows-1)/2, max=count-rows;
     return max<=0 || top<0?0:top>max?max:top;
 }
-static float dashAnimSpeed(void) { return 1; }
-static float dashVisualUpdate(void) { return 0.016f; }
-static float dashApproach(float a,float b,float speed,float dt) { (void)a;(void)speed;(void)dt;return b; }
+static float dashAnimSpeed(void) { return animation_speed; }
+static float dashVisualUpdate(void) { return visual_dt; }
 static float dashEaseOutCubic(float value) { return value; }
 static void dashRenderScene(void) {}
 static void dashModalBackdrop(float value) { (void)value; }
@@ -196,9 +206,13 @@ static void dashModalPanel(float x,float y,float w,float h,float a) { (void)x;(v
 static void dashGfxScissor(float x,float y,float w,float h) { (void)x;(void)y;(void)w;assert(h==TS_LIST_H); }
 static void dashGfxScissorReset(void) {}
 static void dashDrawScrollbar(float x,float y,float h,int top,int rows,int count) { (void)x;(void)y;(void)h;(void)top;(void)rows;(void)count; }
-static void dashGfxPresent(void) { frames++; }
+static void dashGfxPresent(void) {
+    if(motion_test) assert(last_folder==(frames?motion_selected:20));
+    frames++;
+}
 '''
-for signature in ("static float tsRowY(", "static void tsDrawHints(", "static void tsDrawFolderRow(", "static int tsEdit("):
+code += function((root / "src/dash_gfx.c").read_text(), "float dashApproach(")
+for signature in ("static float tsRowY(", "static void tsMoveRow(", "static void tsDrawHints(", "static void tsDrawFolderRow(", "static int tsEdit("):
     code += function(source, signature)
 code += r'''
 static void queue(u32 pressed,u32 repeat) { events[event_count++]=(DashInput){pressed,0,repeat,1}; }
@@ -317,7 +331,64 @@ int main(void) {
     run(&e,DASH_IN_L1|DASH_IN_UP,0,DASH_IN_START); assert(filerDateEditorSync(&e)==0);
     strcpy(e.selected,e.folders[39].name); timestamp=e.folders[39].stats._Modify;
     run(&e,DASH_IN_R1|DASH_IN_DOWN,0,DASH_IN_START); assert(filerDateEditorSync(&e)==39);
-    puts("PASS: inline date fields in all clock/date formats; centered row content and half-row gaps at every list position; ordered hints in one aligned row, both confirm mappings; navigation, add/subtract repeat, one-second reorder, START save and SELECT cancel; changed clock icons and original folder icons on revert, with stable text colors");
+    /* The visual position follows the edited folder through any rank change. */
+    float positions[40];
+    for(int i=0;i<40;i++) positions[i]=i;
+    tsMoveRow(positions,0,39);
+    assert(positions[39]==0);
+    for(int i=0;i<39;i++) assert(positions[i]==i+1);
+    tsMoveRow(positions,39,0);
+    for(int i=0;i<40;i++) assert(positions[i]==i);
+    tsMoveRow(NULL,0,39);
+    for(int scenario=0;scenario<5;scenario++) {
+        for(int i=0;i<40;i++) {
+            snprintf(folders[i].name,sizeof(folders[i].name),"Folder %02d",i);
+            folders[i].stats._Modify=(sceMcStDateTime){0,20,59-i,13,1,3,2024};
+            original[i]=folders[i].stats._Modify;
+        }
+        if(scenario==2) {
+            folders[20].stats._Modify=folders[19].stats._Modify;
+            original[20]=folders[20].stats._Modify;
+        }
+        strcpy(e.selected,"Folder 20"); timestamp=folders[20].stats._Modify;
+        for(int f=0;f<128;f++) for(int i=0;i<40;i++) motion_y[f][i]=NAN;
+        next_event=event_count=frames=0;
+        motion_selected=scenario==3?21:20;
+        animation_speed=scenario==4?1000:1; visual_dt=1.0f/60;
+        queue(0,0);
+        queue(scenario==1?DASH_IN_R1:scenario==2?DASH_IN_OK:scenario==3?DASH_IN_DOWN:DASH_IN_L1,0);
+        for(int f=0;f<60;f++) queue(0,0);
+        queue(DASH_IN_START,0); motion_test=1;
+        assert(tsEdit(&e)==1 && frames==62);
+        motion_test=0;
+        int neighbor=scenario==1?21:19;
+        float before=motion_y[0][neighbor], after=motion_y[61][neighbor];
+        if(scenario==3) {
+            assert(motion_y[1][21]<motion_y[0][21] && motion_y[1][21]>motion_y[61][21]);
+            assert(fabsf(motion_y[61][21]-motion_y[0][20])<0.02f);
+        } else {
+            assert(fabsf(motion_y[61][20]-motion_y[0][20])<0.02f);
+            if(scenario==4) assert(fabsf(motion_y[1][neighbor]-after)<0.02f);
+            else {
+                assert((motion_y[1][neighbor]-before)*(after-before)>0);
+                assert(fabsf(motion_y[1][neighbor]-before)<fabsf(after-before));
+                /* The neighbor passes the selected row rather than jumping. */
+                assert((before-motion_y[0][20])*(after-motion_y[61][20])<0);
+                assert(!isnan(motion_y[1][scenario==1?16:24]));
+            }
+        }
+    }
+    /* Reverse a move before it finishes: continue from current coordinates. */
+    strcpy(e.selected,"Folder 20"); timestamp=folders[filerDateEditorSync(&e)].stats._Modify;
+    next_event=event_count=frames=0; animation_speed=1; visual_dt=1.0f/60;
+    queue(0,0); queue(DASH_IN_L1,0); queue(DASH_IN_R1,0);
+    for(int f=0;f<60;f++) queue(0,0);
+    queue(DASH_IN_SELECT,0); motion_selected=20; motion_test=1;
+    assert(tsEdit(&e)==0); motion_test=0;
+    assert(motion_y[1][18]>motion_y[0][18]);
+    assert(motion_y[2][18]<motion_y[1][18] && motion_y[2][18]>motion_y[0][18]);
+    assert(fabsf(motion_y[62][18]-motion_y[0][18])<0.02f);
+    puts("PASS: inline date fields in all clock/date formats; centered row content and half-row gaps at every list position; ordered hints in one aligned row, both confirm mappings; navigation, add/subtract repeat, one-second reorder, START save and SELECT cancel; changed clock icons and original folder icons on revert, with stable text colors; animated swaps, date-driven rank changes, centered scrolling, viewport edges, reversals and motion off");
 }
 '''
 compiler = shutil.which("gcc") or shutil.which("cc")

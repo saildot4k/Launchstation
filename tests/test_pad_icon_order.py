@@ -75,6 +75,9 @@ static void dashRoundedBorder(float x,float y,float w,float h,float r,DashColor 
 }
 static void dashSpriteBatchBegin(GSTEXTURE *tex,DashColor c) { assert(tex==&icon_tex && c.a); }
 static void dashSpriteBatchEnd(void) {}
+static void dashHeaderIcon(float cx,float cy,float size,DashColor c) {
+ (void)cx;(void)cy;(void)size;(void)c;assert(!"Unexpected ELF icon in controller test");
+}
 static struct { float x1,y1,x2,y2,u1,v1,u2,v2; } quad;
 static void spriteBatchAddPhysical(float x1,float y1,float u1,float v1,float x2,float y2,float u2,float v2) {
  /* Model gsKit's 12.4 vertex/UV conversion. Atlas coordinates are positive. */
