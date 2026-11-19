@@ -45,6 +45,7 @@ typedef int DashColor;
 #define DASH_C_ACCENT 1
 #define DASH_C_TEXT2 2
 #define DASH_C_TEXT3 3
+#define DASH_C_OK 4
 #define DASH_SND_CURSOR 1
 #define DASH_SND_CONFIRM 2
 #define DASH_SND_CANCEL 3
@@ -58,7 +59,7 @@ static struct { char dir[32]; } fb={"mc0:/"};
 static int mapping, use12, date_format, geometry, hint_geometry;
 static float font_width=10, row_y, field_x, field_w;
 static char formatted[40];
-static int expected_position, expected_selected, names, dates, selections, panels;
+static int expected_position, expected_selected, expected_changed, names, dates, selections, panels;
 static int buttons, labels, group_buttons;
 static float group_x[5], group_right[5], last_button_right, hint_y;
 static DashInput events[32];
@@ -88,10 +89,11 @@ for signature in (
     "static int isCustomDateLeapYear(", "static int getCustomDateDaysInMonth(",
     "static void normalizeCustomFolderTimestamp(", "static void stepCustomFolderTimestamp(",
     "static int getCustomDateFieldForDisplayPosition(", "static int getCustomDateFieldOffset(",
-    "static int compareCustomDateEditorFolders(", "static void sortCustomDateEditorFolders(",
+    "static int compareCustomDateEditorFolders(", "static int customDateEditorTimestampEqual(",
+    "static void sortCustomDateEditorFolders(",
     "static int updateCustomDateEditorFolders(", "static int moveCustomDateEditorNextToFolder(",
     "static int selectCustomDateEditorFolder(", "static void formatCustomDateEditorTimestamp(",
-    "int filerDateEditorSync(", "int filerDateEditorSelect(", "int filerDateEditorMoveNextTo(",
+    "int filerDateEditorSync(", "int filerDateEditorChanged(", "int filerDateEditorSelect(", "int filerDateEditorMoveNextTo(",
     "int filerDateEditorFieldCount(", "void filerDateEditorFieldRange(", "void filerDateEditorFormat(",
 ):
     code += function(actions, signature)
@@ -151,12 +153,16 @@ static void dashPanel(float x,float y,float w,float h,float radius,DashColor col
 static void dashPanelBorder(float x,float y,float w,float h,float r,DashColor c) { dashPanel(x,y,w,h,r,c); }
 static void dashIcon(int icon,float x,float y,float size,DashColor color) {
     (void)color;
-    if(geometry) assert(icon==DI_FOLDER && x==54 && size==14 && y+size/2==row_y+11);
+    if(geometry) {
+        assert(icon==(expected_changed?DI_CLOCK:DI_FOLDER) && x==54 && size==14 && y+size/2==row_y+11);
+        assert(color==(expected_changed?DASH_C_OK:expected_selected?DASH_C_TEXT:DASH_C_TEXT2));
+    }
 }
 static void dashTextFit(float x,float y,float w,const char *text,float scale,DashColor color) {
     (void)color;
     if(geometry) {
         float date_x=582-dashTextWidth(formatted,scale);
+        assert(color==(expected_selected?DASH_C_TEXT:DASH_C_TEXT2));
         assert(x==76 && fabsf(y+16*scale-row_y-11)<0.001f);
         assert(w>0 && fabsf(x+w+16-date_x)<0.001f && text[0]); names++;
     }
@@ -164,6 +170,7 @@ static void dashTextFit(float x,float y,float w,const char *text,float scale,Das
 static void dashTextRight(float x,float y,const char *text,float scale,DashColor color) {
     (void)color;
     if(geometry) {
+        assert(color==(expected_selected?DASH_C_TEXT:DASH_C_TEXT2));
         assert(x==582 && !strcmp(text,formatted));
         assert(fabsf(y+16*scale-row_y-11)<0.001f); dates++;
     }
@@ -255,6 +262,30 @@ int main(void) {
                 }
         }
     }
+    /* Unsaved edits change only the icon. Reverting any date/time component
+     * restores the folder, even when reserved timestamp metadata differs. */
+    for(expected_selected=0;expected_selected<2;expected_selected++) {
+        row_y=119; e.position=0;
+        for(int field=0;field<6;field++) for(int state=0;state<4;state++) {
+            sceMcStDateTime *value=&folders[20].stats._Modify;
+            *value=original[20]; expected_changed=state==1;
+            if(state==1) switch(field) {
+                case 0: value->Year++; break;
+                case 1: value->Month++; break;
+                case 2: value->Day++; break;
+                case 3: value->Hour++; break;
+                case 4: value->Min++; break;
+                case 5: value->Sec++; break;
+            }
+            if(state==3) value->Resv2^=0xA5;
+            assert(filerDateEditorChanged(&e,20)==expected_changed);
+            filerDateEditorFormat(value,formatted,sizeof(formatted));
+            field_x=582-dashTextWidth(formatted,DASH_FS_SMALL);
+            field_w=dashTextWidthN(formatted,2,DASH_FS_SMALL);
+            tsDrawFolderRow(&e,20,expected_selected,30,row_y,580);
+        }
+    }
+    folders[20].stats._Modify=original[20];
     geometry=0;
     /* Run the whole production popup loop against the real select/reorder model. */
     assert(run(&e,DASH_IN_UP,0,DASH_IN_START)==1 && !strcmp(e.selected,"Folder 19"));
@@ -286,7 +317,7 @@ int main(void) {
     run(&e,DASH_IN_L1|DASH_IN_UP,0,DASH_IN_START); assert(filerDateEditorSync(&e)==0);
     strcpy(e.selected,e.folders[39].name); timestamp=e.folders[39].stats._Modify;
     run(&e,DASH_IN_R1|DASH_IN_DOWN,0,DASH_IN_START); assert(filerDateEditorSync(&e)==39);
-    puts("PASS: inline date fields in all clock/date formats; centered row content and half-row gaps at every list position; ordered hints in one aligned row, both confirm mappings; navigation, add/subtract repeat, one-second reorder, START save and SELECT cancel");
+    puts("PASS: inline date fields in all clock/date formats; centered row content and half-row gaps at every list position; ordered hints in one aligned row, both confirm mappings; navigation, add/subtract repeat, one-second reorder, START save and SELECT cancel; changed clock icons and original folder icons on revert, with stable text colors");
 }
 '''
 compiler = shutil.which("gcc") or shutil.which("cc")

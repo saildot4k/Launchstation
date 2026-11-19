@@ -983,6 +983,11 @@ int filerDateEditorSync(FilerDateEditor *e)
 	return updateCustomDateEditorFolders(e->folders, e->original, e->count, e->selected, e->timestamp);
 }
 
+int filerDateEditorChanged(const FilerDateEditor *e, int index)
+{
+	return !customDateEditorTimestampEqual(&e->folders[index].stats._Modify, &e->original[index]);
+}
+
 int filerDateEditorSelect(FilerDateEditor *e, int direction)
 {
 	return selectCustomDateEditorFolder(e->folders, e->original, e->count, e->selected, sizeof(e->selected), e->timestamp, direction);

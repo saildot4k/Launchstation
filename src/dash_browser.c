@@ -1170,8 +1170,8 @@ static void tsDrawFolderRow(const FilerDateEditor *e, int index, int selected, f
 	char date[40];
 	int offset = 0, length = 0;
 	float date_x, field_x = 0.0f, field_w = 0.0f;
-	int changed = memcmp(&folder->stats._Modify, &e->original[index], sizeof(sceMcStDateTime)) != 0;
-	DashColor col = selected ? DASH_C_TEXT : changed ? DASH_C_ACCENT : DASH_C_TEXT2;
+	int changed = filerDateEditorChanged(e, index);
+	DashColor col = selected ? DASH_C_TEXT : DASH_C_TEXT2;
 
 	filerDateEditorFormat(&folder->stats._Modify, date, sizeof(date));
 	date_x = x + w - 28 - dashTextWidth(date, DASH_FS_SMALL);
@@ -1187,7 +1187,7 @@ static void tsDrawFolderRow(const FilerDateEditor *e, int index, int selected, f
 			                dashColorA(DASH_C_ACCENT, 0.90f));
 		}
 	}
-	dashIcon(DI_FOLDER, x + 24, center_y - 7, 14, col);
+	dashIcon(changed ? DI_CLOCK : DI_FOLDER, x + 24, center_y - 7, 14, changed ? DASH_C_OK : col);
 	dashTextFit(x + 46, text_y, date_x - (x + 46) - 16, folder->name, DASH_FS_SMALL, col);
 	dashTextRight(x + w - 28, text_y, date, DASH_FS_SMALL, col);
 }

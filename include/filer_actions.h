@@ -36,6 +36,7 @@ typedef struct
 
 extern const FilerTimestampUi *filerTimestampUi;
 int filerDateEditorSync(FilerDateEditor *e); /* index of the edited folder */
+int filerDateEditorChanged(const FilerDateEditor *e, int index); /* date/time differs from the original */
 int filerDateEditorSelect(FilerDateEditor *e, int direction);
 int filerDateEditorMoveNextTo(FilerDateEditor *e, int newer);
 void filerDateEditorAdjust(FilerDateEditor *e, int delta);
