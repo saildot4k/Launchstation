@@ -1,7 +1,7 @@
 """Regression tests for Zack's October 2026 feedback:
 - Issue #132: MASS storage label without '(USB)' suffix
 - Issues #142 / #157: Theme background / debug color eliminated on ELF execution and boot
-- Issue #129: Consistent file size formatting (2 decimal places for MB/GB) between file browser and details modal
+- Issue #129: Consistent inline file size formatting (2 decimal places for MB/GB)
 """
 from pathlib import Path
 
@@ -69,7 +69,8 @@ assert 'snprintf(out, size, "%.2f GB"' in fmt_size_fn
 assert 'snprintf(out, size, "%.1f MB"' not in fmt_size_fn
 assert 'snprintf(out, size, "%.2f MB"' in fmt_bytes_fn
 assert 'snprintf(out, size, "%.2f GB"' in fmt_bytes_fn
-assert '%.2f MB' in measure_fn
-assert '%.2f GB' in measure_fn
+assert 'getFileSize(' in measure_fn
+assert 'dashModalMessage(DI_INFO' not in measure_fn
+assert 'Could not measure all selected items.' in measure_fn
 
 print("PASS: zack launch and sizing feedback contracts")

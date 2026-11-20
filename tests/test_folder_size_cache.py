@@ -184,6 +184,12 @@ int main(void){
  FILEINFO file={0};strcpy(file.name,"data");file.stats.FileSizeByte=17;
  fmtSize(text,sizeof(text),&file);assert(!strcmp(text,"17 B"));
  size_valid=0;fmtSize(text,sizeof(text),&file);assert(!text[0]);
+ /* Malformed maximum-length device names must not overrun canonical keys. */
+ char invalid[MAX_PATH];memset(invalid,'x',sizeof(invalid)-2);invalid[MAX_PATH-2]=':';invalid[MAX_PATH-1]=0;
+ filerSizeCacheOpened(6,invalid,FIO_O_WRONLY);assert(!cached("usb0:/","Another",66));
+ iop_generation++;
+ for(int i=0;i<140;i++){char name[32];snprintf(name,sizeof(name),"Folder%d",i);put("usb0:/",name,i);}
+ assert(cached("usb0:/","Folder139",139));
  assert(!held);
  puts("PASS: cached recursive 64-bit measurements survive refreshed rows, show zero/large sizes, avoid rescans, and reject failed or concurrent measurements");
  puts("PASS: deep mutations invalidate ancestors/subtrees while retaining siblings; HDD/DVR mounts, FAT aliases, writers and IOP resets cannot reuse stale totals");

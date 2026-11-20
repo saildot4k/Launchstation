@@ -3,7 +3,7 @@
 #include "launchelf.h"
 
 /* Initialize on the main thread before starting workers. No cache call issues
- * device IO. Measurements are retained for this running application session. */
+ * device IO. Retain up to 128 measurements for this application session. */
 void filerSizeCacheInit(void);
 int filerSizeCacheGet(const char *parent, const FILEINFO *file, u64 *size);
 unsigned filerSizeCacheRevision(void);

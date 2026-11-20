@@ -305,12 +305,27 @@ static float iconSdf(int id, V2 p)
 			d = U(d, sdSeg(p, -0.52f, -0.36f, 0.18f, -0.36f, 0.05f));
 			d = U(d, sdSeg(p, -0.52f, 0.36f, 0.18f, 0.36f, 0.05f));
 			break;
-		case DI_TOOLS:
-			d = sdSeg(p, -0.62f, 0.62f, 0.12f, -0.12f, 0.13f);
-			d = U(d, sdCircle(p, 0.32f, -0.32f, 0.36f));
-			d = S(d, sdCircle(p, 0.52f, -0.52f, 0.24f));
-			d = S(d, sdCircle(p, 0.32f, -0.32f, 0.16f));
+		case DI_TOOLS: {
+			/* Crossed wrench/screwdriver, adapted from Magnific / Flaticon:
+			 * https://www.flaticon.com/free-icon/support_807303
+			 * Reuse the theme-tinted atlas; no additional texture allocation. */
+			V2 wrench = rot(p, -0.7853982f), driver = rot(p, 0.7853982f);
+			float front, back, head;
+			front = sdSeg(wrench, -0.70f, 0.0f, 0.70f, 0.0f, 0.17f);
+			front = U(front, sdCircle(wrench, -0.82f, 0.0f, 0.41f));
+			front = U(front, sdCircle(wrench, 0.82f, 0.0f, 0.41f));
+			front = S(front, sdSeg(wrench, -1.48f, 0.0f, -0.89f, 0.0f, 0.13f));
+			front = S(front, sdSeg(wrench, 0.89f, 0.0f, 1.48f, 0.0f, 0.13f));
+			back = sdSeg(driver, -0.99f, 0.0f, -0.51f, 0.0f, 0.22f);
+			back = S(back, sdSeg(driver, -0.99f, 0.0f, -0.59f, 0.0f, 0.06f));
+			back = U(back, sdSeg(driver, -0.48f, 0.0f, 0.88f, 0.0f, 0.12f));
+			head = sdBox(driver, 0.99f, 0.0f, 0.29f, 0.22f, 0.055f);
+			head = fmaxf2(head, (driver.x + fabsf(driver.y) - 1.40f) * 0.7071068f);
+			back = U(back, head);
+			/* Separate the silhouettes with a clear gap at the crossing. */
+			d = U(front, S(back, front - 0.065f));
 			break;
+		}
 		case DI_SETTINGS:
 			d = sdCircle(p, 0.0f, 0.0f, 0.56f);
 			for (k = 0; k < 8; k++) {

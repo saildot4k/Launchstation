@@ -30,6 +30,17 @@ order the saves A-Z, Z-A or the SAS way). The offered operations follow
 the classic rules (nothing that writes on a disc or read-only host, no
 file operations in the partition list).
 
+Using **Size** on a folder retains its recursive byte count for the running
+session and shows it in the File Browser's details view after navigation or
+refresh. Successful measurements return directly to the list without a result
+popup; measurement errors still show an explanation. A change anywhere inside
+that folder invalidates its total and every cached ancestor; unrelated folders
+keep their measurements. Use **Size** again
+to measure an invalidated folder. Successful empty-folder measurements show
+0 B; failed scans are not cached. The cache retains up to 128 measured folders,
+reusing entries when full, and clears affected totals when media is replaced or
+the IOP restarts.
+
 Also in the File Browser menu, as in the classic browser:
 
 * *Show*: file names, names and details (size and date), or game titles

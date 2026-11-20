@@ -920,8 +920,6 @@ static void opSize(void)
 {
 	static int idx[MAX_ENTRY];
 	int n = targets(idx, MAX_ENTRY), i;
-	u64 total = 0;
-	char body[96];
 
 	if (n == 0 || !prepareOp())
 		return;
@@ -929,21 +927,13 @@ static void opSize(void)
 	for (i = 0; i < n; i++) {
 		u64 s;
 		dashLoadingStatus(fb.files[idx[i]].name, i, n);
-		if (getFileSize(fb.dir, &fb.files[idx[i]], &s) < 0 || s > ~(u64)0 - total) {
+		if (getFileSize(fb.dir, &fb.files[idx[i]], &s) < 0) {
 			opDone();
 			dashModalMessage(DI_WARNING, "Size", "Could not measure all selected items.", NULL);
 			return;
 		}
-		total += s;
 	}
-	opDone();
-	if (total >= (u64)1024 * 1024 * 1024)
-		snprintf(body, sizeof(body), "%.2f GB  (%llu bytes)", (double)total / (1024.0 * 1024.0 * 1024.0), (unsigned long long)total);
-	else if (total >= 1024 * 1024)
-		snprintf(body, sizeof(body), "%.2f MB  (%llu bytes)", (double)total / (1024.0 * 1024.0), (unsigned long long)total);
-	else
-		snprintf(body, sizeof(body), "%llu bytes", (unsigned long long)total);
-	dashModalMessage(DI_INFO, n == 1 ? fb.files[idx[0]].name : "Selected items", body, NULL);
+	opDone(); /* Completed folder totals are visible directly in the list. */
 }
 
 static void opTitleCfg(void)
