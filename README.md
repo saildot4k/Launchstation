@@ -35,7 +35,7 @@ faulty/unresponsive USB hardware or drivers. See
 naming and the files it writes.
 
 The dashboard is fully themeable from the controller: 19 built-in
-PS2-inspired themes, custom RGB colours, backgrounds, wallpapers, fonts,
+PS2-inspired themes, custom RGB colors, backgrounds, wallpapers, fonts,
 icons and clock, plus shareable theme folders. See
 [docs/themes.md](docs/themes.md).
 

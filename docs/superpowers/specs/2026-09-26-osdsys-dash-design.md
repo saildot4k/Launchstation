@@ -49,12 +49,12 @@ Design:
 - **Badge-style atlas tiles.** `iconSdf()` cases for `DI_BTN_CROSS`,
   `DI_BTN_CIRCLE`, `DI_BTN_SQUARE`, `DI_BTN_TRIANGLE` are redrawn as the
   complete OSDSYS tile: dark rounded-square badge (near-black vertical
-  gradient), hairline light top border, glyph in the PlayStation colours
+  gradient), hairline light top border, glyph in the PlayStation colors
   already used today (cross `#86A8FF`, circle `#FF6E7C`, square `#F08CD8`,
   triangle `#4EE0A8`) — matching the reference PNGs. The SDF for the badge
   shape composes with the existing glyph SDFs via the existing `U()`/`S()`
-  CSG helpers; per-pixel colour = badge gradient where `d` is the badge,
-  glyph colour where `d` is the glyph.
+  CSG helpers; per-pixel color = badge gradient where `d` is the badge,
+  glyph color where `d` is the glyph.
 - **New atlas icons** (insert before `DI_COUNT`, `include/dash_internal.h`):
   `DI_BTN_UP`, `DI_BTN_DOWN`, `DI_BTN_LEFT`, `DI_BTN_RIGHT` (dpad chevrons),
   `DI_BTN_START` (play-triangle glyph), `DI_BTN_SELECT` (rounded-rect
@@ -66,7 +66,7 @@ Design:
   centred (`L1`, `R1`, `L2`, `R2`, `L3`, `R3`, `START`, `SELECT` remain
   font-drawn). Symbol-button branch drops its extra panel badge — the atlas
   tile now *is* the badge.
-- No changes to the tint rules: pad glyphs keep their fixed PS colours;
+- No changes to the tint rules: pad glyphs keep their fixed PS colors;
   other icons still follow `dashTheme.icon_tint`.
 
 Files: `src/dash_icons.c`, `src/dash_ui.c`, `include/dash_internal.h`.

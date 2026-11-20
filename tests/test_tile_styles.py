@@ -94,7 +94,7 @@ int main(void) {
         dashTheme.panel.a = 73;
         dashThemeResetGroup(DASH_TG_STYLE);
         assert(dashTheme.tile_style == DASH_TILE_MEMORY_CARD);
-        assert(dashTheme.panel.a == 73); /* Opacity belongs to Colours. */
+        assert(dashTheme.panel.a == 73); /* Opacity belongs to Colors. */
         dashThemeRestore(&saved, 0, 1);
         assert(dashTheme.tile_style == style);
         if (style == DASH_TILE_MEMORY_CARD || style == DASH_TILE_CHAMFERED || style == DASH_TILE_CRYSTAL) {

@@ -70,7 +70,7 @@ static int tsel = 1, ttop;
 static float tsel_anim = 1.0f;
 static float ttop_anim = -1.0f;
 
-/* Report wrapping so a multi-step page move can snap its final selection. */
+/* Report wrapping so combined directional inputs keep focus at the endpoint. */
 static int tMove(int d)
 {
 	int start, s, wrapped = 0;
@@ -89,8 +89,10 @@ static int tMove(int d)
 			if (s != tsel)
 				dashUiFocusPoke();
 			tsel = s;
-			if (wrapped)
+			if (wrapped) {
 				tsel_anim = (float)tsel;
+				ttop_anim = -1.0f;
+			}
 			return wrapped;
 		}
 	} while (s != start);
@@ -613,20 +615,41 @@ static void runTool(const Tool *t)
 	}
 }
 
+static void tPage(int direction)
+{
+	int first = 0, last = NTOOLS - 1, next;
+	int rows = (int)((DASH_PANE_B - 102.0f + 3.0f) / DASH_LIST_ROW_H);
+	while (first < NTOOLS && tools[first].action == TA_HEADER) first++;
+	while (last >= first && tools[last].action == TA_HEADER) last--;
+	if (first > last) return;
+	if (direction < 0 && tsel == first) next = last;
+	else if (direction > 0 && tsel == last) next = first;
+	else {
+		next = listPageIndex(tsel, NTOOLS, rows, direction);
+		if (next < first) next = first;
+		if (next > last) next = last;
+		while (tools[next].action == TA_HEADER) next += direction;
+	}
+	if (next != tsel) dashUiFocusPoke();
+	if ((direction < 0 && next > tsel) || (direction > 0 && next < tsel)) {
+		tsel_anim = (float)next;
+		ttop_anim = -1.0f;
+	}
+	tsel = next;
+}
+
 static void toolsInput(const DashInput *in)
 {
-	int i, wrapped = 0;
+	int wrapped = 0;
 
 	if (in->pressed & DASH_IN_UP)
 		wrapped |= tMove(-1);
 	if (in->pressed & DASH_IN_DOWN)
 		wrapped |= tMove(1);
 	if (in->pressed & (DASH_IN_L2 | DASH_IN_LEFT))
-		for (i = 0; i < 6; i++)
-			wrapped |= tMove(-1);
+		tPage(-1);
 	if (in->pressed & (DASH_IN_R2 | DASH_IN_RIGHT))
-		for (i = 0; i < 6; i++)
-			wrapped |= tMove(1);
+		tPage(1);
 	if (wrapped)
 		tsel_anim = (float)tsel;
 	if (in->pressed & DASH_IN_OK)
@@ -635,13 +658,14 @@ static void toolsInput(const DashInput *in)
 
 static void toolsUpdate(float dt)
 {
-	tsel_anim = dashApproach(tsel_anim, (float)tsel, 16.0f * dashAnimSpeed(), dt);
+	tsel_anim = dashApproach(tsel_anim, (float)tsel, 14.0f * dashAnimSpeed(), dt);
 }
 
 static void toolsDraw(void)
 {
 	const float lx = DASH_SAFE_L, ly = 102, row_h = DASH_LIST_ROW_H, lw = 300;
-	const int rows = 10;
+	const float pane_y = 98.0f, pane_h = DASH_PANE_B - pane_y;
+	const int rows = (int)((DASH_PANE_B - ly + 3.0f) / row_h);
 	const Tool *t = &tools[tsel];
 	int i;
 
@@ -649,11 +673,11 @@ static void toolsDraw(void)
 	ttop = listCenteredTop(tsel, NTOOLS, rows);
 	ttop_anim = listSlideTop(ttop_anim, ttop, tsel, NTOOLS, rows,
 	                         dashApproach(0.0f, 1.0f, 14.0f * dashAnimSpeed(), dashFrameDelta()));
-	if (tsel_anim < ttop || tsel_anim >= ttop + rows)
+	if (tsel_anim < 0 || tsel_anim >= NTOOLS)
 		tsel_anim = (float)tsel;
 
-	dashDrawPanelBox(lx - 6, ly - 6, lw + 12, rows * row_h + 12, 14);
-	dashGfxScissor(lx - 6, ly - 4, lw + 12, rows * row_h + 8);
+	dashDrawPanelBox(lx - 6, pane_y, lw + 12, pane_h, 14);
+	dashGfxScissor(lx - 6, pane_y, lw + 12, pane_h);
 	{
 		float fy = ly + (tsel_anim - ttop_anim) * row_h;
 		dashDrawSelection(lx, fy, lw, row_h - 3, 9, 1.0f);
@@ -671,10 +695,10 @@ static void toolsDraw(void)
 			dashGlow(lx + lw - 14, y + 10.5f, 4, 4, tools[i].confirm == 2 ? DASH_C_DANGER : DASH_C_WARM);
 	}
 	dashGfxScissorReset();
-	dashDrawScrollbar(lx + lw + 10, ly, rows * row_h, ttop, rows, NTOOLS);
+	dashDrawScrollbar(lx + lw + 10, ly, DASH_PANE_B - ly, ttop, rows, NTOOLS);
 
 	{
-		float dx = lx + lw + 24, dy = 98, dw = DASH_PANE_R - dx, dh = 292;
+		float dx = lx + lw + 24, dy = pane_y, dw = DASH_PANE_R - dx, dh = pane_h;
 
 		dashDrawCard(dx, dy, dw, dh, 16);
 		dashAccentGlow(dx + dw * 0.5f, dy + 66, 80, 60, 1.0f);

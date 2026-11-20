@@ -4,7 +4,7 @@
 
 **Goal:** OSDSYS-style procedural button icons, two new animated backgrounds, UI animation polish, an audsrv-based SFX subsystem, and CWD-relative theme folders for the wLaunchELF dashboard.
 
-**Architecture:** Four workstreams over the existing dashboard shell (640x448 virtual canvas, gsKit single-buffered GS_ONESHOT, `dashCfg.anim`/`dashCfg.effects` gating). Icons stay procedural (SDF → PSMT8 alpha atlas, drawn as tinted sprites); pad buttons become a two-sprite composite (dark badge tile + coloured glyph tile). Sounds are Sony ADP samples embedded as blobs and played through ps2sdk `audsrv` ADPCM channels, with graceful no-op degradation. Theme folders gain a second, CWD-first root without moving settings storage.
+**Architecture:** Four workstreams over the existing dashboard shell (640x448 virtual canvas, gsKit single-buffered GS_ONESHOT, `dashCfg.anim`/`dashCfg.effects` gating). Icons stay procedural (SDF → PSMT8 alpha atlas, drawn as tinted sprites); pad buttons become a two-sprite composite (dark badge tile + colored glyph tile). Sounds are Sony ADP samples embedded as blobs and played through ps2sdk `audsrv` ADPCM channels, with graceful no-op degradation. Theme folders gain a second, CWD-first root without moving settings storage.
 
 **Tech Stack:** C (EE), gsKit/dmaKit, ps2sdk `audsrv` (EE lib + IRX), ps2build (`ps2.yaml`) primary build, legacy `Makefile`/`embed.make` secondary.
 
@@ -135,7 +135,7 @@ void dashIcon(int id, float x, float y, float size, DashColor c)
 	v0 = (float)((id / ICON_COLS) * ICON_SLOT);
 	pad = size * 2.0f / ICON_SIZE;
 	if (id > DI_PAD_BADGE && id <= DI_BTN_SELECT) {
-		/* OSDSYS pad tile: fixed dark badge, then the coloured glyph at 56% */
+		/* OSDSYS pad tile: fixed dark badge, then the colored glyph at 56% */
 		float bu0 = (float)((DI_PAD_BADGE % ICON_COLS) * ICON_SLOT);
 		float bv0 = (float)((DI_PAD_BADGE / ICON_COLS) * ICON_SLOT);
 		float g = size * 0.56f, go = (size - g) * 0.5f;
@@ -154,7 +154,7 @@ void dashIcon(int id, float x, float y, float size, DashColor c)
 }
 ```
 
-(`DI_PAD_BADGE` drawn directly, without the glyph pass, falls through to the normal single-sprite path with the caller's colour — harmless, it is only used as the badge layer.)
+(`DI_PAD_BADGE` drawn directly, without the glyph pass, falls through to the normal single-sprite path with the caller's color — harmless, it is only used as the badge layer.)
 
 - [ ] **Step 6: Build.**
 
@@ -251,7 +251,7 @@ static const char *const bg_ids[DASH_BG_COUNT] = {
     "solid", "gradient", "tunnel", "mist", "towers", "disc", "orbit", "clockring", "grid",
     "lines", "cubes", "stream", "tiles", "brushed", "wave", "crystal", "streaks", "clouds", "image"};
 static const char *const bg_names[DASH_BG_COUNT] = {
-    "Solid colour", "Gradient", "System tunnel", "Blue mist", "PS2 towers", "Disc error red",
+    "Solid color", "Gradient", "System tunnel", "Blue mist", "PS2 towers", "Disc error red",
     "Orbit lights", "Clock ring", "Memory card grid", "Boot lines", "Wireframe cubes",
     "Data stream", "Memory card tiles", "Brushed console", "Ribbons", "Crystal",
     "Light streaks", "Drift clouds", "Wallpaper image"};
@@ -393,7 +393,7 @@ git commit -m "dash: add light-streaks and drift-clouds backgrounds"
 ```c
 		case P_LIGHTSHOW:
 			t->bg = DASH_BG_STREAKS;
-			t->bg1 = DC(96, 140, 255, 255);  /* streak colour */
+			t->bg1 = DC(96, 140, 255, 255);  /* streak color */
 			t->bg2 = DC(4, 4, 14, 255);      /* night base */
 			t->select = DC(40, 80, 170, 160);
 			t->sel_text = t->text;

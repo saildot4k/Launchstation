@@ -17,6 +17,9 @@ stub = r'''
 #include <sys/stat.h>
 #include <dirent.h>
 #include <errno.h>
+#define filerSizeCacheInvalidate(path) ((void)(path))
+#define filerSizeCacheOpened(fd,path,mode) ((void)(fd),(void)(path),(void)(mode))
+#define filerSizeCacheClosed(fd) ((void)(fd))
 #include <assert.h>
 #include <malloc.h>
 #include "vmc_control.h"

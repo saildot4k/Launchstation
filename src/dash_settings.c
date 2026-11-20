@@ -41,7 +41,7 @@ enum SetId {
 	S_LEGACY_THEME,
 	S_MENU_FRAME,
 	S_POPUP_OPAQUE,
-	S_C_COL0, /* classic screen colours, COLOR_BACKGR..COLOR_GRAPH4 */
+	S_C_COL0, /* classic screen colors, COLOR_BACKGR..COLOR_GRAPH4 */
 	S_C_COL7 = S_C_COL0 + 7,
 	S_SCREEN_RESET,
 	S_DISPLAY_THEME_RESET,
@@ -194,7 +194,7 @@ static const SetItem root_items[] = {
 
 static const SetItem appearance_items[] = {
     {ST_CHOICE, S_T_PRESET, "Theme preset", "Confirm opens a live preview. Cancel restores the previous theme."},
-    {ST_PAGE, P_THEME, "Customize theme", "Background, colours, tiles, text, icons, clock and artwork background."},
+    {ST_PAGE, P_THEME, "Customize theme", "Background, colors, tiles, text, icons, clock and artwork background."},
     {ST_PAGE, P_SCREEN, "Screen calibration", "Video mode and picture position for your TV."},
     {ST_CHOICE, S_EFFECTS, "Background motion", "0% freezes backgrounds; 100% is normal; 200% doubles their motion."},
     {ST_CHOICE, S_BG_DETAIL, "Background detail", "Low uses fewer background elements; High shows the complete scene. Motion speed is independent."},
@@ -324,39 +324,39 @@ static const SetItem system_items[] = {
 
 #define NITEMS(a) ((int)(sizeof(a) / sizeof(a[0])))
 static const SetItem theme_items[] = {
-    {ST_PAGE, P_THEME_BG, "Background", "Scene, colours, brightness, scanlines and wallpaper image."},
-    {ST_PAGE, P_THEME_COLORS, "Interface colours", "Text, selection, accent, panels and borders."},
+    {ST_PAGE, P_THEME_BG, "Background", "Scene, colors, brightness, scanlines and wallpaper image."},
+    {ST_PAGE, P_THEME_COLORS, "Interface colors", "Text, selection, accent, panels and borders."},
     {ST_PAGE, P_THEME_STYLE, "Tiles & menus", "Application tile shape, selection style, corners and glow."},
     {ST_PAGE, P_THEME_TEXT, "Text", "Font, size, weight and shadow."},
-    {ST_PAGE, P_THEME_ICONS, "Icons", "Icon colours and artwork-free application icons."},
+    {ST_PAGE, P_THEME_ICONS, "Icons", "Icon colors and artwork-free application icons."},
     {ST_PAGE, P_THEME_CLOCK, "Clock", "Position, time format, seconds and date."},
     {ST_PAGE, P_THEME_WALL, "Artwork background", "Use the focused application's cover behind Home and Apps."},
 };
 
 /* Theme editor groups (order = enum DashThemeGroup, then Manage). */
 static const SetItem tbg_items[] = {
-    {ST_CHOICE, S_T_BG, "Background", "PS2-inspired scenes, plain colours or your own wallpaper image."},
-    {ST_COLOR, S_T_BG1, "Colour", "Main colour of the background (the solid colour, gradient top or scene tint)."},
-    {ST_COLOR, S_T_BG2, "Second colour", "Base or gradient bottom colour."},
+    {ST_CHOICE, S_T_BG, "Background", "PS2-inspired scenes, plain colors or your own wallpaper image."},
+    {ST_COLOR, S_T_BG1, "Color", "Main color of the background (the solid color, gradient top or scene tint)."},
+    {ST_COLOR, S_T_BG2, "Second color", "Base or gradient bottom color."},
     {ST_CHOICE, S_T_BRIGHT, "Brightness", "Darken the background behind the menus."},
     {ST_CHOICE, S_T_SCAN, "CRT scanlines", "An understated line pattern over the background only."},
     {ST_ACTION, S_T_IMAGE, "Wallpaper image...", "Choose a PNG (up to 1.5 MB). It is scaled to at most 320x256 and cover-fitted."},
     {ST_ACTION, S_T_RESETCAT, "Reset background", "Back to the values of the theme's preset."},
 };
 static const SetItem tcol_items[] = {
-    {ST_COLOR, S_T_TEXT, "Text", "Titles and focused text. Colours too close to the background are corrected."},
+    {ST_COLOR, S_T_TEXT, "Text", "Titles and focused text. Colors too close to the background are corrected."},
     {ST_COLOR, S_T_TEXT2, "Secondary text", "Unselected rows and details."},
     {ST_COLOR, S_T_TEXT3, "Muted text", "Captions and hints."},
     {ST_COLOR, S_T_SELTEXT, "Selected text", "Text of the highlighted row."},
     {ST_COLOR, S_T_ACCENT, "Accent", "Focus marks, values and icons that need attention."},
-    {ST_COLOR, S_T_SELECT, "Selection", "Selection bar colour and opacity."},
-    {ST_COLOR, S_T_PANEL, "Panels", "Panel colour and opacity (0 = no panels)."},
-    {ST_COLOR, S_T_BORDER, "Borders", "Panel outline colour and opacity (0 = no borders). Hidden when Panels is transparent."},
+    {ST_COLOR, S_T_SELECT, "Selection", "Selection bar color and opacity."},
+    {ST_COLOR, S_T_PANEL, "Panels", "Panel color and opacity (0 = no panels)."},
+    {ST_COLOR, S_T_BORDER, "Borders", "Panel outline color and opacity (0 = no borders). Hidden when Panels is transparent."},
     {ST_COLOR, S_T_WARN, "Warnings", "Favourites, warnings and unsaved-change marks."},
-    {ST_ACTION, S_T_RESETCAT, "Reset colours", "Back to the values of the theme's preset."},
+    {ST_ACTION, S_T_RESETCAT, "Reset colors", "Back to the values of the theme's preset."},
 };
 static const SetItem tstyle_items[] = {
-    {ST_CHOICE, S_T_HL, "Selection style", "Text colour is how the PS2 system menus mark the selection."},
+    {ST_CHOICE, S_T_HL, "Selection style", "Text color is how the PS2 system menus mark the selection."},
     {ST_CHOICE, S_T_TILE, "Tile style", "Application tiles: memory card, rounded, chamfered, floating object or crystal slab."},
     {ST_CHOICE, S_T_CORNER, "Corners", NULL},
     {ST_CHOICE, S_T_GLOW, "Glow", "Soft light behind focused items."},
@@ -371,7 +371,7 @@ static const SetItem ttype_items[] = {
     {ST_ACTION, S_T_RESETCAT, "Reset text", "Back to the values of the theme's preset."},
 };
 static const SetItem ticon_items[] = {
-    {ST_CHOICE, S_T_ICONTINT, "Icon colour", NULL},
+    {ST_CHOICE, S_T_ICONTINT, "Icon color", NULL},
     {ST_CHOICE, S_T_APPICON, "Default app icon", "Shown for applications without artwork."},
     {ST_ACTION, S_T_APPICON_IMG, "Custom app icon image...", "A PNG used as the default application icon (up to 128x128 is kept)."},
     {ST_ACTION, S_T_RESETCAT, "Reset icons", "Back to the values of the theme's preset."},
@@ -419,7 +419,7 @@ static const SetPage pages[P_COUNT] = {
     [P_LANGUAGE] = PAGE("Language", DI_TEXT, "These translations apply to file operations and tools.", language_items),
     [P_PSU] = PAGE("Memory card backup files", DI_MC, "Naming and overwrite behavior when creating PSU backups.", psu_items),
     [P_THEME_BG] = PAGE("Background", DI_IMAGE, "Scene, brightness and static wallpaper.", tbg_items),
-    [P_THEME_COLORS] = PAGE("Interface colours", DI_PALETTE, "Colours and opacity for text, focus and panels.", tcol_items),
+    [P_THEME_COLORS] = PAGE("Interface colors", DI_PALETTE, "Colors and opacity for text, focus and panels.", tcol_items),
     [P_THEME_STYLE] = PAGE("Tiles & menus", DI_VIEW_GRID, "Tile silhouettes and menu selection styling.", tstyle_items),
     [P_THEME_TEXT] = PAGE("Text", DI_TEXT, "Font and readability. System can use your external font file.", ttype_items),
     [P_THEME_ICONS] = PAGE("Icons", DI_APPS, "Fallback icons for applications without artwork.", ticon_items),
@@ -455,9 +455,8 @@ static const SetItem *pageItemAt(int page_id, int visible_index)
 
 /* Root -> category -> subpage -> theme group is the deepest path. */
 #define PAGE_DEPTH 4
-/* Seven rows leave room for the two-line help text above the hint bar
- * (dashDrawHints draws from y = 394); eight pushed it onto the buttons. */
-#define ITEM_ROWS 7
+/* Fit every full selection row while keeping a stable two-line help lane. */
+#define ITEM_ROWS ((int)((DASH_PANE_B - DASH_PANE_HELP_H - 136.0f + 3.0f) / DASH_LIST_ROW_H))
 static int page = P_ROOT, item;
 static int item_top;
 static float item_anim;
@@ -510,13 +509,13 @@ static const char *const view_names[] = {"Grid", "List", "Carousel"};
 static const char *const recent_names[] = {"0", "4", "8", "12", "16"};
 static const char *const hide_names[] = {"Show all", "Hide HDD1", "Hide HDD0+1", "Hide ATA1", "Hide ATA0+1", "Hide HDD1+ATA1", "Hide all"};
 static const char *const confirm_names[] = {"Circle", "Cross"};
-static const char *const hl_names[] = {"Solid bar", "Accent bar", "Outline", "Text colour"};
+static const char *const hl_names[] = {"Solid bar", "Accent bar", "Outline", "Text color"};
 static const char *const tile_names[] = {"Memory card", "Rounded", "Chamfered", "Floating object", "Crystal slab"};
 static const char *const corner_names[] = {"Square", "Soft", "Round"};
 static const char *const font_names[DASH_FONT_COUNT] = {"Roboto", "System", "Emotion Engine"};
 static const char *const font_style_names[] = {"Regular", "Bold"};
 static const char *const fscale_names[] = {"90%", "95%", "100%", "105%", "110%", "115%"};
-static const char *const tint_names[] = {"Text colours", "Accent", "Monochrome"};
+static const char *const tint_names[] = {"Text colors", "Accent", "Monochrome"};
 static const char *const appicon_names[] = {"Application", "Device", "Initials"};
 static const char *const clock_names[] = {"Off", "Standard", "System"};
 static const char *const clockpos_names[] = {"Header", "Footer"};
@@ -847,9 +846,9 @@ static int setThemeChoice(int id, int v)
 }
 
 //--------------------------------------------------------------
-// Colour editor
+// Color editor
 //--------------------------------------------------------------
-/* Classic screen colours are GS RGBA values in SETTING; the editor works
+/* Classic screen colors are GS RGBA values in SETTING; the editor works
  * on a DashColor copy that is written back after every change. */
 static DashColor classic_col[COLOR_COUNT];
 
@@ -908,7 +907,7 @@ static DashColor *colorField(int id, int *alpha)
 	return NULL;
 }
 
-/* Quick picks: PS2 system-menu colours plus neutral greys. */
+/* Quick picks: PS2 system-menu colors plus neutral greys. */
 static const DashColor swatches[] = {
     {236, 238, 244, 255}, {156, 162, 178, 255}, {100, 106, 124, 255}, {0, 0, 0, 255},
     {118, 214, 255, 255}, {30, 110, 156, 255}, {0, 70, 160, 255}, {8, 14, 34, 255},
@@ -1056,7 +1055,7 @@ static void colorEditor(const char *title, int id)
 					}
 				}
 			}
-			/* Keep adjustment help above the standard coloured action hints. */
+			/* Keep adjustment help above the standard colored action hints. */
 			dashTextFit(x + 20, y + h - 54, w - 40, "Left/Right adjust   L1/R1 +/-16", DASH_FS_CAPTION, DASH_C_TEXT3);
 			dashModalHintRow(x + 20, y + h - 34, dashOkIcon(), "Done", dashBackIcon(), "Cancel");
 		}
@@ -2445,8 +2444,10 @@ static void settingsInput(const DashInput *in)
 			int next = item > 0 ? item - 1 : total - 1;
 			if (next != item)
 				dashUiFocusPoke();
-			if (next > item)
+			if (next > item) {
 				item_anim = (float)next;
+				item_top_anim = -1.0f;
+			}
 			item = next;
 		}
 	} else if (in->pressed & DASH_IN_DOWN) {
@@ -2454,8 +2455,10 @@ static void settingsInput(const DashInput *in)
 			int next = item < total - 1 ? item + 1 : 0;
 			if (next != item)
 				dashUiFocusPoke();
-			if (next < item)
+			if (next < item) {
 				item_anim = (float)next;
+				item_top_anim = -1.0f;
+			}
 			item = next;
 		}
 	} else if (in->pressed & DASH_IN_L2) {
@@ -2533,7 +2536,7 @@ static void settingsUpdate(float dt)
 {
 	float sp = dashAnimSpeed();
 
-	item_anim = dashApproach(item_anim, (float)item, 16.0f * sp, dt);
+	item_anim = dashApproach(item_anim, (float)item, 14.0f * sp, dt);
 }
 
 static void settingsDraw(void)
@@ -2541,9 +2544,10 @@ static void settingsDraw(void)
 	int i;
 	/* Give the breadcrumb a real lane below the L1/R1 tab bar (it ends at
 	 * y=62): ~7 px of clear space above the breadcrumb's capitals (#135). */
-	/* Only the header lanes move; the list keeps ITEM_ROWS rows so its two-line
-	 * help still clears the footer hints. */
+	/* Reserve help even when the focused item has none, keeping the panes
+	 * and selection geometry stable while navigating. */
 	const float ix = DASH_SAFE_L, iy = 136, irow = DASH_LIST_ROW_H, iw = DASH_SAFE_R - DASH_SAFE_L;
+	const float pane_bottom = DASH_PANE_B - DASH_PANE_HELP_H;
 	const SetPage *c = &pages[page];
 	int total = pageItemCount(page);
 	char trail[192];
@@ -2572,12 +2576,12 @@ static void settingsDraw(void)
 	item_top = listCenteredTop(item, total, ITEM_ROWS);
 	item_top_anim = listSlideTop(item_top_anim, item_top, item, total, ITEM_ROWS,
 	                             dashApproach(0.0f, 1.0f, 14.0f * dashAnimSpeed(), dashFrameDelta()));
-	if (item_anim < item_top || item_anim >= item_top + ITEM_ROWS)
+	if (item_anim < 0 || item_anim >= total)
 		item_anim = (float)item;
 
 	/* items */
-	dashDrawPanelBox(DASH_PANE_L, iy - 6, DASH_PANE_W, ITEM_ROWS * irow + 12, 14);
-	dashGfxScissor(ix - 4, iy - 4, iw + 8, ITEM_ROWS * irow + 8);
+	dashDrawPanelBox(DASH_PANE_L, iy - 6, DASH_PANE_W, pane_bottom - (iy - 6), 14);
+	dashGfxScissor(ix - 4, iy - 4, iw + 8, pane_bottom - (iy - 4));
 	dashDrawSelection(ix, iy + (item_anim - item_top_anim) * irow, iw, irow - 3, 9, 1.0f);
 	for (i = (int)item_top_anim; i < total && i < item_top_anim + ITEM_ROWS; i++) {
 		const SetItem *it = pageItemAt(page, i);
@@ -2642,7 +2646,10 @@ static void settingsDraw(void)
 				vx = ix + iw - 20 - vw;
 				if (on && !disabled) {
 					dashIcon(DI_BACK, vx - 22, y + 4.5f, 12, DASH_C_ACCENT);
-					dashIcon(DI_PLAY, ix + iw - 16, y + 5.5f, 10, DASH_C_ACCENT);
+					if (n > 2 || it->id == S_T_PRESET)
+						dashIcon(DI_PLAY, ix + iw - 16, y + 5.5f, 10, DASH_C_ACCENT);
+					else
+						dashIconForward(ix + iw - 16, y + 4.5f, 12, DASH_C_ACCENT);
 				}
 				if (on)
 					dashTextScroll(vx, y + 0.0f, maxw, names[cur], DASH_FS_SMALL, disabled ? DASH_C_TEXT3 : (n == 2 && names == onoff && cur == 1) ? DASH_C_OK : DASH_C_ACCENT);
@@ -2684,7 +2691,7 @@ static void settingsDraw(void)
 				vx = ix + iw - 20 - vw;
 				if (on && !disabled && it->type == ST_NUMBER) {
 					dashIcon(DI_BACK, vx - 22, y + 4.5f, 12, DASH_C_ACCENT);
-					dashIcon(DI_PLAY, ix + iw - 16, y + 5.5f, 10, DASH_C_ACCENT);
+					dashIconForward(ix + iw - 16, y + 4.5f, 12, DASH_C_ACCENT);
 				}
 				if (on)
 					dashTextScroll(vx, y + 0.0f, maxw, v, DASH_FS_SMALL, set && !disabled ? DASH_C_ACCENT : DASH_C_TEXT3);
@@ -2697,7 +2704,7 @@ static void settingsDraw(void)
 		dashGfxPopAlpha();
 	}
 	dashGfxScissorReset();
-	dashDrawScrollbar(ix + iw + 10, iy, ITEM_ROWS * irow, item_top, ITEM_ROWS, total);
+	dashDrawScrollbar(ix + iw + 10, iy, pane_bottom - iy, item_top, ITEM_ROWS, total);
 	/* help line */
 	{
 		const SetItem *it = curItem();
@@ -2705,7 +2712,7 @@ static void settingsDraw(void)
 		if (it->type == ST_CHOICE && it->id == S_T_PRESET)
 			help = dashThemePresetInfo(dashThemeBasePreset())->desc;
 		if (help)
-			dashTextWrap(ix, iy + ITEM_ROWS * irow + 12, iw, 2, help, DASH_FS_CAPTION, DASH_C_TEXT3, 17);
+			dashTextWrap(ix, pane_bottom + 6, iw, 2, help, DASH_FS_CAPTION, DASH_C_TEXT3, 17);
 	}
 }
 

@@ -9,6 +9,7 @@
 #include "main_modules.h"
 #include "main_startup.h"
 #include "dash.h"
+#include "filer_size_cache.h"
 #include "dash_internal.h"
 
 //#define DEBUG
@@ -141,6 +142,7 @@ int main(int argc, char *argv[])
 	int CNF_error = -1;  //assume error until CNF correctly loaded
 	MainMenuState menu_state;
 
+	filerSizeCacheInit();
 	captureBootArguments(argc, argv, &boot_argc, boot_argv, 8);
 	boot = performEarlyBootInitialization((argc > 0) ? argv[0] : NULL, boot_path, sizeof(boot_path), mainMsg, CNF, sizeof(CNF), &CNF_error);
 

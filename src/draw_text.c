@@ -104,7 +104,7 @@ int loadFont(char *path_arg)
 	}  // end else build-in font
 	return 0;
 }
-void drawChar(unsigned int c, int x, int y, u64 colour)
+void drawChar(unsigned int c, int x, int y, u64 color)
 {
 	int i, j, pixBase, pixMask;
 	u8 *cm;
@@ -112,7 +112,7 @@ void drawChar(unsigned int c, int x, int y, u64 colour)
 	updateScr_1 = 1;
 
 	if (DashThemeLegacyEnabled()) {
-		DashThemeChar(c, x, y, colour);
+		DashThemeChar(c, x, y, color);
 		return;
 	}
 	gsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
@@ -130,16 +130,16 @@ void drawChar(unsigned int c, int x, int y, u64 colour)
 			if ((pixBase < 0) && (cm[j] & pixMask)) {  //if start of sequence
 				pixBase = j;
 			} else if ((pixBase > -1) && !(cm[j] & pixMask)) {  //if end of sequence
-				gsKit_prim_sprite(gsGlobal, x + i, y + pixBase - 1, x + i + 1, y + j - 1, 1, colour);
+				gsKit_prim_sprite(gsGlobal, x + i, y + pixBase - 1, x + i + 1, y + j - 1, 1, color);
 				pixBase = -1;
 			}
 		}                  //ends for j == each pixel row
 		if (pixBase > -1)  //if end of sequence including final row
-			gsKit_prim_sprite(gsGlobal, x + i, y + pixBase - 1, x + i + 1, y + j - 1, 1, colour);
+			gsKit_prim_sprite(gsGlobal, x + i, y + pixBase - 1, x + i + 1, y + j - 1, 1, color);
 		pixMask >>= 1;
 	}  //ends for i == each pixel column
 }
-void drawChar2(int n, int x, int y, u64 colour)
+void drawChar2(int n, int x, int y, u64 color)
 {
 	unsigned int i, j;
 	u8 b;
@@ -150,13 +150,13 @@ void drawChar2(int n, int x, int y, u64 colour)
 		b = elisaFnt[n + i];
 		for (j = 0; j < 8; j++) {
 			if (b & 0x80) {
-				gsKit_prim_sprite(gsGlobal, x + j, y + i * 2 - 2, x + j + 1, y + i * 2, 1, colour);
+				gsKit_prim_sprite(gsGlobal, x + j, y + i * 2 - 2, x + j + 1, y + i * 2, 1, color);
 			}
 			b = b << 1;
 		}
 	}
 }
-int printXY(const char *s, int x, int y, u64 colour, int draw, int space)
+int printXY(const char *s, int x, int y, u64 color, int draw, int space)
 {
 	unsigned int c1, c2;
 	int i;
@@ -176,7 +176,7 @@ int printXY(const char *s, int x, int y, u64 colour, int draw, int space)
 	while ((c1 = (unsigned char)s[i++]) != 0) {
 		if (c1 != 0xFF) {  // Normal character
 			if (draw)
-				drawChar(c1, x, y, colour);
+				drawChar(c1, x, y, color);
 			x += text_spacing;
 			if (x > SCREEN_WIDTH - SCREEN_MARGIN - FONT_WIDTH)
 				break;
@@ -191,11 +191,11 @@ int printXY(const char *s, int x, int y, u64 colour, int draw, int space)
 		if (draw) {
 			//expand sequence �0=Circle  �1=Cross  �2=Square  �3=Triangle  �4=FilledBox
 			//"\xff:"=Pad_Right  "\xff;"=Pad_Down  "\xff<"=Pad_Left  "\xff="=Pad_Up
-			drawChar(c1, x, y, colour);
+			drawChar(c1, x, y, color);
 			x += 8;
 			if (x > SCREEN_WIDTH - SCREEN_MARGIN - FONT_WIDTH)
 				break;
-			drawChar(c1 + 1, x, y, colour);
+			drawChar(c1 + 1, x, y, color);
 			x += 8;
 			if (x > SCREEN_WIDTH - SCREEN_MARGIN - FONT_WIDTH)
 				break;
@@ -203,7 +203,7 @@ int printXY(const char *s, int x, int y, u64 colour, int draw, int space)
 	}  // ends while(1)
 	return x;
 }
-int printXY_sjis(const unsigned char *s, int x, int y, u64 colour, int draw)
+int printXY_sjis(const unsigned char *s, int x, int y, u64 color, int draw)
 {
 	int n;
 	u8 ascii;
@@ -221,40 +221,40 @@ int printXY_sjis(const unsigned char *s, int x, int y, u64 colour, int draw)
 				// Circle == "��"
 				case 0x819B:
 					if (draw) {
-						drawChar(0x100, x, y, colour);
-						drawChar(0x101, x + 8, y, colour);
+						drawChar(0x100, x, y, color);
+						drawChar(0x101, x + 8, y, color);
 					}
 					x += 16;
 					break;
 				// Cross == "\xff~"
 				case 0x817E:
 					if (draw) {
-						drawChar(0x102, x, y, colour);
-						drawChar(0x103, x + 8, y, colour);
+						drawChar(0x102, x, y, color);
+						drawChar(0x103, x + 8, y, color);
 					}
 					x += 16;
 					break;
 				// Square == "��"
 				case 0x81A0:
 					if (draw) {
-						drawChar(0x104, x, y, colour);
-						drawChar(0x105, x + 8, y, colour);
+						drawChar(0x104, x, y, color);
+						drawChar(0x105, x + 8, y, color);
 					}
 					x += 16;
 					break;
 				// Triangle == "��"
 				case 0x81A2:
 					if (draw) {
-						drawChar(0x106, x, y, colour);
-						drawChar(0x107, x + 8, y, colour);
+						drawChar(0x106, x, y, color);
+						drawChar(0x107, x + 8, y, color);
 					}
 					x += 16;
 					break;
 				// FilledBox == "��"
 				case 0x81A1:
 					if (draw) {
-						drawChar(0x108, x, y, colour);
-						drawChar(0x109, x + 8, y, colour);
+						drawChar(0x108, x, y, color);
+						drawChar(0x109, x + 8, y, color);
 					}
 					x += 16;
 					break;
@@ -293,11 +293,11 @@ int printXY_sjis(const unsigned char *s, int x, int y, u64 colour, int draw)
 
 						if (n >= 0 && n <= 55008) {
 							if (draw)
-								drawChar2(n, x, tmp, colour);
+								drawChar2(n, x, tmp, color);
 							x += 9;
 						} else {
 							if (draw)
-								drawChar('_', x, y, colour);
+								drawChar('_', x, y, color);
 							x += 8;
 						}
 					} else {  //elisa font is not available
@@ -308,10 +308,10 @@ int printXY_sjis(const unsigned char *s, int x, int y, u64 colour, int draw)
 							ascii = sjis_lookup_82[code & 0x00FF];
 						if (ascii != 0xFF) {
 							if (draw)
-								drawChar((char)ascii, x, y, colour);
+								drawChar((char)ascii, x, y, color);
 						} else {
 							if (draw)
-								drawChar('_', x, y, colour);
+								drawChar('_', x, y, color);
 						}
 						x += 8;
 					}
@@ -319,7 +319,7 @@ int printXY_sjis(const unsigned char *s, int x, int y, u64 colour, int draw)
 			}
 		} else {  //First char does not have top bit set or no following char
 			if (draw)
-				drawChar(s[i], x, y, colour);
+				drawChar(s[i], x, y, color);
 			i++;
 			x += 8;
 		}

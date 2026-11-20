@@ -2,6 +2,7 @@
 //File name:   filer_browser.c
 //--------------------------------------------------------------
 #include "launchelf.h"
+#include "filer_size_cache.h"
 #include "dash.h"
 #include "gui_texteditor.h"
 #include "filer_actions.h"
@@ -2316,6 +2317,7 @@ int filerMountVmc(const char *path, const FILEINFO *file, int slot, char *msg, i
 		vmc_PartyIndex[slot] = j;
 		Party_vmcIndex[j] = slot;
 	}
+	filerSizeCacheInvalidate(dev);
 	vmcMounted[slot] = 1;
 	return 0;
 }
@@ -2339,6 +2341,7 @@ int filerUnmountVmc(int slot)
 		if (j != vmc_PartyIndex[1 ^ slot])
 			Party_vmcIndex[j] = -1;
 	}
+	filerSizeCacheInvalidate(dev);
 	vmcMounted[slot] = 0;
 	return 0;
 }

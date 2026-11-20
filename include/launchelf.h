@@ -487,9 +487,9 @@ void drawScr(void);
 void fadeScreenToBlack(void); /* prior to irreversible handoff or GS mode switch */
 void clearScreenToBlack(void); /* clear both framebuffers and GS BG to black */
 void drawFrame(int x1, int y1, int x2, int y2, u64 color);
-void drawChar(unsigned int c, int x, int y, u64 colour);
-int printXY(const char *s, int x, int y, u64 colour, int draw, int space);
-int printXY_sjis(const unsigned char *s, int x, int y, u64 colour, int);
+void drawChar(unsigned int c, int x, int y, u64 color);
+int printXY(const char *s, int x, int y, u64 color, int draw, int space);
+int printXY_sjis(const unsigned char *s, int x, int y, u64 color, int);
 char *transcpy_sjis(char *d, const unsigned char *s);
 void loadIcon(void);
 int loadFont(char *path_arg);

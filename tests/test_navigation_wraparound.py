@@ -89,7 +89,6 @@ code = r"""
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define FB_ROWS 10
 #define GRID_COLS 5
 #define GRID_PITCH_Y 100
 #define DASH_IN_UP 1
@@ -118,7 +117,7 @@ static void dashStrCopy(char *out,const char *in,int n) { snprintf(out,n,"%s",in
 static int compareName(const void *a,const void *b) { return strcmp(((const FILEINFO *)a)->name,((const FILEINFO *)b)->name); }
 static void fbSortFiles(FILEINFO *files,int n) { qsort(files,n,sizeof(*files),compareName); }
 static int sel, norder;
-static float sel_anim, grid_cam;
+static float sel_anim, grid_cam,list_top_anim=-1,top_anim=-1;
 static void dashUiFocusPoke(void) {}
 #define DASH_TOAST_WARN 1
 static int failed_card_roots,failed_card_warnings;
@@ -128,7 +127,10 @@ static void openDir(const char *path,const char *selected) {
 }
 static void dashToast(int kind,const char *message) {assert(kind==DASH_TOAST_WARN&&message);snprintf(failed_card_message,sizeof(failed_card_message),"%s",message);failed_card_warnings++;}
 """
-code = re.sub(r"^#define FB_ROWS \d+$", re.search(r"^#define FB_ROWS \d+$", browser, re.M).group(0), code, flags=re.M)
+code += "static float dashGfxViewportHeight(void) { return 448.0f; }\n"
+for macro in ("DASH_FOOTER_INSET", "DASH_FOOTER_Y", "DASH_PANE_B", "DASH_PANE_STATUS_H", "DASH_LIST_ROW_H"):
+    code += re.search(r"^#define " + macro + r" .+$", (root / "include/dash_internal.h").read_text(), re.M).group() + "\n"
+code += re.search(r"^#define FB_ROWS .+$", browser, re.M).group() + "\n"
 code += (root / "include/list_scroll.h").read_text() + "\n"
 job_start = browser.index("typedef struct", browser.index("// Listing"))
 code += browser[job_start:browser.index("} FbListJob;", job_start) + len("} FbListJob;")] + "\n"
@@ -158,7 +160,7 @@ pick_start = widgets.index("\t\tif ((in.pressed & DASH_IN_UP)", widgets.index("i
 pick_end = widgets.index("\n\t\tif (in.pressed & DASH_IN_MENU)", pick_start)
 code += "#define DASH_SND_CURSOR 0\nstatic void dashSoundPlay(int s) { (void)s; }\n"
 code += "static float picker_anim;\n"
-code += "static int pickerMove(int sel, int n_rows, DashInput in) { const int rows=10; int wrapped=0; float sel_anim=picker_anim;\n" + widgets[pick_start:pick_end] + "\npicker_anim=sel_anim; return sel; }\n"
+code += "static int pickerMove(int sel, int n_rows, DashInput in) { const int rows=10; int wrapped=0; float sel_anim=picker_anim,top_anim=-1; (void)top_anim;\n" + widgets[pick_start:pick_end] + "\npicker_anim=sel_anim; return sel; }\n"
 code += "static void gridMove(const DashInput *in) {\n" + grid_move + "\n}\n"
 code += r"""
 #define DASH_IN_OK 64
@@ -168,14 +170,16 @@ static const struct { int action; } tools[]={{0},{1},{0},{1},{1},{0},{1}};
 #define NTOOLS 7
 static const struct { int kind; } fentries[]={{0},{1},{0},{1},{1},{0},{1}};
 static int nfentries=7,tsel=1,fsel=1;
-static float tsel_anim=1,fsel_anim=1;
+static float tsel_anim=1,fsel_anim=1,ttop_anim=-1,ftop_anim=-1;
 """
 code += function(tools, "static int tMove(") + "\n"
 code += function(files, "static int fMove(") + "\n"
+code += function(tools, "static void tPage(") + "\n"
+code += function(files, "static void fPage(") + "\n"
 for source, name in ((tools, "tools"), (files, "files")):
     body = function(source, f"static void {name}Input(")
     code += f"static void {name}Navigate(const DashInput *in) {{\n"
-    code += body[body.index("int i"):body.index("\tif (in->pressed & DASH_IN_OK)")] + "}\n"
+    code += body[body.index("int wrapped"):body.index("\tif (in->pressed & DASH_IN_OK)")] + "}\n"
 code += r"""
 #define DEV_COLS 3
 #define DEV_PY 88.0f
@@ -190,12 +194,28 @@ ip_start = widgets.index("\t\tif (in.pressed & DASH_IN_LEFT)", widgets.index("in
 ip_end = widgets.index("\t\tif (in.pressed & DASH_IN_UP)", ip_start)
 code += "static void ipMove(int *selected, float *animated, DashInput in) { int sel=*selected; float sel_anim=*animated;\n"
 code += widgets[ip_start:ip_end] + "*selected=sel; *animated=sel_anim; }\n"
-code += re.search(r"^#define ROWS \d+$", hdd, re.M).group() + "\n"
+for macro in ("LIST_Y", "ROW_H", "ROWS"):
+    code += re.search(r"^#define " + macro + r" .+$", hdd, re.M).group() + "\n"
 code += "static struct { int n; } hm;\n"
 hdd_start = hdd.index("\t\tif (hm.n > 0)", hdd.index("void dashHddManager("))
 hdd_end = hdd.index("\t\tif (sel != prev)", hdd_start)
 code += "static void hddNavigate(DashInput in) { int wrapped=0;\n" + hdd[hdd_start:hdd_end] + "}\n"
 code += r"""
+/* Independent viewport expectation: move the window by its capacity, then
+ * focus its middle row, using an endpoint for the clipped final page. */
+static int expectedPage(int selected,int count,int rows,int direction) {
+ if(!count)return 0;
+ if(direction<0 && selected==0)return count-1;
+ if(direction>0 && selected==count-1)return 0;
+ int maximum=count>rows?count-rows:0;
+ int top=selected-(rows-1)/2;
+ if(top<0)top=0;
+ if(top>maximum)top=maximum;
+ top+=direction*rows;
+ if(top<=0)return 0;
+ if(top>=maximum)return count-1;
+ return top+(rows-1)/2;
+}
 static void checkParentCompletion(void) {
  static FILEINFO files[MAX_ENTRY];static unsigned char marks[MAX_ENTRY];
  const int counts[]={0,1,2,6,11,12,13,127};
@@ -273,12 +293,12 @@ int main(void) {
  for(int n=0;n<=127;n++) {
   DashInput left={DASH_IN_LEFT}, right={DASH_IN_RIGHT};
   for(int i=0;i<n;i++) {
-   /* The separate path picker still pages ten rows; Files now pages eleven. */
+   /* Each controller uses its rendered row capacity. */
    picker_anim=i;
-   assert(pickerMove(i,n,left)==(i==0?n-1:(i<10?0:i-10)));
+   assert(pickerMove(i,n,left)==expectedPage(i,n,10,-1));
    if(i==0)assert(picker_anim==n-1);
    picker_anim=i;
-   assert(pickerMove(i,n,right)==(i==n-1?0:(i+10>=n?n-1:i+10)));
+   assert(pickerMove(i,n,right)==expectedPage(i,n,10,1));
    if(i==n-1)assert(picker_anim==0);
    picker_anim=i;
    assert(pickerMove(i,n,up)==(i?i-1:n-1));
@@ -294,8 +314,8 @@ int main(void) {
   }
   for(int i=0;i<n;i++) {
    int left=pageIndex(i,n,-1), right=pageIndex(i,n,1);
-   assert(left==(i==0?n-1:(i<FB_ROWS?0:i-FB_ROWS)));
-   assert(right==(i==n-1?0:(i+FB_ROWS>=n?n-1:i+FB_ROWS)));
+   assert(left==expectedPage(i,n,FB_ROWS,-1));
+   assert(right==expectedPage(i,n,FB_ROWS,1));
   }
   fb.dir[0]=0;fb.n=127;fb.ndevs=n;fb.sel=n?n-1:0;fb.sel_anim=fb.sel;
   revealSelection();assert(fb.top==(n>FB_ROWS?n-FB_ROWS:0));
@@ -309,10 +329,10 @@ int main(void) {
  fsel=1;fsel_anim=1;assert(fMove(-1) && fsel==6 && fsel_anim==6);
  assert(fMove(1) && fsel==1 && fsel_anim==1);
  assert(!fMove(1) && fsel==3 && fsel_anim==1);
- /* A six-step page may wrap more than once; snap the final selection. */
+ /* A page wraps to the first actionable row, skipping headers. */
  DashInput page={DASH_IN_R2};
- tsel=6;tsel_anim=6;toolsNavigate(&page);assert(tsel==3 && tsel_anim==3);
- fsel=6;fsel_anim=6;filesNavigate(&page);assert(fsel==3 && fsel_anim==3);
+ tsel=6;tsel_anim=6;toolsNavigate(&page);assert(tsel==1 && tsel_anim==1 && ttop_anim<0);
+ fsel=6;fsel_anim=6;filesNavigate(&page);assert(fsel==1 && fsel_anim==1 && ftop_anim<0);
  ndevs=11;dev_selectable=(1u<<ndevs)-1;dsel=0;dsel_anim=dcam=0;
  devMove(-DEV_COLS);assert(dsel==8 && dsel_anim==8 && dcam==devScrollTarget());
  dsel=10;dsel_anim=10;devMove(1);assert(dsel==0 && dsel_anim==0 && dcam==0);
@@ -329,15 +349,15 @@ int main(void) {
   hddNavigate(down);assert(sel==0 && sel_anim==0);
   if(n>1) {hddNavigate(down);assert(sel==1 && sel_anim==0);}
  }
- /* HDD Manager pages ten partitions with D-pad Left/Right only. */
+ /* HDD Manager pages its visible partitions with D-pad Left/Right only. */
  for(int n=0;n<=31;n++) {
   hm.n=n;
   for(int i=0;i<(n?n:1);i++) {
    sel=i;sel_anim=i;hddNavigate(left);
-   assert(sel==(n?(i==0?n-1:(i<ROWS?0:i-ROWS)):0));
+   assert(sel==expectedPage(i,n,ROWS,-1));
    assert(sel_anim==(n && i==0?sel:i));
    sel=i;sel_anim=i;hddNavigate(right);
-   assert(sel==(n?(i==n-1?0:(i+ROWS>=n?n-1:i+ROWS)):0));
+   assert(sel==expectedPage(i,n,ROWS,1));
    assert(sel_anim==(n && i==n-1?sel:i));
    sel=i;sel_anim=i;page.pressed=DASH_IN_L2|DASH_IN_R2;
    hddNavigate(page);assert(sel==i && sel_anim==i);

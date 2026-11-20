@@ -28,6 +28,9 @@ def function(source, signature):
 
 
 code = r'''
+#define filerSizeCacheInvalidate(path) ((void)(path))
+#define filerSizeCacheOpened(fd,path,mode) ((void)(fd),(void)(path),(void)(mode))
+#define filerSizeCacheClosed(fd) ((void)(fd))
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>

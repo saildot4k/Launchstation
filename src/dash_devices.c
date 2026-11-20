@@ -13,6 +13,7 @@
 #include "dash_sound.h"
 #include "init.h"
 #include "filer_shared.h"
+#include "filer_size_cache.h"
 #include <delaythread.h>
 #ifdef MMCE
 #include "../iop/mmceman/include/mmce_cmds.h"
@@ -129,6 +130,14 @@ void dashDevicesPoll(void)
 		for (i = 0; i < 10; i++)
 			if (m & (1 << i))
 				now |= 1u << (2 + i);
+	}
+	if (dev_snapshot != 0xFFFFFFFFu && now != dev_snapshot) {
+		u32 changed = now ^ dev_snapshot;
+		char root[12];
+		for (i = 0; i < 12; i++) if (changed & (1u << i)) {
+			snprintf(root, sizeof(root), i < 2 ? "mc%d:/" : "usb%d:/", i < 2 ? i : i - 2);
+			filerSizeCacheInvalidate(root);
+		}
 	}
 	if (!dev_hotplug_armed) {
 		u64 ms = Timer();

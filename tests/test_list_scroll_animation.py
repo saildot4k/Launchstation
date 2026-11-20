@@ -1,5 +1,6 @@
 """Exercise shared viewport easing and edge-row coverage at real frame rates."""
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -15,6 +16,19 @@ program = r'''
 '''
 program += '#include "' + str(root / 'include/list_scroll.h') + '"\n'
 program += gfx[start:end] + "\n"
+header = (root / "include/dash_internal.h").read_text()
+program += "static int SCREEN_HEIGHT; static float g_sy;\n"
+for macro in ("DASH_VH", "DASH_FOOTER_INSET", "DASH_FOOTER_Y", "DASH_PANE_B", "DASH_PANE_HELP_H", "DASH_PANE_STATUS_H", "DASH_LIST_ROW_H"):
+    program += re.search(r"^#define " + macro + r" .+$", header, re.M).group() + "\n"
+viewport_start = gfx.index("float dashGfxViewportHeight(")
+program += gfx[viewport_start:gfx.index("\n}\n", viewport_start) + 3]
+for filename, names in (("dash_apps.c", ("LIST_ROWS", "LIST_ROW_H")),
+                        ("dash_browser.c", ("FB_ROWS",)),
+                        ("dash_hdd.c", ("LIST_Y", "ROW_H", "ROWS")),
+                        ("dash_settings.c", ("ITEM_ROWS",))):
+    source = (root / "src" / filename).read_text()
+    for macro in names:
+        program += re.search(r"^#define " + macro + r" .+$", source, re.M).group() + "\n"
 program += r'''
 static float slide(float current,int target,int count,int rows,float dt,float speed) {
     return listSlideTop(current,target,target+(rows-1)/2,count,rows,dashApproach(0,1,14*speed,dt));
@@ -32,6 +46,21 @@ static void coverage(float top,int count,int rows) {
     }
 }
 int main(void) {
+    /* PAL, NTSC, and progressive framebuffer heights share layout coordinates.
+     * Calculate full rows and physical clearance using the production macros. */
+    const int heights[]={224,240,256,288,448,480,512,576};
+    for(unsigned mode=0;mode<sizeof(heights)/sizeof(heights[0]);mode++) {
+        SCREEN_HEIGHT=heights[mode]; g_sy=(float)SCREEN_HEIGHT/DASH_VH;
+        assert(fabsf(dashGfxViewportHeight()-448)<0.001f);
+        assert(LIST_ROWS==12 && FB_ROWS==11 && ROWS==10 && ITEM_ROWS==9);
+        assert((DASH_PANE_B+4)*g_sy<SCREEN_HEIGHT);
+        assert((136+ITEM_ROWS*DASH_LIST_ROW_H-3)<DASH_PANE_B-DASH_PANE_HELP_H+0.001f);
+        assert(136+(ITEM_ROWS+1)*DASH_LIST_ROW_H-3>DASH_PANE_B-DASH_PANE_HELP_H);
+        assert(100+FB_ROWS*DASH_LIST_ROW_H-3<DASH_PANE_B-DASH_PANE_STATUS_H);
+        assert(100+(FB_ROWS+1)*DASH_LIST_ROW_H-3>DASH_PANE_B-DASH_PANE_STATUS_H);
+        assert(DASH_PANE_B-DASH_PANE_HELP_H+6+2*17<=DASH_FOOTER_Y-6);
+    }
+    g_sy=0;assert(dashGfxViewportHeight()==DASH_VH);
     const float rates[]={30,60,120};
     float result[3];
     for(int rate=0;rate<3;rate++) {
@@ -61,16 +90,43 @@ int main(void) {
         }
     }
     /* Short-list wraps must reset even when the top changes by one row. */
-    assert(listSlideTop(1,0,0,10,9,0.2f)==0);
-    assert(listSlideTop(0,1,9,10,9,0.2f)==1);
+    assert(listSlideTop(-1,0,0,10,9,0.2f)==0);
+    assert(listSlideTop(-1,1,9,10,9,0.2f)==1);
     float first=slide(4,5,40,9,1.0f/60,1);
     float reverse=slide(first,4,40,9,1.0f/60,1);
     assert(reverse>4 && reverse<first); /* reverse from the current position */
     assert(slide(-1,7,40,9,0,1)==7); /* first frame/context reset */
     assert(slide(4,5,40,9,0,1)==4);
     assert(slide(4,5,40,9,1.0f/60,1000)==5); /* animation disabled */
-    assert(slide(4,30,40,9,1.0f/60,1)==30); /* page/wrap keeps focus visible */
-    assert(slide(30,0,40,9,1.0f/60,1)==0);
+    assert(slide(4,30,40,9,1.0f/60,1)>4 && slide(4,30,40,9,1.0f/60,1)<30);
+    assert(slide(30,0,40,9,1.0f/60,1)>0 && slide(30,0,40,9,1.0f/60,1)<30);
+    /* An adjacent page starts immediately after the current full viewport,
+     * even when focus begins on row zero rather than the middle row. */
+    for(int rows=1;rows<=16;rows++) for(int count=1;count<=223;count++) {
+        for(int selected=0;selected<count;selected++) for(int dir=-1;dir<=1;dir+=2) {
+            int next=listPageIndex(selected,count,rows,dir);
+            assert(next>=0 && next<count);
+            int from=listCenteredTop(selected,count,rows),to=listCenteredTop(next,count,rows);
+            int maximum=count>rows?count-rows:0;
+            if(dir>0 && selected<count-1) {
+                assert(next>selected);
+                assert(to==(from+rows<maximum?from+rows:maximum));
+            } else if(dir<0 && selected>0) {
+                assert(next<selected);
+                assert(to==(from-rows>0?from-rows:0));
+            } else {
+                assert(next==(dir>0?0:count-1));continue;
+            }
+            float camera=from,focus=selected;
+            for(int frame=0;frame<12;frame++) {
+                float blend=dashApproach(0,1,14,1.0f/60);
+                camera=listSlideTop(camera,to,next,count,rows,blend);
+                focus=dashApproach(focus,next,14,1.0f/60);
+                assert(focus-camera>=-0.001f && focus-camera<rows);
+                coverage(camera,count,rows);
+            }
+        }
+    }
     assert(slide(20,0,3,9,1.0f/60,1)==0); /* shortened/empty lists */
     assert(slide(20,0,0,9,1.0f/60,1)==0);
     assert(listSlideTop(4,5,9,40,9,-1)==4 && listSlideTop(4,5,9,40,9,2)==5);
