@@ -14,6 +14,7 @@
 //  follows the classic rules (filerMenuEnables).
 //--------------------------------------------------------------
 #include "dash_internal.h"
+#include "filer_size_cache.h"
 #include "dash_sound.h"
 #include "filer_shared.h"
 #include "filer_actions.h"
@@ -24,9 +25,9 @@
 
 int IsTextEditorFileType(const char *path);
 
-/* Eleven rows leave room for status text above the shared footer hints. */
-#define FB_ROWS 11
-#define FB_ROW_H 24.0f
+/* Fit full rows above the status lane and shared footer hints. */
+#define FB_ROWS ((int)((DASH_PANE_B - DASH_PANE_STATUS_H - 100.0f + 3.0f) / DASH_LIST_ROW_H))
+#define FB_ROW_H DASH_LIST_ROW_H
 #define FB_X DASH_SAFE_L
 #define FB_Y 100.0f
 #define FB_W (DASH_SAFE_R - DASH_SAFE_L)
@@ -40,7 +41,7 @@ static struct
 	int loading;
 	int gen;
 	int sel, top;
-	float sel_anim;
+	float sel_anim, top_anim;
 	char want_sel[MAX_NAME]; /* select this name once the listing arrives */
 	DashDevice devs[DASH_MAX_DEVICES];
 	int ndevs;
@@ -169,19 +170,15 @@ static int wrapIndex(int index, int total)
 /* Reach an endpoint before wrapping on the next page press. */
 static int pageIndex(int index, int total, int direction)
 {
-	if (total <= 0)
-		return 0;
-	if (direction < 0)
-		return index == 0 ? total - 1 : (index < FB_ROWS ? 0 : index - FB_ROWS);
-	return index == total - 1 ? 0 : (index + FB_ROWS >= total ? total - 1 : index + FB_ROWS);
+	return listPageIndex(index, total, FB_ROWS, direction);
 }
 
 static void revealSelection(void)
 {
 	int total = fb.dir[0] ? fb.n : fb.ndevs;
 	fb.top = listCenteredTop(fb.sel, total, FB_ROWS);
-	/* A viewport jump must not leave the animated highlight off screen. */
-	if (fb.sel_anim < fb.top || fb.sel_anim >= fb.top + FB_ROWS)
+	/* Discard an animated selection left over from a different listing. */
+	if (fb.sel_anim < 0 || fb.sel_anim >= total)
 		fb.sel_anim = (float)fb.sel;
 }
 
@@ -393,6 +390,7 @@ static void listDone(void *arg)
 		 * and highlight now, before the first frame of the parent listing. */
 		revealSelection();
 		fb.sel_anim = (float)fb.sel;
+		fb.top_anim = -1.0f;
 	}
 	if (j->quiet_input && browser_usb_jobs > 0) {
 		browser_usb_jobs--;
@@ -465,6 +463,7 @@ static void openDirInternal(const char *dir, const char *select)
 	fb.card_type = 0;
 	fb.sel = fb.top = 0;
 	fb.sel_anim = 0.0f;
+	fb.top_anim = -1.0f;
 	fb.want_sel[0] = '\0';
 	if (select != NULL)
 		dashStrCopy(fb.want_sel, select, sizeof(fb.want_sel));
@@ -921,8 +920,6 @@ static void opSize(void)
 {
 	static int idx[MAX_ENTRY];
 	int n = targets(idx, MAX_ENTRY), i;
-	u64 total = 0;
-	char body[96];
 
 	if (n == 0 || !prepareOp())
 		return;
@@ -930,21 +927,13 @@ static void opSize(void)
 	for (i = 0; i < n; i++) {
 		u64 s;
 		dashLoadingStatus(fb.files[idx[i]].name, i, n);
-		if (getFileSize(fb.dir, &fb.files[idx[i]], &s) < 0 || s > ~(u64)0 - total) {
+		if (getFileSize(fb.dir, &fb.files[idx[i]], &s) < 0) {
 			opDone();
 			dashModalMessage(DI_WARNING, "Size", "Could not measure all selected items.", NULL);
 			return;
 		}
-		total += s;
 	}
-	opDone();
-	if (total >= (u64)1024 * 1024 * 1024)
-		snprintf(body, sizeof(body), "%.2f GB  (%llu bytes)", (double)total / (1024.0 * 1024.0 * 1024.0), (unsigned long long)total);
-	else if (total >= 1024 * 1024)
-		snprintf(body, sizeof(body), "%.2f MB  (%llu bytes)", (double)total / (1024.0 * 1024.0), (unsigned long long)total);
-	else
-		snprintf(body, sizeof(body), "%llu bytes", (unsigned long long)total);
-	dashModalMessage(DI_INFO, n == 1 ? fb.files[idx[0]].name : "Selected items", body, NULL);
+	opDone(); /* Completed folder totals are visible directly in the list. */
 }
 
 static void opTitleCfg(void)
@@ -1124,7 +1113,7 @@ static void tsProgress(int done, int total, const char *folder)
 }
 
 #define TS_ROWS 9
-#define TS_ROW_H 22.0f
+#define TS_ROW_H DASH_LIST_ROW_H
 #define TS_LIST_H ((TS_ROWS + 1) * TS_ROW_H)
 
 /* The selected folder owns half a blank row on each side, including edges. */
@@ -1231,7 +1220,7 @@ static int tsEdit(FilerDateEditor *e)
 	dashInputFlush();
 	while (1) {
 		u32 edits;
-		int from;
+		int from, navigation_wrap;
 		float dt, speed, blend;
 
 		dashInputPoll(&in);
@@ -1247,6 +1236,9 @@ static int tsEdit(FilerDateEditor *e)
 			dashInputFlush();
 			return 1;
 		}
+		navigation_wrap = e->count > 1 &&
+		                  (((in.pressed & DASH_IN_UP) && idx == 0) ||
+		                   ((in.pressed & DASH_IN_DOWN) && idx == e->count - 1));
 		if (in.pressed & DASH_IN_UP)
 			filerDateEditorSelect(e, -1);
 		if (in.pressed & DASH_IN_DOWN)
@@ -1283,6 +1275,13 @@ static int tsEdit(FilerDateEditor *e)
 		speed = 14.0f * dashAnimSpeed();
 		open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dt);
 		if (rows != NULL) {
+			/* Navigation wraps directly to the other endpoint; timestamp
+			 * edits still animate through the folders whose order changes. */
+			if (navigation_wrap) {
+				camera = top * TS_ROW_H;
+				for (i = 0; i < e->count; i++)
+					rows[i] = tsRowY(0, i, 0, idx);
+			}
 			/* Share one easing factor across the list, even for large folders. */
 			blend = dashApproach(0.0f, 1.0f, speed, dt);
 			camera = dashApproach(camera, top * TS_ROW_H, speed, dt);
@@ -1773,7 +1772,7 @@ static void fmtSize(char *out, int size, const FILEINFO *f)
 {
 	u64 b = ((u64)f->stats.Reserve2 << 32) | f->stats.FileSizeByte;
 
-	if (isDir(f) || !size_valid)
+	if (isDir(f) ? !filerSizeCacheGet(fb.dir, f, &b) : !size_valid)
 		out[0] = '\0';
 	else if (b >= (u64)1024 * 1024 * 1024)
 		snprintf(out, size, "%.2f GB", (double)b / (1024.0 * 1024.0 * 1024.0));
@@ -1788,7 +1787,8 @@ static void fmtSize(char *out, int size, const FILEINFO *f)
 static void browserDrawBody(void)
 {
 	int i, rows_total = fb.dir[0] ? fb.n : fb.ndevs;
-	const float status_y = FB_Y + FB_ROWS * FB_ROW_H + 10.0f;
+	const float pane_bottom = DASH_PANE_B - DASH_PANE_STATUS_H;
+	const float status_y = DASH_PANE_B - 16.0f;
 	const float path_panel_y = fb_tab_active ? 68.0f : 52.0f;
 	const float path_center_y = path_panel_y + 12.0f;
 	char info[64], display_path[MAX_PATH + 2];
@@ -1859,12 +1859,14 @@ static void browserDrawBody(void)
 		dashTextScroll(x + text_offset, y, width - text_offset, clipboard, DASH_FS_CAPTION, DASH_C_ACCENT);
 	}
 
-	dashDrawPanelBox(DASH_PANE_L, FB_Y - 6, DASH_PANE_W, FB_ROWS * FB_ROW_H + 12, 14);
-	dashGfxScissor(FB_X - 4, FB_Y - 4, FB_W + 8, FB_ROWS * FB_ROW_H + 8);
+	fb.top_anim = listSlideTop(fb.top_anim, fb.top, fb.sel, rows_total, FB_ROWS,
+	                           dashApproach(0.0f, 1.0f, 14.0f * dashAnimSpeed(), dashFrameDelta()));
+	dashDrawPanelBox(DASH_PANE_L, FB_Y - 6, DASH_PANE_W, pane_bottom - (FB_Y - 6), 14);
+	dashGfxScissor(FB_X - 4, FB_Y - 4, FB_W + 8, pane_bottom - (FB_Y - 4));
 	if (rows_total > 0 && !fb.loading)
-		dashDrawSelection(FB_X, FB_Y + (fb.sel_anim - fb.top) * FB_ROW_H, FB_W, FB_ROW_H - 3, 8, 1.0f);
-	for (i = fb.top; i < rows_total && i < fb.top + FB_ROWS && !fb.loading; i++) {
-		float y = FB_Y + (i - fb.top) * FB_ROW_H;
+		dashDrawSelection(FB_X, FB_Y + (fb.sel_anim - fb.top_anim) * FB_ROW_H, FB_W, FB_ROW_H - 3, 8, 1.0f);
+	for (i = (int)fb.top_anim; i < rows_total && i < fb.top_anim + FB_ROWS && !fb.loading; i++) {
+		float y = FB_Y + (i - fb.top_anim) * FB_ROW_H;
 		DashColor col = dashItemColor(i == fb.sel);
 
 		if (fb.dir[0] == '\0') {
@@ -1928,7 +1930,7 @@ static void browserDrawBody(void)
 		dashText(FB_X + FB_W * 0.5f - 44, FB_Y + 49, "Reading folder...", DASH_FS_SMALL, DASH_C_TEXT2);
 	} else if (rows_total == 0 && !fb.startup_status[0])
 		dashTextCenter(FB_X + FB_W * 0.5f, FB_Y + 50, "This folder is empty", DASH_FS_SMALL, DASH_C_TEXT3);
-	dashDrawScrollbar(FB_X + FB_W + 10, FB_Y, FB_ROWS * FB_ROW_H, fb.top, FB_ROWS, rows_total);
+	dashDrawScrollbar(FB_X + FB_W + 10, FB_Y, pane_bottom - FB_Y, fb.top, FB_ROWS, rows_total);
 }
 
 static void browserDrawHints(void)
@@ -2037,8 +2039,10 @@ static void browserProcessInput(const DashInput *in, int *running)
 				fb.sel = pageIndex(fb.sel, total, 1);
 			}
 			/* Wrapping relocates focus even when both endpoints fit on screen. */
-			if (wrapped)
+			if (wrapped) {
 				fb.sel_anim = (float)fb.sel;
+				fb.top_anim = -1.0f;
+			}
 		}
 		if (fb.sel != prev && running != NULL)
 			dashSoundPlay(DASH_SND_CURSOR);
@@ -2097,7 +2101,7 @@ static void browserTabUpdate(float dt)
 {
 	if (!fb_tab_active)
 		return;
-	fb.sel_anim = dashApproach(fb.sel_anim, (float)fb.sel, 22.0f * dashAnimSpeed(), dt);
+	fb.sel_anim = dashApproach(fb.sel_anim, (float)fb.sel, 14.0f * dashAnimSpeed(), dt);
 }
 
 static void browserTabDraw(void)
@@ -2180,7 +2184,7 @@ void dashFileBrowser(const char *start_dir)
 		else
 			dashInputPoll(&in);
 		browserProcessInput(&in, &running);
-		fb.sel_anim = dashApproach(fb.sel_anim, (float)fb.sel, 22.0f * dashAnimSpeed(), dashVisualUpdate());
+		fb.sel_anim = dashApproach(fb.sel_anim, (float)fb.sel, 14.0f * dashAnimSpeed(), dashVisualUpdate());
 		dashRenderScene();
 		dashGfxPresent();
 	}

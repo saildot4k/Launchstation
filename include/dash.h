@@ -74,7 +74,7 @@ void DashThemeSetLegacyEnabled(int enabled);
 void DashThemeBackgroundRect(int x1, int y1, int x2, int y2);
 void DashThemePopupRect(int x1, int y1, int x2, int y2);
 void DashThemeFrame(int x1, int y1, int x2, int y2, u64 color);
-void DashThemeChar(unsigned int c, int x, int y, u64 colour);
+void DashThemeChar(unsigned int c, int x, int y, u64 color);
 void DashThemeSelectionBar(int x1, int y1, int x2, int y2);
 
 #endif

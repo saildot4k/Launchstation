@@ -281,8 +281,9 @@ int main(void) {
 devices = read("src/dash_devices.c")
 device_types = header[header.index("enum DashDevState"):
                       header.index("void dashDevicesInit(void)")]
-symbols = sorted(set(re.findall(r"\b(?:DI_|DASH_SND_|SCECd)\w+", devices)) | {"DI_TOOLS"})
-devcode = common + device_types + "enum { " + ",".join(symbols) + " };\n"
+library_icon = function(read("src/dash_lib.c"), "int dashLibDeviceIcon(")
+symbols = sorted(set(re.findall(r"\b(?:DI_|DASH_SND_|SCECd)\w+", devices + library_icon)) | {"DI_TOOLS"})
+devcode = "#define filerSizeCacheInvalidate(path) ((void)(path))\n" + common + device_types + "enum { " + ",".join(symbols) + " };\n"
 devcode += r"""
 #define MMCE 1
 #define MX4SIO 1
@@ -413,6 +414,7 @@ static int getPcCardCfCapacitySectors(u32 *s) { (void)s; return -1; }
 static int loadPcCardCfModules(void) { return 0; }
 """
 devcode += re.sub(r"^#include[^\n]*\n", "", devices, flags=re.M)
+devcode += library_icon
 devcode += "static DashDevice devs[DASH_MAX_DEVICES]; static int ndevs;\n"
 devcode += function(read("src/dash_files.c"), "static int devSelectable(")
 # Compile the browser's real root-list assembly to catch duplicate VMCs and capacity loss.
@@ -426,7 +428,10 @@ static struct { DashDevice devs[DASH_MAX_DEVICES];char dir[1];int n,ndevs,loadin
 static struct { char Misc[24]; } cfg,*setting=&cfg;
 static int fb_tab_active;
 """
-devcode += re.search(r"^#define FB_ROWS \d+$", browser, re.M).group() + "\n"
+devcode += "static float dashGfxViewportHeight(void) { return 448.0f; }\n"
+for macro in ("DASH_FOOTER_INSET", "DASH_FOOTER_Y", "DASH_PANE_B", "DASH_PANE_STATUS_H", "DASH_LIST_ROW_H"):
+    devcode += re.search(r"^#define " + macro + r" .+$", read("include/dash_internal.h"), re.M).group() + "\n"
+devcode += re.search(r"^#define FB_ROWS .+$", browser, re.M).group() + "\n"
 devcode += (root / "include/list_scroll.h").read_text() + "\n"
 devcode += function(browser, "static void revealSelection(")
 devcode += "static void openRoot(const char *select) {\n" + root_body[:-1] + "}\n"
@@ -644,6 +649,16 @@ int main(void) {
     }
     assert(opens==before && loads==before_loads);
     puts("PASS: both HDD units probe independently; every root fits without duplicate VMCs or enumeration IO");
+    /* Configured-folder menus and root pickers must use the same artwork
+     * as every device the File Browser model exposes, including PSX/CF. */
+    for(int all=0;all<2;all++) for(int psx=0;psx<2;psx++) {
+        boot_show_all_devices=all; console_is_PSX=psx;
+        int count=dashDevicesList(ds,DASH_MAX_DEVICES);
+        for(int i=0;i<count;i++) assert(dashLibDeviceIcon(ds[i].mount)==ds[i].icon);
+    }
+    assert(dashLibDeviceIcon("mmce:/APPS")==DI_MICROSD);
+    assert(dashLibDeviceIcon("mx4sio:/APPS")==DI_MICROSD);
+    puts("PASS: configured-folder and picker device icons match the File Browser model across all roots");
     puts("PASS: driver-only/failed/empty/late roots, lazy device entries, MMCE units, reboot invalidation, boot source, no draw IO");
     /* Offline first attempt: cache the result without rebooting. A server
      * appearing later is not enough to repair this resident test ministack. */

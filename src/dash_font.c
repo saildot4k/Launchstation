@@ -775,7 +775,7 @@ void dashFontLegacyChar(unsigned int c, int x, int y, u64 gs_color)
 	gi = c - FONT_FIRST;
 	u0 = (float)((gi % FONT_COLS) * FONT_SLOT_W);
 	v0 = (float)((gi / FONT_COLS) * FONT_SLOT_H);
-	/* classic colours carry no alpha: force opaque */
+	/* classic colors carry no alpha: force opaque */
 	col = (gs_color & 0x00FFFFFFULL) | (0x80ULL << 24);
 	/* Legacy drawChar paints rows y-1 .. y+14 */
 	x1 = (float)x - 0.5f;

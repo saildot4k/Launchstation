@@ -32,7 +32,7 @@ typedef int GSTEXTURE;
 typedef struct { char title[128],path[256],desc[64],author[32],version[16]; } DashApp;
 static DashApp dashApps[2];
 static int order[]={0,1},sel,norder=2;
-static float sel_anim,age,font_scale=1;
+static float sel_anim,age,font_scale=1,list_top_anim=-1;
 static int face,focus_reads,draws,depth,pushes,pops,seen[3];
 static float drawn_x[3],offsets[3],clip_x,clip_w;
 static float dashClampf(float v,float lo,float hi) { return v<lo?lo:v>hi?hi:v; }
@@ -49,7 +49,8 @@ static void dashGfxScissorPush(float x,float y,float w,float h) {
 }
 static void dashGfxScissorPop(void) { assert(depth==1);depth--;pops++; }
 '''
-for macro in ("DASH_SAFE_L", "DASH_SAFE_R", "DASH_PANE_R", "DASH_FS_SMALL",
+code += "static float dashGfxViewportHeight(void) { return 448.0f; }\n"
+for macro in ("DASH_FOOTER_INSET", "DASH_FOOTER_Y", "DASH_PANE_B", "DASH_LIST_ROW_H", "DASH_SAFE_L", "DASH_SAFE_R", "DASH_PANE_R", "DASH_FS_SMALL",
               "DASH_FS_LABEL", "DASH_FS_CAPTION"):
     code += re.search(r"^#define " + macro + r" .+$", header, re.M).group() + "\n"
 for macro in ("LIST_ROWS", "LIST_ROW_H"):
@@ -67,6 +68,7 @@ static float dashTextS(float x,float y,const char *s,float scale,DashColor color
     return x+dashTextWidth(s,scale);
 }
 #define listCenteredTop(...) 0
+#define listSlideTop(current,target,...) (target)
 #define dashDrawPanelBox(...) ((void)0)
 #define dashGfxScissor(...) ((void)0)
 #define dashDrawSelection(...) ((void)0)

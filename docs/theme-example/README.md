@@ -5,7 +5,7 @@ This folder contains a real, loadable wallpaper example:
 - **background.png** — 320 × 240 pixels (4:3), indexed non-interlaced PNG,
   with simple center-composition and edge/safe-area guide marks.
 - **theme.cfg** — ready-to-load theme that sets `background = image` and
-  `image = background.png`, with a readable blue colour palette.
+  `image = background.png`, with a readable blue color palette.
 
 ## Load on PS2
 

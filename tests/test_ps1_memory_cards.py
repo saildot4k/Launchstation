@@ -34,6 +34,9 @@ def function(source, signature):
 enum_start = shared.index('enum {')
 enum_end = shared.index('};', enum_start) + 2
 code = '#include "' + str(root / 'src/filer_menu.c') + '"\n' + r'''
+#define filerSizeCacheInvalidate(path) ((void)(path))
+#define filerSizeCacheOpened(fd,path,mode) ((void)(fd),(void)(path),(void)(mode))
+#define filerSizeCacheClosed(fd) ((void)(fd))
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>

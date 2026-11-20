@@ -98,6 +98,7 @@ for signature in ("static inline float SX(", "static inline float SY(",
                   "void dashSpriteBatchAdd(", "void dashSpriteBatchAddAligned("):
     code += function(gfx, signature)
 code += function(icons, "void dashIcon(")
+code += function(icons, "void dashIconForward(")
 code += r"""
 static unsigned char tile[ICON_SLOT][ICON_SLOT];
 static float texel(int x,int y) {
@@ -113,6 +114,16 @@ static float sample(int id,int x,int y) {
        +texel(tx,ty+1)*(1-fx)*fy+texel(tx+1,ty+1)*fx*fy;
 }
 int main(void) {
+ /* Inline adjustment uses the exact Back tile, reflected horizontally. */
+ for(int mode=0;mode<2;mode++)for(int size=10;size<=16;size+=2) {
+  g_sy=mode?512.0f/448:1;g_ox=0.25f;g_oy=0.375f;
+  dashIcon(DI_BACK,40,80,size,DC(255,255,255,255));
+  float bounds[]={quad.x1,quad.y1,quad.x2,quad.y2},uv[]={quad.u1,quad.v1,quad.u2,quad.v2};
+  dashIconForward(40,80,size,DC(255,255,255,255));
+  assert(quad.x1==bounds[0] && quad.y1==bounds[1] && quad.x2==bounds[2] && quad.y2==bounds[3]);
+  assert(quad.u1==uv[2] && quad.u2==uv[0] && quad.v1==uv[1] && quad.v2==uv[3]);
+ }
+ puts("PASS: inline adjustment arrows share one tile and identical bounds with mirrored horizontal UVs in NTSC/PAL");
  const int ids[]={DI_BTN_SELECT,DI_BTN_SQUARE,DI_BTN_CIRCLE};
  const float sizes[]={16,18,22,24,32};
  assert(DASH_SELECT_EXTRA_W==4.0f);

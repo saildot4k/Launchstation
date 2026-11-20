@@ -37,7 +37,7 @@ static void ftpFrame(const LsFtpStatus *status, int stopping)
 			snprintf(line, sizeof(line), "%02d:%02d:%02d  %s", hour, minute, second, command->text);
 		else
 			snprintf(line, sizeof(line), "--:--:--  %s", command->text);
-		dashTextFit(x + 24, y + 150 + i * 24, w - 48, line, DASH_FS_SMALL, DASH_C_TEXT2);
+		dashTextFit(x + 24, y + 150 + i * DASH_LIST_ROW_H, w - 48, line, DASH_FS_SMALL, DASH_C_TEXT2);
 	}
 	if (status->transfers) {
 		u64 bytes = ((u64)status->bytes_high << 32) | status->bytes_low;

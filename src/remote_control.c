@@ -4,6 +4,7 @@
 // wLaunchELF_R3Z_FTP Command PS2 helper.
 //--------------------------------------------------------------
 #include "launchelf.h"
+#include "filer_size_cache.h"
 
 #define REMOTE_COMMAND_FILE "ata0:/PS2-COMANDO.TXT"
 #define REMOTE_COMMAND_INTERVAL_MS 3000
@@ -76,6 +77,7 @@ int remoteCommandPoll(char *runpath, int runpath_size, char *message, int messag
 		return 0;
 
 	/* Complete requests are one-shot, including malformed ones. */
+	filerSizeCacheInvalidate(REMOTE_COMMAND_FILE);
 	fileXioRemove(REMOTE_COMMAND_FILE);
 
 	if (header == NULL || strcmp(header, "PS2-COMANDO 1") || command == NULL || command[0] == '\0') {

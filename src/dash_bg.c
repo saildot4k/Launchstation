@@ -3,7 +3,7 @@
 //Dashboard background renderer.
 //
 //dashBgDraw() draws, back to front:
-//  1. the theme's background scene (dashTheme.bg): a solid colour, a
+//  1. the theme's background scene (dashTheme.bg): a solid color, a
 //     gradient, a wallpaper PNG or one of the procedural scenes in
 //     dash_bg_ps2.c / dash_bg_geo.c, or the original "Crystal" atmosphere
 //     kept below
@@ -199,7 +199,7 @@ void dashBgUpdate(float dt)
 
 //--------------------------------------------------------------
 // Crystal: the original dashboard atmosphere (drifting orbs, stars,
-// translucent crystal towers, sparkles, light streak). Colours follow
+// translucent crystal towers, sparkles, light streak). Colors follow
 // bg1 (upper gradient) and bg2 (floor).
 //--------------------------------------------------------------
 static void crystalBase(void)
@@ -403,7 +403,7 @@ static void drawAppWallpaper(void)
 		return;
 	/* the artwork is laid over the scene at 60 % (a softer, more muted
 	 * picture than the cover itself), then dimmed towards a near-black
-	 * version of the background colour so every text colour stays
+	 * version of the background color so every text color stays
 	 * readable over bright covers */
 	if (prev != NULL)
 		drawCover(prev, DC(255, 255, 255, (int)(153 * (1.0f - wall_mix) * wall_vis)));
@@ -453,8 +453,8 @@ static void drawScene(int fx)
 	float t = bg_time;
 	DashColor saved_bg1 = dashTheme.bg1, saved_bg2 = dashTheme.bg2;
 
-	/* Brightness above 100% boosts only the background colours. Interface
-	 * colours are drawn after this function and are deliberately untouched. */
+	/* Brightness above 100% boosts only the background colors. Interface
+	 * colors are drawn after this function and are deliberately untouched. */
 	if (dashTheme.bg_bright > 100) {
 		float k = dashTheme.bg_bright / 100.0f;
 		dashTheme.bg1 = dashColorScale(dashTheme.bg1, k);

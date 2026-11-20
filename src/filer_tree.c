@@ -1,4 +1,5 @@
 #include "filer_tree.h"
+#include "filer_size_cache.h"
 #include "filer_shared.h"
 #include "gui_hdd0_format.h"
 
@@ -106,9 +107,15 @@ int getFileSize(const char *path, const FILEINFO *file, u64 *size)
 {
 	u64 measured = 0;
 	int result;
+	unsigned measured_revision;
 
-	if (!size || !ensurePathDeviceStackReady(path)) return -1;
+	if (!size || !file || !ensurePathDeviceStackReady(path)) return -1;
+	if (filerSizeCacheGet(path, file, size)) return 0;
+	measured_revision = filerSizeCacheRevision();
 	result = filerWalkTree(path, file, measureTreeEntry, &measured);
-	if (result >= 0) *size = measured;
+	if (result >= 0) {
+		*size = measured;
+		filerSizeCachePut(path, file, measured, measured_revision);
+	}
 	return result;
 }

@@ -5,7 +5,7 @@
 //  GRID      5 x 3 artwork cards
 //  LIST      compact rows + large detail panel
 //  CAROUSEL  horizontal collection with depth (PSBBN/LUNA inspired)
-//SELECT cycles the view (saved), Triangle opens options.
+//Triangle opens options, including the saved view choice.
 //--------------------------------------------------------------
 #include "dash_internal.h"
 
@@ -32,14 +32,15 @@ static float sel_anim;
 static float grid_cam;
 static int filter;
 static float view_anim = 1.0f;
+static float list_top_anim = -1.0f;
 
 #define GRID_COLS 5
 #define GRID_PITCH_X 110.0f
 #define GRID_PITCH_Y 100.0f
 #define GRID_CARD 84.0f
 #define GRID_TOP 104.0f
-#define LIST_ROWS 9
-#define LIST_ROW_H 31.0f
+#define LIST_ROWS ((int)((DASH_PANE_B - 104.0f + 3.0f) / LIST_ROW_H))
+#define LIST_ROW_H DASH_LIST_ROW_H
 
 static int matchFilter(const DashApp *a)
 {
@@ -75,6 +76,7 @@ void dashAppsRebuildView(void)
 	int i;
 	char keep[DASH_PATH_MAX];
 
+	list_top_anim = -1.0f;
 	keep[0] = '\0';
 	if (sel >= 0 && sel < norder && order[sel] < dashAppCount)
 		dashStrCopy(keep, dashApps[order[sel]].path, sizeof(keep));
@@ -89,6 +91,7 @@ void dashAppsRebuildView(void)
 			sel = i;
 	if (sel >= norder)
 		sel = norder > 0 ? norder - 1 : 0;
+	sel_anim = (float)sel;
 	dashHomeRebuild();
 }
 
@@ -297,6 +300,7 @@ static void appsMenu(void)
 			int v = dashModalChoice("View", views, DASH_VIEW_COUNT, dashCfg.view);
 			if (v >= 0 && v != dashCfg.view) {
 				dashCfg.view = v;
+				list_top_anim = -1.0f;
 				view_anim = 0.0f;
 				dashStoreSaveSettings();
 			}
@@ -365,12 +369,23 @@ static void move(int delta)
 		float target = (sel / GRID_COLS - 1) * GRID_PITCH_Y;
 		float maxcam = ((norder - 1) / GRID_COLS - 2) * GRID_PITCH_Y;
 		sel_anim = (float)sel;
+		list_top_anim = -1.0f;
 		if (target > maxcam)
 			target = maxcam;
 		grid_cam = target > 0 ? target : 0.0f;
 	}
 	if (sel != old)
 		dashUiFocusPoke();
+}
+
+static void appPage(int direction)
+{
+	int next = listPageIndex(sel, norder, LIST_ROWS, direction);
+	if ((direction < 0 && next > sel) || (direction > 0 && next < sel)) {
+		sel_anim = (float)next;
+		list_top_anim = -1.0f;
+	}
+	move(next - sel);
 }
 
 static void appsInput(const DashInput *in)
@@ -409,9 +424,9 @@ static void appsInput(const DashInput *in)
 		if (in->pressed & DASH_IN_DOWN)
 			move(1);
 		if (in->pressed & (DASH_IN_L2 | DASH_IN_LEFT))
-			move(-LIST_ROWS);
+			appPage(-1);
 		if (in->pressed & (DASH_IN_R2 | DASH_IN_RIGHT))
-			move(LIST_ROWS);
+			appPage(1);
 	} else {
 		if (in->pressed & (DASH_IN_LEFT | DASH_IN_UP))
 			move(-1);
@@ -434,11 +449,6 @@ static void appsInput(const DashInput *in)
 			dashHomeRebuild();
 	} else if (in->pressed & DASH_IN_MENU)
 		appsMenu();
-	else if (in->pressed & DASH_IN_SELECT) {
-		dashCfg.view = (dashCfg.view + 1) % DASH_VIEW_COUNT;
-		view_anim = 0.0f;
-		dashStoreSaveSettings();
-	}
 }
 
 static void appsUpdate(float dt)
@@ -585,45 +595,47 @@ static void drawList(void)
 	float scroll = listScrollProgress(a, lw - 64, dw - 28, dashUiFocusAge());
 
 	top = listCenteredTop(sel, norder, LIST_ROWS);
-	if (sel_anim < top || sel_anim >= top + LIST_ROWS)
+	list_top_anim = listSlideTop(list_top_anim, top, sel, norder, LIST_ROWS,
+	                             dashApproach(0.0f, 1.0f, 14.0f * dashAnimSpeed(), dashFrameDelta()));
+	if (sel_anim < 0 || sel_anim >= norder)
 		sel_anim = (float)sel;
 
-	dashDrawPanelBox(lx - 6, ly - 6, lw + 12, LIST_ROWS * LIST_ROW_H + 12, 14);
+	dashDrawPanelBox(lx - 6, ly - 6, lw + 12, DASH_PANE_B - (ly - 6), 14);
+	dashGfxScissor(lx - 6, ly - 4, lw + 12, DASH_PANE_B - (ly - 4));
 	{
-		float fy = ly + (sel_anim - top) * LIST_ROW_H;
+		float fy = ly + (sel_anim - list_top_anim) * LIST_ROW_H;
 		if (fy >= ly - LIST_ROW_H && fy < ly + LIST_ROWS * LIST_ROW_H) {
-			dashGfxScissor(lx - 6, ly - 4, lw + 12, LIST_ROWS * LIST_ROW_H + 8);
 			dashDrawSelection(lx, fy, lw, LIST_ROW_H - 3, 9, 1.0f);
-			dashGfxScissorReset();
 		}
 	}
-	for (i = top; i < norder && i < top + LIST_ROWS; i++) {
+	for (i = (int)list_top_anim; i < norder && i < list_top_anim + LIST_ROWS; i++) {
 		DashApp *e = &dashApps[order[i]];
-		float y = ly + (i - top) * LIST_ROW_H;
+		float y = ly + (i - list_top_anim) * LIST_ROW_H;
 		int on = (i == sel);
 		GSTEXTURE *t = dashArtGet(e, abs(i - sel) + 1);
 
 		dashGfxPushAlpha(appOpacity(e));
 		if (t != NULL)
-			dashTexDrawFit(t, lx + 6, y + 2, 24, 24, DC(255, 255, 255, 255));
+			dashTexDrawFit(t, lx + 8, y + 0.5f, 20, 20, DC(255, 255, 255, 255));
 		else
-			dashIcon(dashTheme.app_icon_style == DASH_APPICON_SYSTEM ? DI_EXEC : dashLibDeviceIcon(e->path), lx + 9, y + 5, 18,
+			dashIcon(dashTheme.app_icon_style == DASH_APPICON_SYSTEM ? DI_EXEC : dashLibDeviceIcon(e->path), lx + 9, y + 1.5f, 18,
 			         dashTheme.app_icon_style == DASH_APPICON_MONOGRAM ? dashColorHue(e->hue, 120, 230, 255) : dashItemColor(on));
 		if (on)
-			dashTextScrollProgress(lx + 38, y + 3, lw - 64, e->title, DASH_FS_SMALL, dashItemColor(1), scroll);
+			dashTextScrollProgress(lx + 38, y + 0, lw - 64, e->title, DASH_FS_SMALL, dashItemColor(1), scroll);
 		else
-			dashTextFit(lx + 38, y + 3, lw - 64, e->title, DASH_FS_SMALL, dashItemColor(0));
+			dashTextFit(lx + 38, y + 0, lw - 64, e->title, DASH_FS_SMALL, dashItemColor(0));
 		if (dashStoreIsFavorite(e->path))
-			dashIcon(DI_STAR, lx + lw - 22, y + 6, 14, DASH_C_WARM);
+			dashIcon(DI_STAR, lx + lw - 22, y + 3.5f, 14, DASH_C_WARM);
 		dashGfxPopAlpha();
 	}
-	dashDrawScrollbar(lx + lw + 10, ly, LIST_ROWS * LIST_ROW_H, top, LIST_ROWS, norder);
+	dashGfxScissorReset();
+	dashDrawScrollbar(lx + lw + 10, ly, DASH_PANE_B - ly, top, LIST_ROWS, norder);
 
 	/* detail panel */
 	if (a != NULL) {
 		char dev[48];
 
-		dashDrawCard(dx, dy, dw, 290, 16);
+		dashDrawCard(dx, dy, dw, DASH_PANE_B - dy, 16);
 		dashGfxPushAlpha(appOpacity(a));
 		dashDrawAppArt(a, dx + (dw - 132) * 0.5f, dy + 14, 132, 132, 1.0f, 0);
 		dashTextScrollProgress(dx + 14, dy + 156, dw - 28, a->title, DASH_FS_LABEL, DASH_C_TEXT, scroll);
@@ -745,7 +757,7 @@ static void appsDraw(void)
 
 static void appsHints(void)
 {
-	DashHint h[5];
+	DashHint h[4];
 	int n = 0;
 
 	if (norder == 0) {
@@ -757,7 +769,6 @@ static void appsHints(void)
 		h[n].button = dashOkIcon(), h[n].key = NULL, h[n].label = "Start", n++;
 		h[n].button = DI_BTN_SQUARE, h[n].key = NULL, h[n].label = "Favorite", n++;
 		h[n].button = DI_BTN_TRIANGLE, h[n].key = NULL, h[n].label = "Options", n++;
-		h[n].button = -1, h[n].key = "SELECT", h[n].label = "View", n++;
 	}
 	h[n].button = dashBackIcon(), h[n].key = NULL, h[n].label = "Home", n++;
 	dashDrawHints(h, n);

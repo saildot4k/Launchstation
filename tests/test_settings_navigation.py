@@ -37,6 +37,9 @@ code += re.search(r"static const char \*const tv_names\[\] = [^;]+;", settings).
 code += header[header.index("enum DashBgKind"):header.index("};",header.index("enum DashBgKind"))+2] + "\n"
 code += "static struct { int font,wallpaper,clock,bg; } dashTheme;\n"
 code += function((root / "src/dash_bg.c").read_text(), "int dashBgSupportsDetail(")
+code += "static float dashGfxViewportHeight(void) { return 448.0f; }\n"
+for macro in ("DASH_FOOTER_INSET", "DASH_FOOTER_Y", "DASH_PANE_B", "DASH_PANE_HELP_H", "DASH_LIST_ROW_H"):
+    code += re.search(r"^#define " + macro + r" .+$", header, re.M).group() + "\n"
 code += declarations
 input_start = header.rfind("enum {", 0, header.index("DASH_IN_UP"))
 code += header[input_start:header.index("void dashInputPoll(")]

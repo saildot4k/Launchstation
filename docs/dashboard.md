@@ -30,6 +30,17 @@ order the saves A-Z, Z-A or the SAS way). The offered operations follow
 the classic rules (nothing that writes on a disc or read-only host, no
 file operations in the partition list).
 
+Using **Size** on a folder retains its recursive byte count for the running
+session and shows it in the File Browser's details view after navigation or
+refresh. Successful measurements return directly to the list without a result
+popup; measurement errors still show an explanation. A change anywhere inside
+that folder invalidates its total and every cached ancestor; unrelated folders
+keep their measurements. Use **Size** again
+to measure an invalidated folder. Successful empty-folder measurements show
+0 B; failed scans are not cached. The cache retains up to 128 measured folders,
+reusing entries when full, and clears affected totals when media is replaced or
+the IOP restarts.
+
 Also in the File Browser menu, as in the classic browser:
 
 * *Show*: file names, names and details (size and date), or game titles
@@ -258,7 +269,7 @@ interface can continue responding.
 
 | Group | Contents |
 |-------|----------|
-| Appearance | Theme preset, customization groups, screen calibration, motion, animation, theme files and resets. Panel transparency: 0% opaque, 100% transparent, default 30%. Panel colour/opacity is under Interface colours > Panels. |
+| Appearance | Theme preset, customization groups, screen calibration, motion, animation, theme files and resets. Panel transparency: 0% opaque, 100% transparent, default 30%. Panel color/opacity is under Interface colors > Panels. |
 | Home & applications | Start screen, view, artwork, recent count/history and Application library (folders and refresh). |
 | Sound | Interface effects, music and their separate volumes. |
 | Input | Confirm button, on-screen keyboard and USB keyboard (driver and map). |
@@ -335,7 +346,7 @@ then save Settings.
 
 Settings > Appearance chooses among 19 built-in themes (OSD Classic, PS2
 Towers, Disc Error Red, System Clock and more) and opens the theme editor,
-where the background, every colour, selection style, corners, font, text
+where the background, every color, selection style, corners, font, text
 size, icons, clock and app-artwork wallpaper can be changed with the
 controller. Themes can be saved to and loaded from
 `THEMES/<name>/theme.cfg` folders. See **[themes.md](themes.md)**.

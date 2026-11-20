@@ -25,7 +25,7 @@ ELF proves the console symptoms are resolved.
   Failed probes also hide stale cached apps. Probe results expire on IOP
   reset. Root opening does not prove a disk's filesystem is fully healthy.
 * Unknown/busy/absent device cards are dimmed. Unfocused cards no longer
-  receive a constant selection-colour tint. Free-space labels use MB/GB;
+  receive a constant selection-color tint. Free-space labels use MB/GB;
   small file sizes still use B/KB. The device-list capacity accommodates
   both MMCE slots and all other existing cards.
 * Back from a Settings subpage plays Cancel. Confirming the Cancel choice

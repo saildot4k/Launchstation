@@ -158,6 +158,7 @@ static int nfdevs;
 static int fsel;
 static float fsel_anim;
 static int ftop;
+static float ftop_anim = -1.0f;
 
 static void fAdd(int kind, int icon, int index, const char *label, const char *detail)
 {
@@ -220,11 +221,12 @@ static void filesRebuild(void)
 
 static void filesEnter(void)
 {
+	ftop_anim = -1.0f;
 	filesRebuild();
 	fsel_anim = (float)fsel;
 }
 
-/* Report wrapping so a multi-step page move can snap its final selection. */
+/* Report wrapping so combined directional inputs keep focus at the endpoint. */
 static int fMove(int d)
 {
 	int start, s, wrapped = 0;
@@ -243,8 +245,10 @@ static int fMove(int d)
 			if (s != fsel)
 				dashUiFocusPoke();
 			fsel = s;
-			if (wrapped)
+			if (wrapped) {
 				fsel_anim = (float)fsel;
+				ftop_anim = -1.0f;
+			}
 			return wrapped;
 		}
 	} while (s != start);
@@ -276,20 +280,41 @@ static void filesActivate(void)
 	filesRebuild();
 }
 
+static void fPage(int direction)
+{
+	int first = 0, last = nfentries - 1, next;
+	int rows = (int)((DASH_PANE_B - 102.0f + 3.0f) / 29.0f);
+	while (first < nfentries && fentries[first].kind == FE_HEADER) first++;
+	while (last >= first && fentries[last].kind == FE_HEADER) last--;
+	if (first > last) return;
+	if (direction < 0 && fsel == first) next = last;
+	else if (direction > 0 && fsel == last) next = first;
+	else {
+		next = listPageIndex(fsel, nfentries, rows, direction);
+		if (next < first) next = first;
+		if (next > last) next = last;
+		while (fentries[next].kind == FE_HEADER) next += direction;
+	}
+	if (next != fsel) dashUiFocusPoke();
+	if ((direction < 0 && next > fsel) || (direction > 0 && next < fsel)) {
+		fsel_anim = (float)next;
+		ftop_anim = -1.0f;
+	}
+	fsel = next;
+}
+
 static void filesInput(const DashInput *in)
 {
-	int i, wrapped = 0;
+	int wrapped = 0;
 
 	if (in->pressed & DASH_IN_UP)
 		wrapped |= fMove(-1);
 	if (in->pressed & DASH_IN_DOWN)
 		wrapped |= fMove(1);
-	if (in->pressed & DASH_IN_L2)
-		for (i = 0; i < 6; i++)
-			wrapped |= fMove(-1);
-	if (in->pressed & DASH_IN_R2)
-		for (i = 0; i < 6; i++)
-			wrapped |= fMove(1);
+	if (in->pressed & (DASH_IN_L2 | DASH_IN_LEFT))
+		fPage(-1);
+	if (in->pressed & (DASH_IN_R2 | DASH_IN_RIGHT))
+		fPage(1);
 	if (wrapped)
 		fsel_anim = (float)fsel;
 	if (in->pressed & DASH_IN_OK)
@@ -314,7 +339,7 @@ static void filesUpdate(float dt)
 	static float t;
 
 	dashDevicesRefreshMemoryCards(fdevs, nfdevs);
-	fsel_anim = dashApproach(fsel_anim, (float)fsel, 16.0f * dashAnimSpeed(), dt);
+	fsel_anim = dashApproach(fsel_anim, (float)fsel, 14.0f * dashAnimSpeed(), dt);
 	t += dt;
 	if (t > 1.0f) {
 		/* device states change (memory card inserted, disc...) */
@@ -328,25 +353,28 @@ static void filesUpdate(float dt)
 static void filesDraw(void)
 {
 	const float lx = DASH_SAFE_L, ly = 102, row_h = 29, lw = 300;
-	const int rows = 10;
+	const float pane_y = 98.0f, pane_h = DASH_PANE_B - pane_y;
+	const int rows = (int)((DASH_PANE_B - ly + 3.0f) / row_h);
 	int i;
 	FileEntry *e = &fentries[fsel];
 
 	dashDrawSectionTitle(lx, 68, "Files", "the complete Launchstation file manager");
 
 	ftop = listCenteredTop(fsel, nfentries, rows);
-	if (fsel_anim < ftop || fsel_anim >= ftop + rows)
+	ftop_anim = listSlideTop(ftop_anim, ftop, fsel, nfentries, rows,
+	                         dashApproach(0.0f, 1.0f, 14.0f * dashAnimSpeed(), dashFrameDelta()));
+	if (fsel_anim < 0 || fsel_anim >= nfentries)
 		fsel_anim = (float)fsel;
 
-	dashDrawPanelBox(lx - 6, ly - 6, lw + 12, rows * row_h + 12, 14);
-	dashGfxScissor(lx - 6, ly - 4, lw + 12, rows * row_h + 8);
+	dashDrawPanelBox(lx - 6, pane_y, lw + 12, pane_h, 14);
+	dashGfxScissor(lx - 6, pane_y, lw + 12, pane_h);
 	{
-		float fy = ly + (fsel_anim - ftop) * row_h;
+		float fy = ly + (fsel_anim - ftop_anim) * row_h;
 		dashDrawSelection(lx, fy, lw, row_h - 3, 9, 1.0f);
 	}
-	for (i = ftop; i < nfentries && i < ftop + rows; i++) {
+	for (i = (int)ftop_anim; i < nfentries && i < ftop_anim + rows; i++) {
 		FileEntry *f = &fentries[i];
-		float y = ly + (i - ftop) * row_h;
+		float y = ly + (i - ftop_anim) * row_h;
 
 		if (f->kind == FE_HEADER) {
 			dashText(lx + 8, y + 7, f->label, DASH_FS_CAPTION, DASH_C_ACCENT);
@@ -361,11 +389,11 @@ static void filesDraw(void)
 		}
 	}
 	dashGfxScissorReset();
-	dashDrawScrollbar(lx + lw + 10, ly, rows * row_h, ftop, rows, nfentries);
+	dashDrawScrollbar(lx + lw + 10, ly, DASH_PANE_B - ly, ftop, rows, nfentries);
 
 	/* detail panel */
 	{
-		float dx = lx + lw + 24, dy = 98, dw = DASH_PANE_R - dx, dh = 292;
+		float dx = lx + lw + 24, dy = pane_y, dw = DASH_PANE_R - dx, dh = pane_h;
 		dashDrawCard(dx, dy, dw, dh, 16);
 		dashGfxBlend(DASH_BLEND_ADD);
 		dashAccentGlow(dx + dw * 0.5f, dy + 70, 80, 60, 1.0f);

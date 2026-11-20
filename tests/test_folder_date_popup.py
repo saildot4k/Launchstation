@@ -11,6 +11,8 @@ actions = (root / "src/filer_actions.c").read_text()
 title = (root / "src/main_title.c").read_text()
 header = (root / "include/filer_actions.h").read_text()
 ui_header = (root / "include/dash_internal.h").read_text()
+row_define = re.search(r"^#define DASH_LIST_ROW_H (.+)$", ui_header, re.M).group(1)
+source = source.replace("DASH_LIST_ROW_H", row_define)
 
 
 def function(text, signature):
@@ -64,7 +66,7 @@ static int expected_position, expected_selected, expected_changed, names, dates,
 static int buttons, labels, group_buttons;
 static float group_x[5], group_right[5], last_button_right, hint_y;
 static DashInput events[128];
-static int motion_test, motion_selected, last_folder;
+static int motion_test, motion_selected, last_folder, motion_initial=20;
 static float motion_y[128][40], last_icon_y, motion_text_y;
 static float animation_speed=1, visual_dt=0.016f;
 static int next_event, event_count, adjustment, frames;
@@ -143,7 +145,7 @@ static void dashDrawSelection(float x,float y,float w,float h,float radius,float
     (void)radius; (void)strength;
     if(geometry) {
         assert(expected_selected && x==46 && w==548);
-        assert(y==row_y+1 && h==20); selections++;
+        assert(y==row_y+1 && h==TS_ROW_H-2); selections++;
     }
 }
 static DashColor dashColorA(DashColor color,float alpha) { (void)alpha; return color; }
@@ -151,7 +153,7 @@ static void dashPanel(float x,float y,float w,float h,float radius,DashColor col
     (void)radius; (void)color;
     if(geometry) {
         assert(expected_selected && fabsf(x-(field_x-2))<0.001f);
-        assert(fabsf(w-field_w-4)<0.001f && y==row_y+1 && h==20); panels++;
+        assert(fabsf(w-field_w-4)<0.001f && y==row_y+1 && h==TS_ROW_H-2); panels++;
     }
 }
 static void dashPanelBorder(float x,float y,float w,float h,float r,DashColor c) { dashPanel(x,y,w,h,r,c); }
@@ -159,7 +161,7 @@ static void dashIcon(int icon,float x,float y,float size,DashColor color) {
     (void)color;
     if(motion_test && x==54 && size==14) last_icon_y=y;
     if(geometry) {
-        assert(icon==(expected_changed?DI_CLOCK:DI_FOLDER) && x==54 && size==14 && y+size/2==row_y+11);
+        assert(icon==(expected_changed?DI_CLOCK:DI_FOLDER) && x==54 && size==14 && y+size/2==row_y+TS_ROW_H*0.5f);
         assert(color==(expected_changed?DASH_C_OK:expected_selected?DASH_C_TEXT:DASH_C_TEXT2));
     }
 }
@@ -173,7 +175,7 @@ static void dashTextFit(float x,float y,float w,const char *text,float scale,Das
     if(geometry) {
         float date_x=582-dashTextWidth(formatted,scale);
         assert(color==(expected_selected?DASH_C_TEXT:DASH_C_TEXT2));
-        assert(x==76 && fabsf(y+16*scale-row_y-11)<0.001f);
+        assert(x==76 && fabsf(y+16*scale-row_y-TS_ROW_H*0.5f)<0.001f);
         assert(w>0 && fabsf(x+w+16-date_x)<0.001f && text[0]); names++;
     }
 }
@@ -183,7 +185,7 @@ static void dashTextRight(float x,float y,const char *text,float scale,DashColor
     if(geometry) {
         assert(color==(expected_selected?DASH_C_TEXT:DASH_C_TEXT2));
         assert(x==582 && !strcmp(text,formatted));
-        assert(fabsf(y+16*scale-row_y-11)<0.001f); dates++;
+        assert(fabsf(y+16*scale-row_y-TS_ROW_H*0.5f)<0.001f); dates++;
     }
 }
 static void dashInputFlush(void) {}
@@ -207,7 +209,7 @@ static void dashGfxScissor(float x,float y,float w,float h) { (void)x;(void)y;(v
 static void dashGfxScissorReset(void) {}
 static void dashDrawScrollbar(float x,float y,float h,int top,int rows,int count) { (void)x;(void)y;(void)h;(void)top;(void)rows;(void)count; }
 static void dashGfxPresent(void) {
-    if(motion_test) assert(last_folder==(frames?motion_selected:20));
+    if(motion_test) assert(last_folder==(frames?motion_selected:motion_initial));
     frames++;
 }
 '''
@@ -328,9 +330,22 @@ int main(void) {
     next_event=event_count=0; queue(DASH_IN_SELECT|DASH_IN_BACK,0);
     assert(tsEdit(&e)==0 && adjustment==0);
     strcpy(e.selected,e.folders[0].name); timestamp=e.folders[0].stats._Modify;
-    run(&e,DASH_IN_L1|DASH_IN_UP,0,DASH_IN_START); assert(filerDateEditorSync(&e)==0);
-    strcpy(e.selected,e.folders[39].name); timestamp=e.folders[39].stats._Modify;
-    run(&e,DASH_IN_R1|DASH_IN_DOWN,0,DASH_IN_START); assert(filerDateEditorSync(&e)==39);
+    unchanged=timestamp;
+    run(&e,DASH_IN_L1,0,DASH_IN_START);
+    assert(filerDateEditorSync(&e)==0 && !memcmp(&timestamp,&unchanged,sizeof(timestamp)));
+    FILEINFO before_navigation[40]; memcpy(before_navigation,folders,sizeof(folders));
+    run(&e,DASH_IN_UP,0,DASH_IN_START); assert(filerDateEditorSync(&e)==39);
+    assert(!memcmp(folders,before_navigation,sizeof(folders)));
+    unchanged=timestamp;
+    run(&e,DASH_IN_R1,0,DASH_IN_START);
+    assert(filerDateEditorSync(&e)==39 && !memcmp(&timestamp,&unchanged,sizeof(timestamp)));
+    run(&e,DASH_IN_DOWN,0,DASH_IN_START); assert(filerDateEditorSync(&e)==0);
+    assert(!memcmp(folders,before_navigation,sizeof(folders)));
+    e.count=1;
+    run(&e,DASH_IN_UP|DASH_IN_L1,0,DASH_IN_START); assert(filerDateEditorSync(&e)==0);
+    run(&e,DASH_IN_DOWN|DASH_IN_R1,0,DASH_IN_START); assert(filerDateEditorSync(&e)==0);
+    e.count=0; assert(!filerDateEditorSelect(&e,-1) && !filerDateEditorSelect(&e,1));
+    e.count=40;
     /* The visual position follows the edited folder through any rank change. */
     float positions[40];
     for(int i=0;i<40;i++) positions[i]=i;
@@ -388,7 +403,24 @@ int main(void) {
     assert(motion_y[1][18]>motion_y[0][18]);
     assert(motion_y[2][18]<motion_y[1][18] && motion_y[2][18]>motion_y[0][18]);
     assert(fabsf(motion_y[62][18]-motion_y[0][18])<0.02f);
-    puts("PASS: inline date fields in all clock/date formats; centered row content and half-row gaps at every list position; ordered hints in one aligned row, both confirm mappings; navigation, add/subtract repeat, one-second reorder, START save and SELECT cancel; changed clock icons and original folder icons on revert, with stable text colors; animated swaps, date-driven rank changes, centered scrolling, viewport edges, reversals and motion off");
+    /* Wrapping selection lands visibly at the opposite endpoint immediately. */
+    for(int direction=0;direction<2;direction++) {
+        for(int i=0;i<40;i++) {
+            snprintf(folders[i].name,sizeof(folders[i].name),"Folder %02d",i);
+            folders[i].stats._Modify=(sceMcStDateTime){0,20,59-i,13,1,3,2024};
+            original[i]=folders[i].stats._Modify;
+        }
+        int initial=direction?39:0, target=direction?0:39;
+        strcpy(e.selected,folders[initial].name); timestamp=folders[initial].stats._Modify;
+        memcpy(before_navigation,folders,sizeof(folders));
+        next_event=event_count=frames=0; motion_initial=initial; motion_selected=target;
+        queue(0,0); queue(direction?DASH_IN_DOWN:DASH_IN_UP,0); queue(DASH_IN_START,0);
+        motion_test=1; assert(tsEdit(&e)==1 && frames==2); motion_test=0;
+        float expected=tsRowY(108,target,listCenteredTop(target,40,TS_ROWS),target)+TS_ROW_H*0.5f-16*DASH_FS_SMALL;
+        assert(fabsf(motion_y[1][target]-expected)<0.001f);
+        assert(!memcmp(folders,before_navigation,sizeof(folders)));
+    }
+    puts("PASS: folder navigation wraps immediately at both ends without changing timestamps; reordering stops at the ends; inline date fields in all clock/date formats; centered row content and half-row gaps at every list position; ordered hints in one aligned row, both confirm mappings; navigation, add/subtract repeat, one-second reorder, START save and SELECT cancel; changed clock icons and original folder icons on revert, with stable text colors; animated swaps, date-driven rank changes, centered scrolling, viewport edges, reversals and motion off");
 }
 '''
 compiler = shutil.which("gcc") or shutil.which("cc")

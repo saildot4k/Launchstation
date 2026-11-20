@@ -20,6 +20,7 @@ make = read("Makefile")
 embed = read("embed.make")
 blobs = read("src/embed_blobs.S")
 header = read("include/dash_internal.h")
+ui = ui.replace("DASH_LIST_ROW_H", re.search(r"^#define DASH_LIST_ROW_H (.+)$", header, re.M).group(1))
 
 # Measure the current row/subtitle/footer layout instead of the former 38px rows.
 menu = ui[ui.index("static int modalMenu("):ui.index("int dashModalChoice(")]

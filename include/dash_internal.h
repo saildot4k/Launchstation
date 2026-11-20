@@ -17,6 +17,9 @@
 #define DASH_VW 640
 #define DASH_VH 448
 
+/* File Browser row pitch, shared by popup lists and text rows. */
+#define DASH_LIST_ROW_H 24.0f
+
 /* Conservative CRT safe area (virtual coordinates). */
 #define DASH_SAFE_L 40
 #define DASH_SAFE_R 600
@@ -28,6 +31,13 @@
 #define DASH_PANE_L (DASH_SAFE_L - 6)
 #define DASH_PANE_R (DASH_SAFE_R + 6)
 #define DASH_PANE_W (DASH_PANE_R - DASH_PANE_L)
+/* Derive content limits from the scaled framebuffer and footer. Reserve
+ * fixed help/status lanes so pane height never changes with selection. */
+#define DASH_FOOTER_INSET 48.0f
+#define DASH_FOOTER_Y (dashGfxViewportHeight() - DASH_FOOTER_INSET)
+#define DASH_PANE_B (DASH_FOOTER_Y - 10.0f)
+#define DASH_PANE_HELP_H 40.0f /* two 17px help lines plus a 6px gap */
+#define DASH_PANE_STATUS_H 20.0f
 
 /* Bounded storage sizes. Paths longer than DASH_PATH_MAX are skipped by the
  * library (the FileBrowser still handles them). */
@@ -128,7 +138,7 @@ enum DashHighlight {
 	DASH_HL_FILL = 0, /* solid selection bar with outline */
 	DASH_HL_BAR,      /* accent edge bar and a faint fill */
 	DASH_HL_OUTLINE,  /* outline only */
-	DASH_HL_TEXT,     /* colour change only (OSDSYS style) */
+	DASH_HL_TEXT,     /* color change only (OSDSYS style) */
 	DASH_HL_COUNT
 };
 
@@ -156,8 +166,8 @@ enum DashTileStyle {
 };
 
 enum DashIconTint {
-	DASH_ICONS_TEXT = 0, /* icons follow the text colours */
-	DASH_ICONS_ACCENT,   /* icons lean towards the accent colour */
+	DASH_ICONS_TEXT = 0, /* icons follow the text colors */
+	DASH_ICONS_ACCENT,   /* icons lean towards the accent color */
 	DASH_ICONS_MONO,     /* greyscale */
 	DASH_ICONS_COUNT
 };
@@ -165,7 +175,7 @@ enum DashIconTint {
 enum DashAppIcon {
 	DASH_APPICON_SYSTEM = 0, /* default application icon */
 	DASH_APPICON_DEVICE,     /* icon of the device the app lives on */
-	DASH_APPICON_MONOGRAM,   /* initials on a coloured tile (old style) */
+	DASH_APPICON_MONOGRAM,   /* initials on a colored tile (old style) */
 	DASH_APPICON_COUNT
 };
 
@@ -217,7 +227,7 @@ typedef struct
 	u8 bg_bright; /* 10..200 % */
 	u8 scanlines; /* CRT line overlay */
 	DashColor bg1, bg2;
-	/* colours */
+	/* colors */
 	DashColor text, text2, text3, sel_text;
 	DashColor accent, accent2, select, warn, danger, ok;
 	DashColor panel, border;
@@ -332,6 +342,7 @@ int dashGfxPopupActive(void); /* last complete frame has an interactive popup */
 void dashGfxPresent(void);
 void dashGfxRestoreLegacyState(void);
 float dashGfxScaleY(void);
+float dashGfxViewportHeight(void); /* current framebuffer height in layout coordinates */
 float dashGfxTextY(float y);
 
 void dashGfxPushAlpha(float mul);
@@ -430,6 +441,7 @@ GSTEXTURE *dashFontTexture(void);
 void dashIconsInit(void);
 void dashIconsShutdown(void);
 void dashIcon(int id, float x, float y, float size, DashColor c);
+void dashIconForward(float x, float y, float size, DashColor c); /* mirrored DI_BACK arrow */
 /* Header emblem centered at cx/cy: hexagon CCW, triangle CW, one turn/30 seconds. */
 void dashHeaderIcon(float cx, float cy, float size, DashColor c);
 DashColor dashIconTint(DashColor c);
@@ -773,13 +785,13 @@ void dashDrawPanelBox(float x, float y, float w, float h, float r);
 void dashDrawCard(float x, float y, float w, float h, float r);
 void dashDrawSelection(float x, float y, float w, float h, float r, float strength);
 void dashAccentGlow(float cx, float cy, float rx, float ry, float strength);
-DashColor dashItemColor(int selected); /* text colour of a list row */
+DashColor dashItemColor(int selected); /* text color of a list row */
 void dashDrawSpinner(float cx, float cy, float r, DashColor c);
 void dashToast(int kind, const char *msg);
 void dashDrawNotifications(void); /* shared stack for toasts and worker activity */
 
 /* Disabled controls stay visibly dim even when a theme uses similar text
- * colours. Apply to the whole row, including icons and secondary values. */
+ * colors. Apply to the whole row, including icons and secondary values. */
 #define DASH_DISABLED_ALPHA 0.5f
 
 /* Blocking modal dialogs. They keep rendering the current dashboard scene
@@ -1054,7 +1066,7 @@ void menuTitleFormatClockDate(char *dst, size_t dst_size, int year, int month, i
 //--------------------------------------------------------------
 // Background scenes (dash_bg_ps2.c, dash_bg_geo.c). `t` is the background
 // clock (frozen when animation or effects are off), `fx` the effects level.
-// Colours come from dashTheme.bg1 / bg2.
+// Colors come from dashTheme.bg1 / bg2.
 //--------------------------------------------------------------
 void dashBgSceneTunnel(float t, int fx);
 void dashBgSceneMist(float t, int fx);

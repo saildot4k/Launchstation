@@ -18,4 +18,44 @@ static inline int listCenteredTop(int selected, int count, int rows)
 	return top < 0 ? 0 : top > max_top ? max_top : top;
 }
 
+/* Move to the adjacent visible page, centered on its middle row. At the
+ * first/last page, visit the endpoint before allowing another press to wrap. */
+static inline int listPageIndex(int selected, int count, int rows, int direction)
+{
+	int top, next, maximum;
+	if (count <= 0) return 0;
+	if (rows < 1) rows = 1;
+	if (selected < 0) selected = 0;
+	if (selected >= count) selected = count - 1;
+	top = listCenteredTop(selected, count, rows);
+	maximum = count > rows ? count - rows : 0;
+	next = top + (direction < 0 ? -rows : rows);
+	if (next <= 0 && direction < 0)
+		return top == 0 && selected == 0 ? count - 1 : 0;
+	if (next >= maximum && direction > 0)
+		return top == maximum && selected == count - 1 ? 0 : count - 1;
+	return next + (rows - 1) / 2;
+}
+
+/* A negative current resets after wrapping or opening a different list.
+ * Page changes ease through intermediate rows just like single steps. */
+static inline float listSlideTop(float current, int target, int selected, int count, int rows, float blend)
+{
+	int maximum = count > rows ? count - rows : 0;
+	float delta;
+
+	if (rows <= 0 || count <= 0)
+		return 0.0f;
+	if (target < 0) target = 0;
+	if (target > maximum) target = maximum;
+	delta = target - current;
+	if (current < 0.0f || current > maximum || selected < 0 || selected >= count)
+		return (float)target;
+	if (blend < 0.0f) blend = 0.0f;
+	if (blend > 1.0f) blend = 1.0f;
+	current += delta * blend;
+	delta = target - current;
+	return delta > -0.001f && delta < 0.001f ? (float)target : current;
+}
+
 #endif
