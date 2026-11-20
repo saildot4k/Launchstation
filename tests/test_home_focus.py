@@ -205,6 +205,7 @@ static void dashRescanLibrary(int interactive) { if(interactive)manual_rescans++
 #define dashIconsInit() ((void)0)
 #define dashConsoleIdentityInit() ((void)0)
 #define dashWorkerInit() ((void)0)
+#define dashSoundPrepareStartup() ((void)0)
 """
 code += function("static void firstInit(", main)
 code += function("static void bootBegin(", main) + function("static void bootUpdate(", main)

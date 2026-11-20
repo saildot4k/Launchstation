@@ -1,4 +1,4 @@
-"""Execute startup routing with slow audio, nested modal frames and handoffs."""
+"""Execute deferred music/recovery routing, nested modal frames and handoffs."""
 from pathlib import Path
 import os
 import shutil
@@ -68,7 +68,7 @@ static void dashSoundMaintain(void) {
  assert(screen_entered&&frames>0&&fade_in>=0.95f&&!DashIoBusy());
  assert(!boot_phase&&startup_audio_ready&&!startup_audio_pending);
  audio_calls++;audio_tool=displayed_tool;
- /* Slow module/sidecar IO keeps rendering without re-entering startup. */
+ /* Recovery module/sidecar IO keeps rendering without re-entering startup. */
  io_busy=1;for(int i=0;i<20;i++)present();io_busy=0;
 }
 void dashSoundRequestBoot(void) { boot_sounds++; }
@@ -179,7 +179,7 @@ int main(void) {
  reset(DASH_SEC_FILES,2,3,"mc0:/BOOT.ELF");DashRun(&ctx,1);show();
  assert(boot_phase==1&&!audio_calls);now_ms=boot_phase_end;bootUpdate(&no_input);show();
  assert(boot_phase==2&&!audio_calls);bootUpdate(&cancel);show();assert(!launches&&audio_calls==1);
- /* A successful external automatic launch never loads dashboard audio. */
+ /* A successful external automatic launch never starts dashboard music. */
  reset(DASH_SEC_HOME,0,1,"mc0:/BOOT.ELF");external_success=1;
  if(!setjmp(handed_off)) {DashRun(&ctx,1);show();now_ms=boot_phase_end;bootUpdate(&no_input);assert(0);}
  assert(launches==1&&!audio_calls&&startup_audio_pending);

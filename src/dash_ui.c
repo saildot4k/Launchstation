@@ -803,7 +803,7 @@ static int modalEnabledEdge(const DashMenuItem *items, int n, int from_end)
 }
 
 static int modalMenu(const char *title, const char *subtitle, const DashMenuItem *items, int n, int initial,
-                     DashMenuEdit edit, void *arg)
+                     const unsigned char *popup_rows, DashMenuEdit edit, void *arg)
 {
 	int sel = initial, top = 0, i, previewed = -1;
 	void (*preview)(int) = modal_preview;
@@ -978,7 +978,10 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 							right -= 16.0f;
 							vw = dw < detail_w ? dw : detail_w;
 							dashIcon(DI_BACK, right - vw - 22, ry + 4.5f, 12, DASH_C_ACCENT);
-							dashIcon(DI_PLAY, x + w - 28, ry + 5.5f, 10, DASH_C_ACCENT);
+							if (popup_rows != NULL && popup_rows[i])
+								dashIcon(DI_PLAY, x + w - 28, ry + 5.5f, 10, DASH_C_ACCENT);
+							else
+								dashIconForward(x + w - 28, ry + 4.5f, 12, DASH_C_ACCENT);
 						}
 						if (dw <= detail_w)
 							dashTextRight(right, ry + 1.0f, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
@@ -1006,13 +1009,13 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 
 int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *items, int n, int initial)
 {
-	return modalMenu(title, subtitle, items, n, initial, NULL, NULL);
+	return modalMenu(title, subtitle, items, n, initial, NULL, NULL, NULL);
 }
 
 int dashModalMenuEdit(const char *title, const char *subtitle, DashMenuItem *items, int n, int initial,
-                     DashMenuEdit edit, void *arg)
+                     const unsigned char *popup_rows, DashMenuEdit edit, void *arg)
 {
-	return modalMenu(title, subtitle, items, n, initial, edit, arg);
+	return modalMenu(title, subtitle, items, n, initial, popup_rows, edit, arg);
 }
 
 int DashSaveConflictChoice(const char *name)

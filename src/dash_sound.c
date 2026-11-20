@@ -10,6 +10,7 @@
 #include "init.h"
 #include <audsrv.h>
 #include <iopcontrol.h>
+#include <delaythread.h>
 
 extern u8 audsrv_irx[];
 extern int size_audsrv_irx;
@@ -42,6 +43,7 @@ static int bgm_channel = -1;
 static unsigned int sound_reboot_generation; /* reset epoch when audsrv was started */
 static unsigned int sound_tried_generation = (unsigned int)-1; /* last automatic attempt */
 static int sound_retry;
+static int sound_startup_preparing;
 
 /* The UI owns this slot until submission, then the single storage worker
  * owns its RPC calls and result buffers until soundJobDone publishes them.
@@ -225,7 +227,7 @@ static void soundJobDone(void *arg)
 	}
 	if (job->warning[0])
 		dashToast(DASH_TOAST_WARN, job->warning);
-	if (!sound_closing)
+	if (!sound_closing && !sound_startup_preparing)
 		dashSoundMaintain();
 }
 
@@ -235,6 +237,22 @@ int dashSoundInit(void)
 		sound_retry = 1; /* an explicit settings action may retry a failed start */
 	dashSoundMaintain();
 	return soundRpcReady();
+}
+
+void dashSoundPrepareStartup(void)
+{
+	/* Finish before the library scan can occupy the storage worker and before
+	 * the GUI accepts input. No fonts, scene rendering or input polling are
+	 * needed for this wait. Completion publishes samples on the UI thread.
+	 * Music remains deferred until the selected startup screen is visible. */
+	sound_startup_preparing = 1;
+	dashSoundInit();
+	while (sound_job_id) {
+		dashWorkerPump();
+		if (sound_job_id)
+			DelayThread(1000);
+	}
+	sound_startup_preparing = 0;
 }
 
 void dashSoundRequestBoot(void)

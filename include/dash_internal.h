@@ -807,10 +807,12 @@ typedef struct
 int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *items, int n, int initial);
 /* Editable rows update in the same modal session. direction is -1/+1 for
  * Left/Right, or 0 for Confirm. Return nonzero when handled to keep the menu
- * open; unhandled Confirm accepts the row. The callback may update items. */
+ * open; unhandled Confirm accepts the row. The callback may update items.
+ * popup_rows marks rows whose Confirm opens another popup (play indicator);
+ * NULL or zero entries use the mirrored value arrow instead. */
 typedef int (*DashMenuEdit)(int index, int direction, void *arg);
 int dashModalMenuEdit(const char *title, const char *subtitle, DashMenuItem *items, int n, int initial,
-                     DashMenuEdit edit, void *arg);
+                     const unsigned char *popup_rows, DashMenuEdit edit, void *arg);
 /* dialog building blocks for custom modals */
 void dashModalBackdrop(float k);
 void dashModalPanel(float x, float y, float w, float h, float k);

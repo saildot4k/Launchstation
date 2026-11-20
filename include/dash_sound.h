@@ -20,6 +20,8 @@ enum DashSound {
 
 /* Queues initialization; returns ready now, without waiting for the job. */
 int dashSoundInit(void);
+/* Boot only: prepare audio before scans/input, without playing a startup cue. */
+void dashSoundPrepareStartup(void);
 void dashSoundRequestBoot(void); /* play once after background initialization */
 void dashSoundShutdown(void);
 void dashSoundSuspend(void); /* mute while a launch can still return */

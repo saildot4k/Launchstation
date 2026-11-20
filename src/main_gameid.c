@@ -21,14 +21,14 @@ static u8 calculateRetroGemCRC(const u8 *data, int len)
 	return (u8)(0x100 - crc);
 }
 
-void displayRetroGemGameID(const char *gameID, int frames)
+static void displayRetroGemGameIDOnScreen(GSGLOBAL *gid_gs, const char *gameID, int frames)
 {
-	GSGLOBAL *gid_gs;
+	int previous_alpha, previous_aa;
 	u8 data[64];
 	int gidlen, dpos, data_len, xstart, ystart, height;
 	int i, j, frame;
 
-	if (gameID == NULL || gameID[0] == '\0')
+	if (gid_gs == NULL || gameID == NULL || gameID[0] == '\0')
 		return;
 
 	gidlen = strnlen(gameID, 11);
@@ -40,20 +40,12 @@ void displayRetroGemGameID(const char *gameID, int frames)
 	else if (frames > 3)
 		frames = 3;
 
-	gid_gs = gsKit_init_global();
-	if (gid_gs == NULL)
-		return;
-
-	gid_gs->DoubleBuffering = GS_SETTING_ON;
-	dmaKit_init(D_CTRL_RELE_OFF, D_CTRL_MFD_OFF, D_CTRL_STS_UNSPEC, D_CTRL_STD_OFF, D_CTRL_RCYC_8, 1 << DMA_CHANNEL_GIF);
-	if (dmaKit_chan_init(DMA_CHANNEL_GIF) != 0) {
-		gsKit_deinit_global(gid_gs);
-		return;
-	}
-
-	gsKit_init_screen(gid_gs);
-	gsKit_display_buffer(gid_gs);
-	gsKit_mode_switch(gid_gs, GS_ONESHOT);
+	/* The barcode uses exact opaque pixel pairs, including on the existing
+	 * startup screen. Preserve the caller's drawing state and video mode. */
+	previous_alpha = gid_gs->PrimAlphaEnable;
+	previous_aa = gid_gs->PrimAAEnable;
+	gid_gs->PrimAlphaEnable = GS_SETTING_OFF;
+	gid_gs->PrimAAEnable = GS_SETTING_OFF;
 
 	memset(data, 0, sizeof(data));
 	dpos = 0;
@@ -101,6 +93,40 @@ void displayRetroGemGameID(const char *gameID, int frames)
 		gsKit_sync_flip(gid_gs);
 	}
 
+	gid_gs->PrimAlphaEnable = previous_alpha;
+	gid_gs->PrimAAEnable = previous_aa;
+}
+
+void displayStartupGameID(void)
+{
+	/* setupGS already selected the configured video mode and initialized GIF.
+	 * Send our own ID before fonts, pads or dashboard resources are loaded. */
+	displayRetroGemGameIDOnScreen(gsGlobal, "LAUNCHSTATI", 2);
+}
+
+void displayRetroGemGameID(const char *gameID, int frames)
+{
+	GSGLOBAL *gid_gs;
+
+	if (gameID == NULL || gameID[0] == '\0')
+		return;
+
+	gid_gs = gsKit_init_global();
+	if (gid_gs == NULL)
+		return;
+
+	gid_gs->DoubleBuffering = GS_SETTING_ON;
+	dmaKit_init(D_CTRL_RELE_OFF, D_CTRL_MFD_OFF, D_CTRL_STS_UNSPEC, D_CTRL_STD_OFF, D_CTRL_RCYC_8, 1 << DMA_CHANNEL_GIF);
+	if (dmaKit_chan_init(DMA_CHANNEL_GIF) != 0) {
+		gsKit_deinit_global(gid_gs);
+		return;
+	}
+
+	gsKit_init_screen(gid_gs);
+	gsKit_display_buffer(gid_gs);
+	gsKit_mode_switch(gid_gs, GS_ONESHOT);
+
+	displayRetroGemGameIDOnScreen(gid_gs, gameID, frames);
 	gsKit_deinit_global(gid_gs);
 }
 

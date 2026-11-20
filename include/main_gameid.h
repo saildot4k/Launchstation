@@ -12,6 +12,8 @@ typedef struct
 	const char *game_id;
 } PS1_GENERIC_GAME_ID;
 
+/* Send Launchstation's ID using the screen set up by the boot path. */
+void displayStartupGameID(void);
 void displayRetroGemGameID(const char *gameID, int frames);
 int buildLaunchGameID(const char *exec_path, char *gameID, size_t gameID_len);
 int buildPS1GenericGameIDFromTimestamp(const char *volume_timestamp, char *gameID, size_t gameID_len);

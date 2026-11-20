@@ -51,7 +51,7 @@ int profileSave(const char *id, const NEUTRINO_LAUNCH_OPTIONS *o);
 void dashToast(int kind, const char *text);
 typedef struct { int icon; const char *label; const char *detail; int disabled; } DashMenuItem;
 typedef int (*DashMenuEdit)(int, int, void *);
-int dashModalMenuEdit(const char *, const char *, DashMenuItem *, int, int, DashMenuEdit, void *);
+int dashModalMenuEdit(const char *, const char *, DashMenuItem *, int, int, const unsigned char *, DashMenuEdit, void *);
 int dashModalChoice(const char *, const char *const *, int, int);
 void dashSoundMaintain(void);
 """
@@ -78,11 +78,15 @@ void dashToast(int kind, const char *text) { assert(text);toast_kind=kind; }
 typedef struct { int icon; const char *label; const char *detail; int disabled; } DashMenuItem;
 typedef int (*DashMenuEdit)(int, int, void *);
 int dashModalMenuEdit(const char *title, const char *subtitle, DashMenuItem *items, int count, int selected,
-                     DashMenuEdit edit, void *arg) {
+                     const unsigned char *popup_rows, DashMenuEdit edit, void *arg) {
     assert(audio_ready); /* ISO preparation can replace the IOP before entry. */
     assert(title && subtitle && selected == 0 && (count == 11 || count == 13));
     assert(edit && arg && !step);menus++;
-    for (int i = 0; i < count; i++) assert(items[i].label && !items[i].disabled);
+    assert(popup_rows);
+    for (int i = 0; i < count; i++) {
+        assert(items[i].label && !items[i].disabled);
+        assert(popup_rows[i] == (i == 6 || i == 7));
+    }
     assert(!strcmp(items[0].label, "Run game") && items[0].detail == NULL);
     assert(!strcmp(items[1].label, "Fast disc reads"));
     while(step < 100) {
