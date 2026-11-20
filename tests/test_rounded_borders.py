@@ -39,7 +39,7 @@ typedef uint64_t u64;
 typedef struct { u8 r,g,b,a; } DashColor;
 typedef struct { int Width,Height; u32 *Mem; } GSTEXTURE;
 static GSTEXTURE tex_corner,tex_ring;
-static float g_alpha=1;
+static float g_alpha=1,g_sy=1,g_ox,g_oy;
 static struct { int corner,highlight; } dashTheme;
 enum { DASH_CORNER_SQUARE,DASH_CORNER_SOFT,DASH_CORNER_ROUND };
 enum { DASH_HL_FILL,DASH_HL_BAR,DASH_HL_OUTLINE,DASH_HL_TEXT };
@@ -58,6 +58,8 @@ typedef struct {
     DashColor c;
     GSTEXTURE *tex;
 } Primitive;
+static inline float SX(float x);
+static inline float SY(float y);
 static Primitive primitives[256];
 static int count;
 static void dashQuadG(float x1,float y1,float x2,float y2,float x3,float y3,float x4,float y4,
@@ -67,6 +69,11 @@ static void dashQuadG(float x1,float y1,float x2,float y2,float x3,float y3,floa
     /* Convert the renderer's triangle-strip order to perimeter order. */
     p->x[0]=x1;p->y[0]=y1;p->x[1]=x2;p->y[1]=y2;
     p->x[2]=x4;p->y[2]=y4;p->x[3]=x3;p->y[3]=y3;
+    /* Model actual GS coordinates, including PAL scaling and 12.4 vertices. */
+    for(int i=0;i<4;i++) {
+        p->x[i]=floorf(SX(p->x[i])*16)/16;
+        p->y[i]=floorf(SY(p->y[i])*16)/16;
+    }
 }
 static void dashRect(float x,float y,float w,float h,DashColor c) {
     if(w<=0 || h<=0 || !c.a || g_alpha<=0)return;
@@ -119,7 +126,17 @@ code += function(gfx, "DashColor dashColorLerp(")
 code += function(gfx, "static inline u32 whiteA(")
 code += function(gfx, "static void buildCornerTextures(")
 code += function(theme, "float dashThemeRadius(")
+code += function(gfx, "static inline float SX(")
+code += function(gfx, "static inline float SY(")
+if "static int roundedGeometry(" in gfx:
+    code += function(gfx, "static int roundedGeometry(")
+for signature in ("static float roundedX(", "static float roundedY(", "static void roundedRectGradV("):
+    if signature in gfx:
+        code += function(gfx, signature)
 code += function(gfx, "static void panelCorners(")
+for signature in ("static void borderRect(", "static void borderPixels(", "static void borderSpan(", "static float cornerInset(", "static void borderRow("):
+    if signature in gfx:
+        code += function(gfx, signature)
 if "static void borderCorner(" in gfx:
     code += function(gfx, "static void borderCorner(")
 code += "void dashRoundedGradV(float,float,float,float,float,DashColor,DashColor);\n"
@@ -148,12 +165,55 @@ static void samePixel(float x,float y,const float expected[3]) {
         if(fabsf(actual[channel]-expected[channel])>0.5f) {
             fprintf(stderr,"border mismatch at %.3f,%.3f: %.2f versus %.2f (corner=%d style=%d)\n",
                     x,y,actual[channel],expected[channel],dashTheme.corner,dashTheme.highlight);
+            fprintf(stderr,"scale=%.4f offsets=%.4f,%.4f\n",g_sy,g_ox,g_oy);
             abort();
+        }
+    }
+}
+static void mirroredShape(float x,float y,float w,float h,float radius) {
+    int left=(int)floorf(SX(x)+0.5f),top=(int)floorf(SY(y)+0.5f);
+    int width=(int)floorf(SX(x+w)+0.5f)-left,height=(int)floorf(SY(y+h)+0.5f)-top;
+    int cols=(width+1)/2,rows=(height+1)/2;
+    float fill[32][32];
+    if(cols>24)cols=24;
+    if(rows>24)rows=24;
+    for(int style=0;style<3;style++) {
+        DashColor white={255,255,255,255};count=0;
+        if(style==0)dashPanel(x,y,w,h,radius,white);
+        else if(style==1)dashPanelBorder(x,y,w,h,radius,white);
+        else {dashTheme.highlight=DASH_HL_FILL;dashDrawSelection(x,y,w,h,radius,0.7f);}
+        for(int row=0;row<rows;row++)for(int col=0;col<cols;col++) {
+            float expected[3];sample(left+col,top+row,expected);
+            if(style==0)fill[row][col]=(expected[0]-11)/244;
+            if(style==1 && expected[0]>254 && fill[row][col]<0.1f) {
+                fprintf(stderr,"outline outside fill at %d,%d r=%.2f mode=%.3f\n",col,row,radius,g_sy);abort();
+            }
+            samePixel(left+width-1-col,top+row,expected);
+            samePixel(left+col,top+height-1-row,expected);
+            samePixel(left+width-1-col,top+height-1-row,expected);
         }
     }
 }
 int main(void) {
     buildCornerTextures();
+    const float scales[]={1,512.0f/448};
+    const float sizes[][3]={{120,40,14},{121,21,9},{73,23,1.5f},{13,3,9}};
+    for(int corner=1;corner<=2;corner++)for(int mode=0;mode<2;mode++)
+    for(int phase=0;phase<4;phase++)for(unsigned shape=0;shape<sizeof(sizes)/sizeof(*sizes);shape++) {
+        dashTheme.corner=corner;g_sy=scales[mode];g_ox=phase*0.1875f;g_oy=phase*0.28125f;
+        mirroredShape(20.0f+phase*0.125f,10.0f+phase*0.125f,sizes[shape][0],sizes[shape][1],sizes[shape][2]);
+    }
+    g_sy=1;g_ox=g_oy=0;
+    /* GS pixels are sampled at integer coordinates. Reflect every pixel,
+     * rather than checking only ideal arc points inside the stroke. */
+    dashTheme.corner=DASH_CORNER_ROUND;
+    count=0;dashPanel(20,10,120,40,9,(DashColor){80,120,180,170});
+    for(int row=0;row<40;row++)for(int col=0;col<120;col++) {
+        float expected[3];sample(20+119-col,10+row,expected);
+        samePixel(20+col,10+row,expected);
+        sample(20+col,10+39-row,expected);
+        samePixel(20+col,10+row,expected);
+    }
     const float radii[]={4,6,9,14,16};
     const float strengths[]={0.35f,0.7f,1.0f};
     for(int corner=0;corner<3;corner++) for(int mode=0;mode<2;mode++)
@@ -163,15 +223,21 @@ int main(void) {
         float r=dashThemeRadius(radii[radius]),w=120,h=40;
         float x=13.25f,y=7.125f,reference[3],background[3]={11,17,23};
         count=0;dashDrawSelection(x,y,w,h,radii[radius],strengths[strength]);
+        if(r>=1) { x=floorf(x+0.5f)-0.5f;y=floorf(y+0.5f)-0.5f; }
         sample(x+w/2,y+1,reference);
         samePixel(x+w/2,y+h-1,reference);
         samePixel(x+1,y+h/2,reference);samePixel(x+w-1,y+h/2,reference);
         if(r>=2) {
-            for(int quadrant=0;quadrant<4;quadrant++) for(int angle=1;angle<18;angle++) {
-                float a=angle*1.57079632679f/18,depth=r-1;
-                float sx=(quadrant&1)?1:-1,sy=(quadrant&2)?1:-1;
-                float cx=(quadrant&1)?x+w-r:x+r,cy=(quadrant&2)?y+h-r:y+r;
-                samePixel(cx+sx*depth*cosf(a),cy+sy*depth*sinf(a),reference);
+            for(int angle=1;angle<18;angle++) {
+                float a=angle*1.57079632679f/18,depth=r-1,curve[3];
+                float px=floorf(x+r-depth*cosf(a)+0.5f);
+                float py=floorf(y+r-depth*sinf(a)+0.5f);
+                /* Antialiased edges legitimately have partial coverage;
+                 * their tint and coverage must match in every quadrant. */
+                sample(px,py,curve);
+                samePixel(2*x+w-px,py,curve);
+                samePixel(px,2*y+h-py,curve);
+                samePixel(2*x+w-px,2*y+h-py,curve);
             }
             samePixel(x+0.05f,y+0.05f,background); /* keep the rounded cutout */
             samePixel(x+w-0.05f,y+h-0.05f,background);
@@ -253,6 +319,7 @@ int main(void) {
         }
     }
     free(tex_corner.Mem);free(tex_ring.Mem);
+    puts("PASS: rounded fill/outline pixel reflections agree in NTSC/PAL, fractional modal offsets, odd/even dimensions and small-radius controls");
     puts("PASS: equal border tint/opacity on all four corners and straight edges, square/soft/round, solid/outline, translucent strength and rounded cutouts");
     puts("PASS: scrollbar track and thumb match left-to-right on the pixel grid at every scroll position and corner style");
     puts("PASS: progress track/fill caps mirror horizontally and vertically; tiny fills remain inside the track across corner styles and modal fades");
@@ -263,6 +330,6 @@ assert cc, "Host C compiler required"
 with tempfile.TemporaryDirectory(prefix="launchstation-rounded-borders-") as folder:
     path = Path(folder)
     (path / "test.c").write_text(code)
-    subprocess.run([cc, "-std=c11", "-Wall", "-Wextra", "-Werror",
+    subprocess.run([cc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
                     str(path / "test.c"), "-lm", "-o", str(path / "test")], check=True)
     subprocess.run([str(path / "test")], check=True, timeout=10)
