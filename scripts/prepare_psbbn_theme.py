@@ -9,7 +9,7 @@ layers the dashboard can use into small PS2-friendly PNGs:
     THEME/stars1.png      256x128  far star layer, additive (space_layer1.png)
     THEME/stars2.png      256x128  near star layer, additive (space_layer2.png)
 
-Copy the resulting THEME folder next to LAUNCHELF.CNF (or to mc0:/SYS-CONF/
+Copy the resulting THEME folder next to LAUNCHSTATION.CNF (or to mc0:/SYS-CONF/
 if the configuration lives there). The dashboard loads each file lazily,
 caps every image at 256x256 in RAM (128 KB CT32 each) and falls back to its
 procedural background when a file is missing.

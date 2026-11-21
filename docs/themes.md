@@ -268,7 +268,7 @@ order) are used.
     app.png            optional default application icon (app_icon =)
 ```
 
-`<dashboard folder>` is where DASHBOARD.CNF lives: next to LAUNCHELF.CNF
+`<dashboard folder>` is where DASHBOARD.CNF lives: next to LAUNCHSTATION.CNF
 when it was loaded from a writable device, otherwise `mc0:/SYS-CONF/`.
 The easiest start is *Export theme to folder...*, which writes a complete
 `theme.cfg` for the current theme; copy that folder to a PC, edit it, copy
@@ -394,7 +394,7 @@ Edits are written about a second after the last button press (and always
 before an application starts or a classic screen opens), so adjusting a
 color does not write the memory card on every step. Older dashboard
 versions ignore these keys; a DASHBOARD.CNF without them loads PS2 Towers.
-LAUNCHELF.CNF is never touched.
+LAUNCHSTATION.CNF is never touched.
 
 The optional PSBBN layers in `<dashboard folder>/THEME/` (`background.png`,
 `stars1.png`, `stars2.png`) are still used by the *Crystal* background.

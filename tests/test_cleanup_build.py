@@ -30,7 +30,14 @@ code = r'''
 #define MAX_PATH 1024
 #define MAX_NAME 256
 enum BOOT_DEVICE {BOOT_DEVICE_TEST=3};
-static int boot_argc,cdmode,phase,boot_calls;
+static int boot_argc,cdmode,phase,boot_calls,swapKeys,console_is_PSX;
+static int load_error=-1,config_loads;
+static struct {int swapKeys;} config,*setting=&config;
+static char LaunchElfDir[MAX_PATH]="usb0:/BOOT/",LaunchElfBootDir[MAX_PATH]="usb0:/BOOT/";
+#define DPRINTF(...) ((void)0)
+#define FALSE 0
+#define TRUE 1
+static void checkSaveTargets(const char *filename);
 static char *boot_argv[8];
 static char boot_path[MAX_PATH],mainMsg[MAX_PATH],CNF[MAX_NAME];
 static char default_ESR_path[]="mc:/BOOT/ESR.ELF";
@@ -40,21 +47,63 @@ static void filerSizeCacheInit(void) {assert(phase++==0);}
 '''
 code += function((ROOT/'src/main_boot.c').read_text(), 'void captureBootArguments(')
 code += r'''
-static enum BOOT_DEVICE performEarlyBootInitialization(const char *arg,char *path,size_t n,
- char *message,char *cnf,size_t cnf_size,int *error) {
- assert(phase++==1 && arg==(boot_argc?boot_argv[0]:NULL));
- snprintf(path,n,"usb0:/BOOT.ELF");snprintf(cnf,cnf_size,"usb0:/LAUNCHELF.CNF");
- assert(message==mainMsg);*error=-1;return BOOT_DEVICE_TEST;
+static void Reset(void) {assert(phase++==1);}
+static void Init_Default_Language(void) {}
+static int wleExists(const char *p) {assert(!strcmp(p,"rom0:PSXVER"));return 0;}
+static enum BOOT_DEVICE prepareBootDeviceAndPath(const char *arg,char *path,size_t size) {
+ assert(arg==(boot_argc?boot_argv[0]:NULL));snprintf(path,size,"usb0:/BOOT.ELF");return BOOT_DEVICE_TEST;
 }
+static void bringUpBootDeviceStack(enum BOOT_DEVICE boot) {assert(boot==BOOT_DEVICE_TEST);}
+static void initializeBootDisplayDefaults(void) {}
+static int loadConfig(char *message,char *filename) {
+ assert(message==mainMsg&&!strcmp(filename,"LAUNCHSTATION.CNF"));config_loads++;return load_error;
+}
+static void uLE_InitializeRegion(void) {strcpy(ROMVER_data,"0220EC20060210");}
+static void mapDefaultFileBrowserLaunchKeyToOkButton(void) {}
+static void bringUpBootNetworkStack(enum BOOT_DEVICE boot) {assert(boot==BOOT_DEVICE_TEST);}
+static void initializeBootGraphics(void) {assert(config_loads);}
+'''
+code += function((ROOT/'src/main_boot.c').read_text(), 'enum BOOT_DEVICE performEarlyBootInitialization(')
+code += r'''
 static void initializeRuntimeInputModules(enum BOOT_DEVICE boot) {assert(phase++==2&&boot==BOOT_DEVICE_TEST);}
-static void initializeRuntimeDisplayModules(int error,char *message) {assert(phase++==3&&error==-1&&message==mainMsg);}
+static void initializeRuntimeDisplayModules(int error,char *message) {assert(phase++==3&&error==load_error&&message==mainMsg);}
 static void validateConfiguredCnfPath(void) {assert(phase++==4);}
 static void DashRun(const MainExecuteContext *ctx,int from_boot) {
  assert(phase++==5&&from_boot&&cdmode==-1&&ctx->elf_iop_mode==MAIN_ELF_IOP_DEFAULT);
  assert(ctx->boot_argc==boot_argc&&ctx->boot_argv==boot_argv&&ctx->boot_path==boot_path);
  assert(ctx->main_msg==mainMsg&&ctx->cnf_path==CNF&&ctx->rough_region==rough_region);
  assert(ctx->default_esr_path==default_ESR_path&&ctx->default_osdsys_path==default_OSDSYS_path);
- assert(ctx->default_osdsys_path2==default_OSDSYS_path2&&ctx->romver_data==ROMVER_data);boot_calls++;
+ assert(ctx->default_osdsys_path2==default_OSDSYS_path2&&ctx->romver_data==ROMVER_data);
+ checkSaveTargets(ctx->cnf_path);boot_calls++;
+}
+'''
+config_source = (ROOT/'src/config.c').read_text()
+code += r'''
+static int CheckMC(void) {return 1;}
+static int configGetPreferredSysconfPort(const char *file,const char *loaded) {
+ assert(file&&loaded);return 1;
+}
+'''
+for signature in ('void configAppendPathFile(', 'static void configResolveMcAliasPath(',
+                  'static void configBuildSysconfPathForLoaded(', 'static void configBuildSaveTargetsFrom('):
+    code += function(config_source, signature)
+code += r'''
+static void checkSaveTargets(const char *filename) {
+ char override[MAX_PATH],cwd[MAX_PATH],sysconf[MAX_PATH];int has_override;
+ assert(!strcmp(filename,"LAUNCHSTATION.CNF"));
+ const char *folders[]={"mc0:/Config", "mc:/Config/", "usb1:/Config/", "hdd0:/__sysconf/Config"};
+ const char *expected[]={"mc0:/Config/LAUNCHSTATION.CNF", "mc1:/Config/LAUNCHSTATION.CNF",
+                         "usb1:/Config/LAUNCHSTATION.CNF", "hdd0:/__sysconf/Config/LAUNCHSTATION.CNF"};
+ for(unsigned i=0;i<sizeof(folders)/sizeof(*folders);i++) {
+  configBuildSaveTargetsFrom(override,sizeof(override),cwd,sizeof(cwd),sysconf,sizeof(sysconf),
+                            filename,"usb0:/BOOT/LAUNCHSTATION.CNF",&has_override,folders[i]);
+  assert(has_override&&!strcmp(override,expected[i]));
+  assert(!strcmp(cwd,"usb0:/BOOT/LAUNCHSTATION.CNF"));
+  assert(!strcmp(sysconf,"mc1:/SYS-CONF/LAUNCHSTATION.CNF"));
+ }
+ configBuildSaveTargetsFrom(override,sizeof(override),cwd,sizeof(cwd),sysconf,sizeof(sysconf),
+                           filename,"usb0:/BOOT/LAUNCHSTATION.CNF",&has_override,"");
+ assert(!has_override&&!override[0]);
 }
 '''
 code += function(main, 'int main(').replace('int main(', 'static int startup(')
@@ -62,12 +111,15 @@ code += r'''
 int main(void) {
  char *args[]={"usb0:/BOOT.ELF","one","two","three","four","five","six","seven","eight"};
  for(int count=0;count<=9;count++) {
-  phase=0;memset(boot_argv,0,sizeof(boot_argv));
+  phase=0;load_error=count%2?-1:0;memset(boot_argv,0,sizeof(boot_argv));
   assert(startup(count,args)==0&&phase==6);
   for(int i=0;i<count&&i<8;i++)assert(boot_argv[i]==args[i]);
  }
- assert(boot_calls==10);
- puts("PASS: actual startup entry retains initialization order, arguments, paths and default launch policy without a classic shell");
+ assert(boot_calls==10&&config_loads==10);
+ phase=1;boot_argc=0;
+ assert(performEarlyBootInitialization(NULL,boot_path,sizeof(boot_path),mainMsg,NULL,0,NULL)==BOOT_DEVICE_TEST);
+ assert(config_loads==11);
+ puts("PASS: actual startup entry retains initialization order, arguments, paths, LAUNCHSTATION.CNF load/save targets (including overrides), and default launch policy");
 }
 '''
 

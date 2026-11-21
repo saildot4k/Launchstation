@@ -57,7 +57,7 @@ enum BOOT_DEVICE performEarlyBootInitialization(const char *arg0, char *boot_pat
 		cnf_path_buf = local_cnf_path;
 		cnf_path_buf_len = sizeof(local_cnf_path);
 	}
-	snprintf(cnf_path_buf, cnf_path_buf_len, "%s", "LAUNCHELF.CNF");
+	snprintf(cnf_path_buf, cnf_path_buf_len, "%s", "LAUNCHSTATION.CNF");
 	local_cnf_error = loadConfig(main_msg, cnf_path_buf);
 	if (local_cnf_error < 0) {
 		/* No config loaded: default pad mapping from ROM region.

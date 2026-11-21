@@ -317,8 +317,8 @@ static const SetItem system_items[] = {
     {ST_PAGE, P_PSU, "Memory card backup files", "PSU naming and overwrite rules used by File Browser operations."},
     {ST_ACTION, S_CLOCK, "Set PS2 Clock", "Set the console's date and time manually or synchronize from the Internet."},
     {ST_CHOICE, S_TEMP_UNITS, "PS2 Temperature Units (50K and later)", "Celsius or Fahrenheit beside the clock. Hidden automatically when the console has no supported temperature sensor."},
-    {ST_PATH, S_CNF_PATH, "Configuration override folder", "Load and save LAUNCHELF.CNF in this folder instead of the default places."},
-    {ST_ACTION, S_SAVE_AS, "Save launch & tool settings to...", "Writes LAUNCHELF.CNF immediately to another location; dashboard and network settings are saved separately."},
+    {ST_PATH, S_CNF_PATH, "Configuration override folder", "Load and save LAUNCHSTATION.CNF in this folder instead of the default places."},
+    {ST_ACTION, S_SAVE_AS, "Save launch & tool settings to...", "Writes LAUNCHSTATION.CNF immediately to another location; dashboard and network settings are saved separately."},
 };
 
 #define NITEMS(a) ((int)(sizeof(a) / sizeof(a[0])))
@@ -1616,7 +1616,7 @@ static void cfgSaveDone(void *arg)
 
 static int cfgSave(int kind, int target, const char *path);
 
-/* LAUNCHELF.CNF now, where it was loaded from (File Browser bookmarks) */
+/* LAUNCHSTATION.CNF now, where it was loaded from (File Browser bookmarks) */
 int dashSettingsSaveCnf(void)
 {
 	return cfgSave(CFG_SAVE_CNF, -2, NULL);

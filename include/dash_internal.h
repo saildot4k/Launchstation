@@ -1007,7 +1007,7 @@ void dashFileBrowser(const char *start_dir);        /* dash_browser.c */
 void dashFileBrowserTabClose(void);                /* release inactive-tab state */
 int dashBrowserPadInputReady(void);              /* global USB fileXio / pad guard */
 void dashFileBrowserTabOpen(const char *start_dir);/* navigate within Files tab */
-int dashSettingsSaveCnf(void);                      /* LAUNCHELF.CNF now */
+int dashSettingsSaveCnf(void);                      /* LAUNCHSTATION.CNF now */
 /* classic dialogs (ynDialog/nonDialog/keyboard) as dashboard dialogs */
 void dashClassicUiInstall(int on);
 void dashClassicUiDone(void);

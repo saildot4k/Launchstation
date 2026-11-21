@@ -2,6 +2,7 @@
 
 ## Rolling
 
+- **Main configuration filename:** startup and main-config saves now use `LAUNCHSTATION.CNF`, including override-folder save targets. Existing search locations and companion configuration filenames are retained. Rename or copy an existing `LAUNCHELF.CNF` to keep using its settings.
 - **Cleanup:** removed the unused startup-sound payload/request path, obsolete Devices list/grid views and setting, old main-menu loop, and unused UI helpers. Saved Devices start-screen values still open Files. Both build definitions discard unused data; embedded payloads now have independent sections so unused blobs can be removed by the linker.
 - **Neutrino indicators:** in-place switches use the right arrow; Video mode and Video compatibility keep the play indicator because Confirm opens a choice popup.
 - **Home controls:** removed the Square favorite shortcut and its hint from Continue and Applications. Favorites remain available through Options.

@@ -94,7 +94,7 @@ and the HOST ioctl.
 
 | Existing file | Responsibility |
 | --- | --- |
-| [config.c](../src/config.c) | LAUNCHELF.CNF defaults/parser/serializer, save destinations and classic configuration entry menu. |
+| [config.c](../src/config.c) | LAUNCHSTATION.CNF defaults/parser/serializer, save destinations and classic configuration entry menu. |
 | [config_screen.c](../src/config_screen.c) | Classic screen/display configuration UI. |
 | [config_startup.c](../src/config_startup.c) | Classic startup configuration UI. |
 | [config_network.c](../src/config_network.c) | Classic network UI and IPCONFIG snapshot/write behavior. |
