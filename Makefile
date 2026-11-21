@@ -37,7 +37,7 @@ EE_OBJS = main.o main_actions.o main_boot.o main_modules.o main_title.o main_inf
 	poweroff_irx.o iomanx_irx.o filexio_irx.o ps2dev9_irx.o dev9_poweroff_irx.o \
 	ps2hdd_irx.o ps2fs_irx.o usbd_irx.o mcman_irx.o mcserv_irx.o \
 	cdvd_irx.o xparam_irx.o vmcman_irx.o ps2kbd_irx.o \
-	hdd.o hdd_filesystem.o hdd_header_injector.o hdl_rpc.o hdl_info_irx.o editor.o editor_menu.o editor_input.o editor_rules.o editor_file.o timer.o icon.o lang.o popstarter.o popstarter_path.o popstarter_vcd.o popstarter_gameid.o popstarter_elf.o ember.o ember_gameid.o neutrino_iso.o gui_neutrino.o \
+	hdd.o hdd_filesystem.o hdd_apa_boundary.o hdd_format.o hdd_format_recovery.o hdd_format_upcase.o hdd_format_ps2.o hdd_format_irx.o libhdd.o hdd_header_injector.o hdl_rpc.o hdl_info_irx.o editor.o editor_menu.o editor_input.o editor_rules.o editor_file.o timer.o icon.o lang.o popstarter.o popstarter_path.o popstarter_vcd.o popstarter_gameid.o popstarter_elf.o ember.o ember_gameid.o neutrino_iso.o gui_neutrino.o \
 	font_uLE.o makeicon.o chkesr.o allowdvdv_irx.o \
 	dash_main.o dash_clock_sync.o dash_ftp.o ftp_session.o dash_gfx.o dash_profile.o dash_vu_math.o dash_vu1.o dash_font.o dash_font_data.o dash_font_emotion_engine.o dash_font_emotion_engine_bold.o dash_icons.o dash_png.o dash_art.o dash_bg.o dash_bg_ps2.o dash_bg_geo.o dash_store.o dash_lib.o dash_devices.o dash_ui.o dash_home.o dash_apps.o dash_tools.o dash_settings.o dash_settings_clock.o dash_settings_theme.o dash_theme.o dash_themes.o dash_sound.o dash_worker.o dash_io.o dash_widgets.o dash_info.o dash_image.o dash_jpeg.o dash_editor.o dash_hdd.o dash_browser.o dash_exploit.o \
 	exploit_system_xlf_header.o exploit_xsystem_xlf_header.o exploit_dtl_system_xlf_header.o exploit_xlf_body.o \
@@ -55,7 +55,7 @@ DVP_AS ?= $(if $(wildcard $(PS2DEV)/tools/dvp-as),$(PS2DEV)/tools/dvp-as,$(PS2DE
 endif
 
 EE_INCS := -I$(PS2DEV)/gsKit/include -I$(PS2SDK)/ports/include -Iinclude
-EE_INCS += -Ipackages/world/audsrv/include
+EE_INCS += -Ipackages/world/audsrv/include -Iee_libs/hdd/include
 
 EE_LDFLAGS := -Wl,--gc-sections -L$(PS2DEV)/gsKit/lib -L$(PS2SDK)/ports/lib -Liop/oldlibs/libcdvd/lib -s -Wl,--no-warn-mismatch
 EE_LDFLAGS += -Lpackages/world/audsrv/lib
@@ -67,7 +67,7 @@ EE_MATH_LIB := -lmf
 endif
 
 # Newer PS2SDK libpatches can have backward intra-archive references.
-EE_LIBS = -Wl,--start-group -lgskit -ldmakit -lpng -lz -ljpeg -lmc -lhdd -lkbd $(EE_MATH_LIB) \
+EE_LIBS = -Wl,--start-group -lgskit -ldmakit -lpng -lz -ljpeg -lmc -lkbd $(EE_MATH_LIB) \
 			-lcdvd -lc -lfileXio -lpatches -lpoweroff -ldebug -laudsrv
 EE_CFLAGS := -ffunction-sections -fdata-sections -mgpopt -G10240 -G0 -DNEWLIB_PORT_AWARE -D_EE
 EE_CFLAGS += -DDASH_PROFILE=$(DASH_PROFILE) -DDASH_VU0=$(DASH_VU0) -DDASH_VU1=$(DASH_VU1) -DDASH_VU1_REFERENCE=$(DASH_VU1_REFERENCE)
@@ -367,6 +367,7 @@ clean:
 	$(MAKE) -C iop/oldlibs/libcdvd clean
 	$(MAKE) -C iop/oldlibs/ps2ftpd clean
 	$(MAKE) -C iop/ps2hdd_osd clean
+	$(MAKE) -C iop/hdd_format clean
 	$(MAKE) -C iop/dev9_poweroff clean
 	@rm -f githash.h $(EE_BIN) $(EE_BIN_PKD)
 	@rm -rf $(EE_OBJS_DIR)
@@ -417,3 +418,6 @@ $(EE_OBJS_DIR)%.o: $(EE_SRC_DIR)%.cpp | $(EE_OBJS_DIR)
 include embed.make
 include $(PS2SDK)/samples/Makefile.pref
 include $(PS2SDK)/samples/Makefile.eeglobal
+
+$(EE_OBJS_DIR)libhdd.o: ee_libs/hdd/libhdd.c include/hdd_format.h | $(EE_OBJS_DIR)
+	$(EE_CC) $(EE_CFLAGS) $(EE_INCS) -Iee_libs/hdd/include -c $< -o $@

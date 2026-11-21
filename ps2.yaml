@@ -83,6 +83,15 @@ targets:
     exports_tab: iop/hdl_info/exports.tab
     headers: [atad, cdvd, dev9, iomanx, sifcmd, stdio, sysclib, sysmem, threadman, intrman]
 
+  - name: hdd_format
+    type: iop
+    sources: [iop/hdd_format/main.c]
+    include_dirs: [iop/hdd_format, include]
+    imports_lst: iop/hdd_format/imports.lst
+    defines: [EXFAT]
+    cflags: [-Wall, -Wextra]
+    headers: [atad, bdm, loadcore, sifcmd, sysclib, threadman]
+
   - name: ps2hdd_osd
     type: iop
     sources:
@@ -337,6 +346,11 @@ targets:
       - src/filer_save_progress.c
       - src/hdd.c
       - src/hdd_filesystem.c
+      - src/hdd_apa_boundary.c
+      - src/hdd_format.c
+      - src/hdd_format_recovery.c
+      - src/hdd_format_upcase.c
+      - src/hdd_format_ps2.c
       - src/hdd_header_injector.c
       - src/hdl_rpc.c
       - src/editor.c
@@ -471,6 +485,7 @@ targets:
       - vmcman
       - kbd:ps2kbd
       - hdl_info
+      - hdd_format
       - allowdvdv
       - secrsif
       - xfromman

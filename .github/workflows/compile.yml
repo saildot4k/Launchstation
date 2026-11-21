@@ -27,7 +27,7 @@ jobs:
       - name: Install save-format host test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y zlib1g-dev openssl
+          sudo apt-get install -y zlib1g-dev openssl exfatprogs e2fsprogs
 
       - name: Test Settings sessions, navigation and theme compatibility
         run: |
@@ -110,6 +110,8 @@ jobs:
           python3 tests/test_hdd_manager_browse.py
           python3 tests/test_hdd_manager_mounts.py
           python3 tests/test_hdd_filesystem.py
+          python3 tests/test_hdd_format.py
+          python3 tests/test_hdd_format_ui.py
           python3 tests/test_zack_oct_2026.py
           python3 tests/test_wallpaper_docs.py
           python3 tests/test_r3z_oct15_backport.py

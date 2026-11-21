@@ -2,6 +2,7 @@
 //File name:    hdd.c
 //--------------------------------------------------------------
 #include "launchelf.h"
+#include "hdd_format.h"
 #include "hdd_header_injector.h"
 
 #define MAX_PARTGB 128                  //Partition MAX in GB
@@ -71,6 +72,15 @@ static int numParty;
 static u32 hddSize, hddFree, hddFreeSpace, hddUsed;
 static int hddConnected, hddFormated, hddRealStatus;
 static HddHeaderSourcePartition hdd_header_source_partitions[MAX_PARTITIONS];
+
+static void refreshApaFree(void)
+{
+	uint32_t capacity = 0;
+	if (hddGetApaCapacity(&capacity) < 0) capacity = 0;
+	capacity /= SECTORS_PER_MB;
+	hddFreeSpace = capacity > hddUsed ? (capacity - hddUsed) & 0x7FFFFF80 : 0;
+	hddFree = hddSize ? hddFreeSpace * 100 / hddSize : 0;
+}
 
 static int getCenteredListTop(int selected, int count, int rows)
 {
@@ -421,8 +431,7 @@ void GetHddInfo(void)
 		}  //Ends clause for finding brand new name for PartyInfo[numParty]
 	}      //ends main while loop
 	fileXioDclose(hddFd);
-	hddFreeSpace = (hddSize - hddUsed) & 0x7FFFFF80;  //free space rounded to useful area
-	hddFree = (hddFreeSpace * 100) / hddSize;         //free space percentage
+	refreshApaFree();
 
 end:
 	drawMsg(tooManyPartitions ? LNG(HDD_Information_Read_Overflow) : LNG(HDD_Information_Read));
@@ -1025,8 +1034,7 @@ int RemoveParty(PARTYINFO Info)
 
 	if (ret == 0) {
 		hddUsed -= Info.TotalSize;
-		hddFreeSpace = (hddSize - hddUsed) & 0x7FFFFF80;  //free space rounded to useful area
-		hddFree = (hddFreeSpace * 100) / hddSize;         //free space percentage
+		refreshApaFree();
 		numParty--;
 		if (Info.Count == numParty) {
 			memset(&PartyInfo[numParty], 0, sizeof(PARTYINFO));
@@ -1183,8 +1191,7 @@ int ExpandParty(PARTYINFO Info, int size)
 
 	if (ret > 0) {
 		hddUsed += size;
-		hddFreeSpace = (hddSize - hddUsed) & 0x7FFFFF80;  //free space rounded to useful area
-		hddFree = (hddFreeSpace * 100) / hddSize;         //free space percentage
+		refreshApaFree();
 
 		PartyInfo[Info.Count].TotalSize += size;
 		PartyInfo[Info.Count].FreeSize += size;
