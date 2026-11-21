@@ -24,17 +24,19 @@ c = r'''
 #include <string.h>
 static int active=1, worker, loading_active=1, frames, reports, stats;
 static char last[128];
+static int last_done,last_total;
 static int DashIsActive(void) { return active; }
 static int isStartupDriverStatusQuiet(void) { return 0; }
 static int dashWorkerOnThread(void) { return worker; }
 static void dashWorkerStatus(const char *s,int d,int t) {
-    (void)d;(void)t; reports++; snprintf(last,sizeof(last),"%s",s);
+    last_done=d;last_total=t; reports++; snprintf(last,sizeof(last),"%s",s);
 }
 static void dashLoadingFrame(const char *s,int d,int t) {
-    (void)d;(void)t; assert(!worker); frames++; snprintf(last,sizeof(last),"%s",s);
+    last_done=d;last_total=t; assert(!worker); frames++; snprintf(last,sizeof(last),"%s",s);
 }
 '''
 c += function("src/dash_ui.c", "void DashStorageProbeStatus(")
+c += function("src/dash_ui.c", "void DashStorageProgress(")
 c += r'''
 #define EXFAT 1
 #define DPRINTF(...) ((void)0)
@@ -68,7 +70,13 @@ int main(void) {
     DashStorageProbeStatus("no overlay"); assert(frames==4);
     active=0; worker=1;
     DashStorageProbeStatus("classic"); assert(reports==4);
-    puts("PASS: pre-RPC USB slot/result status; worker and classic render isolation");
+    active=1;worker=0;loading_active=1;
+    DashStorageProgress("Installing update",2,9);
+    assert(frames==5 && last_done==2 && last_total==9);
+    worker=1;DashStorageProgress("Installing update",3,9);
+    assert(frames==5 && reports==5 && last_done==3 && last_total==9);
+    active=0;DashStorageProgress("Installing update",4,9);assert(reports==5);
+    puts("PASS: pre-RPC USB slot/result status and counted install progress; worker and classic render isolation");
 }
 '''
 compiler = shutil.which("gcc") or shutil.which("clang")

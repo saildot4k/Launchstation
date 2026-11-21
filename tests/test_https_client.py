@@ -16,11 +16,11 @@ build = (root / 'scripts/build_https_tls.sh').read_text()
 profile = (root / 'include/https_mbedtls_config.h').read_text()
 
 
-def function(signature):
-    start = http.index(signature)
+def function(signature, source=http):
+    start = source.index(signature)
     # Ignore braces inside strings, character literals and comments.
     tokens = re.finditer(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|/\*.*?\*/|//[^\n]*|[{}]',
-                         http[start:], re.S)
+                         source[start:], re.S)
     depth = 0
     for token in tokens:
         if token.group() == '{':
@@ -28,7 +28,7 @@ def function(signature):
         elif token.group() == '}':
             depth -= 1
             if depth == 0:
-                return http[start:start + token.end()] + '\n'
+                return source[start:start + token.end()] + '\n'
     raise AssertionError('Unclosed function: ' + signature)
 
 
@@ -72,6 +72,7 @@ c = r'''
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#define MAX_PATH 1024
 #define HTTPS_HEADER_MAX 12288
 #define HTTPS_IO 16384
 #define MBEDTLS_ERR_SSL_WANT_READ -10
@@ -93,6 +94,8 @@ static const char *replies[8];
 static char requests[8][4096], hosts[8][256], output[1024];
 static int connections, closed, reply_at, read_step, output_at, write_step;
 static int want_read, timeout, fail_write, fail_read;
+static int progress_calls,progress_done,progress_total;
+static int ui_calls,ui_done,ui_total,download_closes,download_removes,fail_close;
 static void set_error(char *e,int cap,const char *s,int r) {
     (void)r;if(e && cap>0)snprintf(e,cap,"%s",s);
 }
@@ -131,6 +134,8 @@ static void reset(void) {
     memset(hosts,0,sizeof(hosts));memset(output,0,sizeof(output));
     connections=closed=reply_at=read_step=output_at=write_step=0;
     want_read=timeout=fail_write=fail_read=0;
+    progress_calls=progress_done=progress_total=0;
+    ui_calls=ui_done=ui_total=download_closes=download_removes=fail_close=0;
 }
 '''
 c += header
@@ -148,9 +153,31 @@ for signature in ('static int download_write(', 'static int download_chunked_con
                   'int httpsDownloadFd('):
     c += function(signature)
 c += r'''
+#define FIO_O_WRONLY 1
+#define FIO_O_CREAT 2
+#define FIO_O_TRUNC 4
+#define SELF_UPDATE_ASSET "APP_LAUNCHSTATION.psu"
+static int genOpen(const char *path,int flags) { assert(path && flags==7);return 5; }
+static int genClose(int fd) { assert(fd==5);download_closes++;return fail_close?-1:0; }
+static int genRemove(const char *path) { assert(path);download_removes++;return 0; }
+static int DashFileProgress(const char *action,const char *name,unsigned long long remaining,unsigned long long total) {
+    assert(!strcmp(action,"Downloading update") && !strcmp(name,SELF_UPDATE_ASSET));
+    assert(total>0 && remaining<=total);ui_calls++;ui_done=total-remaining;ui_total=total;return 1;
+}
+static void DashStorageProbeStatus(const char *status) { assert(status && *status); }
+'''
+updater = (root / 'src/self_update.c').read_text()
+c += function('static void updateDownloadProgress(', updater)
+c += function('static int download_file(', updater)
+c += r'''
+static void observe_download(int done,int total,void *arg) {
+    assert(arg==&progress_calls && done>=progress_done && done<=output_at);
+    assert(total>=0 && (!total || done<=total));
+    progress_calls++;progress_done=done;progress_total=total;
+}
 static int download(int limit,int *size,unsigned char *hash,char *error) {
     return httpsDownloadFd("https://github.com/release",5,"WLE-UPDATE-CA.PEM",
-                           limit,size,hash,error,256);
+                           limit,size,hash,observe_download,&progress_calls,error,256);
 }
 static int status_updates;
 static void observe_status(const char *text,void *arg) {
@@ -193,6 +220,7 @@ int main(void) {
     assert(!download(100,&size,hash,error));assert(size==6);
     assert(!strcmp(output,"ABCDEF") && !memcmp(hash,"ABCDEF",6));
     assert(connections==3 && closed==3);
+    assert(progress_calls>3 && progress_done==6 && progress_total==6);
     assert(!strcmp(hosts[1],"objects.githubusercontent.com"));
     assert(strstr(requests[2],"GET /final HTTP/1.1"));
     for(i=0;i<connections;i++)assert(!strstr(requests[i],"Authorization:"));
@@ -201,10 +229,12 @@ int main(void) {
     read_step=1;write_step=2;
     assert(!download(6,&size,hash,error));
     assert(size==6 && !strcmp(output,"ABCDEF") && !memcmp(hash,"ABCDEF",6));
+    assert(progress_calls>3 && progress_done==6 && progress_total==6);
 
     reset();replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nABC";
     assert(download(100,&size,hash,error)<0 && size==0);
     assert(strstr(error,"Truncated HTTPS download") && closed==1);
+    assert(progress_done==3 && progress_total==6);
     reset();replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nABCDEF";
     assert(download(5,&size,hash,error)<0 && !output_at);
     assert(strstr(error,"size limit") && closed==1);
@@ -226,7 +256,17 @@ int main(void) {
     reset();want_read=timeout=1;
     assert(download(100,&size,hash,error)<0 && closed==1);
     assert(strstr(error,"HTTPS download timed out"));
-    puts("PASS: updater HTTPS retains JSON requests, credential-free redirects, chunked streaming, checksums, short writes and failure cleanup");
+    reset();replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nABCDEF";
+    read_step=3;write_step=2;
+    assert(download_file("https://github.com/release","stage.psu","WLE-UPDATE-CA.PEM",100,hash,error,256)==6);
+    assert(ui_calls>3 && ui_done==6 && ui_total==6 && download_closes==1 && !download_removes);
+    for(int fault=0;fault<2;fault++) {
+        reset();replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nABCDEF";
+        if(fault)fail_close=1;else fail_write=1;
+        assert(download_file("https://github.com/release","stage.psu","WLE-UPDATE-CA.PEM",100,hash,error,256)<0);
+        assert(download_closes==1 && download_removes==1);
+    }
+    puts("PASS: updater HTTPS byte progress and real download UI adapter, redirects, chunked streaming, checksums, short writes and failure cleanup");
     return 0;
 }
 '''

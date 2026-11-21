@@ -72,6 +72,7 @@ static char last_body[320];
 static int requests, compares, confirmations, installs, response_status = 200;
 static int worker_ready, ca_ready, network_ready;
 static int loading_active, loading_begins, loading_ends;
+static int launch_prompts,launches,launch_accept=1,install_failure;
 static int waits, polls, ca_checks, network_checks;
 static int in_worker, submits, job_waits, rendered_frames, status_updates, reject_submit, request_failure;
 static char release_stamp[32]="2026-10-30T01:02:03Z", confirmation_body[320];
@@ -123,8 +124,20 @@ static void dashModalMessage(int kind,const char *title,const char *body,const c
     last_title=title;
     snprintf(last_body,sizeof(last_body),"%s",body ? body : "");
 }
+typedef struct { char path[MAX_PATH],title[128]; } DashApp;
+static const char *wleBootElfPath(void) { return "mc0:/APP_CUSTOM/BOOT.ELF"; }
+static void dashStrCopy(char *out,const char *text,int n) { snprintf(out,n,"%s",text); }
+static void dashLaunchApp(DashApp *app,int with_args) {
+    assert(!loading_active && !with_args && !strcmp(app->path,wleBootElfPath()));
+    assert(!strcmp(app->title,"Launchstation"));launches++;
+}
 static int dashModalConfirm(const char *title,const char *body,const char *action,int danger) {
-    assert(!in_worker && !loading_active);(void)title;(void)action;(void)danger;
+    assert(!in_worker && !loading_active && !danger);
+    if(!strcmp(action,"Launch")) {
+        assert(!strcmp(title,"Update installed") && installs==1);
+        last_title=title;launch_prompts++;return launch_accept;
+    }
+    assert(!strcmp(action,"Install update"));
     snprintf(confirmation_body,sizeof(confirmation_body),"%s",body);
     confirmations++; return 1;
 }
@@ -132,7 +145,7 @@ int selfUpdateInstall(const char *ca,const char *digest,char *result,int cap) {
     assert(!in_worker && !status_callback && loading_active);(void)ca;(void)digest;
     installs++;
     snprintf(result,cap,"installed");
-    return 0;
+    return install_failure ? -1 : 0;
 }
 static int httpsRequest(const char *method,const char *host,const char *path,
                             const char *headers,const void *body,int body_len,
@@ -176,7 +189,7 @@ static void reset(const char *status,const char *release,int code) {
     requests=compares=confirmations=installs=0;
     assert(!in_worker && !pending_run && !status_callback && !loading_active);
     assert(loading_begins==loading_ends);
-    loading_begins=loading_ends=0;
+    loading_begins=loading_ends=launch_prompts=launches=install_failure=0;launch_accept=1;
     submits=job_waits=rendered_frames=status_updates=reject_submit=request_failure=0;
     strcpy(release_stamp,"2026-10-30T01:02:03Z");confirmation_body[0]='\0';
     waits=polls=ca_checks=network_checks=0;
@@ -211,11 +224,16 @@ int main(void) {
     assert(waits==1 && polls==1 && ca_checks==1 && network_checks==1);
     assert(submits==2 && job_waits==2 && rendered_frames==4 && status_updates==6);
     assert(loading_begins==2 && loading_ends==2 && !loading_active);
+    assert(launch_prompts==1 && launches==1);
     snprintf(expected_ids,sizeof(expected_ids),"Current: %.7s\nLatest: %.7s\n",GIT_HASH,old);
     assert(strstr(confirmation_body,expected_ids) && !strstr(confirmation_body,old));
     if(strlen(GIT_HASH)>7)assert(!strstr(confirmation_body,GIT_HASH));
     assert(strstr(confirmation_body,"Updated: 2026-10-30 01:02:03 UTC"));
     assert(!strstr(confirmation_body,"2020-") && !strstr(confirmation_body,"2030-") && !strstr(confirmation_body,"2035-"));
+    reset("ahead",old,200);launch_accept=0;dashToolsCheckUpdates();
+    assert(installs==1 && launch_prompts==1 && !launches);
+    reset("ahead",old,200);install_failure=1;dashToolsCheckUpdates();
+    assert(installs==1 && !launch_prompts && !launches && !strcmp(last_title,"Update was not installed"));
     reset("ahead",old,200);reject_submit=1;dashToolsCheckUpdates();
     assert(!requests && !job_waits && !installs && !strcmp(last_title,"Update check failed"));
     reset("ahead",old,200);reject_submit=2;dashToolsCheckUpdates();

@@ -497,7 +497,7 @@ void dashToolsCheckUpdates(void)
 		}
 
 		snprintf(body, sizeof(body),
-		         "Current: %.7s\nLatest: %.7s\nUpdated: %s\n\nInstall this newer build and its metadata?",
+		         "Current: %.7s\nLatest: %.7s\nUpdated: %s\n\nInstall this newer build and refresh its bundled assets?",
 		         GIT_HASH, latest, updated);
 		dashLoadingEnd();
 		if (!dashModalConfirm("A newer Launchstation build is available",
@@ -508,13 +508,20 @@ void dashToolsCheckUpdates(void)
 		dashLoadingBegin("Downloading and verifying Launchstation update");
 		installed = selfUpdateInstall(ca_path, asset_digest, install_result, sizeof(install_result));
 		dashLoadingEnd();
-		dashModalMessage(installed == 0 ? DI_CHECK : DI_WARNING,
-		                 installed == 0 ? "Update installed" : "Update was not installed",
-		                 install_result[0] ? install_result :
-		                     (installed == 0 ? "The update was installed." : "The update failed."),
-		                 installed == 0
-		                     ? "Restart Launchstation to use the new build."
-		                     : "The updater stages and verifies the complete download before changing the running ELF.");
+		if (installed == 0) {
+			if (dashModalConfirm("Update installed",
+			                     install_result[0] ? install_result : "The update was installed.", "Launch", 0)) {
+				DashApp app;
+				memset(&app, 0, sizeof(app));
+				dashStrCopy(app.path, wleBootElfPath(), sizeof(app.path));
+				dashStrCopy(app.title, "Launchstation", sizeof(app.title));
+				dashLaunchApp(&app, 0);
+			}
+		} else {
+			dashModalMessage(DI_WARNING, "Update was not installed",
+			                 install_result[0] ? install_result : "The update failed.",
+			                 "The updater stages and verifies the complete download before changing the running ELF.");
+		}
 	}
 }
 #else

@@ -179,6 +179,23 @@ static int parse_expected_sha(const char *text, unsigned char expected[32])
     return 1;
 }
 
+static void updateDownloadProgress(int done, int total, void *arg)
+{
+    (void)arg;
+    if (total > 0)
+        DashFileProgress("Downloading update", SELF_UPDATE_ASSET, total - done, total);
+    else {
+        char status[96];
+        snprintf(status, sizeof(status), "Downloading update: %d KB received", done / 1024);
+        DashStorageProbeStatus(status);
+    }
+}
+
+static void updateCopyProgress(const char *name, int done, int total)
+{
+    DashFileProgress("Pasting update", name, total - done, total);
+}
+
 static int download_file(const char *url, const char *path, const char *ca_path,
                          int max_bytes, unsigned char digest[32],
                          char *error, int error_size)
@@ -191,7 +208,7 @@ static int download_file(const char *url, const char *path, const char *ca_path,
         return -1;
     }
     r = httpsDownloadFd(url, fd, ca_path, max_bytes, &size,
-                            digest, error, error_size);
+                            digest, updateDownloadProgress, NULL, error, error_size);
     if (genClose(fd) < 0 && r == 0) {
         snprintf(error, error_size, "Could not finalize %.160s", path);
         r = -1;
@@ -205,70 +222,99 @@ static int download_file(const char *url, const char *path, const char *ca_path,
     return size;
 }
 
-static int install_update_files(const char *boot, const char *parent, const char *leaf,
+#define UPDATE_ASSET_COUNT 8
+
+static const char *update_asset_name(int index)
+{
+    static const char *const names[UPDATE_ASSET_COUNT] = {
+        "title.cfg", "WLE-UPDATE-CA.PEM", "BGM.ADP", "icon.sys",
+        "list.icn", "copy.icn", "del.icn", "APPINFO.PBT"
+    };
+    return names[index];
+}
+
+static int update_is_asset_name(const char *name)
+{
+    int i;
+    for (i = 0; i < UPDATE_ASSET_COUNT; i++)
+        if (!stricmp(name, update_asset_name(i))) return 1;
+    return 0;
+}
+
+static int update_asset_paths(const char *parent, const char *name,
+                               char *stage, char *stage_leaf)
+{
+    return snprintf(stage_leaf, MAX_NAME, "%s.UPDATE", name) < MAX_NAME &&
+           join_leaf(stage, MAX_PATH, parent, stage_leaf);
+}
+
+static int publish_update_file(const char *parent, const char *name, const char *stage_leaf,
+                                int *done, int total)
+{
+    char path[MAX_PATH], status[128];
+    if (!join_leaf(path, sizeof(path), parent, name)) return -1;
+    snprintf(status, sizeof(status), "Installing update: %s", name);
+    DashStorageProgress(status, *done, total);
+    if (wleExists(path) && genRemove(path) < 0 && wleExists(path)) return -1;
+    if (rename_leaf(parent, stage_leaf, name) < 0) return -1;
+    (*done)++;
+    DashStorageProgress(status, *done, total);
+    return 0;
+}
+
+static int install_update_files(const char *parent, const char *leaf,
                                  const char *ca_path, const char *expected_sha256,
                                  char *result, int result_size)
 {
-    char stage_leaf[MAX_NAME];
-    char stage[MAX_PATH];
-    char package_leaf[MAX_NAME], package[MAX_PATH];
-    char update_ca[MAX_PATH], update_ca_stage[MAX_PATH];
-    char bgm[MAX_PATH], bgm_stage[MAX_PATH];
-    char title[MAX_PATH], title_stage[MAX_PATH];
+    char stage_leaf[MAX_NAME], stage[MAX_PATH], package_leaf[MAX_NAME], package[MAX_PATH];
+    char asset_stage[MAX_PATH], asset_stage_leaf[MAX_NAME], folder_leaf[MAX_NAME];
     char error[256], remove_path[MAX_PATH];
     unsigned char expected[32], actual[32];
-    int size, package_size, sidecar_size;
+    int staged[UPDATE_ASSET_COUNT] = {0}, size, package_size, i, total = 1, done = 0;
+    size_t end, begin;
     u64 free_bytes;
-    int need_ca, need_bgm, staged_ca = 0, staged_bgm = 0;
-    int added_ca = 0, added_bgm = 0;
 
     if (snprintf(stage_leaf, sizeof(stage_leaf), "%s.UPDATE", leaf) >= (int)sizeof(stage_leaf) ||
         !join_leaf(stage, sizeof(stage), parent, stage_leaf) ||
         snprintf(package_leaf, sizeof(package_leaf), "%s.PACKAGE", leaf) >= (int)sizeof(package_leaf) ||
         !join_leaf(package, sizeof(package), parent, package_leaf)) {
-        snprintf(result, result_size, "The running ELF path is too long for a safe staged update.");
+        snprintf(result, result_size, "The running ELF path is too long for a staged update.");
         return -1;
     }
-
-    /* Preserve customized CA/BGM files. Metadata is refreshed with the ELF.
-     * Never truncate an unfinished stage from an earlier attempt. */
-    if (!join_leaf(update_ca, sizeof(update_ca), parent, "WLE-UPDATE-CA.PEM") ||
-        !join_leaf(update_ca_stage, sizeof(update_ca_stage), parent, "WLE-UPDATE-CA.PEM.UPDATE") ||
-        !join_leaf(bgm, sizeof(bgm), parent, "BGM.ADP") ||
-        !join_leaf(bgm_stage, sizeof(bgm_stage), parent, "BGM.ADP.UPDATE") ||
-        !join_leaf(title, sizeof(title), parent, "title.cfg") ||
-        !join_leaf(title_stage, sizeof(title_stage), parent, "title.cfg.UPDATE")) {
-        snprintf(result, result_size, "The app folder path is too long for a safe sidecar update.");
-        return -1;
-    }
-    /* The package download uses O_TRUNC and the ELF extractor does likewise.
-     * Never destroy an unfinished recovery/download file from an earlier
-     * attempt. An existing temporary file requires explicit manual handling. */
+    /* Never truncate another attempt's download or recovery files. */
     if (wleExists(package) || wleExists(stage)) {
         snprintf(result, result_size,
-                 "An earlier ELF .UPDATE or .PACKAGE file remains beside the app. Resolve that file manually before retrying; no files were changed.");
+                 "An earlier ELF .UPDATE or .PACKAGE file remains beside the app. Resolve it before retrying; no files were changed.");
         return -1;
     }
-    if (wleExists(title_stage)) {
-        snprintf(result, result_size,
-                 "Unfinished title.cfg recovery files remain beside the app. Resolve them manually before retrying; no files were changed.");
+    for (i = 0; i < UPDATE_ASSET_COUNT; i++) {
+        if (!update_asset_paths(parent, update_asset_name(i), asset_stage, asset_stage_leaf)) {
+            snprintf(result, result_size, "The app folder path is too long for a staged asset update.");
+            return -1;
+        }
+        if (wleExists(asset_stage)) {
+            snprintf(result, result_size,
+                     "An unfinished %s.UPDATE file remains. Resolve it before retrying; no files were changed.", update_asset_name(i));
+            return -1;
+        }
+    }
+    end = strlen(parent);
+    while (end && parent[end - 1] == '/') end--;
+    begin = end;
+    while (begin && parent[begin - 1] != '/' && parent[begin - 1] != ':') begin--;
+    if (end - begin >= sizeof(folder_leaf)) {
+        snprintf(result, result_size, "The installed app folder name is too long.");
         return -1;
     }
-    need_ca = !wleExists(update_ca);
-    need_bgm = !wleExists(bgm);
-    if ((need_ca && wleExists(update_ca_stage)) ||
-        (need_bgm && wleExists(bgm_stage))) {
-        snprintf(result, result_size,
-                 "An unfinished CA or BGM .UPDATE file already exists. Clear the stale file manually before updating; no files were changed.");
-        return -1;
-    }
+    if (end > begin) {
+        memcpy(folder_leaf, parent + begin, end - begin);
+        folder_leaf[end - begin] = 0;
+    } else snprintf(folder_leaf, sizeof(folder_leaf), "%s", SELF_UPDATE_FOLDER);
 
     if (!parse_expected_sha(expected_sha256, expected)) {
-        snprintf(result, result_size,
-                 "GitHub did not provide a valid SHA-256 digest for the app package.");
+        snprintf(result, result_size, "GitHub did not provide a valid SHA-256 digest for the app package.");
         return -1;
     }
-
     error[0] = '\0';
     DashStorageProbeStatus("Downloading update package from GitHub");
     size = download_file(UPDATE_ELF_URL, package, ca_path, UPDATE_MAX_ELF,
@@ -280,15 +326,10 @@ static int install_update_files(const char *boot, const char *parent, const char
     }
     DashStorageProbeStatus("Verifying package SHA-256");
     if (memcmp(expected, actual, sizeof(expected)) != 0) {
-        snprintf(remove_path, sizeof(remove_path), "%s", package);
-        genRemove(remove_path);
-        snprintf(result, result_size,
-                 "Downloaded update failed SHA-256 verification. The running ELF was not changed.");
-        return -1;
+        snprintf(result, result_size, "Downloaded update failed SHA-256 verification. Installed files were not changed.");
+        goto discard_package;
     }
     package_size = size;
-    /* PSU contents are uncompressed and bounded by the package size. The
-     * 100 KB margin is already allocated separately; do not count it twice. */
     DashStorageProbeStatus("Checking space for replacement files plus 100 KB");
     if (filerFreeSpace(parent, &free_bytes) && free_bytes < (u64)package_size) {
         snprintf(result, result_size,
@@ -298,88 +339,46 @@ static int install_update_files(const char *boot, const char *parent, const char
     }
     DashStorageProbeStatus("Preparing and validating the new executable");
     size = selfUpdateExtractPsu(package, stage, package_size);
-    if (size <= 0) {
-        snprintf(remove_path, sizeof(remove_path), "%s", package);
-        genRemove(remove_path);
-        snprintf(result, result_size,
-                 "The verified package does not contain the expected app ELF. The running ELF was not changed.");
-        return -1;
+    if (size <= 0 || checkELFheader(stage) < 0) {
+        snprintf(result, result_size, "The verified package does not contain a valid app ELF. Installed files were not changed.");
+        goto discard_package;
     }
-    if (checkELFheader(stage) < 0) {
-        snprintf(remove_path, sizeof(remove_path), "%s", package);
-        genRemove(remove_path);
-        snprintf(remove_path, sizeof(remove_path), "%s", stage);
-        genRemove(remove_path);
-        snprintf(result, result_size,
-                 "Downloaded update is not a valid PlayStation 2 ELF. The running ELF was not changed.");
-        return -1;
-    }
-
-    /* Metadata belongs to this exact verified build, even for legacy PSUs.
-     * Retain the actual boot filename when the installed ELF was renamed. */
-    DashStorageProbeStatus("Preparing metadata and bundled files");
-    if (selfUpdateExtractPsuTitle(package, title_stage, package_size, leaf) <= 0)
-        goto sidecar_failed;
-
-    /* The verified four-file PSU can initialize missing runtime sidecars.
-     * Never overwrite existing CA/BGM assets; they may be user customized.
-     * A verified legacy two-file PSU simply has no sidecars to stage. */
-    if (need_ca) {
-        sidecar_size = selfUpdateExtractPsuSidecar(package, "WLE-UPDATE-CA.PEM",
-                                                   update_ca_stage, package_size);
-        if (sidecar_size < 0)
-            goto sidecar_failed;
-        staged_ca = sidecar_size > 0;
-    }
-    if (need_bgm) {
-        sidecar_size = selfUpdateExtractPsuSidecar(package, "BGM.ADP",
-                                                   bgm_stage, package_size);
-        if (sidecar_size < 0)
-            goto sidecar_failed;
-        staged_bgm = sidecar_size > 0;
+    /* Stage every release asset before replacing anything. Old 2-/4-file
+     * packages return zero for absent assets and leave those files untouched. */
+    for (i = 0; i < UPDATE_ASSET_COUNT; i++) {
+        int extracted;
+        const char *name = update_asset_name(i);
+        update_asset_paths(parent, name, asset_stage, asset_stage_leaf);
+        if (i == 0)
+            extracted = selfUpdateExtractPsuTitle(package, asset_stage, package_size, leaf);
+        else if (!strcmp(name, "APPINFO.PBT"))
+            extracted = selfUpdateExtractPsuAppInfo(package, asset_stage, package_size, leaf, folder_leaf);
+        else
+            extracted = selfUpdateExtractPsuSidecar(package, name, asset_stage, package_size);
+        if (extracted < 0 || (i == 0 && extracted == 0)) {
+            snprintf(result, result_size, "Failed to prepare %s. Installed files were not changed.", name);
+            goto discard_package;
+        }
+        staged[i] = extracted > 0;
+        total += staged[i];
     }
     snprintf(remove_path, sizeof(remove_path), "%s", package);
     genRemove(remove_path);
 
-    /* Publish newly created files only after all required sidecars are
-     * staged. Existing files are never renamed or replaced. If one commit
-     * fails, the running ELF stays untouched. */
-    if (staged_ca) {
-        if (wleExists(update_ca) ||
-            rename_leaf(parent, "WLE-UPDATE-CA.PEM.UPDATE", "WLE-UPDATE-CA.PEM") < 0)
-            goto sidecar_publish_failed;
-        added_ca = 1;
+    /* Publish assets first, then the ELF and its title metadata. All replacements
+     * have finished writing; keep uncommitted stages if a rename/delete fails. */
+    for (i = 1; i < UPDATE_ASSET_COUNT; i++) {
+        if (!staged[i]) continue;
+        update_asset_paths(parent, update_asset_name(i), asset_stage, asset_stage_leaf);
+        if (publish_update_file(parent, update_asset_name(i), asset_stage_leaf, &done, total) < 0)
+            goto install_failed;
     }
-    if (staged_bgm) {
-        if (wleExists(bgm) ||
-            rename_leaf(parent, "BGM.ADP.UPDATE", "BGM.ADP") < 0)
-            goto sidecar_publish_failed;
-        added_bgm = 1;
-    }
-
-    /* Every replacement has finished writing beside the allocated reserve.
-     * Delete and move into place, without retaining copies of the old files. */
-    DashStorageProbeStatus("Replacing the installed executable");
-    snprintf(remove_path, sizeof(remove_path), "%s", boot);
-    if (genRemove(remove_path) < 0 && wleExists(boot))
+    if (publish_update_file(parent, leaf, stage_leaf, &done, total) < 0 ||
+        publish_update_file(parent, "title.cfg", "title.cfg.UPDATE", &done, total) < 0)
         goto install_failed;
-    if (rename_leaf(parent, stage_leaf, leaf) < 0)
-        goto install_failed;
-
-    DashStorageProbeStatus("Replacing app metadata");
-    snprintf(remove_path, sizeof(remove_path), "%s", title);
-    if (wleExists(title) && genRemove(remove_path) < 0 && wleExists(title))
-        goto install_failed;
-    if (rename_leaf(parent, "title.cfg.UPDATE", "title.cfg") < 0)
-        goto install_failed;
-
-    DashStorageProbeStatus("Update installed; finishing cleanup");
     snprintf(result, result_size,
-             "Update installed and verified (%d bytes). Metadata replaced. %s%s%sRestart Launchstation to run the new build.",
-             size,
-             added_ca ? "Installed updater CA. " : "",
-             added_bgm ? "Installed BGM. " : "",
-             (!added_ca && !added_bgm) ? "Existing sidecars preserved. " : "");
+             "Update installed and verified (%d bytes). Refreshed %d app files.",
+             size, total);
     return 0;
 
 install_failed:
@@ -387,38 +386,17 @@ install_failed:
              "Could not finish replacing the app files. No backup was created. Keep any remaining .UPDATE files beside the app and finish copying them into place before restarting.");
     return -1;
 
-sidecar_failed:
-    /* These temporary files are owned by this attempt only. */
-    if (staged_ca) {
-        snprintf(remove_path, sizeof(remove_path), "%s", update_ca_stage);
-        genRemove(remove_path);
-    }
-    snprintf(result, result_size,
-             "Failed to stage verified metadata, updater CA or BGM. The running ELF and existing sidecars were not changed.");
-    goto discard_package;
-
-sidecar_publish_failed:
-    if (staged_ca && !added_ca) {
-        snprintf(remove_path, sizeof(remove_path), "%s", update_ca_stage);
-        genRemove(remove_path);
-    }
-    if (staged_bgm && !added_bgm) {
-        snprintf(remove_path, sizeof(remove_path), "%s", bgm_stage);
-        genRemove(remove_path);
-    }
-    /* Already published missing sidecars are harmless and safe to retain;
-     * deleting them during recovery risks removing a file another component
-     * may already have opened. No old file has been replaced. */
-    snprintf(result, result_size,
-             "Could not install the missing bundled sidecar. The original ELF and existing sidecars were not changed; any newly added CA may remain.");
-
 discard_package:
     snprintf(remove_path, sizeof(remove_path), "%s", package);
     genRemove(remove_path);
-    snprintf(remove_path, sizeof(remove_path), "%s", title_stage);
-    genRemove(remove_path);
     snprintf(remove_path, sizeof(remove_path), "%s", stage);
     genRemove(remove_path);
+    for (i = 0; i < UPDATE_ASSET_COUNT; i++) {
+        if (!staged[i]) continue;
+        update_asset_paths(parent, update_asset_name(i), asset_stage, asset_stage_leaf);
+        snprintf(remove_path, sizeof(remove_path), "%s", asset_stage);
+        genRemove(remove_path);
+    }
     return -1;
 }
 
@@ -441,7 +419,7 @@ int selfUpdateInstall(const char *ca_path, const char *expected_sha256, char *re
         return -1;
     }
     if (!split_parent_leaf(boot, parent, sizeof(parent), leaf, sizeof(leaf)) ||
-        !stricmp(leaf, "title.cfg") ||
+        update_is_asset_name(leaf) ||
         !join_leaf(reserve, sizeof(reserve), parent, "WLE-UPDATE.SPACE")) {
         snprintf(result, result_size, "Could not resolve the running ELF path safely.");
         return -1;
@@ -469,8 +447,10 @@ int selfUpdateInstall(const char *ca_path, const char *expected_sha256, char *re
                  "Could not reserve 100 KB of extra free space. Installed files were not changed.");
         installed = -1;
     } else {
-        installed = install_update_files(boot, parent, leaf, ca_path, expected_sha256,
+        selfUpdateSetProgressCallback(updateCopyProgress);
+        installed = install_update_files(parent, leaf, ca_path, expected_sha256,
                                          result, result_size);
+        selfUpdateSetProgressCallback(NULL);
         if (genRemove(reserve) < 0 && wleExists(reserve)) {
             size_t used = strlen(result);
             snprintf(result + used, result_size - used,

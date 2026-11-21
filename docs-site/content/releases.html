@@ -41,8 +41,10 @@
 <p>Each package includes the ELF, updater support files (<code>title.cfg</code>, <code>WLE-UPDATE-CA.PEM</code>, <code>BGM.ADP</code>), memory-card icons (<code>icon.sys</code>, <code>list.icn</code>, <code>copy.icn</code>, <code>del.icn</code>) and <code>APPINFO.PBT</code>. Its SAS version contains the seven-character commit and UTC commit timestamp. ZIP and PSU payloads match.</p>
 <p>Older updaters that only accept two-/four-file packages require one manual ZIP or PSU installation to accept the expanded packages.</p>
 
-<p><strong>Upgrading an older installation:</strong> updaters expecting standalone ELFs or two-file PSUs need one manual installation of the new package before using the newer four-file PSU format. Back up existing settings before replacing an app folder.</p>
+<p><strong>Upgrading an older installation:</strong> updaters expecting standalone ELFs or two-/four-file PSUs need one manual installation of the expanded nine-file package. Back up existing settings before replacing an app folder.</p>
 <p><strong>Update order could not be verified:</strong> this is a failed check, not the normal up-to-date result. Earlier PS2BUILD releases omitted their commit ID and show <code>local</code> in Build information. Those installs need one manual installation of a corrected package and a restart. A build matching the published commit should report <em>Launchstation is up to date</em>.</p>
+
+<p>In-app updates stage and refresh every packaged asset, including existing music and icons. Download and copy stages show byte progress; installation counts completed files. Configuration files are outside the release manifest.</p>
 
 <h2 id="changelog">Rolling changelog summary</h2>
 <ul>

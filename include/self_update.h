@@ -14,6 +14,9 @@
 #endif
 #define SELF_UPDATE_ASSET SELF_UPDATE_FOLDER ".psu"
 
+typedef void (*SelfUpdateProgressCallback)(const char *name, int done, int total);
+/* Serialized extraction observer; runs after writes on the extracting thread. */
+void selfUpdateSetProgressCallback(SelfUpdateProgressCallback callback);
 int selfUpdateExtractPsu(const char *package, const char *stage, int size);
 int selfUpdateExtractPsuSidecar(const char *package, const char *name,
                                 const char *stage, int size);
@@ -21,6 +24,9 @@ int selfUpdateExtractPsuSidecar(const char *package, const char *name,
 /* Refresh metadata from the same verified package, retaining the boot filename. */
 int selfUpdateExtractPsuTitle(const char *package, const char *stage, int size,
                               const char *boot_leaf);
+
+int selfUpdateExtractPsuAppInfo(const char *package, const char *stage, int size,
+                                const char *boot_leaf, const char *folder_leaf);
 
 int selfUpdateInstall(const char *ca_path, const char *expected_sha256, char *result, int result_size);
 

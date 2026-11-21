@@ -2,6 +2,13 @@
 #include "launchelf.h"
 #include "self_update.h"
 
+static SelfUpdateProgressCallback update_progress;
+
+void selfUpdateSetProgressCallback(SelfUpdateProgressCallback callback)
+{
+    update_progress = callback;
+}
+
 static unsigned int psu32(const unsigned char *p)
 {
     return p[0] | ((unsigned int)p[1] << 8) | ((unsigned int)p[2] << 16) | ((unsigned int)p[3] << 24);
@@ -67,6 +74,7 @@ int selfUpdateExtractPsu(const char *package, const char *stage, int size)
             output = genOpen(stage, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC);
             if (output < 0)
                 goto done;
+            if (update_progress) update_progress(SELF_UPDATE_ELF, 0, length);
             while (remaining) {
                 int count = remaining > sizeof(buffer) ? sizeof(buffer) : remaining;
                 int written = 0;
@@ -79,6 +87,7 @@ int selfUpdateExtractPsu(const char *package, const char *stage, int size)
                     written += n;
                 }
                 remaining -= count;
+                if (update_progress) update_progress(SELF_UPDATE_ELF, length - remaining, length);
             }
             if (genClose(output) < 0) {
                 output = -1;
@@ -177,12 +186,76 @@ static int write_title(int fd, const unsigned char *data, int size, const char *
     return lengths[0] + lengths[1] + lengths[2];
 }
 
+
+/* Only release-owned files may be extracted; configuration files are excluded. */
+static int app_asset_limit(const char *name)
+{
+    if (name == NULL) return 0;
+    if (!strcmp(name, "APPINFO.PBT")) return 16384;
+    if (!strcmp(name, "icon.sys")) return 964;
+    if (!strcmp(name, "list.icn") || !strcmp(name, "copy.icn") || !strcmp(name, "del.icn"))
+        return 1024 * 1024;
+    return 0;
+}
+
+static int replace_appinfo_value(char *data, int *size, int capacity,
+                                  const char *key, const char *expected, const char *value)
+{
+    char prefix[32];
+    int i, count = 0, prefix_len, value_len;
+    if (value == NULL || !value[0] || strlen(value) >= MAX_NAME ||
+        strpbrk(value, "/\\:\"\r\n") != NULL)
+        return -1;
+    prefix_len = snprintf(prefix, sizeof(prefix), "SET \"%s\" \"", key);
+    value_len = strlen(value);
+    for (i = 0; i < *size; i++) {
+        int begin, end, new_size;
+        if ((i && data[i - 1] != '\n') || *size - i < prefix_len ||
+            memcmp(data + i, prefix, prefix_len))
+            continue;
+        begin = end = i + prefix_len;
+        while (end < *size && data[end] != '"' && data[end] != '\r' && data[end] != '\n') end++;
+        if (++count != 1 || end >= *size || data[end] != '"' ||
+            end - begin != (int)strlen(expected) || memcmp(data + begin, expected, end - begin))
+            return -1;
+        new_size = *size - (end - begin) + value_len;
+        if (new_size >= capacity) return -1;
+        memmove(data + begin + value_len, data + end, *size - end + 1);
+        memcpy(data + begin, value, value_len);
+        *size = new_size;
+        i = begin + value_len;
+    }
+    return count == 1 ? 0 : -1;
+}
+
+static int write_appinfo(int input, int output, int size,
+                          const char *boot_leaf, const char *folder_leaf)
+{
+    int capacity = size + 2 * MAX_NAME + 1, written = 0, result = -1;
+    char *data = malloc(capacity);
+    if (data == NULL) return -1;
+    if (!read_exact(input, (unsigned char *)data, size) || memchr(data, 0, size)) goto done;
+    data[size] = '\0';
+    if (replace_appinfo_value(data, &size, capacity, "ELF", SELF_UPDATE_ELF, boot_leaf) < 0 ||
+        replace_appinfo_value(data, &size, capacity, "SAS", SELF_UPDATE_FOLDER, folder_leaf) < 0)
+        goto done;
+    while (written < size) {
+        int n = genWrite(output, data + written, size - written);
+        if (n <= 0 || n > size - written) goto done;
+        written += n;
+    }
+    result = size;
+done:
+    free(data);
+    return result;
+}
+
 /* Extract one app file from a package already verified with
  * its GitHub SHA-256 and selfUpdateExtractPsu(). Do not call on an unchecked
  * archive or overwrite an existing staging filename. Legacy packages still
  * contain title.cfg, but return 0 for absent runtime sidecars. */
 static int extract_psu_file(const char *package, const char *name,
-                            const char *stage, int size, const char *boot_leaf)
+                            const char *stage, int size, const char *boot_leaf, const char *folder_leaf)
 {
     unsigned char directories[1536], entry[512], buffer[4096];
     int input = -1, output = -1, position = 1536, i, entries;
@@ -192,8 +265,10 @@ static int extract_psu_file(const char *package, const char *name,
     int is_ca = name != NULL && !strcmp(name, "WLE-UPDATE-CA.PEM");
     int is_bgm = name != NULL && !strcmp(name, "BGM.ADP");
     int is_title = name != NULL && !strcmp(name, "title.cfg");
+    int asset_limit = app_asset_limit(name);
+    int is_appinfo = name != NULL && !strcmp(name, "APPINFO.PBT") && boot_leaf != NULL;
 
-    if ((!is_ca && !is_bgm && !is_title) || package == NULL || stage == NULL ||
+    if ((!is_ca && !is_bgm && !is_title && !asset_limit) || package == NULL || stage == NULL ||
         size < 1536 || size > 16 * 1024 * 1024)
         return -1;
 
@@ -207,7 +282,7 @@ static int extract_psu_file(const char *package, const char *name,
         !record_is(directories + 512, 0x8027, ".") ||
         !record_is(directories + 1024, 0x8027, ".."))
         goto done;
-    if (entries == 4 && !is_title) {
+    if ((entries == 4 && !is_title) || (entries == 6 && asset_limit)) {
         result = 0; /* compatible, older package without sidecars */
         goto done;
     }
@@ -233,13 +308,20 @@ static int extract_psu_file(const char *package, const char *name,
                 (is_ca && (length < sizeof("-----BEGIN CERTIFICATE-----") - 1 ||
                            length > 32768)) ||
                 (is_bgm && (length < 32 || length > 1024 * 1024 ||
-                            (length & 15))))
+                            (length & 15))) ||
+                (asset_limit && (length > (unsigned int)asset_limit ||
+                                 (!strcmp(name, "icon.sys") && length != 964))))
                 goto done;
             output = genOpen(stage, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC);
             if (output < 0)
                 goto done;
             created = 1;
-            if (is_title) {
+            if (update_progress) update_progress(name, 0, length);
+            if (is_appinfo) {
+                result = write_appinfo(input, output, length, boot_leaf, folder_leaf);
+                if (result < 0) goto done;
+                remaining = 0;
+            } else if (is_title) {
                 if (!read_exact(input, buffer, length))
                     goto done;
                 result = write_title(output, buffer, length, boot_leaf);
@@ -263,6 +345,7 @@ static int extract_psu_file(const char *package, const char *name,
                     written += n;
                 }
                 remaining -= count;
+                if (update_progress) update_progress(name, length - remaining, length);
             }
             if (genClose(output) < 0) {
                 output = -1;
@@ -270,8 +353,9 @@ static int extract_psu_file(const char *package, const char *name,
                 goto done;
             }
             output = -1;
-            if (!is_title)
+            if (!is_title && !is_appinfo)
                 result = (int)length;
+            if (update_progress) update_progress(name, length, length);
             goto done;
         }
         position += padded;
@@ -291,13 +375,20 @@ done:
 int selfUpdateExtractPsuSidecar(const char *package, const char *name,
                                 const char *stage, int size)
 {
-    if (name == NULL || (strcmp(name, "WLE-UPDATE-CA.PEM") && strcmp(name, "BGM.ADP")))
+    if (name == NULL || (strcmp(name, "WLE-UPDATE-CA.PEM") && strcmp(name, "BGM.ADP") && !app_asset_limit(name)))
         return -1;
-    return extract_psu_file(package, name, stage, size, NULL);
+    return extract_psu_file(package, name, stage, size, NULL, NULL);
 }
 
 int selfUpdateExtractPsuTitle(const char *package, const char *stage, int size,
                               const char *boot_leaf)
 {
-    return extract_psu_file(package, "title.cfg", stage, size, boot_leaf);
+    return extract_psu_file(package, "title.cfg", stage, size, boot_leaf, NULL);
+}
+
+int selfUpdateExtractPsuAppInfo(const char *package, const char *stage, int size,
+                                const char *boot_leaf, const char *folder_leaf)
+{
+    if (boot_leaf == NULL || folder_leaf == NULL) return -1;
+    return extract_psu_file(package, "APPINFO.PBT", stage, size, boot_leaf, folder_leaf);
 }

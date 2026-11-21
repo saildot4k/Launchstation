@@ -881,6 +881,7 @@ static int download_chunked_consume(HttpsChunkDecoder *dec,
 int httpsDownloadFd(const char *url, int fd, const char *ca_path,
                     int max_bytes, int *out_size,
                     unsigned char digest[32],
+                    HttpsProgressCallback progress, void *progress_arg,
                     char *error, int error_size)
 {
     char current[HTTPS_LOCATION_MAX];
@@ -1063,6 +1064,7 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
             return -1;
         }
         memset(&decoder, 0, sizeof(decoder));
+        if (progress) progress(0, chunked || content_length < 0 ? 0 : content_length, progress_arg);
 
         if (body_len > 0) {
             if (chunked)
@@ -1092,6 +1094,7 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
         }
         free(raw);
         raw = NULL;
+        if (progress) progress(written, chunked || content_length < 0 ? 0 : content_length, progress_arg);
 
         while (!complete) {
             r = mbedtls_ssl_read(&tls.ssl, io_buf, HTTPS_IO);
@@ -1157,6 +1160,7 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
                 if (content_length >= 0 && written == content_length)
                     complete = 1;
             }
+            if (progress) progress(written, chunked || content_length < 0 ? 0 : content_length, progress_arg);
         }
 
         if (mbedtls_sha256_finish(&sha, digest != NULL ? digest : (unsigned char [32]){0}) != 0) {
@@ -1171,6 +1175,7 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
         free(io_buf);
         if (out_size)
             *out_size = written;
+        if (progress) progress(written, written, progress_arg);
         return 0;
     }
 

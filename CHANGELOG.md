@@ -2,6 +2,10 @@
 
 ## Rolling
 
+- **Update completion:** successful updates offer Launch and Cancel. Launch starts the newly installed ELF at its actual path; Cancel keeps the current session running.
+
+- **Update installation:** download and copy progress bars report transferred bytes, then installation counts completed files. Verified updates stage and refresh every bundled asset, including existing music/icons and APPINFO.PBT, while preserving the actual installed folder/ELF references.
+
 - **Update checks:** keep one loading popup through storage/network setup and release comparison, without restarting its animation between requests. Displayed installed/latest commit IDs use seven characters.
 
 - **Release PSU dates:** app-folder and file creation and modification dates all use the SAS timestamp (`2098-12-31 18:00:27` for both variants). Version metadata retains the commit timestamp.

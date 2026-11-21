@@ -18,6 +18,10 @@ typedef struct {
 typedef void (*HttpsStatusCallback)(const char *status, void *arg);
 void httpsSetStatusCallback(HttpsStatusCallback callback, void *arg);
 
+/* Download progress runs on the caller's thread after bytes are written.
+ * A zero total means the server has not supplied a body length. */
+typedef void (*HttpsProgressCallback)(int done, int total, void *arg);
+
 void httpsResponseFree(HttpsResponse *response);
 int httpsRequest(const char *method, const char *host, const char *path,
                  const char *headers, const void *body, int body_len,
@@ -30,6 +34,7 @@ int httpsRequest(const char *method, const char *host, const char *path,
 int httpsDownloadFd(const char *url, int fd, const char *ca_path,
                     int max_bytes, int *out_size,
                     unsigned char digest[32],
+                    HttpsProgressCallback progress, void *progress_arg,
                     char *error, int error_size);
 
 #endif

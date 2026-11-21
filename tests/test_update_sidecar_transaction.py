@@ -1,6 +1,6 @@
 """Execute the production native-update transaction with a mock app filesystem.
 
-Tests existing custom sidecars, missing-only publication, legacy PSU packages,
+Tests replacement of all release assets, legacy PSU packages,
 staging collisions and failed updates. This does not emulate real PS2 filesystem
 or HTTP behavior; the real PSU parser is exercised in test_app_packages.py.
 """
@@ -41,6 +41,7 @@ typedef uint64_t u64;
 #define MAX_PATH 256
 #define MAX_NAME 128
 #define UPDATE_MAX_ELF (16*1024*1024)
+#define UPDATE_ASSET_COUNT 8
 #define FIO_S_ISREG(mode) ((mode)==1)
 #define FIO_S_ISDIR(mode) ((mode)==2)
 #define sceMcFileAttrFile 0x10
@@ -86,7 +87,16 @@ static int del(const char *p) {
 static int wleExists(const char *p) { return has(p); }
 static int reserve_bytes, reserve_limit=UPDATE_SPACE_MARGIN, space_known=1;
 static u64 available=1024*1024;
-static int delete_boot_fail, progress_count;
+static int delete_boot_fail, progress_count,install_progress,last_progress,total_progress,copy_progress;
+static SelfUpdateProgressCallback extraction_progress;
+void selfUpdateSetProgressCallback(SelfUpdateProgressCallback callback) { extraction_progress=callback; }
+static int DashFileProgress(const char *action,const char *name,u64 remaining,u64 total) {
+    assert(action && name && total>0 && remaining<=total);copy_progress++;return 1;
+}
+static void DashStorageProgress(const char *status,int done,int total) {
+    assert(status && done>=last_progress && done<=total && total>0);
+    install_progress++;last_progress=done;total_progress=total;
+}
 static void DashStorageProbeStatus(const char *text) { assert(text && *text);progress_count++; }
 static int filerFreeSpace(const char *p,u64 *out) { assert(!strcmp(p,parent));*out=available;return space_known; }
 static int genOpen(const char *p,int flags) {
@@ -144,20 +154,24 @@ static int download_file(const char *url,const char *path,const char *ca,
     return 8192;
 }
 int selfUpdateExtractPsu(const char *pkg,const char *stage,int size) {
-    assert(has(pkg) && size==8192);put(stage);set_value(stage,2);return 4096;
+    assert(has(pkg) && size==8192 && extraction_progress);extraction_progress(SELF_UPDATE_ELF,0,4096);put(stage);set_value(stage,2);extraction_progress(SELF_UPDATE_ELF,4096,4096);return 4096;
 }
 int selfUpdateExtractPsuSidecar(const char *pkg,const char *asset,
                                        const char *stage,int size) {
     assert(has(pkg) && size==8192);
     sidecar_calls++;
-    if(legacy)return 0;
+    if(legacy==1 || (legacy==2 && strcmp(asset,"WLE-UPDATE-CA.PEM") && strcmp(asset,"BGM.ADP")))return 0;
     if(fail_bgm_stage && !strcmp(asset,"BGM.ADP"))return -1;
-    assert(!has(stage));put(stage);return 128;
+    assert(!has(stage));put(stage);set_value(stage,2);extraction_progress(asset,128,128);return 128;
 }
 int selfUpdateExtractPsuTitle(const char *pkg,const char *stage,int size,const char *leaf) {
     assert(has(pkg) && size==8192 && !strcmp(leaf,strrchr(boot,'/')+1));
     if(title_stage_fail)return -EIO;
     assert(!has(stage));put(stage);set_value(stage,2);return 128;
+}
+int selfUpdateExtractPsuAppInfo(const char *pkg,const char *stage,int size,const char *leaf,const char *folder) {
+    assert(!strcmp(leaf,strrchr(boot,'/')+1) && !strcmp(folder,"APP_LAUNCHSTATION"));
+    return selfUpdateExtractPsuSidecar(pkg,"APPINFO.PBT",stage,size);
 }
 static int checkELFheader(const char *stage) { assert(has(stage));return bad_header?-1:0; }
 int genFixPath(const char *path,char *resolved) {
@@ -232,12 +246,17 @@ for sig in [
 ]:
     program+=function(sig)
 program+=function("static int reserve_update_space(")
+for sig in ("static void updateCopyProgress(", "static const char *update_asset_name(",
+            "static int update_is_asset_name(", "static int update_asset_paths(",
+            "static int publish_update_file("):
+    program+=function(sig)
 program+=function("static int install_update_files(")
 program+=function("int selfUpdateInstall(")
 program+=r'''
 static void reset(void) {
     count=downloads=sidecar_calls=0;
     reserve_bytes=delete_boot_fail=progress_count=0;
+    install_progress=last_progress=total_progress=copy_progress=0;assert(!extraction_progress);
     reserve_limit=UPDATE_SPACE_MARGIN;space_known=1;available=1024*1024;
     capture_result=1;restore_error=captures=restores=mutations=restored_at=0;
     title_stage_fail=title_backup_fail=title_publish_fail=title_applied_fail=0;
@@ -253,7 +272,7 @@ static void reset(void) {
 static int install(char *msg) {
     mutations=0;
     int ret=selfUpdateInstall("settings/legacy-ca.pem","sha256:mock",msg,512);
-    assert(captures==1);
+    assert(captures==1 && !extraction_progress);
     assert(restores==(capture_result>0));
     if(restores)assert(restored_at==mutations);
     return ret;
@@ -268,11 +287,16 @@ int main(void) {
     char msg[512];
     reset();put(title);assert(install(msg)==0);
     assert(value(boot)==2 && value(title)==2 && has(ca) && has(bgm));
-    assert(!has(tmp) && !has(pkg) && !has(reserve) && progress_count>=7);
+    assert(!has(tmp) && !has(pkg) && !has(reserve) && progress_count>=4);
     for(int i=0;i<count;i++)assert(!strstr(files[i],".BAK"));
     reset();put(ca);put(bgm);put(title);assert(install(msg)==0);
-    assert(value(ca)==1 && value(bgm)==1 && !sidecar_calls && value(title)==2);
-    reset();legacy=1;assert(install(msg)==0 && !has(ca) && !has(bgm));
+    assert(value(ca)==2 && value(bgm)==2 && sidecar_calls==7 && value(title)==2);
+    assert(install_progress==18 && last_progress==9 && total_progress==9 && copy_progress>=2);
+    const char *extras[]={"icon.sys","list.icn","copy.icn","del.icn","APPINFO.PBT"};
+    for(int i=0;i<5;i++) { char path[MAX_PATH];snprintf(path,sizeof(path),"%s%s",parent,extras[i]);assert(value(path)==2); }
+    reset();legacy=1;assert(install(msg)==0 && !has(ca) && !has(bgm) && total_progress==2);
+    reset();legacy=2;put(ca);put(bgm);assert(install(msg)==0);
+    assert(value(ca)==2 && value(bgm)==2 && total_progress==4);
     reset();space_known=0;assert(install(msg)==0 && !has(reserve));
     reset();available=8192;assert(install(msg)==0); /* exact contents upper bound */
     reset();available=8191;assert(install(msg)<0 && value(boot)==1);
@@ -284,6 +308,12 @@ int main(void) {
         reset();put(kind==0?tmp:kind==1?pkg:"mc0:/APP_LAUNCHSTATION/title.cfg.UPDATE");
         assert(install(msg)<0 && !downloads && value(boot)==1 && !has(reserve));
     }
+    for(int i=0;i<UPDATE_ASSET_COUNT;i++) {
+        char path[MAX_PATH];reset();snprintf(path,sizeof(path),"%s%s.UPDATE",parent,update_asset_name(i));put(path);
+        assert(install(msg)<0 && !downloads && value(path)==1 && value(boot)==1);
+    }
+    reset();put(ca);put(bgm);put(title);fail_bgm_stage=1;assert(install(msg)<0);
+    assert(value(ca)==1 && value(bgm)==1 && value(title)==1 && value(boot)==1);
     reset();bad_digest=1;assert(install(msg)<0 && value(boot)==1 && !has(pkg));
     reset();bad_header=1;assert(install(msg)<0 && value(boot)==1 && !has(tmp));
     reset();title_stage_fail=1;assert(install(msg)<0 && value(boot)==1 && !has(tmp));
@@ -300,7 +330,7 @@ int main(void) {
     reset();restore_error=-EIO;assert(install(msg)==0 && strstr(msg,"SAS date"));
     reset();count=0;boot="mc0:/APP_LAUNCHSTATION/BOOT.ELF";put(boot);
     assert(install(msg)==0 && value(boot)==2 && value(title)==2);
-    puts("PASS: delete/replace without backups, reserved 100 KB, space bounds, popup phases, failure retention and SAS timestamps");
+    puts("PASS: all release assets replaced after staging, download/install progress, legacy packages, reserved space, failure retention and SAS dates");
 }
 
 '''

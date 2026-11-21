@@ -28,6 +28,8 @@ int DashOpenSettings(void);
 /* Publish the next blocking storage operation before entering its RPC.
  * Worker callers only update status; UI callers draw an existing overlay. */
 void DashStorageProbeStatus(const char *status);
+/* Counted storage stages, such as publishing a staged application update. */
+void DashStorageProgress(const char *status, int done, int total);
 /* Speeds are bytes/second; negative speed/time means no estimate yet.
  * Remaining time covers this file. Copy uses the R3Z paste-batch average;
  * archive actions measure the current read/write and count processed bytes. */

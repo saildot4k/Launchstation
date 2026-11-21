@@ -67,14 +67,26 @@ static inline int mock_write(int fd,const void *p,int n) {
     (tmp / "main.c").write_text('''
 #include "launchelf.h"
 #include "self_update.h"
+#include <assert.h>
+static int progress_calls,progress_done,progress_total;
+static void progress(const char *name,int done,int total) {
+    assert(name && *name && done>=progress_done && done<=total && total>0);
+    progress_calls++;progress_done=done;progress_total=total;
+}
 int main(int argc,char **argv) {
-    int fd=open(argv[1],O_RDONLY), size=lseek(fd,0,SEEK_END); close(fd);
-    if(argc==5)
-        printf("%d",selfUpdateExtractPsuTitle(argv[1],argv[2],size,argv[3]));
+    int fd=open(argv[1],O_RDONLY), size=lseek(fd,0,SEEK_END), result; close(fd);
+    selfUpdateSetProgressCallback(progress);
+    if(argc==6)
+        result=selfUpdateExtractPsuAppInfo(argv[1],argv[2],size,argv[3],argv[4]);
+    else if(argc==5)
+        result=selfUpdateExtractPsuTitle(argv[1],argv[2],size,argv[3]);
     else if(argc==4)
-        printf("%d",selfUpdateExtractPsuSidecar(argv[1],argv[2],argv[3],size));
+        result=selfUpdateExtractPsuSidecar(argv[1],argv[2],argv[3],size);
     else
-        printf("%d",selfUpdateExtractPsu(argv[1],argv[2],size));
+        result=selfUpdateExtractPsu(argv[1],argv[2],size);
+    if(result>0)assert(progress_calls>=2 && progress_done==progress_total);
+    selfUpdateSetProgressCallback(NULL);
+    printf("%d",result);
     return 0;
 }
 ''')
@@ -217,6 +229,37 @@ int main(int argc,char **argv) {
         check_sidecar(archive, "BGM.ADP", (root / "res/music.sad").read_bytes())
         check_sidecar(old_archive, "WLE-UPDATE-CA.PEM", old_members["WLE-UPDATE-CA.PEM"])
         check_sidecar(old_archive, "BGM.ADP", old_members["BGM.ADP"])
+        for asset in ("icon.sys", "list.icn", "copy.icn", "del.icn", "APPINFO.PBT"):
+            check_sidecar(archive, asset, packaged_members[asset])
+            check_sidecar(old_archive, asset, 0)
+        check_sidecar(archive, "LAUNCHSTATION.CNF", -1)
+        def check_appinfo(data, boot_leaf, folder_leaf, expected, fault=None):
+            path, stage = tmp / "appinfo.psu", tmp / "appinfo.stage"
+            path.write_bytes(data); stage.unlink(missing_ok=True)
+            env = dict(os.environ, **{fault: "1"}) if fault else None
+            got = int(subprocess.check_output([str(binary), str(path), str(stage),
+                                              boot_leaf, folder_leaf, "appinfo"], env=env))
+            if isinstance(expected, bytes):
+                assert got == len(expected) and stage.read_bytes() == expected
+                stage.unlink()
+            else:
+                assert got == expected and not stage.exists()
+        appinfo = packaged_members["APPINFO.PBT"]
+        check_appinfo(archive, name, folder, appinfo)
+        renamed = appinfo.replace(f'SET "ELF" "{name}"'.encode(), b'SET "ELF" "BOOT.ELF"')
+        renamed = renamed.replace(f'SET "SAS" "{folder}"'.encode(), b'SET "SAS" "APP_CUSTOM"')
+        check_appinfo(archive, "BOOT.ELF", "APP_CUSTOM", renamed)
+        check_appinfo(old_archive, name, folder, 0)
+        for fault in ("UPDATE_FAIL_WRITE", "UPDATE_FAIL_CLOSE"):
+            check_appinfo(archive, name, folder, -1, fault)
+        for invalid in ("", "../BOOT.ELF", 'bad"name', "bad\\name", "X" * 256):
+            check_appinfo(archive, invalid, folder, -1)
+            check_appinfo(archive, name, invalid, -1)
+        for invalid in (appinfo + f'SET "ELF" "{name}"\n'.encode(),
+                        appinfo.replace(f'SET "ELF" "{name}"'.encode(), b'SET "ELF" "wrong.elf"'),
+                        appinfo.replace(b'SET "SAS"', b'# SAS'), appinfo + b"\0"):
+            malformed = dict(packaged_members);malformed["APPINFO.PBT"] = invalid
+            check_appinfo(p.make_psu(folder, malformed, bytes(8)), name, folder, -1)
         check_sidecar(archive, "wrong.name", -1)
         check_sidecar(old_archive[:-1], "BGM.ADP", -1)
         # The package parser validates names and lengths; the sidecar reader

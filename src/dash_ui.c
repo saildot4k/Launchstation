@@ -1474,6 +1474,20 @@ void DashStorageProbeStatus(const char *status)
 		dashLoadingFrame(status, 0, 0);
 }
 
+void DashStorageProgress(const char *status, int done, int total)
+{
+	if (!DashIsActive() || isStartupDriverStatusQuiet())
+		return;
+	if (dashWorkerOnThread()) {
+		dashWorkerStatus(status, done, total);
+		return;
+	}
+	/* Unlike the throttled status setter, present this before the RPC.
+	 * Never create an overlay in classic code or from a background job. */
+	if (loading_active)
+		dashLoadingFrame(status, done, total);
+}
+
 void dashLoadingEnd(void)
 {
 	loading_active = 0;
