@@ -279,6 +279,11 @@ static int launchstationUpdateCaPath(char *path, int path_size)
            wleExists(path);
 }
 
+int dashHttpsCaPath(char *path, int path_size)
+{
+    return launchstationUpdateCaPath(path, path_size);
+}
+
 /* Compare the installed commit to the published release before offering to
  * replace the running ELF. A different hash alone cannot prove an upgrade.
  * Page 2 suppresses the large first-page changed-files array in GitHub's

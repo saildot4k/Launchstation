@@ -855,6 +855,7 @@ enum {
 	DASH_PICK_FOLDER,
 	DASH_PICK_LAUNCH /* ELF files plus the built-in MISC commands */
 };
+int dashHttpsCaPath(char *path, int path_size);
 int dashPickPath(const char *title, const char *start_dir, int mode, const char *ext, char *out, int out_size);
 void dashModalSetPreview(void (*fn)(int index)); /* applies to the next dashModalMenu() */
 int dashModalKeepVideo(void);

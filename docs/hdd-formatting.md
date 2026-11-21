@@ -89,3 +89,75 @@ data, capacity limits and injected I/O failures. It runs `fsck.exfat` and
 `e2fsck` when installed. `tests/test_hdd_format_ui.py` exercises the actual
 format action, cancellation at both confirmations, failure handling and cache
 reload. No test opens a physical disk. PS2 hardware validation is still needed.
+
+
+## Online software installer
+
+Native HTTPS builds offer software installation as part of formatting. All
+application binaries, icons and system resources are downloaded; none are
+bundled in Launchstation. A working network connection and
+`WLE-UPDATE-CA.PEM` are required. Choose a USB or MMCE folder for temporary
+files and leave that device connected throughout installation. Use the matching
+release CA bundle; it includes the Go Daddy G2 root required by Archive.org.
+
+- **Pure APA:** format only, install WLE-R3Z/R3CONFIGURATOR, install OSDMenu MBR
+  and HOSDMenu, or install both. Apps share `__common/APPS`, with the HDD-OSD
+  visibility attribute `0xc4a7` on APPS and each application folder. No separate
+  app partitions or PSBBN/Linux partitions are created.
+- **APA Jail:** format only, or install English PSBBN DP, OSDMenu MBR,
+  HOSDMenu, WLE-R3Z and R3CONFIGURATOR. Apps live on exFAT under `ata0:/APPS`.
+  Each has a standard 128 MiB PFS launcher with PATINFO, HDD icons, and PSBBN
+  browser metadata. The installer does not enable 8 MiB APA partitions.
+
+APA-Jail software installs create DP's Linux system/swap/data partitions,
+a 1 GiB music volume, and a 1 GiB PFS contents partition. At least **6400 MiB
+of additional APA space** is required; the default remains 8192 MiB. The APA
+region is capped at 128 GiB for PSBBN. The existing driver must support a
+single 2 GiB APA extent (checked before download/format); smaller-capacity
+configurations are refused rather than inventing a subpartition mapping.
+PSBBN needs a compatible Sony Network Adapter. This first version uses English
+and fixed music/contents sizes.
+
+The system archive's Unix permissions, owners, hard links, symlinks and device
+nodes are preserved in ext2. The music volume is FAT32, matching DP's Linux
+layout; the external-facing APA-Jail partition remains exFAT with label `PS2`.
+Boot configuration is generated for the actual installed components and paths.
+Pure APA boots HOSDMenu; PSBBN installs boot PSBBN with `-dev9=NICHDD` and offer
+HOSDMenu on Cross. Start/Select hotkeys launch the included apps when present.
+
+### Download and failure behavior
+
+Repository assets come from
+[PSBBN DP](https://github.com/CosmicScale/PSBBN-Definitive-Project) at one
+resolved Git commit; their Git blob hashes are verified. HDD-OSD-only installs
+fetch DP's referenced `extras.zip`. PSBBN installations fetch the newest
+complete system and English language versions from DP's
+[Archive.org collection](https://archive.org/details/psbbn-definitive-patch-v4.1),
+using its published sizes and SHA-1 hashes. Archive decompression, CRCs, paths,
+required boot files and capacity bounds are checked **before the two erase
+confirmations**. All staged hashes are checked again after the formatting IOP
+reset. The temporary folder has a contents-based ownership marker so it can
+be located after USB renumbering. Missing or duplicate markers stop installation
+and cleanup rather than selecting a different drive.
+
+The installer activates the downloaded MBR only after files/configuration
+succeed, after flushing the payload and verifying its readback. APA-Jail
+recovery metadata is refreshed after creating the software's partitions.
+Storage is reset/reloaded after raw writes, including errors. A failed software
+install reports the incomplete installation and retains the download folder;
+it does not silently reformat or report success. Failures before formatting
+leave the HDD untouched.
+
+### Installer verification
+
+`tests/test_hdd_installer.py` checks bounded metadata/archive parsing, layout
+settings, Unix metadata, language overlays, allocation cleanup, music/swap
+filesystems, and injected errors. `e2fsck`, `debugfs` and `fsck.fat` validate the
+output independently. `tests/test_hdd_installer_apply.py` exercises the production
+app/HOSD copy path against a host storage facade, including visibility flags
+and PSBBN browser resources. The stage test checks USB renumbering and
+ownership-checked cleanup. `tests/test_hdd_installer_finish.py` verifies software
+and flush/readback checks precede MBR activation, with failure cleanup.
+The format UI test also exercises download-before-erase and failed-install
+cache retention. Host tests never open a physical disk. PS2 hardware boot and
+network/storage validation are still required.

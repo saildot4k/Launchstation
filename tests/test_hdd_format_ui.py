@@ -19,23 +19,29 @@ code = r'''
 #include <string.h>
 #include <time.h>
 #include "hdd_format.h"
+#include "hdd_install.h"
 typedef uint32_t u32;
-typedef struct { HddFormatPlan format_plan; int format_started, ret; } HddJob;
+typedef struct { HddFormatPlan format_plan; HddInstall *installer; int format_started, ret, op; } HddJob;
 #define ETH
 #define DI_WARNING 1
 #define DASH_TOAST_OK 2
 #define HOP_FORMAT 3
 #define HDIOC_TOTALSECTOR 4
+#define HOP_DOWNLOAD_INSTALLER 5
+#define HOP_INSTALL_SOFTWARE 6
+#define HDIOC_MAXSECTOR 7
 static int console_is_PSX, ftp, selected, reserve, total;
 static int confirms, cancel_confirm, loaded, load_error, jobs, started, job_error, queue_error;
+static unsigned install_flags;
+static int downloads, installed, download_error, install_error, cache_kept;
 static int messages, toasts, reset, reloaded, maintained, bgm, stopped, changed, freed;
 static int sel, top;
 static float top_anim;
 static HddFormatPlan actual;
 static int isFtpServerRunning(void) { return ftp; }
 static int fileXioDevctl(const char *dev, int op, void *a, int alen, void *b, int blen) {
-    assert(!strcmp(dev, "hdd0:") && op == HDIOC_TOTALSECTOR && !a && !alen && !b && !blen);
-    return total;
+    assert(!strcmp(dev, "hdd0:") && (op == HDIOC_TOTALSECTOR || op == HDIOC_MAXSECTOR) && !a && !alen && !b && !blen);
+    return op == HDIOC_TOTALSECTOR ? total : 2048 * 2048;
 }
 static int dashModalChoice(const char *title, const char *const *options, int count, int current) {
     assert(!strcmp(title, "Format HDD") && count == 3 && current == 0);
@@ -43,11 +49,11 @@ static int dashModalChoice(const char *title, const char *const *options, int co
     return selected;
 }
 static int pickSize(const char *title, int min, int max, int initial) {
-    assert(strstr(title, "Additional APA") && min == 0 && max % 128 == 0 && initial <= max);
+    assert(strstr(title, "Additional APA") && min == (install_flags & HDD_INSTALL_PSBBN ? 6400 : install_flags & HDD_INSTALL_APPS ? 256 : 0) && max % 128 == 0 && initial <= max);
     return reserve;
 }
 static void dashModalMessage(int icon, const char *title, const char *body, const char *detail) {
-    assert(icon == DI_WARNING && title && body && !detail); messages++;
+    assert(icon == DI_WARNING && title && body); if(detail) cache_kept++; messages++;
 }
 static int dashModalConfirm(const char *title, const char *body, const char *button, int danger) {
     assert(title && body && button && danger == 1);
@@ -58,19 +64,26 @@ static int dashModalConfirm(const char *title, const char *body, const char *but
         assert(strstr(body, "PS2") && strstr(body, "Recovery: 32 MiB") && strstr(body, "additional"));
     return confirms != cancel_confirm;
 }
-static HddJob *jobNew(int operation) { assert(operation == HOP_FORMAT); return calloc(1, sizeof(HddJob)); }
+int dashHddInstallChoose(HddInstall *in, int jail) { in->jail = jail; in->flags = install_flags; return 1; }
+int dashHddInstallPrepare(HddInstall *in) { assert(!confirms); strcpy(in->stage, "usb0:/cache"); return 1; }
+void hddInstallCleanup(HddInstall *in) { in->stage[0] = 0; }
+static int prepareTransferDeviceStacks(const char *a, const char *b) { assert(a && b); return 0; }
+static HddJob *jobNew(int operation) { HddJob *j = calloc(1, sizeof(HddJob)); j->op = operation; return j; }
 static void hddJobFree(HddJob *j) { freed++; free(j); }
 int hddFormatLoad(void) { assert(confirms == 2); loaded++; return load_error; }
 static void dashSoundShutdown(void) { assert(loaded); stopped++; }
 static int runJob(HddJob *j, const char *title, int cancelable) {
-    assert(stopped && title && cancelable == 0); jobs++;
+    assert(title && cancelable == 0);
+    if (j->op == HOP_DOWNLOAD_INSTALLER) { assert(!confirms && !stopped); downloads++; j->ret = download_error; return 1; }
+    if (j->op == HOP_INSTALL_SOFTWARE) { assert(reset && confirms == 2); installed++; j->ret = install_error; j->format_started = 1; return 1; }
+    assert(stopped); jobs++;
     actual = j->format_plan;
     if (queue_error) { hddJobFree(j); return 0; }
     j->format_started = started; j->ret = job_error;
     return 1;
 }
 static void rebootIopAndReloadCoreStackSilent(void) { assert(jobs && started); reset++; }
-static void loadHddModules(void) { assert(reset); reloaded++; }
+static void loadHddModules(void) { assert(reset || downloads); reloaded++; }
 static void dashSoundMaintain(void) { maintained++; }
 static void dashBgmStart(void) { bgm++; }
 static void dashToast(int icon, const char *text) { assert(icon == DASH_TOAST_OK && text); toasts++; }
@@ -80,6 +93,7 @@ int hddFormatRecovery(const HddFormatPlan *p, const HddFormatIo *io) { (void)p; 
 code += action
 code += r'''
 static void clear(void) {
+    install_flags = 0; downloads = installed = download_error = install_error = cache_kept = 0;
     console_is_PSX = ftp = 0; selected = HDD_FORMAT_APA_JAIL; reserve = 512; total = 8 * 1024 * 2048;
     confirms = cancel_confirm = loaded = load_error = jobs = job_error = queue_error = 0; started = 1;
     messages = toasts = reset = reloaded = maintained = bgm = stopped = changed = freed = 0;
@@ -110,7 +124,13 @@ int main(void) {
     assert(messages == 1 && !toasts && reset == 1 && reloaded == 1 && changed == 1);
     clear(); job_error = -EBUSY; started = 0; actFormat();
     assert(messages == 1 && !toasts && !reset && !reloaded && changed == 1 && maintained && bgm);
-    puts("PASS: three format choices, PSX/FTP/capacity guards, two confirmations, cancellation, queue/load failures and storage reload after success/failure");
+    clear(); total = 100 * 1024 * 2048; reserve = 8192; install_flags = 7; actFormat();
+    assert(downloads == 1 && installed == 1 && confirms == 2 && jobs == 1 && reset == 2 && !messages && toasts == 1);
+    clear(); total = 100 * 1024 * 2048; reserve = 8192; install_flags = 7; download_error = -EIO; actFormat();
+    assert(downloads == 1 && !confirms && !jobs && !stopped && messages == 1);
+    clear(); total = 100 * 1024 * 2048; reserve = 8192; install_flags = 7; install_error = -EIO; actFormat();
+    assert(downloads == 1 && installed == 1 && jobs == 1 && reset == 2 && !toasts && cache_kept == 1 && messages == 1);
+    puts("PASS: pre-erase download, failed-install cache retention, three format choices, PSX/FTP/capacity guards, two confirmations, cancellation, queue/load failures and storage reload after success/failure");
 }
 '''
 compiler = shutil.which("gcc") or shutil.which("cc")
