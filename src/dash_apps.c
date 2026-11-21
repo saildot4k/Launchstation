@@ -439,15 +439,7 @@ static void appsInput(const DashInput *in)
 	}
 	if (in->pressed & DASH_IN_OK)
 		dashLaunchApp(selApp(), 0);
-	else if (in->pressed & DASH_IN_FAV) {
-		DashApp *a = selApp();
-		int r = dashStoreToggleFavorite(a->path);
-		dashToast(r > 0 ? DASH_TOAST_OK : DASH_TOAST_INFO, r > 0 ? "Added to Favorites" : "Removed from Favorites");
-		if (filter == FILTER_FAV)
-			dashAppsRebuildView();
-		else
-			dashHomeRebuild();
-	} else if (in->pressed & DASH_IN_MENU)
+	else if (in->pressed & DASH_IN_MENU)
 		appsMenu();
 }
 
@@ -546,7 +538,7 @@ static void drawGrid(void)
 		dashDrawTileFocus(x + GRID_CARD * 0.5f - w * 0.5f, y + GRID_CARD * 0.5f - w * 0.5f, w, w, w * 0.1f, 1.0f);
 	}
 	dashGfxScissorReset();
-	dashDrawScrollbar(DASH_SAFE_R + 10, 104, 284, (int)(grid_cam / GRID_PITCH_Y), 3, (norder + GRID_COLS - 1) / GRID_COLS);
+	dashDrawScrollbar(DASH_SAFE_R + 10, 104, 284, grid_cam / GRID_PITCH_Y, 3, (norder + GRID_COLS - 1) / GRID_COLS);
 
 	if (a != NULL) {
 		/* focused title, right-aligned next to the view switcher */
@@ -629,7 +621,7 @@ static void drawList(void)
 		dashGfxPopAlpha();
 	}
 	dashGfxScissorReset();
-	dashDrawScrollbar(lx + lw + 10, ly, DASH_PANE_B - ly, top, LIST_ROWS, norder);
+	dashDrawScrollbar(lx + lw + 10, ly, DASH_PANE_B - ly, list_top_anim, LIST_ROWS, norder);
 
 	/* detail panel */
 	if (a != NULL) {
@@ -739,7 +731,7 @@ static void appsDraw(void)
 			                   "Open the device in Files, or press the confirm button to scan your application folders.");
 		} else
 			dashDrawEmptyState(320, 238, filter == FILTER_FAV ? DI_STAR : DI_APPS, filter == FILTER_FAV ? "No favorites yet" : "Nothing to show",
-			                   filter == FILTER_FAV ? "Press Square on an application to add it to Favorites. Press SELECT to show all."
+			                   filter == FILTER_FAV ? "Use an application's Options menu to add it to Favorites. Press SELECT to show all."
 			                                        : "No applications match this filter. Press SELECT to show all.");
 		return;
 	}
@@ -767,7 +759,6 @@ static void appsHints(void)
 			h[n].button = -1, h[n].key = "SELECT", h[n].label = "All apps", n++;
 	} else {
 		h[n].button = dashOkIcon(), h[n].key = NULL, h[n].label = "Start", n++;
-		h[n].button = DI_BTN_SQUARE, h[n].key = NULL, h[n].label = "Favorite", n++;
 		h[n].button = DI_BTN_TRIANGLE, h[n].key = NULL, h[n].label = "Options", n++;
 	}
 	h[n].button = dashBackIcon(), h[n].key = NULL, h[n].label = "Home", n++;

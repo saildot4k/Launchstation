@@ -1,5 +1,5 @@
 # ----------------------------------------------------------------------
-# File name:    LAUNCHELF.CNF           Revision Date: 2008.07.19
+# File name:    LAUNCHSTATION.CNF           Revision Date: 2008.07.19
 # Created by:   Ronald Andersson        Creation Date: 2006.02.02
 # Purpose:      Define new format and defaults for LaunchELF CNF files,
 #               to serve as a guide in developing the code implementing
@@ -433,5 +433,5 @@ PathPad_Lock = 0
 # ----------------------------------------------------------------------
 PathPad[14] = hdd0:/__common/-PS1 MC Backups/
 # ----------------------------------------------------------------------
-# End of file: LAUNCHELF.CNF
+# End of file: LAUNCHSTATION.CNF
 # ----------------------------------------------------------------------

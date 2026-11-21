@@ -52,7 +52,6 @@ enum SetId {
 	S_BGM,
 	S_BGMVOL,
 	S_START,
-	S_FILES_MODE,
 	S_VIEW,
 	S_HOME_SHORTCUTS,
 	S_ICON_BACKING,
@@ -318,8 +317,8 @@ static const SetItem system_items[] = {
     {ST_PAGE, P_PSU, "Memory card backup files", "PSU naming and overwrite rules used by File Browser operations."},
     {ST_ACTION, S_CLOCK, "Set PS2 Clock", "Set the console's date and time manually or synchronize from the Internet."},
     {ST_CHOICE, S_TEMP_UNITS, "PS2 Temperature Units (50K and later)", "Celsius or Fahrenheit beside the clock. Hidden automatically when the console has no supported temperature sensor."},
-    {ST_PATH, S_CNF_PATH, "Configuration override folder", "Load and save LAUNCHELF.CNF in this folder instead of the default places."},
-    {ST_ACTION, S_SAVE_AS, "Save launch & tool settings to...", "Writes LAUNCHELF.CNF immediately to another location; dashboard and network settings are saved separately."},
+    {ST_PATH, S_CNF_PATH, "Configuration override folder", "Load and save LAUNCHSTATION.CNF in this folder instead of the default places."},
+    {ST_ACTION, S_SAVE_AS, "Save launch & tool settings to...", "Writes LAUNCHSTATION.CNF immediately to another location; dashboard and network settings are saved separately."},
 };
 
 #define NITEMS(a) ((int)(sizeof(a) / sizeof(a[0])))
@@ -577,11 +576,6 @@ static int choiceInfo(int id, int *cur, const char *const **names, const char **
 			       (dashCfg.start_section == DASH_SEC_TOOLS) ? 3 :
 			       (dashCfg.start_section == DASH_SEC_SETTINGS) ? 4 : 0;
 			return 5;
-		}
-		case S_FILES_MODE: {
-			static const char *const modes[] = {"Files", "Devices"};
-			*names = modes, *cur = dashCfg.files_mode;
-			return 2;
 		}
 		case S_HOME_SHORTCUTS:
 			*cur = dashCfg.home_shortcuts;
@@ -1183,9 +1177,6 @@ static void setChoice(int id, int v)
 			                        (v == 3) ? DASH_SEC_TOOLS :
 			                        (v == 4) ? DASH_SEC_SETTINGS : DASH_SEC_HOME;
 			break;
-		case S_FILES_MODE:
-			dashCfg.files_mode = v;
-			break;
 		case S_HOME_SHORTCUTS:
 			dashCfg.home_shortcuts = v;
 			dashHomeRebuild();
@@ -1625,7 +1616,7 @@ static void cfgSaveDone(void *arg)
 
 static int cfgSave(int kind, int target, const char *path);
 
-/* LAUNCHELF.CNF now, where it was loaded from (File Browser bookmarks) */
+/* LAUNCHSTATION.CNF now, where it was loaded from (File Browser bookmarks) */
 int dashSettingsSaveCnf(void)
 {
 	return cfgSave(CFG_SAVE_CNF, -2, NULL);
@@ -2704,7 +2695,7 @@ static void settingsDraw(void)
 		dashGfxPopAlpha();
 	}
 	dashGfxScissorReset();
-	dashDrawScrollbar(ix + iw + 10, iy, pane_bottom - iy, item_top, ITEM_ROWS, total);
+	dashDrawScrollbar(ix + iw + 10, iy, pane_bottom - iy, item_top_anim, ITEM_ROWS, total);
 	/* help line */
 	{
 		const SetItem *it = curItem();
@@ -2724,7 +2715,7 @@ static void settingsHints(void)
 	{
 		const SetItem *it = curItem();
 		if (it->type == ST_NUMBER)
-			h[n].button = DI_BTN_LEFT, h[n].key = NULL, h[n].label = "Change", n++;
+			h[n].button = -1, h[n].key = "LEFT/RIGHT", h[n].label = "Change", n++;
 		else
 			h[n].button = dashOkIcon(), h[n].key = NULL,
 			h[n].label = (it->type == ST_ACTION || it->type == ST_PAGE) ? "Open" : (it->type == ST_COLOR || it->type == ST_IP) ? "Edit" :

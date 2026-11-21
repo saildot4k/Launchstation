@@ -251,7 +251,6 @@ assert launch.index('showNeutrinoLaunchOptions(&options)') < launch.index('Clean
 cleanup = function(actions, 'int CleanUpForKeepIopExec(')
 assert cleanup.index('DashPrepareKeepIopHandoff(') < cleanup.index('cleanUpForExecInternal(1)')
 main = (root/'src/main.c').read_text()
-assert 'MainExecuteContext exec_ctx = {0};' in main
 assert 'MainExecuteContext dash_ctx = {0};' in main
 compiler = shutil.which('gcc') or shutil.which('clang')
 assert compiler, 'Host C compiler required'

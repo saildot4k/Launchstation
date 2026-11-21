@@ -461,7 +461,7 @@ char *preloadCNF(char *path)
 }
 //------------------------------
 //endfunc preloadCNF
-// Save LAUNCHELF.CNF
+// Save LAUNCHSTATION.CNF
 //---------------------------------------------------------------------------
 /* Capture on the UI thread before queuing a save. No device access. */
 char *configBuildSaveText(int *out_size)
@@ -789,7 +789,7 @@ void initConfig(void)
 //------------------------------
 //endfunc initConfig
 //---------------------------------------------------------------------------
-// Load LAUNCHELF.CNF
+// Load LAUNCHSTATION.CNF
 // Return value: 0==OK, -1==failure
 //---------------------------------------------------------------------------
 int loadConfig(char *mainMsg, char *CNF)

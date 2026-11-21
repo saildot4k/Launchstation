@@ -6,13 +6,13 @@ store=(root/"src/dash_store.c").read_text()
 settings=component_source('src/dash_settings.c')
 main=(root/"src/dash_main.c").read_text()
 ui=(root/"src/dash_ui.c").read_text()
-files=(root/"src/dash_files.c").read_text()
+browser=(root/"src/dash_browser.c").read_text()
 devices=(root/"src/dash_devices.c").read_text()
 home=(root/"src/dash_home.c").read_text()
 
-for field in ("files_mode","home_shortcuts","icon_backing"):
+for field in ("home_shortcuts","icon_backing"):
     assert field in hdr
-for key in ("Dash_FilesMode","Dash_HomeShortcuts","Dash_IconBacking"):
+for key in ("Dash_HomeShortcuts","Dash_IconBacking"):
     assert key in store
 
 assert "visible_sections[] = {DASH_SEC_HOME, DASH_SEC_FILES, DASH_SEC_TOOLS, DASH_SEC_SETTINGS}" in main
@@ -21,23 +21,22 @@ assert "DASH_SEC_APPS" in main  # older saved section values migrate to Home
 assert "dashAdjacentSection(section, -1)" in main and "dashAdjacentSection(section, 1)" in main
 assert "dashVisibleSectionCount()" in ui and "tab_w * vcount" in ui
 
-assert "dashOpenBrowser(LastDir)" in files or "LastDir" in home
+assert "LastDir" in home
 assert '"Applications"' in home and '"Last folder"' in home
 assert "dashAppsScreen.input(in)" in home
 assert "dashAppsScreen.draw()" in home
 assert "dashRunMisc((const char *)setting + t->misc_offset);" in (root/"src/dash_tools.c").read_text()
-assert "dashCfg.files_mode = !dashCfg.files_mode" in files
-assert "const DashScreen dashDevicesScreen = {storageEnter" in files
+assert "files_mode" not in hdr and "Dash_FilesMode" not in store
+assert "&dashDevicesScreen" not in main
 assert "const DashScreen dashFilesScreen" in (root/"src/dash_browser.c").read_text()
 assert '"USB Mass Storage"' in devices
 assert '"USB Mass Storage"' in (root/"src/dash_lib.c").read_text()
 assert '"USB Storage"' not in (root/"src/dash_lib.c").read_text()
 assert '"MASS (USB)"' not in devices
 assert "usb%d:/" in devices  # keep path labels in device panels and picker
-assert "No USB storage device was found." in files
-assert 'dashModalMessage(DI_WARNING, "Device not found", body, NULL);' in files  # no raw mount IDs in errors
+assert 'dashToast(DASH_TOAST_WARN, "Device not found");' in browser
 assert "Not connected" in devices
-assert "devs[idx].state == DASH_DEV_READY" in files
+assert "d->state == DASH_DEV_PROBE || d->state == DASH_DEV_ABSENT" in browser
 
 assert "Panel transparency" in settings
 assert "Control icon backings" in settings

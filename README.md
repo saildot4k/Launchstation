@@ -20,7 +20,7 @@ The full Launchstation reference is published as a PS2-styled GitHub Pages site:
 
 The site covers installation, dashboard controls, File Browser, Apps, Text Editor, storage/device support, APA/PFS, MMCE, networking, POPStarter VCD launching, Ember PS1 image launching, Neutrino ISO launching, settings, configuration files, troubleshooting and developer notes.
 
-**Neutrino per-game profiles (optional):** Valid PS2 ISO Game IDs can load a separately saved Neutrino compatibility/video preset from Launchstation's dashboard settings directory. Use **Save for this game** in the launch dialog; ordinary Run never persists edits. Two verified per-title slots preserve the last valid settings if writing is interrupted. Missing, corrupt or inaccessible profiles fall back to launch-only defaults, without rewriting any ISO, VMC or `LAUNCHELF.CNF`. The console may skip profile I/O when MMCE/MX4SIO currently owns incompatible memory-card access.
+**Neutrino per-game profiles (optional):** Valid PS2 ISO Game IDs can load a separately saved Neutrino compatibility/video preset from Launchstation's dashboard settings directory. Use **Save for this game** in the launch dialog; ordinary Run never persists edits. Two verified per-title slots preserve the last valid settings if writing is interrupted. Missing, corrupt or inaccessible profiles fall back to launch-only defaults, without rewriting any ISO, VMC or `LAUNCHSTATION.CNF`. The console may skip profile I/O when MMCE/MX4SIO currently owns incompatible memory-card access.
 
 ## Dashboard
 

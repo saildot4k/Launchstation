@@ -11,7 +11,6 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 filer = (root / "src/filer.c").read_text(encoding="utf-8")
-files = (root / "src/dash_files.c").read_text(encoding="utf-8")
 lib = (root / "src/dash_lib.c").read_text()
 devices = (root / "src/dash_devices.c").read_text(encoding="utf-8")
 
@@ -285,7 +284,9 @@ with tempfile.TemporaryDirectory(prefix="wle-mc-poll-") as tmp:
 
 # The dashboard must let the user open an unresolved slot: browsing runs
 # ensureMemoryCardPortAccessible(), which switches the IOP away from MX4SIO.
-selectable = function(files, "static int devSelectable(")
-assert "devs[idx].icon == DI_MC" in selectable
+browser = (root / "src/dash_browser.c").read_text()
+activation = function(browser, "static void activate(")
+assert "d->icon == DI_MC" in activation
+assert 'openDir(path, NULL); /* recheck the actual card, even after cached absence */' in activation
 assert "present == -2" in devices
-print("PASS: unresolved memory-card slots stay selectable from Devices")
+print("PASS: unresolved memory-card slots remain directly browsable in the native File Browser")

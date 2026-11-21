@@ -24,7 +24,7 @@ mkdir -p "$REPORT_DIR"
 	rg -n "^\s*#if\s+0\b" src include iop loader || true
 	echo
 	echo "3) Suspicious duplicate config probes"
-	rg -n "LAUNCHELF\.CNF|IPCONFIG\.DAT" src/main.c src/config.c || true
+	rg -n "LAUNCHSTATION\.CNF|IPCONFIG\.DAT" src/main.c src/config.c || true
 	echo
 	echo "4) Large files (refactor candidates)"
 	wc -l src/*.c | sort -nr | head -n 10

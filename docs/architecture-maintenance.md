@@ -51,7 +51,7 @@ CI does not upload this report; it is a local/manual maintenance aid only.
 
 ## Recommended Future Splits
 
-Most of the code is already modularized, but `src/main.c` and `src/filer.c` are still large.
+Startup orchestration in `src/main.c` is compact. The larger remaining owners include `src/filer.c`, `src/dash_browser.c` and `src/dash_settings.c`.
 
 Completed so far:
 
@@ -70,15 +70,33 @@ Completed so far:
    - `src/main_info_screens.c` (`Show_About_uLE`, `Show_build_info`, `ShowDebugInfo`, `ShowFont`)
    - `src/main_gameid.c` (RetroGem/game-ID helpers)
    - `src/main_actions.c` (`Execute` action dispatch + launch cleanup)
-7. Main startup/menu flow splits now include:
+7. Startup flow now consists of:
    - `src/main_boot.c` (early boot sequence + argument capture)
    - `src/main_modules.c` (runtime module/font/pad startup + CNF path validation)
-   - `src/main_menu.c` (main menu rendering/input/timer state helpers)
+   - `src/dash_main.c` owns the active shell, launch keys and boot countdowns. The old main-menu loop and separate Devices list/grid views have been removed.
 
 Recommended extraction order (lowest risk first):
 
 1. `filer_menu.c` (R1 menu enable/dispatch logic)
 2. `filer_paths.c` (device/path mapping helpers)
-3. `main_loop.c` (disc polling + event loop orchestration)
+3. `dash_browser.c` (separate browser interaction, row rendering and timestamp editor owners)
 
 Keep each split behavior-neutral and verify on both PCSX2 and real hardware after each pass.
+
+## ELF size maintenance
+
+Both build paths enable function/data section garbage collection. Each plain
+embedded payload in `src/embed_blobs.S` keeps its data and size symbol in one
+independent read-only section: referencing either retains the pair; unused
+payload sections can be discarded. Remove retired payloads from both
+`src/embed_blobs.S` and `embed.make`/`Makefile`.
+
+`tests/test_cleanup_build.py` executes the production startup entry against
+host adapters and assembles/links the real blob macros to verify section
+retention. Existing saved section IDs remain stable; Devices routes to Files,
+and the obsolete `Dash_FilesMode` key is ignored and omitted on save.
+
+Measure packed and unpacked ELFs from the same toolchain and profile before
+claiming binary savings. Source deletion and RAM savings are separate: the
+linker may already discard unreferenced functions, and BSS does not occupy
+payload bytes in the ELF.

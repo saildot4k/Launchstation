@@ -2,7 +2,7 @@
 //File name:   dash_store.c
 //Dashboard persistence.
 //
-//The dashboard never modifies LAUNCHELF.CNF on its own. Its state lives in
+//The dashboard never modifies LAUNCHSTATION.CNF on its own. Its state lives in
 //separate files in the configured override or loaded main-config folder:
 //  DASHBOARD.CNF  settings and application scan locations
 //  DASHAPPS.CNF   favorites, pinned/recent apps and hidden paths
@@ -253,7 +253,6 @@ void dashStoreDefaults(void)
 	dashCfg.bgm = 0;
 	dashCfg.bgm_vol = 80;
 	dashCfg.app_filter = 0;
-	dashCfg.files_mode = 0;
 	dashCfg.home_shortcuts = 1;
 	dashCfg.icon_backing = 0;
 	for (i = 0; i < (int)(sizeof(default_scan) / sizeof(default_scan[0])); i++)
@@ -328,8 +327,6 @@ static int settingsKv(const char *key, char *value, void *user)
 		dashCfg.bgm_vol = clampInt(value, 0, 100, 80);
 	else if (!stricmp(key, "Dash_AppFilter"))
 		dashCfg.app_filter = clampInt(value, 0, 6, 0);
-	else if (!stricmp(key, "Dash_FilesMode"))
-		dashCfg.files_mode = clampInt(value, 0, 1, 0);
 	else if (!stricmp(key, "Dash_HomeShortcuts"))
 		dashCfg.home_shortcuts = clampInt(value, 0, 1, 1);
 	else if (!stricmp(key, "Dash_IconBacking"))
@@ -453,7 +450,7 @@ char *dashStoreSettingsText(const DashSettings *c, int *out_len)
 	if (buf == NULL)
 		return NULL;
 	len += snprintf(buf + len, cap - len,
-	                "# Launchstation dashboard settings (LAUNCHELF.CNF is not modified)\r\n"
+	                "# Launchstation dashboard settings (LAUNCHSTATION.CNF is not modified)\r\n"
 	                "Dash_Enabled = %d\r\n"
 	                "Dash_StartSection = %d\r\n"
 	                "Dash_View = %d\r\n"
@@ -470,14 +467,13 @@ char *dashStoreSettingsText(const DashSettings *c, int *out_len)
 	                "Dash_BGM = %d\r\n"
 	                "Dash_BGMVolume = %d\r\n"
 	                "Dash_AppFilter = %d\r\n"
-	                "Dash_FilesMode = %d\r\n"
 	                "Dash_HomeShortcuts = %d\r\n"
 	                "Dash_IconBacking = %d\r\n"
 	                "Dash_TemperatureFahrenheit = %d\r\n",
 	                c->enabled, c->start_section, c->view, c->effects, c->bg_detail,
 	                c->anim, c->autoscan, c->artwork, c->recent_count,
 	                c->legacy_theme, c->intro_done, c->sound, c->sound_vol,
-	                c->bgm, c->bgm_vol, c->app_filter, c->files_mode,
+	                c->bgm, c->bgm_vol, c->app_filter,
 	                c->home_shortcuts, c->icon_backing, c->temp_fahrenheit);
 	for (i = 0; i < c->nscan && len < cap - DASH_PATH_MAX - 16; i++)
 		len += snprintf(buf + len, cap - len, "Dash_Scan = %s\r\n", c->scan[i]);

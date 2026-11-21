@@ -695,7 +695,7 @@ static void toolsDraw(void)
 			dashGlow(lx + lw - 14, y + 10.5f, 4, 4, tools[i].confirm == 2 ? DASH_C_DANGER : DASH_C_WARM);
 	}
 	dashGfxScissorReset();
-	dashDrawScrollbar(lx + lw + 10, ly, DASH_PANE_B - ly, ttop, rows, NTOOLS);
+	dashDrawScrollbar(lx + lw + 10, ly, DASH_PANE_B - ly, ttop_anim, rows, NTOOLS);
 
 	{
 		float dx = lx + lw + 24, dy = pane_y, dw = DASH_PANE_R - dx, dh = pane_h;

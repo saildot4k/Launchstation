@@ -288,39 +288,39 @@ int main(void) {
         if(scenario==7)open_error=2;
         assert((dashWriteFile("DASHBOARD.CNF",data,sizeof(data)-1)==0)==(scenario==0));
     }
-    /* Every dashboard file uses the loaded LAUNCHELF.CNF folder, even with other copies nearby. */
-    resetLocations("usb0:/Launchstation/LAUNCHELF.CNF","mmce0:/Other/","usb0:/Launchstation/");
+    /* Every dashboard file uses the loaded LAUNCHSTATION.CNF folder, even with other copies nearby. */
+    resetLocations("usb0:/Launchstation/LAUNCHSTATION.CNF","mmce0:/Other/","usb0:/Launchstation/");
     addBundle("usb0:/Launchstation/",11);addBundle("mmce0:/Other/",22);addBundle("mc0:/SYS-CONF/",33);
     expectLocation("usb0:/Launchstation/",11,1);assert(dashLists.nfav==1&&!strcmp(dashLists.fav[0],"usb0:/APPS/V11.ELF"));
-    int first_reads=location_reads;strcpy(LoadedConfigPath,"mc1:/Elsewhere/LAUNCHELF.CNF");dashStoreInit();
+    int first_reads=location_reads;strcpy(LoadedConfigPath,"mc1:/Elsewhere/LAUNCHSTATION.CNF");dashStoreInit();
     assert(location_reads==first_reads&&!strcmp(dashStoreDir(),"usb0:/Launchstation/"));
     /* The explicit override wins over the folder that supplied the startup main config. */
-    resetLocations("usb0:/Launchstation/LAUNCHELF.CNF","mmce0:/Override/","usb0:/Launchstation/");
+    resetLocations("usb0:/Launchstation/LAUNCHSTATION.CNF","mmce0:/Override/","usb0:/Launchstation/");
     strcpy(setting->CNF_Path,"mmce0:/Override");
     addBundle("usb0:/Launchstation/",11);addBundle("mmce0:/Override/",22);addBundle("mc0:/SYS-CONF/",33);
     expectLocation("mmce0:/Override/",22,1);assert(dashLists.nfav==1&&!strcmp(dashLists.fav[0],"usb0:/APPS/V22.ELF"));
     /* Missing settings use defaults in the same folder; app lists there still load independently. */
-    resetLocations("mc1:/SYS-CONF/LAUNCHELF.CNF","mc1:/SYS-CONF/","usb1:/APPS/Launchstation/");
+    resetLocations("mc1:/SYS-CONF/LAUNCHSTATION.CNF","mc1:/SYS-CONF/","usb1:/APPS/Launchstation/");
     addBundle("usb1:/APPS/Launchstation/",44);addBundle("mc0:/SYS-CONF/",55);
     addLocationFile("mc1:/SYS-CONF/","DASHAPPS.CNF","Favorite = mc1:/APPS/LOCAL.ELF\n");
     expectLocation("mc1:/SYS-CONF/",80,0);assert(dashLists.nfav==1&&!strcmp(dashLists.fav[0],"mc1:/APPS/LOCAL.ELF"));
     /* An unavailable override must not search the loaded, startup or other card folders. */
-    resetLocations("usb0:/Launchstation/LAUNCHELF.CNF","usb0:/Launchstation/","usb0:/Launchstation/");
+    resetLocations("usb0:/Launchstation/LAUNCHSTATION.CNF","usb0:/Launchstation/","usb0:/Launchstation/");
     strcpy(setting->CNF_Path,"mmce1:/Unavailable/");addBundle("usb0:/Launchstation/",11);addBundle("mc0:/SYS-CONF/",33);
     expectLocation("mmce1:/Unavailable/",80,0);assert(!dashLists.nfav);
     /* Even missing files on a loaded MC config do not cause a search farther down. */
-    resetLocations("mc1:/BOOT/LAUNCHELF.CNF","mc1:/BOOT/","usb0:/Launchstation/");
+    resetLocations("mc1:/BOOT/LAUNCHSTATION.CNF","mc1:/BOOT/","usb0:/Launchstation/");
     addBundle("mc0:/SYS-CONF/",10);addBundle("mc1:/SYS-CONF/",20);expectLocation("mc1:/BOOT/",80,0);
     /* Read-only and network folders remain the selected source, without silent relocation. */
-    resetLocations("cdfs:/APPS/LAUNCHELF.CNF","mc0:/SYS-CONF/","cdfs:/APPS/");
+    resetLocations("cdfs:/APPS/LAUNCHSTATION.CNF","mc0:/SYS-CONF/","cdfs:/APPS/");
     addBundle("cdfs:/APPS/",99);addBundle("mc1:/SYS-CONF/",88);expectLocation("cdfs:/APPS/",99,1);
-    resetLocations("host:/Config/LAUNCHELF.CNF","host:/Config/","host:/APPS/");
+    resetLocations("host:/Config/LAUNCHSTATION.CNF","host:/Config/","host:/APPS/");
     addBundle("host:/Config/",42);addBundle("mc0:/SYS-CONF/",66);expectLocation("host:/Config/",42,1);
 
-    resetLocations("host:APPS\\LAUNCHELF.CNF","host:/","host:/");
+    resetLocations("host:APPS\\LAUNCHSTATION.CNF","host:/","host:/");
     addBundle("host:APPS\\",42);expectLocation("host:APPS\\",42,1);
     /* A missing app-list file never loads a list from a different dashboard copy. */
-    resetLocations("usb0:/Launchstation/LAUNCHELF.CNF","mc1:/Other/","usb0:/Launchstation/");
+    resetLocations("usb0:/Launchstation/LAUNCHSTATION.CNF","mc1:/Other/","usb0:/Launchstation/");
     addLocationFile("usb0:/Launchstation/","DASHBOARD.CNF","Dash_SoundVolume = 12\n");addBundle("mc1:/Other/",66);
     expectLocation("usb0:/Launchstation/",12,1);assert(!dashLists.nfav);
     /* With no main config, reuse the startup config directory without doing a location search. */
@@ -331,19 +331,19 @@ int main(void) {
     resetLocations("","","usb1:/APPS/");expectLocation("usb1:/APPS/",80,0);
     resetLocations("","","");expectLocation("mc0:/SYS-CONF/",80,0);
     /* APA paths are used only when explicitly selected, never as an automatic fallback. */
-    resetLocations("usb0:/Config/LAUNCHELF.CNF","hdd1:/__sysconf/FMCB/","mmce1:/APPS/");
+    resetLocations("usb0:/Config/LAUNCHSTATION.CNF","hdd1:/__sysconf/FMCB/","mmce1:/APPS/");
     expectLocation("usb0:/Config/",80,0);
     strcpy(setting->CNF_Path,"hdd1:/__sysconf/FMCB/");store_initialized=0;location_reads=0;
     addBundle("hdd1:/__sysconf/FMCB/",42);expectLocation("hdd1:/__sysconf/FMCB/",42,1);
     /* Folder selection depends on the main-config path, not a writable-device whitelist. */
     const char *devices[]={"mc0:/BOOT/","mc1:/BOOT/","mass2:/APPS/","usb1:/APPS/","mmce0:/APPS/","mmce1:/APPS/","mx4sio:/APPS/","ata0:/APPS/","hdd0:/__sysconf/FMCB/","hdd1:/+Launchstation/","cf0:/APPS/","vmc0:/Config/"};
     for(unsigned i=0;i<sizeof(devices)/sizeof(devices[0]);i++) {
-        char main_config[MAX_PATH];snprintf(main_config,sizeof(main_config),"%sLAUNCHELF.CNF",devices[i]);
+        char main_config[MAX_PATH];snprintf(main_config,sizeof(main_config),"%sLAUNCHSTATION.CNF",devices[i]);
         resetLocations(main_config,devices[i],devices[i]);addBundle(devices[i],42);expectLocation(devices[i],42,1);
     }
-    resetLocations("mass2:LAUNCHELF.CNF","mass2:/","mass2:/");addBundle("mass2:/",42);expectLocation("mass2:/",42,1);
+    resetLocations("mass2:LAUNCHSTATION.CNF","mass2:/","mass2:/");addBundle("mass2:/",42);expectLocation("mass2:/",42,1);
     /* SELECT recovery keeps the chosen folder, skips settings and does not migrate files. */
-    resetLocations("mc1:/SYS-CONF/LAUNCHELF.CNF","mc1:/SYS-CONF/","usb0:/Launchstation/");
+    resetLocations("mc1:/SYS-CONF/LAUNCHSTATION.CNF","mc1:/SYS-CONF/","usb0:/Launchstation/");
     addBundle("mc1:/SYS-CONF/",11);boot_safe_mode=1;expectLocation("mc1:/SYS-CONF/",80,0);
     puts("PASS: one dashboard folder, explicit override priority, no fallback probes on missing files, independent app-list loading, stable save/cache/profile paths, startup defaults and recovery mode");
     puts("PASS: removed settings ignored/omitted, MMCE backup/IGR keys discarded, settings round trips, game images skip history saves, disabled recents, hidden app reload/capacity, stable filter IDs and file failures");

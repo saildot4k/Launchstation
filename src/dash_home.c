@@ -344,17 +344,6 @@ static void homeInput(const DashInput *in)
 			col[1] = wrapCol(col[1], nchips);
 			activateChip(&chips[col[1]]);
 		}
-	} else if (in->pressed & DASH_IN_FAV) {
-		DashApp *a = focusedApp();
-		if (a != NULL) {
-			int r = dashStoreToggleFavorite(a->path);
-			if (r < 0)
-				dashToast(DASH_TOAST_INFO, "Favorites full");
-			else {
-				dashToast(r > 0 ? DASH_TOAST_OK : DASH_TOAST_INFO, r > 0 ? "Added to Favorites" : "Removed from Favorites");
-				homeRebuild();
-			}
-		}
 	} else if (in->pressed & DASH_IN_MENU) {
 		DashApp *a = focusedApp();
 		if (a != NULL) {
@@ -558,7 +547,6 @@ static void homeHints(void)
 
 	h[n].button = dashOkIcon(), h[n].key = NULL, h[n].label = (row == 0) ? "Start" : "Open", n++;
 	if (row == 0 && nhome > 0) {
-		h[n].button = DI_BTN_SQUARE, h[n].key = NULL, h[n].label = "Favorite", n++;
 		h[n].button = DI_BTN_TRIANGLE, h[n].key = NULL, h[n].label = "Options", n++;
 	}
 	/* Advertise the R3 display toggle on HOME, not only the way back

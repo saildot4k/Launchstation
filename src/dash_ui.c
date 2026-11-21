@@ -143,11 +143,6 @@ int dashBackIcon(void)
 	return swapKeys ? DI_BTN_CIRCLE : DI_BTN_CROSS;
 }
 
-const char *dashOkLabelKey(void)
-{
-	return swapKeys ? "Cross" : "Circle";
-}
-
 //--------------------------------------------------------------
 // Buttons / hints
 //--------------------------------------------------------------
@@ -208,6 +203,9 @@ static float buttonWidth(int icon, const char *key)
 {
 	float w;
 
+	if (icon < 0 && key != NULL && !strcmp(key, "LEFT/RIGHT"))
+		return 48.0f; /* two 22px glyphs with a 4px gap */
+
 	int resolved = icon >= 0 ? icon : keyIcon(key);
 	if (resolved >= 0)
 		return 22.0f + (resolved == DI_BTN_SELECT ? DASH_SELECT_EXTRA_W : 0.0f);
@@ -219,6 +217,11 @@ static float drawButton(float x, float y, int icon, const char *key)
 {
 	const float d = 22.0f;
 
+	if (icon < 0 && key != NULL && !strcmp(key, "LEFT/RIGHT")) {
+		dashIcon(DI_BTN_LEFT, x, y, d, DASH_C_TEXT);
+		dashIcon(DI_BTN_RIGHT, x + d + 4.0f, y, d, DASH_C_TEXT);
+		return buttonWidth(icon, key);
+	}
 	if (icon >= 0) {
 		dashIcon(icon, x, y, d, buttonColor(icon));
 		return buttonWidth(icon, key);
@@ -489,42 +492,21 @@ static void scrollbarShape(float x, float y, float h, DashColor color)
 	dashRect(x + 4, y + 1, 1, h - 2, color);
 }
 
-void dashDrawScrollbar(float x, float y, float h, int first, int visible, int total)
+void dashDrawScrollbar(float x, float y, float h, float first, int visible, int total)
 {
 	float th, ty;
 
-	if (total <= visible || total <= 0)
+	if (total <= visible || visible <= 0 || h <= 0.0f)
 		return;
+	first = dashClampf(first, 0.0f, (float)(total - visible));
 	scrollbarShape(x, y, h, dashColorA(DASH_C_TEXT3, 0.22f));
 	th = h * visible / (float)total;
 	if (th < 18)
 		th = 18;
+	if (th > h)
+		th = h;
 	ty = y + (h - th) * first / (float)(total - visible);
 	scrollbarShape(x, ty, th, dashColorA(DASH_C_ACCENT, 0.75f));
-}
-
-void dashDrawFocusFrame(float x, float y, float w, float h, float r, float strength)
-{
-	float pulse = 0.82f + 0.18f * dashSinf(dashTime() * 4.2f);
-	DashColor edge = dashColorLighten(DASH_C_ACCENT, 0.45f);
-
-	if (strength <= 0.01f)
-		return;
-	if (dashTheme.glow) {
-		DashColor g = DASH_C_ACCENT;
-		g.a = (u8)(120 * strength * pulse);
-		dashGfxBlend(DASH_BLEND_ADD);
-		dashGlowRect(x, y, w, h, 16.0f, g);
-		dashGfxBlend(DASH_BLEND_NORMAL);
-	}
-	edge.a = (u8)(230 * strength);
-	dashPanelBorder(x - 2, y - 2, w + 4, h + 4, r + 2, edge);
-	if (!dashTheme.glow) {
-		/* no glow: a second, fainter outline keeps focus obvious on a CRT */
-		/* Avoid animated shimmer from the second fine line on interlaced CRTs. */
-		edge.a = (u8)(65 * strength);
-		dashPanelBorder(x - 4, y - 4, w + 8, h + 8, r + 4, edge);
-	}
 }
 
 /* A panel's outline belongs to the panel: with Panels opacity 0 (transparent)
@@ -803,7 +785,7 @@ static int modalEnabledEdge(const DashMenuItem *items, int n, int from_end)
 }
 
 static int modalMenu(const char *title, const char *subtitle, const DashMenuItem *items, int n, int initial,
-                     DashMenuEdit edit, void *arg)
+                     const unsigned char *popup_rows, DashMenuEdit edit, void *arg)
 {
 	int sel = initial, top = 0, i, previewed = -1;
 	void (*preview)(int) = modal_preview;
@@ -964,6 +946,9 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 					 * two can never overlap. */
 					float avail = w - (tx - x) - 30.0f, label_w = avail;
 					if (items[i].detail) {
+						DashColor detail_color = DASH_C_TEXT3;
+						if (edit != NULL && i == sel && !items[i].disabled)
+							detail_color = !strcmp(items[i].detail, "On") ? DASH_C_OK : DASH_C_ACCENT;
 						float dw = dashTextWidth(items[i].detail, DASH_FS_CAPTION), detail_w;
 						float right = x + w - 28;
 						label_w = dashTextWidth(items[i].label, DASH_FS_SMALL);
@@ -978,21 +963,24 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 							right -= 16.0f;
 							vw = dw < detail_w ? dw : detail_w;
 							dashIcon(DI_BACK, right - vw - 22, ry + 4.5f, 12, DASH_C_ACCENT);
-							dashIcon(DI_PLAY, x + w - 28, ry + 5.5f, 10, DASH_C_ACCENT);
+							if (popup_rows != NULL && popup_rows[i])
+								dashIcon(DI_PLAY, x + w - 28, ry + 5.5f, 10, DASH_C_ACCENT);
+							else
+								dashIconForward(x + w - 28, ry + 4.5f, 12, DASH_C_ACCENT);
 						}
 						if (dw <= detail_w)
-							dashTextRight(right, ry + 1.0f, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
+							dashTextRight(right, ry + 1.0f, items[i].detail, DASH_FS_CAPTION, detail_color);
 						else if (i == sel)
-							dashTextScroll(right - detail_w, ry + 1.0f, detail_w, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
+							dashTextScroll(right - detail_w, ry + 1.0f, detail_w, items[i].detail, DASH_FS_CAPTION, detail_color);
 						else
-							dashTextFit(right - detail_w, ry + 1.0f, detail_w, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
+							dashTextFit(right - detail_w, ry + 1.0f, detail_w, items[i].detail, DASH_FS_CAPTION, detail_color);
 					}
 					dashTextFit(tx, ry + 0.0f, label_w, items[i].label, DASH_FS_SMALL, c);
 				}
 				dashGfxPopAlpha();
 			}
 			dashGfxScissorReset();
-			dashDrawScrollbar(x + w - 12, ly, rows * row_h - 4, top, rows, n);
+			dashDrawScrollbar(x + w - 12, ly, rows * row_h - 4, top_anim, rows, n);
 			{
 				float hx = x + 24, hy = y + h - 36;
 				modalHintRow(hx, hy, dashOkIcon(), "Select", dashBackIcon(), "Back");
@@ -1006,13 +994,13 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 
 int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *items, int n, int initial)
 {
-	return modalMenu(title, subtitle, items, n, initial, NULL, NULL);
+	return modalMenu(title, subtitle, items, n, initial, NULL, NULL, NULL);
 }
 
 int dashModalMenuEdit(const char *title, const char *subtitle, DashMenuItem *items, int n, int initial,
-                     DashMenuEdit edit, void *arg)
+                     const unsigned char *popup_rows, DashMenuEdit edit, void *arg)
 {
-	return modalMenu(title, subtitle, items, n, initial, edit, arg);
+	return modalMenu(title, subtitle, items, n, initial, popup_rows, edit, arg);
 }
 
 int DashSaveConflictChoice(const char *name)

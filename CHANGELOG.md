@@ -2,6 +2,14 @@
 
 ## Rolling
 
+- **Scrollbar glide:** scrollbar thumbs follow the animated viewport across lists, menus, pickers and folder dates, including row/page navigation. The text editor also eases its thumb during line and L2/R2 page movement, with independent state per document.
+- **Text editor navigation:** single-line cursor movement wraps from the first line to the last and back, preserving the preferred column and scrolling the cursor into view. Page jumps continue to stop at the document ends.
+- **Setting feedback:** highlighted Neutrino On values use the same enabled color as Settings. Numeric Change hints, including screen-position X/Y, show both Left and Right button icons.
+- **Main configuration filename:** startup and main-config saves now use `LAUNCHSTATION.CNF`, including override-folder save targets. Existing search locations and companion configuration filenames are retained. Rename or copy an existing `LAUNCHELF.CNF` to keep using its settings.
+- **Cleanup:** removed the unused startup-sound payload/request path, obsolete Devices list/grid views and setting, old main-menu loop, and unused UI helpers. Saved Devices start-screen values still open Files. Both build definitions discard unused data; embedded payloads now have independent sections so unused blobs can be removed by the linker.
+- **Neutrino indicators:** in-place switches use the right arrow; Video mode and Video compatibility keep the play indicator because Confirm opens a choice popup.
+- **Home controls:** removed the Square favorite shortcut and its hint from Continue and Applications. Favorites remain available through Options.
+- **Startup:** sends the `LAUNCHSTATI` RetroGem game ID immediately after screen setup, before font loading, using the configured video mode. Audio drivers and samples finish preparing before the application scan and GUI input; music playback stays deferred until the startup screen is visible, with no startup sound cue.
 - **System settings:** Set PS2 Clock now offers manual editing and Internet synchronization together, with clock icons. Manual editing matches the IP editor's boxed fields and plus/minus cues: Left/Right selects a whole field, including the four-digit year; Up/Down adjusts it, and L1/R1 changes it by ten, without opening the virtual keyboard. The duplicate Network clock action, System About Launchstation entry and Show welcome message again action are removed; About remains in Tools.
 - **Save icons:** Neutrino game profiles, Settings save prompts, the editor's Save changes popup and the System save-location action use upstream Launchstation's floppy disk icon.
 - **UDPFS retry:** a failed server check stays selectable. Opening it again reboots and reloads the UDPFS stack after background I/O finishes, so a server started later can be discovered. Healthy connections reuse their current session.

@@ -663,6 +663,7 @@ void initializeBootGraphics(void)
 {
 	DPRINTF("setupGS()\n");
 	setupGS();
+	displayStartupGameID();
 	gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(0x00, 0x00, 0x00, 0x00, 0x00));
 	loadFont("");
 	setInitPhaseComplete();

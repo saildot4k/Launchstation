@@ -207,7 +207,7 @@ static void dashGfxPopAlpha(void) {}
 static void dashModalPanel(float x,float y,float w,float h,float a) { (void)x;(void)y;(void)w;(void)h;(void)a; }
 static void dashGfxScissor(float x,float y,float w,float h) { (void)x;(void)y;(void)w;assert(h==TS_LIST_H); }
 static void dashGfxScissorReset(void) {}
-static void dashDrawScrollbar(float x,float y,float h,int top,int rows,int count) { (void)x;(void)y;(void)h;(void)top;(void)rows;(void)count; }
+static void dashDrawScrollbar(float x,float y,float h,float top,int rows,int count) { (void)x;(void)y;(void)h;(void)top;(void)rows;(void)count; }
 static void dashGfxPresent(void) {
     if(motion_test) assert(last_folder==(frames?motion_selected:motion_initial));
     frames++;

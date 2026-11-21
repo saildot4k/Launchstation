@@ -58,7 +58,7 @@ ELF proves the console symptoms are resolved.
 | Separate orbit-light orbs | Visual preference/reproduction needed. Preserve the existing intended OSD clock choreography unless deliberately redesigned. |
 | Orbs at sides of clock ring | Layout proposal; compare the intended reference and actual output before moving the group. |
 | Triangle causes runaway input; suggests IOP reset | Source/host fixes cover alternating analog state, stale failed reads and action autorepeat. An IOP reset is not assumed to be the cause or remedy. Console reproduction remains. |
-| Settings interfere with other LaunchELFs in mc0 | Shared `LAUNCHELF.CNF`/`IPCONFIG.DAT` paths remain. Plan a private namespace with read-only legacy import, preserving custom save paths and migration behavior. No silent rename here. |
+| Settings interfere with other LaunchELFs in mc0 | Launchstation now loads/saves `LAUNCHSTATION.CNF`; existing main configuration search locations and override destinations are retained. Users can copy or rename `LAUNCHELF.CNF` to reuse settings. `IPCONFIG.DAT` keeps its existing name and search behavior. |
 | Sound/response slow | Input-state defects addressed. Measure input-to-visual and input-to-audio separately on hardware; these tests do not establish audible latency. |
 
 ## Reproducible validation

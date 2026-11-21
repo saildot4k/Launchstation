@@ -149,6 +149,9 @@ jobs:
           python3 tests/test_editor_leave.py
           python3 tests/test_files_tab_lifecycle.py
           python3 tests/test_bgm_sidecar.py
+          python3 tests/test_cleanup_build.py
+          python3 tests/test_startup_services.py
+          python3 tests/test_startup_audio.py
           python3 tests/test_sound_recovery.py
           python3 tests/test_sound_channels.py
           python3 tests/test_poweroff_shutdown.py

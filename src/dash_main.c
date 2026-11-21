@@ -40,9 +40,10 @@ static u64 boot_phase_end;
 static char boot_auto_title[DASH_TITLE_MAX];
 static int startup_audio_pending, startup_audio_ready;
 
-/* The selected screen (including a modal MISC tool) must be visible before
- * audio module/sample/sidecar IO. Present calls this only between frames;
- * cooperative audio waits can present again, so consume the request first. */
+/* Drivers and samples are prepared before the GUI accepts input. The selected
+ * screen (including a modal MISC tool) must be visible before music playback.
+ * Present calls this only between frames; cooperative audio waits can present
+ * again, so consume the request first. */
 void dashStartupAudioAfterPresent(void)
 {
 	if (!dash_active || !startup_audio_pending || !startup_audio_ready || boot_phase ||
@@ -53,7 +54,7 @@ void dashStartupAudioAfterPresent(void)
 }
 
 static const DashScreen *const screens[DASH_SEC_COUNT] = {
-    &dashHomeScreen, &dashAppsScreen, &dashFilesScreen, &dashDevicesScreen, &dashToolsScreen, &dashSettingsScreen};
+    &dashHomeScreen, &dashAppsScreen, &dashFilesScreen, &dashFilesScreen, &dashToolsScreen, &dashSettingsScreen};
 
 static const char *const section_names[DASH_SEC_COUNT] = {"HOME", "APPS", "FILES", "DEVICES", "TOOLS", "SETTINGS"};
 static const int section_icons[DASH_SEC_COUNT] = {DI_HOME, DI_APPS, DI_FOLDER, DI_DEVICES, DI_TOOLS, DI_SETTINGS};
@@ -1084,6 +1085,7 @@ static void firstInit(void)
 	dashIconsInit();
 	dashConsoleIdentityInit();
 	dashWorkerInit();
+	dashSoundPrepareStartup();
 	if (boot_safe_mode)
 		dashToast(DASH_TOAST_WARN,
 		          "Safe mode: DASHBOARD.CNF skipped for this boot; saved settings were not changed");
@@ -1228,7 +1230,6 @@ void DashRun(const MainExecuteContext *ctx, int from_boot)
 
 		/* Results of background work that change what screens point at. */
 		applyScanResult();
-		dashFilesPoll();
 		/*
 		 * Remote-control and receiver probes touch the network filesystem.
 		 * Polling them every rendered frame was needlessly hammering the IOP
@@ -1293,7 +1294,7 @@ void DashRun(const MainExecuteContext *ctx, int from_boot)
 		if (!dashCfg.intro_done && boot_phase != 1 && fade_in > 0.95f) {
 			dashModalMessage(DI_APP, "Welcome to Launchstation",
 			                 "HOME contains Continue, your full application library and Last folder. "
-			                 "Use the confirm button to open, Triangle for options and Square for favorites. "
+			                 "Use the confirm button to open and Triangle for options, including Favorites. "
 			                 "L1/R1 switch sections; FILES opens File Browser and TOOLS provides built-in utilities.",
 			                 NULL);
 			dashCfg.intro_done = 1;

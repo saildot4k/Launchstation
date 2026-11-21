@@ -12,7 +12,6 @@ enum DashSound {
 	DASH_SND_CANCEL,
 	DASH_SND_TRANSITION,
 	DASH_SND_MESSAGE,
-	DASH_SND_BOOT,
 	DASH_SND_CONNECT,
 	DASH_SND_DISCONNECT,
 	DASH_SND_COUNT
@@ -20,7 +19,8 @@ enum DashSound {
 
 /* Queues initialization; returns ready now, without waiting for the job. */
 int dashSoundInit(void);
-void dashSoundRequestBoot(void); /* play once after background initialization */
+/* Boot only: prepare audio before scans/input, without playing a startup cue. */
+void dashSoundPrepareStartup(void);
 void dashSoundShutdown(void);
 void dashSoundSuspend(void); /* mute while a launch can still return */
 void dashSoundPlay(int id);

@@ -510,7 +510,6 @@ typedef struct
 	int bgm;
 	int bgm_vol;
 	int app_filter;
-	int files_mode;              /* 0 = Files list, 1 = Devices cards */
 	int home_shortcuts;          /* HOME quick-launch row */
 	int icon_backing;            /* control/quick-action backing shapes */
 	int temp_fahrenheit;         /* 0 = Celsius, 1 = Fahrenheit */
@@ -777,8 +776,8 @@ void dashDrawHeader(int section, float section_anim);
 void dashDrawClock(void);
 void dashDrawSectionTitle(float x, float y, const char *title, const char *subtitle);
 void dashDrawEmptyState(float cx, float cy, int icon, const char *title, const char *body);
-void dashDrawScrollbar(float x, float y, float h, int first, int visible, int total);
-void dashDrawFocusFrame(float x, float y, float w, float h, float r, float strength);
+/* Fractional first follows the view's animated scroll position. */
+void dashDrawScrollbar(float x, float y, float h, float first, int visible, int total);
 /* Themed building blocks: every list, card and selection goes through
  * these so the theme's panel, border and highlight style apply everywhere. */
 void dashDrawPanelBox(float x, float y, float w, float h, float r);
@@ -807,10 +806,12 @@ typedef struct
 int dashModalMenu(const char *title, const char *subtitle, const DashMenuItem *items, int n, int initial);
 /* Editable rows update in the same modal session. direction is -1/+1 for
  * Left/Right, or 0 for Confirm. Return nonzero when handled to keep the menu
- * open; unhandled Confirm accepts the row. The callback may update items. */
+ * open; unhandled Confirm accepts the row. The callback may update items.
+ * popup_rows marks rows whose Confirm opens another popup (play indicator);
+ * NULL or zero entries use the mirrored value arrow instead. */
 typedef int (*DashMenuEdit)(int index, int direction, void *arg);
 int dashModalMenuEdit(const char *title, const char *subtitle, DashMenuItem *items, int n, int initial,
-                     DashMenuEdit edit, void *arg);
+                     const unsigned char *popup_rows, DashMenuEdit edit, void *arg);
 /* dialog building blocks for custom modals */
 void dashModalBackdrop(float k);
 void dashModalPanel(float x, float y, float w, float h, float k);
@@ -915,7 +916,7 @@ void dashWorkerParkPoint(void);
 int dashIopParked(void);
 
 //--------------------------------------------------------------
-// Sections (dash_home.c, dash_apps.c, dash_files.c, dash_tools.c,
+// Sections (dash_home.c, dash_apps.c, dash_browser.c, dash_tools.c,
 // dash_settings.c) and shell (dash_main.c)
 //--------------------------------------------------------------
 typedef struct
@@ -931,7 +932,6 @@ typedef struct
 extern const DashScreen dashHomeScreen;
 extern const DashScreen dashAppsScreen;
 extern const DashScreen dashFilesScreen;
-extern const DashScreen dashDevicesScreen;
 extern const DashScreen dashToolsScreen;
 extern const DashScreen dashSettingsScreen;
 
@@ -1008,7 +1008,7 @@ void dashFileBrowser(const char *start_dir);        /* dash_browser.c */
 void dashFileBrowserTabClose(void);                /* release inactive-tab state */
 int dashBrowserPadInputReady(void);              /* global USB fileXio / pad guard */
 void dashFileBrowserTabOpen(const char *start_dir);/* navigate within Files tab */
-int dashSettingsSaveCnf(void);                      /* LAUNCHELF.CNF now */
+int dashSettingsSaveCnf(void);                      /* LAUNCHSTATION.CNF now */
 /* classic dialogs (ynDialog/nonDialog/keyboard) as dashboard dialogs */
 void dashClassicUiInstall(int on);
 void dashClassicUiDone(void);
@@ -1025,10 +1025,6 @@ int dashClockSetManual(int year, int month, int day, int hour, int minute, int s
                        char *result, int result_size);
 int dashClockSyncInternet(char *result, int result_size);
 const MainExecuteContext *dashExecContext(void);
-const char *dashOkLabelKey(void);
-
-/* Main loop: finishes a device the user opened while its driver started. */
-void dashFilesPoll(void);
 
 /* Home/Apps shared helpers. */
 int dashAppsVisibleCount(void);
