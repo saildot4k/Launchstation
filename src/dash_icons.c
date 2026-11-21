@@ -16,13 +16,14 @@
 #define SELECT_HALF_W 0.68f
 
 /* Header shapes and action icons use the narrow right margin. Keep the
- * 56 full-size public icon slots. Extra rows hold the small menu icons. */
+ * full-size public icon grid. Extra rows hold the small menu icons. */
 #define APP_PART_SIZE 32
 #define APP_PART_SLOT (APP_PART_SIZE + 4)
 #define APP_PART_X (ICON_COLS * ICON_SLOT)
 #define CLIP_ICON_Y (2 * APP_PART_SLOT)
 /* Include every margin icon in the compile-time capacity check. */
 typedef char IconAtlasMarginFits[
+	((DI_CUT + ICON_COLS - 1) / ICON_COLS) * ICON_SLOT <= ICON_TEX_H &&
 	APP_PART_X + APP_PART_SLOT <= ICON_TEX_W &&
 	CLIP_ICON_Y + (DI_COUNT - DI_CUT) * APP_PART_SLOT <= ICON_TEX_H ? 1 : -1];
 
@@ -486,6 +487,29 @@ static float iconSdf(int id, V2 p)
 				d = U(d, sdSeg(p, 0.60f, -0.84f, 0.60f, -0.36f, 0.085f));
 			}
 			break;
+		case DI_UPDATE: {
+			/* Recycle icon by orvipixel / Flaticon, adapted for the tinted atlas:
+			 * https://www.flaticon.com/free-icon/recycle_7480121 */
+			V2 q = {fabsf(p.x), p.y};
+			float arrows;
+			/* Two rounded circular arrows, each spanning three eighths of a turn. */
+			d = 1e9f;
+			for (k = 0; k < 2; k++) {
+				V2 a = {k ? -p.x : p.x, k ? -p.y : p.y};
+				arrows = fmaxf2(sdRing(a, 0.0f, 0.0f, 0.8125f, 0.0625f),
+				                fmaxf2(a.y, (a.x + a.y) * 0.7071068f));
+				arrows = U(arrows, sdCircle(a, -0.8125f, 0.0f, 0.0625f));
+				arrows = U(arrows, sdSeg(a, 0.375f, -0.5625f, 0.5625f, -0.5625f, 0.0625f));
+				arrows = U(arrows, sdSeg(a, 0.5625f, -0.5625f, 0.5625f, -0.75f, 0.0625f));
+				d = U(d, arrows);
+			}
+			/* Package lid and mirrored side faces, separated by clear seams. */
+			d = U(d, sdTriP(p, -0.46875f, -0.3047f, 0.0f, -0.5f, 0.46875f, -0.3047f));
+			d = U(d, sdTriP(p, -0.46875f, -0.3047f, 0.46875f, -0.3047f, 0.0f, -0.09375f));
+			d = U(d, sdTriP(q, 0.03125f, -0.043f, 0.5f, -0.25f, 0.5f, 0.289f));
+			d = U(d, sdTriP(q, 0.03125f, -0.043f, 0.5f, 0.289f, 0.03125f, 0.496f));
+			break;
+		}
 		case DI_REFRESH:
 			d = sdRing(p, 0.0f, 0.0f, 0.62f, T);
 			d = S(d, sdBox(p, 0.4f, -0.4f, 0.4f, 0.4f, 0.0f));

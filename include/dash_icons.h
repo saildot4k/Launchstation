@@ -58,7 +58,8 @@ enum DashIcon {
 	DI_RECENT,  /* recently used */
 	DI_IMAGE,   /* wallpaper / picture */
 	DI_DPAD_UD, /* D-pad with up/down highlighted ("scroll") */
-	DI_CUT,     /* first small icon in the atlas margin, after the 56 grid icons */
+	DI_UPDATE,  /* package surrounded by circular arrows */
+	DI_CUT,     /* first small icon in the atlas margin, after the grid icons */
 	DI_COPY,
 	DI_PASTE_RENAME, /* pencil with a small upper-right plus */
 	DI_SELECT_ALL,   /* checkmark with a small upper-left plus */

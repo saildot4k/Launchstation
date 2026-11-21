@@ -784,10 +784,8 @@ int dashModalIp(const char *title, const char *help, char *ip_str, int size)
 			}
 			{
 				float hx = x + 24, hy = y + h - 36;
-				/* Pad tiles are slightly larger than their 22px logical slots.
-				 * Match the 12px gap used by the credits sheet. */
-				hx += dashDrawButton(hx, hy, DI_BTN_UP, NULL) + 12;
-				hx += dashDrawButton(hx, hy, DI_BTN_DOWN, NULL) + 4;
+				hx += dashDrawButton(hx, hy, DI_BTN_DOWN, NULL) + 2;
+				hx += dashDrawButton(hx, hy, DI_BTN_UP, NULL) + 4;
 				hx = dashTextS(hx, dashButtonTextY(hy, DASH_FS_SMALL), "Change", DASH_FS_SMALL, DASH_C_TEXT2) + 12;
 				hx += dashDrawButton(hx, hy, -1, "L1") + 2;
 				hx += dashDrawButton(hx, hy, -1, "R1") + 4;

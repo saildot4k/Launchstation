@@ -2,11 +2,13 @@
 
 PSU records/padding follow RiptOPL's package_release_app.py and PSUManager:
 512-byte root/dot/dotdot/file records, with file payloads padded to 1024 bytes.
-ZIPs and PSUs contain the same four direct app files, under the same folder name.
+ZIPs and PSUs contain the same app files, icons and generated SAS metadata,
+under the same folder name.
 """
 import argparse
 import datetime
 from pathlib import Path
+import re
 import struct
 import zipfile
 
@@ -15,6 +17,9 @@ VARIANTS = (("APP_LAUNCHSTATION", "LAUNCHSTATION.ELF", "Launchstation"),
             ("APP_LAUNCHSTATION-DS", "LAUNCHSTATION-DS.ELF", "Launchstation (DualShock)"))
 
 ASSET_ROOT = Path(__file__).resolve().parents[1] / "res"
+# SAS encodes both release folder names to this raw PS2 calendar value.
+# test_update_sas_timestamps.py checks it against the production C encoder.
+SAS_FOLDER_TIMESTAMP = datetime.datetime(2098, 12, 31, 18, 0, 27)
 
 
 def bundled_sidecars():
@@ -28,6 +33,30 @@ def bundled_sidecars():
     if not 32 <= len(bgm) <= 1024 * 1024 or len(bgm) % 16 or bgm[:8] != b"APCM\x01\x01\x01\x00":
         raise ValueError("The BGM asset is not a valid PS2 ADPCM sidecar")
     return {"WLE-UPDATE-CA.PEM": ca, "BGM.ADP": bgm}
+
+
+def bundled_app_files(folder, elf_name, title, revision, instant):
+    """Keep the supplied SAS script, updating only per-release app identity."""
+    assets = ASSET_ROOT / "app"
+    members = {name: (assets / name).read_bytes()
+               for name in ("icon.sys", "list.icn", "copy.icn", "del.icn")}
+    script = (assets / "APPINFO.PBT").read_text(encoding="utf-8")
+    timestamp = instant.isoformat(timespec="seconds").replace("+00:00", "Z")
+    fields = {"TITLE": title, "VERSION": f"{revision[:7]} {timestamp}",
+              "ELF": elf_name, "SAS": folder}
+    for key, value in fields.items():
+        script, count = re.subn(rf'^SET "{key}" "[^"\r\n]*"$',
+                                lambda match: f'SET "{key}" "{value}"',
+                                script, flags=re.MULTILINE)
+        if count != 1:
+            raise ValueError(f"APPINFO.PBT must define {key} exactly once")
+    members["APPINFO.PBT"] = script.encode("utf-8")
+    return members
+
+
+def ps2_timestamp(instant):
+    return struct.pack("<BBBBBBH", 0, instant.second, instant.minute, instant.hour,
+                       instant.day, instant.month, instant.year)
 
 
 def record(name, size, mode, date):
@@ -78,8 +107,7 @@ def package(standard, dualshock, output, revision, epoch):
     instant = datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc)
     if not 2000 <= instant.year <= 2099:
         raise ValueError("Commit date is outside the PS2 timestamp range")
-    date = struct.pack("<BBBBBBH", 0, instant.second, instant.minute, instant.hour,
-                       instant.day, instant.month, instant.year)
+    date = ps2_timestamp(SAS_FOLDER_TIMESTAMP)
     output.mkdir(parents=True, exist_ok=True)
     for (folder, elf_name, title), source in zip(VARIANTS, (standard, dualshock)):
         elf = source.read_bytes()
@@ -90,7 +118,8 @@ def package(standard, dualshock, output, revision, epoch):
                "Developer=github.com/saildot4k\nGenre=Homebrew\n"
                "Description=PlayStation 2 file manager, launcher and device toolkit.\n"
                "PlayersText=1\nSource=github.com/saildot4k/Launchstation\n").encode()
-        members = {elf_name: elf, "title.cfg": cfg, **bundled_sidecars()}
+        members = {elf_name: elf, "title.cfg": cfg, **bundled_sidecars(),
+                   **bundled_app_files(folder, elf_name, title, revision, instant)}
         psu = make_psu(folder, members, date)
         assert inspect_psu(psu) == (folder, members)
         (output / (folder + ".psu")).write_bytes(psu)
@@ -103,7 +132,7 @@ def package(standard, dualshock, output, revision, epoch):
         with zipfile.ZipFile(output / (folder + ".zip")) as archive:
             assert archive.testzip() is None
             assert {name.split("/", 1)[1]: archive.read(name) for name in archive.namelist()} == members
-        print(f"Verified {folder}.psu/.zip: {elf_name}, title.cfg, updater CA, and BGM.ADP")
+        print(f"Verified {folder}.psu/.zip: {len(members)} files, including icons and APPINFO.PBT")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 """Exercise packaged payloads and the actual updater parser with hostile archives."""
 import importlib.util
+import datetime
 import os
 from pathlib import Path
 import shutil
@@ -23,6 +24,12 @@ with tempfile.TemporaryDirectory(prefix="app-packages-") as tmp:
     (tmp / "elf").write_bytes(elf)
     p.package(tmp / "elf", tmp / "elf", tmp / "out", "a" * 40, 1791500000)
     assert len(list((tmp / "out").iterdir())) == 4
+    # Same Git identity must produce byte-identical packages on repeated runs.
+    p.package(tmp / "elf", tmp / "elf", tmp / "repeat", "a" * 40, 1791500000)
+    for archive in (tmp / "out").iterdir():
+        assert archive.read_bytes() == (tmp / "repeat" / archive.name).read_bytes()
+    # A later release must regenerate VERSION, using commit time rather than wall time.
+    p.package(tmp / "elf", tmp / "elf", tmp / "next", "b" * 40, 1791500123)
     (tmp / "launchelf.h").write_text('''
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,20 +78,56 @@ int main(int argc,char **argv) {
     return 0;
 }
 ''')
-    for index, (folder, name, _) in enumerate(p.VARIANTS):
+    for index, (folder, name, title) in enumerate(p.VARIANTS):
         archive = (tmp / "out" / (folder + ".psu")).read_bytes()
+        # A PSU restore takes the app folder's dates from its directory records.
+        sas_date = struct.pack("<BBBBBBH", 0, 27, 0, 18, 31, 12, 2098)
+        for directory_offset in (0, 512, 1024):
+            directory = p.ENTRY.unpack_from(archive, directory_offset)
+            assert directory[3] == directory[6] == sas_date
+        # Every file restores with the same SAS creation and modification date.
+        position = 1536
+        while position < len(archive):
+            entry = p.ENTRY.unpack_from(archive, position)
+            assert entry[3] == entry[6] == sas_date
+            position += 512 + (entry[2] + 1023) // 1024 * 1024
         with zipfile.ZipFile(tmp / "out" / (folder + ".zip")) as z:
             assert set(z.namelist()) == {
                 folder + "/" + filename for filename in
-                (name, "title.cfg", "WLE-UPDATE-CA.PEM", "BGM.ADP")
+                (name, "title.cfg", "WLE-UPDATE-CA.PEM", "BGM.ADP",
+                 "icon.sys", "list.icn", "copy.icn", "del.icn", "APPINFO.PBT")
             }
             assert z.read(folder + "/WLE-UPDATE-CA.PEM") == (root / "res/WLE-UPDATE-CA.PEM").read_bytes()
             assert z.read(folder + "/BGM.ADP") == (root / "res/music.sad").read_bytes()
             assert z.read(folder + "/" + name) == elf
             assert ("boot=" + name + "\n").encode() in z.read(folder + "/title.cfg")
+            zipped_members = {key.split("/", 1)[1]: z.read(key) for key in z.namelist()}
         packaged_folder, packaged_members = p.inspect_psu(archive)
         assert packaged_folder == folder
-        assert set(packaged_members) == {name, "title.cfg", "WLE-UPDATE-CA.PEM", "BGM.ADP"}
+        assert packaged_members == zipped_members
+        assets = root / "res/app"
+        for asset in ("icon.sys", "list.icn", "copy.icn", "del.icn"):
+            assert packaged_members[asset] == (assets / asset).read_bytes()
+        assert len(packaged_members["icon.sys"]) == 964
+        for icon in (b"list.icn\0", b"copy.icn\0", b"del.icn\0"):
+            assert icon in packaged_members["icon.sys"]
+        script = packaged_members["APPINFO.PBT"].decode()
+        stamp = datetime.datetime.fromtimestamp(1791500000, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        fields = {"TITLE": title, "VERSION": f"aaaaaaa {stamp}", "ELF": name, "SAS": folder}
+        for key, value in fields.items():
+            assert script.splitlines().count(f'SET "{key}" "{value}"') == 1
+        assert "@VERSION@" not in script and "433a2f04" not in script
+        # All script logic and compatibility defaults remain as supplied.
+        identity_prefixes = tuple(f'SET "{key}" ' for key in fields)
+        assert [line for line in script.splitlines() if not line.startswith(identity_prefixes)] == [
+            line for line in (assets / "APPINFO.PBT").read_text().splitlines()
+            if not line.startswith(identity_prefixes)
+        ]
+        with zipfile.ZipFile(tmp / "next" / (folder + ".zip")) as z:
+            later = z.read(folder + "/APPINFO.PBT").decode()
+            next_stamp = datetime.datetime.fromtimestamp(1791500123, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            assert f'SET "VERSION" "bbbbbbb {next_stamp}"' in later
+            assert f'SET "ELF" "{name}"' in later
         assert packaged_members["WLE-UPDATE-CA.PEM"] == (root / "res/WLE-UPDATE-CA.PEM").read_bytes()
         assert packaged_members["BGM.ADP"] == (root / "res/music.sad").read_bytes()
         binary = tmp / ("parser" + str(index) + ".exe")
@@ -101,6 +144,32 @@ int main(int argc,char **argv) {
             else:
                 assert result == -1 and not stage.exists()
         check(archive, True)
+        # Previously released four-file bundles stay accepted by both parsers.
+        old_members = {key: packaged_members[key] for key in
+                       (name, "title.cfg", "WLE-UPDATE-CA.PEM", "BGM.ADP")}
+        old_archive = p.make_psu(folder, old_members, bytes(8))
+        check(old_archive, True)
+        # Each new companion is required, bounded, unique and recognized.
+        for asset in ("APPINFO.PBT", "icon.sys", "list.icn", "copy.icn", "del.icn"):
+            missing = dict(packaged_members); del missing[asset]
+            check(p.make_psu(folder, missing, bytes(8)))
+            unknown = dict(packaged_members); unknown["unknown"] = unknown.pop(asset)
+            check(p.make_psu(folder, unknown, bytes(8)))
+            invalid = dict(packaged_members); invalid[asset] = b""
+            check(p.make_psu(folder, invalid, bytes(8)))
+        for asset, length in (("APPINFO.PBT", 16385), ("icon.sys", 963),
+                              ("list.icn", 1024 * 1024 + 1)):
+            invalid = dict(packaged_members); invalid[asset] = b"x" * length
+            check(p.make_psu(folder, invalid, bytes(8)))
+        # Rename one same-length icon record to duplicate another without changing count.
+        duplicate = bytearray(archive); pos = 1536
+        while pos < len(duplicate):
+            entry = p.ENTRY.unpack_from(duplicate, pos)
+            if entry[-1].split(b"\0", 1)[0] == b"copy.icn":
+                duplicate[pos + 64:pos + 73] = b"list.icn\0"
+                break
+            pos += 512 + (entry[2] + 1023) // 1024 * 1024
+        check(duplicate)
         def check_title(data, leaf, expected):
             path, stage = tmp / "title_candidate.psu", tmp / "title.stage"
             path.write_bytes(data)
@@ -120,6 +189,7 @@ int main(int argc,char **argv) {
                                              env=dict(os.environ, **{fault: "1"})))
             assert got == -1 and not stage.exists()
         check_title(archive, name, cfg)
+        check_title(old_archive, name, cfg)
         check_title(archive, "BOOT.ELF", cfg.replace(("boot=" + name).encode(), b"boot=BOOT.ELF"))
         for invalid in ("", "../BOOT.ELF", "mc0:BOOT.ELF", "bad\\name", "bad\nname", "X" * 256):
             check_title(archive, invalid, -1)
@@ -145,8 +215,10 @@ int main(int argc,char **argv) {
         check_sidecar(archive, "WLE-UPDATE-CA.PEM",
                       (root / "res/WLE-UPDATE-CA.PEM").read_bytes())
         check_sidecar(archive, "BGM.ADP", (root / "res/music.sad").read_bytes())
+        check_sidecar(old_archive, "WLE-UPDATE-CA.PEM", old_members["WLE-UPDATE-CA.PEM"])
+        check_sidecar(old_archive, "BGM.ADP", old_members["BGM.ADP"])
         check_sidecar(archive, "wrong.name", -1)
-        check_sidecar(archive[:-1], "BGM.ADP", -1)
+        check_sidecar(old_archive[:-1], "BGM.ADP", -1)
         # The package parser validates names and lengths; the sidecar reader
         # additionally rejects invalid certificate/ADPCM payload signatures.
         invalid_ca = dict(packaged_members)

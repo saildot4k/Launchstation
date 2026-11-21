@@ -1,4 +1,4 @@
-// Extract the selected ELF from verified legacy (2-file) or sidecar-complete (4-file) app PSUs.
+// Extract the selected ELF from verified 2-, 4- or 9-file app PSUs.
 #include "launchelf.h"
 #include "self_update.h"
 
@@ -38,10 +38,10 @@ int selfUpdateExtractPsu(const char *package, const char *stage, int size)
         genLseek(input, 0, SEEK_SET) != 0 || !read_exact(input, directories, 1536))
         goto done;
     entries = (int)psu32(directories + 4);
-    /* A root entry counts itself, "." and ".." plus 2 or 4 files.
-     * Preserve compatibility with older packages during migration. */
+    /* The root count includes "." and ".." plus 2, 4 or 9 files.
+     * Preserve legacy packages as icons and SAS metadata are added. */
     if (!record_is(directories, 0x8027, SELF_UPDATE_FOLDER) ||
-        (entries != 4 && entries != 6) ||
+        (entries != 4 && entries != 6 && entries != 11) ||
         !record_is(directories + 512, 0x8027, ".") ||
         !record_is(directories + 1024, 0x8027, ".."))
         goto done;
@@ -89,21 +89,40 @@ int selfUpdateExtractPsu(const char *package, const char *stage, int size)
             elf_size = length;
         } else if (record_is(entry, 0x8017, "title.cfg") && !(seen & 2) && length <= 4096) {
             seen |= 2;
-        } else if (entries == 6 &&
+        } else if (entries >= 6 &&
                    record_is(entry, 0x8017, "WLE-UPDATE-CA.PEM") &&
                    !(seen & 4) && length <= 32768) {
             seen |= 4;
-        } else if (entries == 6 &&
+        } else if (entries >= 6 &&
                    record_is(entry, 0x8017, "BGM.ADP") &&
                    !(seen & 8) && length >= 32 && length <= 1024 * 1024 &&
                    !(length & 15)) {
             seen |= 8;
+        } else if (entries == 11 &&
+                   record_is(entry, 0x8017, "APPINFO.PBT") &&
+                   !(seen & 16) && length <= 16384) {
+            seen |= 16;
+        } else if (entries == 11 &&
+                   record_is(entry, 0x8017, "icon.sys") &&
+                   !(seen & 32) && length == 964) {
+            seen |= 32;
+        } else if (entries == 11) {
+            static const char *const icons[] = {"list.icn", "copy.icn", "del.icn"};
+            int icon;
+            for (icon = 0; icon < 3; icon++) {
+                if (record_is(entry, 0x8017, icons[icon]) &&
+                    !(seen & (64 << icon)) && length <= 1024 * 1024)
+                    break;
+            }
+            if (icon == 3)
+                goto done;
+            seen |= 64 << icon;
         } else {
             goto done;
         }
         position += padded;
     }
-    if (seen == (entries == 6 ? 15 : 3) && position == size) {
+    if (seen == (entries == 11 ? 511 : entries == 6 ? 15 : 3) && position == size) {
         if (genClose(input) < 0)
             goto remove_stage;
         return elf_size;
@@ -192,7 +211,7 @@ static int extract_psu_file(const char *package, const char *name,
         result = 0; /* compatible, older package without sidecars */
         goto done;
     }
-    if (entries != 4 && entries != 6)
+    if (entries != 4 && entries != 6 && entries != 11)
         goto done;
 
     for (i = 0; i < entries - 2; i++) {

@@ -1,5 +1,6 @@
 """Run the real SAS encoder, snapshot and MC/PFS timestamp writers on host mocks."""
 from datetime import datetime, timedelta
+import importlib.util
 from source_groups import component_source
 from pathlib import Path
 import shutil
@@ -8,6 +9,9 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 source = component_source('src/filer_actions.c')
+spec = importlib.util.spec_from_file_location("package_apps", root / "scripts/package_apps.py")
+packages = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(packages)
 
 def function(signature):
     start = source.index(signature)
@@ -171,7 +175,14 @@ for folder, category, payload in [('APP_LAUNCHSTATION', 0, 'LAUNCHSTATION'),
     assert(date.Year=={expected.year} && date.Month=={expected.month} && date.Day=={expected.day});
     assert(date.Hour=={expected.hour} && date.Min=={expected.minute} && date.Sec=={expected.second});
 '''
-program += '    puts("PASS: shared SAS encoding, MC0/MC1 and HDD snapshots/writers, exclusions, ordinary dates and native failures");\n}\n'
+# The release PSU's stored folder date must match the real runtime SAS encoder.
+release_date = packages.SAS_FOLDER_TIMESTAMP
+for folder, _, _ in packages.VARIANTS:
+    program += f'''    sasFolderTimestamp("{folder}",&date);
+    assert(date.Year=={release_date.year} && date.Month=={release_date.month} && date.Day=={release_date.day});
+    assert(date.Hour=={release_date.hour} && date.Min=={release_date.minute} && date.Sec=={release_date.second});
+'''
+program += '    puts("PASS: shared SAS encoding, release PSU folder dates, MC0/MC1 and HDD snapshots/writers, exclusions, ordinary dates and native failures");\n}\n'
 compiler = shutil.which('gcc') or shutil.which('clang')
 assert compiler, 'Host C compiler required'
 with tempfile.TemporaryDirectory(prefix='launchstation-update-sas-') as tmp:

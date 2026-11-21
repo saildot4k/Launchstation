@@ -57,7 +57,7 @@ static const Tool tools[] = {
     {TA_MISC, DI_TEXT, "Font viewer", "Show every glyph of the active font.", NULL, 0, MISC(Misc_ShowFont)},
     {TA_MISC, DI_INFO, "About Launchstation", "Credits and version.", NULL, 0, MISC(Misc_About_uLE)},
 #if defined(ETH) && defined(WLE_NATIVE_HTTPS)
-    {TA_CHECK_UPDATES, DI_REFRESH, "Check for updates", "Compare with the rolling latest release; a newer build can be downloaded, SHA-256 verified and installed in place.", NULL, 0, 0},
+    {TA_CHECK_UPDATES, DI_UPDATE, "Check for updates", "Compare with the rolling latest release; a newer build can be downloaded, SHA-256 verified and installed in place.", NULL, 0, 0},
 #endif
     {TA_HEADER, -1, "POWER", NULL, NULL, 0, 0},
     {TA_MISC, DI_REFRESH, "Reboot IOP", "Restart the I/O processor and all device drivers. Devices are detected again when used.", NULL, 2, MISC(Misc_Reboot_IOP)},

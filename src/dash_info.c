@@ -23,6 +23,7 @@ typedef struct
 {
 	int style;
 	char text[128];
+	const char *column; /* optional second column; caller keeps it alive */
 } SheetLine;
 
 #define SHEET_MAX 48
@@ -40,10 +41,35 @@ static void sheetAdd(Sheet *s, int style, const char *fmt, ...)
 	if (s->n >= SHEET_MAX)
 		return;
 	s->l[s->n].style = style;
+	s->l[s->n].column = NULL;
 	va_start(ap, fmt);
 	vsnprintf(s->l[s->n].text, sizeof(s->l[s->n].text), fmt ? fmt : "", ap);
 	va_end(ap);
 	s->n++;
+}
+
+static void sheetAddColumns(Sheet *s, int style, const char *label, const char *value)
+{
+	if (s->n >= SHEET_MAX)
+		return;
+	sheetAdd(s, style, "%s", label);
+	s->l[s->n - 1].column = value;
+}
+
+/* Fixed column origins align proportional fonts without space padding. */
+static void sheetDrawLine(const SheetLine *line, float x, float y, float w)
+{
+	DashColor color = line->style == SL_HEAD ? DASH_C_ACCENT :
+	                  line->style == SL_MUTED ? DASH_C_TEXT3 : DASH_C_TEXT2;
+
+	if (line->column != NULL) {
+		float second = x + w * 0.5f;
+		dashTextFit(x + 28, y, second - (x + 28) - 16, line->text, DASH_FS_SMALL, color);
+		dashTextFit(second, y, x + w - 28 - second, line->column, DASH_FS_SMALL, color);
+	} else if (line->style == SL_HEAD)
+		dashText(x + 28, y, line->text, DASH_FS_SMALL, color);
+	else if (line->style != SL_GAP)
+		dashTextFit(x + 28, y, w - 60, line->text, DASH_FS_SMALL, color);
 }
 
 static float lineH(int style)
@@ -99,13 +125,8 @@ static void sheetShow(int icon, const char *title, const char *subtitle, const S
 			for (i = 0; i < s->n; i++) {
 				const SheetLine *l = &s->l[i];
 				float lh = lineH(l->style);
-				if (ly + lh > body_y - 4 && ly < body_y + body_h + 4) {
-					if (l->style == SL_HEAD)
-						dashText(x + 28, ly, l->text, DASH_FS_SMALL, DASH_C_ACCENT);
-					else if (l->style != SL_GAP)
-						dashTextFit(x + 28, ly, w - 60, l->text, DASH_FS_SMALL,
-						            l->style == SL_MUTED ? DASH_C_TEXT3 : DASH_C_TEXT2);
-				}
+				if (ly + lh > body_y - 4 && ly < body_y + body_h + 4)
+					sheetDrawLine(l, x, ly, w);
 				ly += lh;
 			}
 			dashGfxScissorReset();
@@ -147,7 +168,7 @@ void dashShowAbout(void)
 	static Sheet s;
 
 	s.n = 0;
-	sheetAdd(&s, SL_MUTED, "commit %s", GIT_HASH);
+	sheetAdd(&s, SL_MUTED, "commit %.7s", GIT_HASH);
 	sheetAdd(&s, SL_GAP, NULL);
 	sheetAdd(&s, SL_HEAD, "This build");
 	sheetAdd(&s, SL_TEXT, "Maintained by NathanNeurotic/Ripto/Saildot4K");
@@ -205,7 +226,7 @@ static const char *consoleRegionName(char letter)
 //--------------------------------------------------------------
 static void feature(Sheet *s, const char *name, int on)
 {
-	sheetAdd(s, SL_TEXT, "%-12s %s", name, on ? "yes" : "no");
+	sheetAddColumns(s, SL_TEXT, name, on ? "yes" : "no");
 }
 
 void dashShowBuildInfo(void)
@@ -213,7 +234,7 @@ void dashShowBuildInfo(void)
 	static Sheet s;
 
 	s.n = 0;
-	sheetAdd(&s, SL_HEAD, "Devices and features");
+	sheetAddColumns(&s, SL_HEAD, "Devices", "Features");
 #ifdef ETH
 	feature(&s, "Network (ETH)", 1);
 #else
@@ -275,7 +296,7 @@ void dashShowBuildInfo(void)
 	sheetAdd(&s, SL_MUTED, "github.com/saildot4k/Launchstation/releases");
 	{
 		char sub[64];
-		snprintf(sub, sizeof(sub), "Launchstation %s (%s)", ULE_VERSION, GIT_HASH);
+		snprintf(sub, sizeof(sub), "Launchstation %.7s %s", GIT_HASH, ULE_VERDATE);
 		sheetShow(DI_CHIP, "Build information", sub, &s);
 	}
 }

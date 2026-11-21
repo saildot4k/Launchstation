@@ -4,7 +4,9 @@
 
 [Rolling latest](https://github.com/saildot4k/Launchstation/releases/tag/latest) contains four installable packages: `APP_LAUNCHSTATION.zip`, `APP_LAUNCHSTATION.psu`, `APP_LAUNCHSTATION-DS.zip`, `APP_LAUNCHSTATION-DS.psu`. The DS variant includes the inherited DS34 controller drivers; use standard packages for ordinary PS2 controllers.
 
-A standard install folder has `LAUNCHSTATION.ELF`, `title.cfg`, `WLE-UPDATE-CA.PEM` and `BGM.ADP`. The DS package has `LAUNCHSTATION-DS.ELF` and its own APP folder. Keep customized configuration and sidecar files when upgrading.
+A standard install folder has `LAUNCHSTATION.ELF`, `title.cfg`, `WLE-UPDATE-CA.PEM`, `BGM.ADP`, `icon.sys`, `list.icn`, `copy.icn`, `del.icn` and `APPINFO.PBT`. The DS package has `LAUNCHSTATION-DS.ELF` and its own APP folder; its SAS script references that variant. APPINFO.PBT versions use the seven-character commit plus the UTC commit timestamp. Keep customized configuration and sidecar files when upgrading. Release PSUs store the SAS date (`2098-12-31 18:00:27`) on the folder and every file for both variants. APPINFO.PBT version text retains the release commit timestamp.
+
+Updaters that only accept older two-/four-file packages cannot read these nine-file PSUs. Install an expanded ZIP or PSU manually once; this build accepts both old and expanded packages.
 
 ## Native updater
 

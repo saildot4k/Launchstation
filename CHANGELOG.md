@@ -2,6 +2,13 @@
 
 ## Rolling
 
+- **Release PSU dates:** app-folder and file creation and modification dates all use the SAS timestamp (`2098-12-31 18:00:27` for both variants). Version metadata retains the commit timestamp.
+
+- **Release app assets:** both ZIP/PSU variants include the supplied memory-card icons and APPINFO.PBT. SAS metadata uses the variant folder/ELF, seven-character commit and UTC commit timestamp. The updater accepts expanded nine-file packages and legacy packages; older updaters require one manual installation.
+- **IP editor hints:** existing glyphs are swapped to display Up/Down with a compact two-pixel gap in IP address, netmask and gateway editors.
+- **Update icon:** Check for updates uses the package-and-circular-arrows icon adapted from orvipixel / Flaticon.
+- **Build information:** shows Launchstation with the seven-character commit and build timestamp. Devices and feature availability use two left-aligned columns with matching headers.
+- **About:** abbreviates the displayed commit ID to seven characters, matching release titles.
 - **Scrollbar glide:** scrollbar thumbs follow the animated viewport across lists, menus, pickers and folder dates, including row/page navigation. The text editor also eases its thumb during line and L2/R2 page movement, with independent state per document.
 - **Text editor navigation:** single-line cursor movement wraps from the first line to the last and back, preserving the preferred column and scrolling the cursor into view. Page jumps continue to stop at the document ends.
 - **Setting feedback:** highlighted Neutrino On values use the same enabled color as Settings. Numeric Change hints, including screen-position X/Y, show both Left and Right button icons.

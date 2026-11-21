@@ -117,7 +117,7 @@ void Show_build_info(void)
 		//Display section
 		if (event || post_event) {  //NB: We need to update two frame buffers per event
 			clrScr(setting->color[COLOR_BACKGR]);
-			sprintf(TextRow, " Launchstation %s (%s)", ULE_VERSION, GIT_HASH);
+			sprintf(TextRow, " Launchstation %.7s %s", GIT_HASH, ULE_VERDATE);
 			PrintPos(03, hpos, TextRow, COLOR_TEXT);
 			PrintPos(-1, hpos, "Build features:", COLOR_SELECT);
 
