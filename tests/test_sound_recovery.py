@@ -19,16 +19,16 @@ static void storage_job(void *unused) {
     (void)unused;assert(worker_thread && active);storage_steps++;
 }
 int main(void) {
-    reset();during_rpc=ui_during_load;dashSoundRequestBoot();
+    reset();during_rpc=ui_during_load;
     assert(!dashSoundInit());
     assert(q_count==1 && !module_calls && !rpc_calls && !opens && !sound_ready);
     for(int i=0;i<20;i++) {ui_steps++;dashSoundMaintain();}
     assert(submitted==1 && !module_calls); /* Slow/queued init never runs on UI. */
     settle();during_rpc=NULL;
-    assert(soundAlive() && sample_uploads==8 && music_uploads==1 && ui_steps>20);
-    assert(plays[DASH_SND_BOOT]==1 && plays[23]==1 && volumes[23]==20);
+    assert(soundAlive() && sample_uploads==DASH_SND_COUNT && music_uploads==1 && ui_steps>20);
+    assert(plays[23]==1 && volumes[23]==20);
     for(int i=0;i<23;i++)assert(volumes[i]==30);
-    assert(!sound_job_id && !sound_boot_pending && navigation_events>20);
+    assert(!sound_job_id && navigation_events>20);
     for(int i=0;i<20;i++)dashSoundMaintain();assert(submitted==1);
     /* Queue order serializes audio with scans/saves/artwork; never bypass it. */
     reset();dashWorkerSubmit("Storage before",1,storage_job,NULL,NULL);
@@ -43,10 +43,10 @@ int main(void) {
     foreground_io=0;parked=1;dashSoundMaintain();assert(!submitted);
     parked=0;reject_submit=1;dashSoundMaintain();assert(!submitted && !sound_job_id);
     reject_submit=0;dashSoundMaintain();assert(submitted==1);settle();assert(soundAlive());
-    /* A launch/shutdown drains queued initialization and suppresses boot playback. */
-    reset();dashSoundRequestBoot();dashSoundMaintain();status_quiet=1;dashSoundShutdown();
-    assert(!q_count && !sound_job_id && !sound_ready && !sound_boot_pending && !allocations);
-    assert(quits==1 && stops==1 && !plays[DASH_SND_BOOT] && !plays[23]);
+    /* A launch/shutdown drains queued initialization and suppresses music playback. */
+    reset();dashSoundMaintain();status_quiet=1;dashSoundShutdown();
+    assert(!q_count && !sound_job_id && !sound_ready && !allocations);
+    assert(quits==1 && stops==1 && !plays[23]);
     /* Stale queued results never invoke old-generation RPC or publish samples. */
     reset();dashSoundMaintain();generation++;settle();
     assert(!sound_ready && !module_calls && !rpc_calls && !allocations);
@@ -70,7 +70,7 @@ int main(void) {
     reset();dashCfg.sound=dashCfg.bgm=0;dashSoundMaintain();settle();
     assert(soundAlive() && module_calls==2 && plays[23]==1 && volumes[23]==10);
     reset();
-    puts("PASS: background-only module/sample/music loading, UI RPC exclusion, settings snapshots, queue serialization, startup cue, shutdown draining, failures and reset generations");
+    puts("PASS: background-only module/sample/music loading, UI RPC exclusion, settings snapshots, queue serialization, silent startup, shutdown draining, failures and reset generations");
     return 0;
 }
 ''', 'recovery', navigation=True)

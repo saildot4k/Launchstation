@@ -641,7 +641,6 @@ int TextEditor(char *path);
 
 /* timer.c */
 extern u64 WaitTime;
-extern u64 CurrTime;
 
 u64 Timer(void);
 

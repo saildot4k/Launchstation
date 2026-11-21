@@ -34,12 +34,13 @@ typedef int DashColor;
 static struct { int corner; } dashTheme;
 static struct { int icon_backing; } dashCfg;
 static float expected_mid, width_scale;
-static int icon_calls, text_calls, badge_calls;
+static int icon_calls, text_calls, badge_calls, last_icons[2];
 static float dashTextWidth(const char *text, float scale) {
     return text ? strlen(text) * 10 * scale * width_scale : 0;
 }
 static void dashIcon(int icon, float x, float y, float size, DashColor color) {
-    (void)icon; (void)x; (void)color;
+    (void)x; (void)color;
+    last_icons[0]=last_icons[1];last_icons[1]=icon;
     assert(fabsf(y + size * 0.5f - expected_mid) < 0.001f);
     icon_calls++;
 }
@@ -86,6 +87,10 @@ int main(void) {
                     drawButton(20, origins[y], -1, keys[key]);
                     assert(dashTheme.corner == 2);
                 }
+                int before=icon_calls;
+                float width=drawButton(20,origins[y],-1,"LEFT/RIGHT");
+                assert(icon_calls==before+2&&last_icons[0]==DI_BTN_LEFT&&last_icons[1]==DI_BTN_RIGHT);
+                assert(width==48&&width==buttonWidth(-1,"LEFT/RIGHT"));
                 modalHintRow(20, origins[y], DI_BTN_CIRCLE, "Select", DI_BTN_CROSS, "Back");
                 modalHintRow(20, origins[y], DI_BTN_CROSS, "Close", -1, NULL);
                 modalHintRow(20, origins[y], -1, NULL, DI_BTN_CIRCLE, "Cancel");

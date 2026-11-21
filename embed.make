@@ -610,9 +610,6 @@ $(EE_ASM_DIR)sfx_transition_adp.s: res/sfx/transition.adp | $(EE_ASM_DIR)
 $(EE_ASM_DIR)sfx_message_adp.s: res/sfx/message.adp | $(EE_ASM_DIR)
 	$(BIN2S) $< $@ sfx_message_adp
 
-$(EE_ASM_DIR)sfx_boot_adp.s: res/sfx/boot.adp | $(EE_ASM_DIR)
-	$(BIN2S) $< $@ sfx_boot_adp
-
 $(EE_ASM_DIR)sfx_connect_adp.s: res/sfx/bd_connect.adp | $(EE_ASM_DIR)
 	$(BIN2S) $< $@ sfx_connect_adp
 

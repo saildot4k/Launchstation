@@ -510,7 +510,6 @@ typedef struct
 	int bgm;
 	int bgm_vol;
 	int app_filter;
-	int files_mode;              /* 0 = Files list, 1 = Devices cards */
 	int home_shortcuts;          /* HOME quick-launch row */
 	int icon_backing;            /* control/quick-action backing shapes */
 	int temp_fahrenheit;         /* 0 = Celsius, 1 = Fahrenheit */
@@ -777,8 +776,8 @@ void dashDrawHeader(int section, float section_anim);
 void dashDrawClock(void);
 void dashDrawSectionTitle(float x, float y, const char *title, const char *subtitle);
 void dashDrawEmptyState(float cx, float cy, int icon, const char *title, const char *body);
-void dashDrawScrollbar(float x, float y, float h, int first, int visible, int total);
-void dashDrawFocusFrame(float x, float y, float w, float h, float r, float strength);
+/* Fractional first follows the view's animated scroll position. */
+void dashDrawScrollbar(float x, float y, float h, float first, int visible, int total);
 /* Themed building blocks: every list, card and selection goes through
  * these so the theme's panel, border and highlight style apply everywhere. */
 void dashDrawPanelBox(float x, float y, float w, float h, float r);
@@ -917,7 +916,7 @@ void dashWorkerParkPoint(void);
 int dashIopParked(void);
 
 //--------------------------------------------------------------
-// Sections (dash_home.c, dash_apps.c, dash_files.c, dash_tools.c,
+// Sections (dash_home.c, dash_apps.c, dash_browser.c, dash_tools.c,
 // dash_settings.c) and shell (dash_main.c)
 //--------------------------------------------------------------
 typedef struct
@@ -933,7 +932,6 @@ typedef struct
 extern const DashScreen dashHomeScreen;
 extern const DashScreen dashAppsScreen;
 extern const DashScreen dashFilesScreen;
-extern const DashScreen dashDevicesScreen;
 extern const DashScreen dashToolsScreen;
 extern const DashScreen dashSettingsScreen;
 
@@ -1010,7 +1008,7 @@ void dashFileBrowser(const char *start_dir);        /* dash_browser.c */
 void dashFileBrowserTabClose(void);                /* release inactive-tab state */
 int dashBrowserPadInputReady(void);              /* global USB fileXio / pad guard */
 void dashFileBrowserTabOpen(const char *start_dir);/* navigate within Files tab */
-int dashSettingsSaveCnf(void);                      /* LAUNCHELF.CNF now */
+int dashSettingsSaveCnf(void);                      /* LAUNCHSTATION.CNF now */
 /* classic dialogs (ynDialog/nonDialog/keyboard) as dashboard dialogs */
 void dashClassicUiInstall(int on);
 void dashClassicUiDone(void);
@@ -1027,10 +1025,6 @@ int dashClockSetManual(int year, int month, int day, int hour, int minute, int s
                        char *result, int result_size);
 int dashClockSyncInternet(char *result, int result_size);
 const MainExecuteContext *dashExecContext(void);
-const char *dashOkLabelKey(void);
-
-/* Main loop: finishes a device the user opened while its driver started. */
-void dashFilesPoll(void);
 
 /* Home/Apps shared helpers. */
 int dashAppsVisibleCount(void);

@@ -30,7 +30,7 @@ sheet = function(info, "void dashShowSystemInfo(")
 assert "dashWorkerAwaitAll(" in sheet and "job = cached_console_info;" in sheet
 for forbidden in ("GetConsoleModelName(", "GetConsoleDvdVersion(", "getROMVersion("):
     assert forbidden not in sheet
-for source in ("src/dash_home.c", "src/dash_files.c"):
+for source in ("src/dash_home.c",):
     assert "dashConsoleSummaryText(console, sizeof(console));" in (root / source).read_text()
 
 code = r'''

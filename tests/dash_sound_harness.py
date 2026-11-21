@@ -28,9 +28,9 @@ static char LaunchElfBootDir[MAX_PATH]="usb0:/BOOT/", LaunchElfDir[MAX_PATH]="mc
 u8 libsd_irx[1], audsrv_irx[1];
 int size_libsd_irx=1, size_audsrv_irx=1;
 u8 sfx_cursor_adp[16], sfx_confirm_adp[16], sfx_cancel_adp[16], sfx_transition_adp[16];
-u8 sfx_message_adp[16], sfx_boot_adp[16], sfx_connect_adp[16], sfx_disconnect_adp[16];
+u8 sfx_message_adp[16], sfx_connect_adp[16], sfx_disconnect_adp[16];
 int size_sfx_cursor_adp=16, size_sfx_confirm_adp=16, size_sfx_cancel_adp=16, size_sfx_transition_adp=16;
-int size_sfx_message_adp=16, size_sfx_boot_adp=16, size_sfx_connect_adp=16, size_sfx_disconnect_adp=16;
+int size_sfx_message_adp=16, size_sfx_connect_adp=16, size_sfx_disconnect_adp=16;
 static unsigned generation;
 static int worker_thread, active, parked, foreground_io, frame_active, reject_submit, status_quiet;
 static int isStartupDriverStatusQuiet(void) {return status_quiet;}
@@ -144,7 +144,7 @@ RESET = r'''
 static void reset(void) {
     during_rpc=NULL;foreground_io=parked=frame_active=status_quiet=0;
     dashSoundShutdown();assert(!allocations && !q_count);
-    memset(&sound_job,0,sizeof(sound_job));sound_job_id=sound_closing=sound_volume_pending=sound_boot_pending=sound_music_pending=0;
+    memset(&sound_job,0,sizeof(sound_job));sound_job_id=sound_closing=sound_volume_pending=sound_music_pending=0;
     sound_startup_preparing=0;
     sound_ready=bgm_loaded=bgm_tried=0;bgm_channel=-1;bgm_data=NULL;
     sound_tried_generation=(unsigned)-1;generation=sound_reboot_generation=sound_retry=0;

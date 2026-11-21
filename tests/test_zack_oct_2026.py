@@ -63,9 +63,9 @@ assert 'snprintf(mount, sizeof(mount), "mc%d:", port);' in devices
 assert '"USB Mass Storage"' in devices
 assert '"MASS (USB)"' not in devices   # issue #132 resolved
 
-# Scrolling text and second focus outline are stable at interlaced cadence.
+# Scrolling text and selection borders are stable at interlaced cadence.
 assert "2.0f * floorf(scroll * 0.5f + 0.5f)" in info  # even line pairs (#139)
-assert "edge.a = (u8)(65 * strength);" in ui
+assert "dashDrawFocusFrame" not in ui
 assert "t = fmaxf(2.0f, r * 3.5f / 32.0f);" in gfx
 
 print("PASS: modal safe margins, all pad glyphs, reversible asset removal, "

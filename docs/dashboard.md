@@ -54,7 +54,7 @@ Also in the File Browser menu, as in the classic browser:
   folders and executables sort A-Z by filename.
   Other sorted modes offer ascending or descending order, with folders first.
 * *Bookmarks...*: the PathPad. Jump to a bookmarked folder, bookmark the
-  current one or remove one (saved in LAUNCHELF.CNF; *Lock shortcuts & bookmarks*
+  current one or remove one (saved in LAUNCHSTATION.CNF; *Lock shortcuts & bookmarks*
   under Settings > Launching locks them).
 * *Go to Launchstation's folder*, *Invert selection*.
 * *Use as launch arguments* on a text file: its lines become the
@@ -290,9 +290,9 @@ Square resets individual appearance options to their preset defaults.
 Previewed changes share the existing Save/Discard session, including themes
 and network addresses. Unchanged sessions and changes returned to their
 original values do not prompt. Triangle's Changes menu is global to Settings;
-it is not buried in a configuration group. LAUNCHELF.CNF and IPCONFIG.DAT keep
+it is not buried in a configuration group. LAUNCHSTATION.CNF and IPCONFIG.DAT keep
 their existing save targets; System's alternate save action writes only
-LAUNCHELF.CNF. Theme export writes a separate theme folder immediately.
+LAUNCHSTATION.CNF. Theme export writes a separate theme folder immediately.
 
 An earlier failed automatic/bookmark save is reported separately as *save
 failed*, with an explicit *Retry failed saves* action. It does not turn an
@@ -420,7 +420,7 @@ running is looked up later, when that device is opened.
 ## Files written by the dashboard
 
 Dashboard configuration uses one folder chosen at startup: `CNF_Path` when
-set, otherwise the folder containing the loaded `LAUNCHELF.CNF`.
+set, otherwise the folder containing the loaded `LAUNCHSTATION.CNF`.
 `DASHBOARD.CNF`, `DASHAPPS.CNF` (favorites, pins, recents), `DASHLIB.CNF`
 (library cache) and per-game Neutrino profiles all use that folder.
 
@@ -429,13 +429,14 @@ another device. App lists in the selected folder still load independently
 when `DASHBOARD.CNF` is absent. If no main configuration was loaded, use
 the startup configuration directory already selected by the R3Z boot code.
 Existing files are not migrated, and writes to an unavailable/read-only
-folder are not silently redirected elsewhere. The R3Z startup searches for
-`LAUNCHELF.CNF` and `IPCONFIG.DAT` are retained.
+folder are not silently redirected elsewhere. The existing startup search locations are used for
+`LAUNCHSTATION.CNF` and `IPCONFIG.DAT`. To reuse an older `LAUNCHELF.CNF`,
+rename or copy it to `LAUNCHSTATION.CNF`; the old filename is not searched.
 The active theme is part of DASHBOARD.CNF (`Theme_*` keys); saved themes
 go to `THEMES/<name>/theme.cfg`, only when you choose
 *Export theme to folder* — in the ELF's own folder when writable, else the
 dashboard folder (see [themes.md](themes.md#theme-folders-user-created-themes)).
-LAUNCHELF.CNF itself is never modified behind your
+LAUNCHSTATION.CNF itself is never modified behind your
 back.
 
 ## Interface sounds
@@ -488,7 +489,7 @@ mono format/version 1 with a valid SPU2 pitch. Use loop-enabled encoding
 for continuous music.
 
 The file is read from the actual boot folder, not the folder of an imported
-LAUNCHELF.CNF. If no boot folder is known, the existing Launchstation folder
+LAUNCHSTATION.CNF. If no boot folder is known, the existing Launchstation folder
 is the fallback. Disc boots preserve the disc folder for sidecar reads
 while keeping the writable memory-card configuration fallback.
 
@@ -620,13 +621,13 @@ paths become `massN:/...`. ATA (`ata0:/`, `ata1:/`) and MX4SIO (`mx4sio:/`)
 keep their selected device paths. There is no configurable handoff namespace.
 
 The old `Modern_Device_Handoff` key is ignored when loading an existing
-`LAUNCHELF.CNF` and is omitted on save. Ember, POPStarter and Neutrino retain
+`LAUNCHSTATION.CNF` and is omitted on save. Ember, POPStarter and Neutrino retain
 their loader-specific arguments. The IOP reset option remains independent.
 
 ### Video mode preview and browser navigation
 
 Video mode changes require confirmation within **10 seconds**. The shown Confirm button directly keeps the mode for this settings session; the Back button directly reverts it. D-pad input does not select an action. Timeout also restores the previous mode and screen offsets. Settings are written only through the existing Save action. Physical-console timing and display compatibility still require testing.
 
-Scrollable dashboard lists keep the selection near the middle, following the File Browser. The viewport stops at the first and last page so it never introduces empty rows. Settings, Tools, the Files device list, Applications list, HDD Manager, path picker, folder-date editor and menu popups share this behavior. Wrapping places the highlight directly on the new selection, including in short lists and when skipping headings or disabled entries. Grid views also place the viewport at the wrapped selection immediately. Ordinary adjacent movement keeps its animation.
+Scrollable dashboard lists keep the selection near the middle, following the File Browser. The viewport stops at the first and last page so it never introduces empty rows. Settings, Tools, the Files device list, Applications list, HDD Manager, path picker, folder-date editor and menu popups share this behavior. Wrapping places the highlight directly on the new selection, including in short lists and when skipping headings or disabled entries. Grid views also place the viewport at the wrapped selection immediately. Ordinary adjacent movement keeps its animation. Scrollbar thumbs follow the animated viewport for row movement and page jumps. Text Editor scrollbars also glide during cursor-line and L2/R2 page navigation, keeping separate animation state for each open document.
 
 The native File Browser provides eleven rows and the path picker ten, with centered scrolling and endpoint-first Left/Right paging. A page that overshoots lands at the first/last item; the next press at that endpoint wraps. USB entries appear immediately after Memory Card Slot 2. Device rows use two left-aligned columns: the browse path on the left and the device description on the right. Examples include `mc0:/` / Memory Card Slot 1, `mmce0:/` / SD2PSX SD Card Slot 1, and `usbN:/` / USB Storage. Both APA and exFAT HDD units are listed when enabled; mounted VMCs appear once each. PSX Internal Flash uses the driver’s `xfrom0:/` path. Diagnostic status remains in device tools and opening a device reports initialization/errors. MISC/Configure opens dashboard Settings while the dashboard owns the screen; its classic configuration behavior remains available outside the dashboard.

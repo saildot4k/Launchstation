@@ -154,7 +154,7 @@ static void dashLibInit(void) {assert(config_loaded&&!submitted);}
 static void dashWorkerInit(void) {assert(config_loaded&&!submitted);worker_initialized=1;}
 static int dashLibLoadCache(void) {
  assert(worker_initialized&&submitted==1&&!q_count&&!sound_job_id&&!sound_startup_preparing);
- assert(!plays[23]&&!plays[DASH_SND_BOOT]);
+ assert(!plays[23]);
  if(module_failure)assert(!soundAlive()&&warnings==1);
  else {
   assert(soundAlive()&&sample_uploads==DASH_SND_COUNT);
@@ -178,7 +178,7 @@ int main(void) {
   cache_result=cache?0:-1;module_failure=failure;exists=target!=DASH_SEC_FILES;
   firstInit();assert(dash_inited&&scans==!cache);
   assert(section==(target==DASH_SEC_APPS?DASH_SEC_HOME:target==DASH_SEC_DEVICES?DASH_SEC_FILES:target));
-  assert(!plays[23]&&!plays[DASH_SND_BOOT]);
+  assert(!plays[23]);
   dashSoundMaintain();settle();
   if(!failure)assert(plays[23]==exists&&volumes[23]==(exists?(music?80:10):0));
  }

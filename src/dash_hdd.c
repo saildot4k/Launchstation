@@ -1374,7 +1374,7 @@ static void hddScene(void)
 			dashTextRight(LIST_X + LIST_W - 10, y + 2, a, DASH_FS_CAPTION, DASH_C_TEXT3);
 		}
 		dashGfxScissorReset();
-		dashDrawScrollbar(LIST_X + LIST_W + 8, LIST_Y, DASH_PANE_B - LIST_Y, top, ROWS, hm.n);
+		dashDrawScrollbar(LIST_X + LIST_W + 8, LIST_Y, DASH_PANE_B - LIST_Y, top_anim, ROWS, hm.n);
 	}
 	drawDetails(scroll);
 	{

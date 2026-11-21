@@ -13,6 +13,8 @@ program = r'''
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 '''
 program += '#include "' + str(root / 'include/list_scroll.h') + '"\n'
 program += gfx[start:end] + "\n"
@@ -29,6 +31,88 @@ for filename, names in (("dash_apps.c", ("LIST_ROWS", "LIST_ROW_H")),
     source = (root / "src" / filename).read_text()
     for macro in names:
         program += re.search(r"^#define " + macro + r" .+$", source, re.M).group() + "\n"
+# Compile the real thumb geometry and editor scroll model against host drawing.
+def function(text, signature):
+    begin = text.index(signature)
+    end = text.index('{', begin) + 1
+    depth = 1
+    while depth:
+        depth += (text[end] == '{') - (text[end] == '}')
+        end += 1
+    return text[begin:end] + '\n'
+
+ui = (root / 'src/dash_ui.c').read_text()
+editor = (root / 'src/dash_editor.c').read_text()
+program += r'''
+typedef int DashColor;
+#define DASH_C_TEXT3 1
+#define DASH_C_ACCENT 2
+static DashColor dashColorA(DashColor color,float alpha) { (void)alpha;return color; }
+static int bar_calls;
+static float thumb_y,thumb_h;
+static void scrollbarShape(float x,float y,float h,DashColor color) {
+    assert(x==600 && h>0);
+    if(color==DASH_C_ACCENT) { thumb_y=y;thumb_h=h; }
+    bar_calls++;
+}
+'''
+program += function(header, 'static inline float dashClampf(') + function(ui, 'void dashDrawScrollbar(')
+program += r'''
+static void checkThumb(float first,int visible,int total,float h) {
+    bar_calls=0;dashDrawScrollbar(600,100,h,first,visible,total);
+    if(total<=visible || visible<=0 || h<=0) { assert(!bar_calls);return; }
+    assert(bar_calls==2 && thumb_h>0 && thumb_h<=h);
+    assert(thumb_y>=100 && thumb_y+thumb_h<=100+h+0.0001f);
+    float maximum=total-visible;
+    float bounded=first<0?0:first>maximum?maximum:first;
+    assert(fabsf(thumb_y-(100+(h-thumb_h)*bounded/maximum))<0.0001f);
+}
+static struct {int anim;} dashCfg={100};
+#define MAX_PATH 1024
+'''
+program += function((root/'src/dash_main.c').read_text(), 'float dashAnimSpeed(')
+doc_end=editor.index('} EdDoc;')+len('} EdDoc;')
+program += editor[editor.rfind('typedef struct',0,doc_end):doc_end]+'\n'
+program += re.search(r'^#define ED_TAB .+$',editor,re.M).group()+'\n'
+for signature in ('static void docRelines(', 'static int docLineOf(', 'static int docLineEnd(',
+                  'static int docColOf(', 'static int docOffAtCol(', 'static void moveCursor(',
+                  'static void moveLines(', 'static void scrollToCursor(', 'static void animateScroll('):
+    program += function(editor,signature)
+program += r'''
+static void checkEditorScrollbar(void) {
+    char text[1024];int len=0;
+    for(int i=0;i<80;i++)len+=snprintf(text+len,sizeof(text)-len,"line %d\n",i);
+    EdDoc d={.buf=text,.len=len,.mark=-1},other={.buf=text,.len=len,.mark=-1};
+    docRelines(&d);docRelines(&other);
+    const int rows=18;
+    /* L2/R2 dispatch page-sized line movement. Keep the caret immediately
+     * usable while the separately drawn thumb follows fractional progress. */
+    for(int i=0;i<2;i++) { moveLines(&d,rows-1);scrollToCursor(&d,rows,60); }
+    assert(d.top==rows-1 && d.top_anim==0);
+    animateScroll(&d,rows,1.0f/60);
+    assert(d.top_anim>0 && d.top_anim<d.top && d.top_anim!=floorf(d.top_anim));
+    checkThumb(d.top_anim,rows,d.nlines,240);
+    float before=d.top_anim;
+    for(int i=0;i<2;i++) { moveLines(&d,-(rows-1));scrollToCursor(&d,rows,60); }
+    assert(!d.top);animateScroll(&d,rows,1.0f/60);
+    assert(d.top_anim>0 && d.top_anim<before);
+    animateScroll(&other,rows,1.0f/60);assert(other.top_anim==0); /* per-document state */
+    moveLines(&d,-1);scrollToCursor(&d,rows,60);
+    assert(d.top_anim<0);animateScroll(&d,rows,1.0f/60);
+    assert(d.top_anim==d.top && d.top==d.nlines-rows);
+    moveLines(&d,1);scrollToCursor(&d,rows,60);animateScroll(&d,rows,1.0f/60);
+    assert(!d.top && !d.top_anim); /* wrap resets just like list cameras */
+    dashCfg.anim=0;
+    moveLines(&d,2*(rows-1));scrollToCursor(&d,rows,60);animateScroll(&d,rows,1.0f/60);
+    assert(d.top_anim==d.top); /* animation off */
+    dashCfg.anim=100;
+    scrollToCursor(&d,11,60);animateScroll(&d,11,1.0f/60);
+    assert(d.top_anim>=0 && d.top_anim<=d.nlines-11); /* keyboard viewport resize */
+    d.len=d.cur=0;docRelines(&d);scrollToCursor(&d,rows,60);animateScroll(&d,rows,1.0f/60);
+    assert(!d.top_anim);checkThumb(d.top_anim,rows,d.nlines,240);
+    free(d.lines);free(other.lines);
+}
+'''
 program += r'''
 static float slide(float current,int target,int count,int rows,float dt,float speed) {
     return listSlideTop(current,target,target+(rows-1)/2,count,rows,dashApproach(0,1,14*speed,dt));
@@ -46,6 +130,13 @@ static void coverage(float top,int count,int rows) {
     }
 }
 int main(void) {
+    checkEditorScrollbar();
+    /* Fractional rows must survive the public API, rather than snapping to an int. */
+    checkThumb(0.375f,9,40,240);assert(fabsf(thumb_y-102.25f)<0.0001f);
+    checkThumb(-3.5f,9,40,240);assert(thumb_y==100);
+    checkThumb(100.5f,9,40,240);assert(fabsf(thumb_y+thumb_h-340)<0.0001f);
+    checkThumb(7.5f,9,40,10);assert(thumb_h==10 && thumb_y==100);
+    checkThumb(0,0,40,240);checkThumb(0,40,40,240);checkThumb(0,9,0,240);
     /* PAL, NTSC, and progressive framebuffer heights share layout coordinates.
      * Calculate full rows and physical clearance using the production macros. */
     const int heights[]={224,240,256,288,448,480,512,576};
@@ -68,6 +159,7 @@ int main(void) {
         for(int frame=0;frame<(int)(rates[rate]*0.2f);frame++)
             top=slide(top,1,40,9,1/rates[rate],1);
         assert(top>0 && top<1);
+        checkThumb(top,9,40,240);assert(thumb_y>100 && thumb_y<106);
         result[rate]=top;
         assert(fabsf(top-(1-expf(-14*0.2f)))<0.0001f);
     }
@@ -145,7 +237,6 @@ with tempfile.TemporaryDirectory(prefix="list-slide-") as folder:
 for filename, camera, count, rows in (
     ("dash_apps.c", "list_top_anim", "norder", "LIST_ROWS"),
     ("dash_browser.c", "fb.top_anim", "rows_total", "FB_ROWS"),
-    ("dash_files.c", "ftop_anim", "nfentries", "rows"),
     ("dash_tools.c", "ttop_anim", "NTOOLS", "rows"),
     ("dash_settings.c", "item_top_anim", "total", "ITEM_ROWS"),
     ("dash_hdd.c", "top_anim", "hm.n", "ROWS"),
@@ -157,4 +248,11 @@ for filename, camera, count, rows in (
     assert f"i = (int){camera}; i < {count} && i < {camera} + {rows}" in text, filename
     assert f"(i - {camera}) *" in text, filename
     assert "dashGfxScissor(" in text and "dashGfxScissorReset();" in text, filename
-print("PASS: Home/Applications, File Browser, Files navigation, Tools, Settings, HDD Manager, menus and pickers draw the shared animated viewport and clipped edge rows")
+    assert f", {camera}, {rows}, {count});" in text, filename
+print("PASS: Home/Applications, File Browser, Tools, Settings, HDD Manager, menus and pickers draw the shared animated viewport and clipped edge rows")
+
+assert 'camera / TS_ROW_H, TS_ROWS, e->count);' in (root/'src/dash_browser.c').read_text()
+assert 'grid_cam / GRID_PITCH_Y, 3,' in (root/'src/dash_apps.c').read_text()
+assert 'body_h, scroll,' in (root/'src/dash_info.c').read_text()
+assert 'd->top_anim, rows, d->nlines);' in editor
+print('PASS: every scrollbar follows its animated viewport; editor pages/line steps reverse smoothly, reset on wrap/shrink, preserve independent buffers, and honor animation off')

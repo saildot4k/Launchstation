@@ -40,6 +40,7 @@ typedef struct
 	int cur;         /* cursor, byte offset */
 	int mark;        /* selection anchor, -1 = none */
 	int top, left;   /* first visible line / column */
+	float top_anim;  /* scrollbar position, per document */
 	int want_col;    /* column kept while moving up and down */
 	int *lines;      /* start offset of every line */
 	int nlines, lines_cap;
@@ -615,6 +616,15 @@ static void moveLines(EdDoc *d, int delta)
 {
 	int line = docLineOf(d, d->cur) + delta;
 
+	/* Single-line cursor steps wrap; page jumps still stop at the ends. */
+	if (delta == -1 && line < 0) {
+		line = d->nlines - 1;
+		d->top_anim = -1.0f;
+	} else if (delta == 1 && line >= d->nlines) {
+		line = 0;
+		d->top_anim = -1.0f;
+	}
+
 	if (line < 0)
 		line = 0;
 	if (line >= d->nlines)
@@ -822,6 +832,14 @@ static void scrollToCursor(EdDoc *d, int rows, int cols)
 		d->top = 0;
 }
 
+/* The text/caret stays immediately usable while the thumb eases to it.
+ * Keep the animation with the document, including when switching buffers. */
+static void animateScroll(EdDoc *d, int rows, float dt)
+{
+	d->top_anim = listSlideTop(d->top_anim, d->top, docLineOf(d, d->cur), d->nlines, rows,
+	                           dashApproach(0.0f, 1.0f, 14.0f * dashAnimSpeed(), dt));
+}
+
 static void drawText(EdDoc *d, int rows, int cols)
 {
 	const float tx = ED_X + ED_GUTTER;
@@ -873,8 +891,9 @@ static void drawText(EdDoc *d, int rows, int cols)
 		if (line >= 0 && line < rows && col >= 0 && col <= cols)
 			dashRect(tx + col * ED_CW - 1, ED_Y + line * ED_ROW + 1, 2, ED_ROW - 2, DASH_C_ACCENT);
 	}
+	animateScroll(d, rows, dashFrameDelta());
 	if (d->nlines > rows)
-		dashDrawScrollbar(ED_X + ED_W + 10, ED_Y, rows * ED_ROW, d->top, rows, d->nlines);
+		dashDrawScrollbar(ED_X + ED_W + 10, ED_Y, rows * ED_ROW, d->top_anim, rows, d->nlines);
 }
 
 static void drawKeyboard(void)

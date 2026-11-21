@@ -18,7 +18,7 @@ header = source("include/launchelf.h")
 config = source("src/config.c")
 settings = source("src/dash_settings.c")
 actions = source("src/main_actions.c")
-docs = source("docs/LAUNCHELF.CNF")
+docs = source("docs/LAUNCHSTATION.CNF")
 
 # Default NO means enabled on older CNFs, and each bit is independently stored.
 for feature, field in (
