@@ -41,6 +41,7 @@ sources = "".join(function(signature) for signature in (
     "static void updateRequestRun(",
     "static int updateRequest(",
     "static int updateCommitRelation(",
+    "static void updateCheckMessage(",
     "void dashToolsCheckUpdates(void)\n{",
 ))
 enums = src[src.index("enum { UPDATE_RELATION_UNKNOWN"):src.index("static int updateIsCommitId(")]
@@ -70,6 +71,7 @@ static const char *last_title;
 static char last_body[320];
 static int requests, compares, confirmations, installs, response_status = 200;
 static int worker_ready, ca_ready, network_ready;
+static int loading_active, loading_begins, loading_ends;
 static int waits, polls, ca_checks, network_checks;
 static int in_worker, submits, job_waits, rendered_frames, status_updates, reject_submit, request_failure;
 static char release_stamp[32]="2026-10-30T01:02:03Z", confirmation_body[320];
@@ -91,13 +93,13 @@ static int dashWorkerSubmit(const char *title,int flags,void (*run)(void *),void
     pending_run=run;pending_arg=arg;return submits;
 }
 static int dashWorkerAwait(int id,const char *title,int cancelable) {
-    assert(id==submits && title && !cancelable && !in_worker && pending_run);
+    assert(id==submits && title && !cancelable && !in_worker && pending_run && loading_active);
     rendered_frames++;job_waits++;in_worker=1;pending_run(pending_arg);in_worker=0;
     pending_run=NULL;pending_arg=NULL;rendered_frames++;
     assert(!status_callback);return 1;
 }
 static int dashWorkerAwaitAll(const char *title) {
-    assert(title != NULL);waits++;return worker_ready;
+    assert(title != NULL && loading_active);waits++;return worker_ready;
 }
 static void filerRootMcPollIdle(void) {
     assert(waits==1 && worker_ready);polls++;
@@ -108,23 +110,26 @@ static int launchstationUpdateCaPath(char *path, int n) {
     return ca_ready;
 }
 static int ensureDashboardIpNetworkReady(void) {
-    assert(ca_checks==1 && ca_ready);network_checks++;return network_ready;
+    assert(ca_checks==1 && ca_ready && loading_active);network_checks++;return network_ready;
 }
 static const char *dashboardIpNetworkError(void) { return "Detailed network startup failure"; }
-static void dashLoadingBegin(const char *s) { (void)s; }
-static void dashLoadingEnd(void) {}
+static void dashLoadingBegin(const char *s) {
+    assert(!loading_active && s && *s);loading_active=1;loading_begins++;
+}
+static void dashLoadingSetCancel(int enabled) { assert(loading_active && enabled==0); }
+static void dashLoadingEnd(void) { assert(loading_active);loading_active=0;loading_ends++; }
 static void dashModalMessage(int kind,const char *title,const char *body,const char *detail) {
-    assert(!in_worker);(void)kind;(void)detail;
+    assert(!in_worker && !loading_active);(void)kind;(void)detail;
     last_title=title;
     snprintf(last_body,sizeof(last_body),"%s",body ? body : "");
 }
 static int dashModalConfirm(const char *title,const char *body,const char *action,int danger) {
-    assert(!in_worker);(void)title;(void)action;(void)danger;
+    assert(!in_worker && !loading_active);(void)title;(void)action;(void)danger;
     snprintf(confirmation_body,sizeof(confirmation_body),"%s",body);
     confirmations++; return 1;
 }
 int selfUpdateInstall(const char *ca,const char *digest,char *result,int cap) {
-    assert(!in_worker && !status_callback);(void)ca;(void)digest;
+    assert(!in_worker && !status_callback && loading_active);(void)ca;(void)digest;
     installs++;
     snprintf(result,cap,"installed");
     return 0;
@@ -169,7 +174,9 @@ program += request_type + "\n" + enums + sources
 program += r'''
 static void reset(const char *status,const char *release,int code) {
     requests=compares=confirmations=installs=0;
-    assert(!in_worker && !pending_run && !status_callback);
+    assert(!in_worker && !pending_run && !status_callback && !loading_active);
+    assert(loading_begins==loading_ends);
+    loading_begins=loading_ends=0;
     submits=job_waits=rendered_frames=status_updates=reject_submit=request_failure=0;
     strcpy(release_stamp,"2026-10-30T01:02:03Z");confirmation_body[0]='\0';
     waits=polls=ca_checks=network_checks=0;
@@ -182,7 +189,7 @@ static void reset(const char *status,const char *release,int code) {
 }
 int main(void) {
     const char *old="51e1e0c7bc1efcb5b51c6cc9de056ee858694a03";
-    char parsed[80];
+    char parsed[80], expected_ids[80];
     const char *nested_json = "{\"assets\": [{\"name\": \"other.psu\", \"updated_at\": \"2000-01-01T00:00:00Z\"}, {\"uploader\": {\"name\": \"wrong.psu\", \"updated_at\": \"2099-01-01T00:00:00Z\"}, \"label\": \"braces } { and escaped \\\" quote\", \"name\": \"wanted.psu\", \"updated_at\": \"2026-10-30T01:02:03Z\"}], \"updated_at\": \"2098-01-01T00:00:00Z\"}";
     assert(releaseAssetString(nested_json,"wanted.psu","updated_at",parsed,sizeof(parsed)));
     assert(!strcmp(parsed,"2026-10-30T01:02:03Z"));
@@ -203,6 +210,10 @@ int main(void) {
     assert(compares==1 && requests==2 && confirmations==1 && installs==1);
     assert(waits==1 && polls==1 && ca_checks==1 && network_checks==1);
     assert(submits==2 && job_waits==2 && rendered_frames==4 && status_updates==6);
+    assert(loading_begins==2 && loading_ends==2 && !loading_active);
+    snprintf(expected_ids,sizeof(expected_ids),"Current: %.7s\nLatest: %.7s\n",GIT_HASH,old);
+    assert(strstr(confirmation_body,expected_ids) && !strstr(confirmation_body,old));
+    if(strlen(GIT_HASH)>7)assert(!strstr(confirmation_body,GIT_HASH));
     assert(strstr(confirmation_body,"Updated: 2026-10-30 01:02:03 UTC"));
     assert(!strstr(confirmation_body,"2020-") && !strstr(confirmation_body,"2030-") && !strstr(confirmation_body,"2035-"));
     reset("ahead",old,200);reject_submit=1;dashToolsCheckUpdates();
@@ -231,6 +242,9 @@ int main(void) {
     dashToolsCheckUpdates();
     assert(compares==1 && confirmations==0 && installs==0);
     assert(!strcmp(last_title,"No newer release available"));
+    assert(loading_begins==1 && loading_ends==1 && !loading_active);
+    snprintf(expected_ids,sizeof(expected_ids),"Installed: %.7s\nLatest: %.7s\n",GIT_HASH,old);
+    assert(strstr(last_body,expected_ids) && !strstr(last_body,old));
     reset("identical",old,200);
     dashToolsCheckUpdates();
     assert(compares==1 && confirmations==0 && installs==0);
@@ -251,6 +265,8 @@ int main(void) {
     dashToolsCheckUpdates();
     assert(compares==0 && confirmations==0 && installs==0);
     assert(!strcmp(last_title,"Launchstation is up to date"));
+    assert(loading_begins==1 && loading_ends==1 && !loading_active);
+    assert(strstr(last_body,"This build (e70d903) matches the latest release."));
     assert(!updateIsCommitId("local") && !updateIsCommitId("../malformed"));
     assert(updateIsCommitId("e70d903"));
     puts("PASS: live worker status, callback cleanup, matching-package UTC dates and only verified descendants; stale/divergent/unknown builds are blocked");

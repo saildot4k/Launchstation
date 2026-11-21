@@ -299,7 +299,7 @@ int dashWorkerLastId(void)
 int dashWorkerAwait(int id, const char *title, int cancelable)
 {
 	u64 start = Timer();
-	int shown = 0, ok = 1;
+	int shown = title != NULL && dashLoadingActive(), owns_loading = 0, ok = 1;
 
 	if (id <= 0)
 		return 0;
@@ -316,10 +316,11 @@ int dashWorkerAwait(int id, const char *title, int cancelable)
 			break;
 		}
 		/* A NULL title keeps the scene visible for the whole wait.
-		 * Titled jobs only show an overlay once they take longer than 150ms. */
+		 * Reuse a caller's overlay without restarting its animation or closing it.
+		 * Otherwise, titled jobs show progress after 150ms. */
 		if (title != NULL && !shown && Timer() - start >= 150) {
 			dashLoadingBegin(title);
-			shown = 1;
+			shown = owns_loading = 1;
 		}
 		if (shown) {
 			char s[96];
@@ -334,7 +335,7 @@ int dashWorkerAwait(int id, const char *title, int cancelable)
 			dashGfxPresent();
 		}
 	}
-	if (shown)
+	if (owns_loading)
 		dashLoadingEnd();
 	return ok;
 }

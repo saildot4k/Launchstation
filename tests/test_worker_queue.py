@@ -94,7 +94,7 @@ typedef struct { int pressed; } DashInput;
 #define DASH_IN_BACK 1
 static u64 now;
 static int pumps,polls,ticks,renders,presents,begins,ends,frames,status_reads;
-static int finish_after,cancel_after,complete;
+static int finish_after,cancel_after,complete,loading_active;
 static u64 Timer(void) { return now; }
 static int dashWorkerDone(int id) { assert(id==7);return complete; }
 static void dashWorkerPump(void) { if(++pumps==finish_after)complete=1; }
@@ -102,7 +102,8 @@ static void dashInputPoll(DashInput *in) { in->pressed=++polls==cancel_after?DAS
 static void dashVisualUpdate(void) { ticks++;now+=100; }
 static void dashRenderScene(void) { renders++; }
 static void dashGfxPresent(void) { presents++; }
-static void dashLoadingBegin(const char *title) { assert(!strcmp(title,"Saving file"));begins++; }
+static int dashLoadingActive(void) { return loading_active; }
+static void dashLoadingBegin(const char *title) { assert(!strcmp(title,"Saving file"));begins++;loading_active=1; }
 static void dashLoadingSetCancel(int enabled) { assert(enabled==0 || enabled==1); }
 static void readStatus(char *out,int n,int *done,int *total) {
     status_reads++;snprintf(out,n,"Waiting for memory card status");*done=*total=0;
@@ -111,10 +112,10 @@ static void dashLoadingFrame(const char *status,int done,int total) {
     assert(!strcmp(status,"Waiting for memory card status") && !done && !total);
     frames++;dashVisualUpdate();dashRenderScene();dashGfxPresent();
 }
-static void dashLoadingEnd(void) { ends++; }
+static void dashLoadingEnd(void) { ends++;loading_active=0; }
 static void reset(int delay,int cancel) {
     now=pumps=polls=ticks=renders=presents=begins=ends=frames=status_reads=complete=0;
-    finish_after=delay;cancel_after=cancel;
+    finish_after=delay;cancel_after=cancel;loading_active=0;
 }
 '''
 wait_checks = r'''
@@ -142,6 +143,15 @@ int main(void) {
         assert(ticks==renders && presents==renders);
         if(quiet)assert(!begins && !ends && !frames && !status_reads);
     }
+    /* The caller keeps ownership across successive waits: no restart or close. */
+    for(int cancel=0;cancel<2;cancel++) {
+        reset(8,cancel?4:0);loading_active=1;
+        assert(dashWorkerAwait(7,"Saving file",cancel)==!cancel);
+        assert(loading_active && !begins && !ends && frames>0 && frames==status_reads);
+        assert(ticks==renders && presents==renders);
+    }
+    reset(2,0);loading_active=1;
+    assert(dashWorkerAwait(7,"Saving file",0) && frames==1 && !begins && !ends && loading_active);
     reset(8,0);
     assert(!dashWorkerAwait(0,NULL,1) && !dashWorkerAwait(-1,NULL,1) && !pumps && !renders);
     complete=1;

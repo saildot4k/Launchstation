@@ -341,9 +341,7 @@ static int updateRequest(const char *title, const char *path, const char *header
         snprintf(error, error_size, "The update-check worker is unavailable. Try again after restarting.");
         return -1;
     }
-    dashLoadingBegin(title);
     dashWorkerAwait(id, title, 0);
-    dashLoadingEnd();
     return job.result;
 }
 
@@ -395,6 +393,13 @@ static int updateCommitRelation(const char *current, const char *latest,
     return result;
 }
 
+/* End the shared check overlay before opening any result dialog. */
+static void updateCheckMessage(int icon, const char *title, const char *body, const char *detail)
+{
+	dashLoadingEnd();
+	dashModalMessage(icon, title, body, detail);
+}
+
 void dashToolsCheckUpdates(void)
 {
 	HttpsResponse response;
@@ -406,7 +411,7 @@ void dashToolsCheckUpdates(void)
 
 	if (!updateIsCommitId(GIT_HASH)) {
 		snprintf(body, sizeof(body),
-		         "This ELF identifies its commit as '%s'. Update checks need a usable Git commit ID.",
+		         "This ELF identifies its commit as '%.7s'. Update checks need a usable Git commit ID.",
 		         GIT_HASH);
 		dashModalMessage(DI_WARNING, "Update check needs build information", body,
 		                 "Install a complete release package built with commit information, then restart Launchstation.");
@@ -415,18 +420,22 @@ void dashToolsCheckUpdates(void)
 
 	/* CA/device access and network stack changes use synchronous IOP RPCs.
 	 * Finish queued IO and any root-card status request before starting. */
-	if (!dashWorkerAwaitAll("Finishing background storage work"))
+	dashLoadingBegin("Checking for Launchstation updates");
+	if (!dashWorkerAwaitAll("Checking for Launchstation updates")) {
+		dashLoadingEnd();
 		return;
+	}
+	dashLoadingSetCancel(0);
 	filerRootMcPollIdle();
 
 	if (!launchstationUpdateCaPath(ca_path, sizeof(ca_path))) {
-		dashModalMessage(DI_WARNING, "Update check needs the CA bundle",
+		updateCheckMessage(DI_WARNING, "Update check needs the CA bundle",
 		                 "WLE-UPDATE-CA.PEM was not found beside the running ELF or in the dashboard settings folder.",
 		                 "Install the complete Launchstation ZIP/PSU package, or copy res/WLE-UPDATE-CA.PEM beside the boot ELF.");
 		return;
 	}
 	if (!ensureDashboardIpNetworkReady()) {
-		dashModalMessage(DI_WARNING, "Update check unavailable",
+		updateCheckMessage(DI_WARNING, "Update check unavailable",
 		                 dashboardIpNetworkError(), NULL);
 		return;
 	}
@@ -436,7 +445,7 @@ void dashToolsCheckUpdates(void)
 	if (updateRequest("Checking for Launchstation updates",
 	                  SELF_UPDATE_API_PATH "/releases/tags/latest",
 	                  headers, ca_path, &response, error, sizeof(error)) < 0) {
-		dashModalMessage(DI_WARNING, "Update check failed",
+		updateCheckMessage(DI_WARNING, "Update check failed",
 		                 error[0] ? error : "GitHub could not be reached.", NULL);
 		return;
 	}
@@ -447,7 +456,7 @@ void dashToolsCheckUpdates(void)
 	                        asset_digest, sizeof(asset_digest))) {
 		snprintf(body, sizeof(body), "GitHub returned HTTP %d or an unexpected release response.", response.status);
 		httpsResponseFree(&response);
-		dashModalMessage(DI_WARNING, "Update check failed", body, NULL);
+		updateCheckMessage(DI_WARNING, "Update check failed", body, NULL);
 		return;
 	}
 	releaseUpdateTime(response.body, updated, sizeof(updated));
@@ -458,8 +467,8 @@ void dashToolsCheckUpdates(void)
 		same = 1;
 
 	if (same) {
-		snprintf(body, sizeof(body), "This build (%s) matches the latest release.\nUpdated: %s", GIT_HASH, updated);
-		dashModalMessage(DI_CHECK, "Launchstation is up to date", body, NULL);
+		snprintf(body, sizeof(body), "This build (%.7s) matches the latest release.\nUpdated: %s", GIT_HASH, updated);
+		updateCheckMessage(DI_CHECK, "Launchstation is up to date", body, NULL);
 	} else {
 		char install_result[384];
 		int installed, relation;
@@ -469,27 +478,28 @@ void dashToolsCheckUpdates(void)
 		                                error, sizeof(error));
 		if (relation == UPDATE_RELATION_SAME || relation == UPDATE_RELATION_OLDER) {
 			snprintf(body, sizeof(body),
-			         "Installed: %s\nLatest: %.16s\nUpdated: %s\n\nNo newer release is available.",
+			         "Installed: %.7s\nLatest: %.7s\nUpdated: %s\n\nNo newer release is available.",
 			         GIT_HASH, latest, updated);
-			dashModalMessage(DI_CHECK, "No newer release available", body, NULL);
+			updateCheckMessage(DI_CHECK, "No newer release available", body, NULL);
 			return;
 		}
 		if (relation == UPDATE_RELATION_DIVERGED) {
-			dashModalMessage(DI_WARNING, "Release is on another commit history",
+			updateCheckMessage(DI_WARNING, "Release is on another commit history",
 			                 "The published release is not a verified descendant of this build. Automatic replacement was blocked.",
 			                 "Use a complete ZIP/PSU package to change builds manually.");
 			return;
 		}
 		if (relation != UPDATE_RELATION_NEWER) {
-			dashModalMessage(DI_WARNING, "Could not verify update order",
+			updateCheckMessage(DI_WARNING, "Could not verify update order",
 			                 error[0] ? error : "Unable to compare installed and published commits.",
 			                 "No files were changed. Update manually only after checking the release.");
 			return;
 		}
 
 		snprintf(body, sizeof(body),
-		         "Current: %s\nLatest: %.16s\nUpdated: %s\n\nInstall this newer build and its metadata?",
+		         "Current: %.7s\nLatest: %.7s\nUpdated: %s\n\nInstall this newer build and its metadata?",
 		         GIT_HASH, latest, updated);
+		dashLoadingEnd();
 		if (!dashModalConfirm("A newer Launchstation build is available",
 		                      body, "Install update", 0))
 			return;

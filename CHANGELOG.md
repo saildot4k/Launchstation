@@ -2,6 +2,8 @@
 
 ## Rolling
 
+- **Update checks:** keep one loading popup through storage/network setup and release comparison, without restarting its animation between requests. Displayed installed/latest commit IDs use seven characters.
+
 - **Release PSU dates:** app-folder and file creation and modification dates all use the SAS timestamp (`2098-12-31 18:00:27` for both variants). Version metadata retains the commit timestamp.
 
 - **Release app assets:** both ZIP/PSU variants include the supplied memory-card icons and APPINFO.PBT. SAS metadata uses the variant folder/ELF, seven-character commit and UTC commit timestamp. The updater accepts expanded nine-file packages and legacy packages; older updaters require one manual installation.
