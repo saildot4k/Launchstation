@@ -203,6 +203,9 @@ static float buttonWidth(int icon, const char *key)
 {
 	float w;
 
+	if (icon < 0 && key != NULL && !strcmp(key, "LEFT/RIGHT"))
+		return 48.0f; /* two 22px glyphs with a 4px gap */
+
 	int resolved = icon >= 0 ? icon : keyIcon(key);
 	if (resolved >= 0)
 		return 22.0f + (resolved == DI_BTN_SELECT ? DASH_SELECT_EXTRA_W : 0.0f);
@@ -214,6 +217,11 @@ static float drawButton(float x, float y, int icon, const char *key)
 {
 	const float d = 22.0f;
 
+	if (icon < 0 && key != NULL && !strcmp(key, "LEFT/RIGHT")) {
+		dashIcon(DI_BTN_LEFT, x, y, d, DASH_C_TEXT);
+		dashIcon(DI_BTN_RIGHT, x + d + 4.0f, y, d, DASH_C_TEXT);
+		return buttonWidth(icon, key);
+	}
 	if (icon >= 0) {
 		dashIcon(icon, x, y, d, buttonColor(icon));
 		return buttonWidth(icon, key);
@@ -484,16 +492,19 @@ static void scrollbarShape(float x, float y, float h, DashColor color)
 	dashRect(x + 4, y + 1, 1, h - 2, color);
 }
 
-void dashDrawScrollbar(float x, float y, float h, int first, int visible, int total)
+void dashDrawScrollbar(float x, float y, float h, float first, int visible, int total)
 {
 	float th, ty;
 
-	if (total <= visible || total <= 0)
+	if (total <= visible || visible <= 0 || h <= 0.0f)
 		return;
+	first = dashClampf(first, 0.0f, (float)(total - visible));
 	scrollbarShape(x, y, h, dashColorA(DASH_C_TEXT3, 0.22f));
 	th = h * visible / (float)total;
 	if (th < 18)
 		th = 18;
+	if (th > h)
+		th = h;
 	ty = y + (h - th) * first / (float)(total - visible);
 	scrollbarShape(x, ty, th, dashColorA(DASH_C_ACCENT, 0.75f));
 }
@@ -935,6 +946,9 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 					 * two can never overlap. */
 					float avail = w - (tx - x) - 30.0f, label_w = avail;
 					if (items[i].detail) {
+						DashColor detail_color = DASH_C_TEXT3;
+						if (edit != NULL && i == sel && !items[i].disabled)
+							detail_color = !strcmp(items[i].detail, "On") ? DASH_C_OK : DASH_C_ACCENT;
 						float dw = dashTextWidth(items[i].detail, DASH_FS_CAPTION), detail_w;
 						float right = x + w - 28;
 						label_w = dashTextWidth(items[i].label, DASH_FS_SMALL);
@@ -955,18 +969,18 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 								dashIconForward(x + w - 28, ry + 4.5f, 12, DASH_C_ACCENT);
 						}
 						if (dw <= detail_w)
-							dashTextRight(right, ry + 1.0f, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
+							dashTextRight(right, ry + 1.0f, items[i].detail, DASH_FS_CAPTION, detail_color);
 						else if (i == sel)
-							dashTextScroll(right - detail_w, ry + 1.0f, detail_w, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
+							dashTextScroll(right - detail_w, ry + 1.0f, detail_w, items[i].detail, DASH_FS_CAPTION, detail_color);
 						else
-							dashTextFit(right - detail_w, ry + 1.0f, detail_w, items[i].detail, DASH_FS_CAPTION, DASH_C_TEXT3);
+							dashTextFit(right - detail_w, ry + 1.0f, detail_w, items[i].detail, DASH_FS_CAPTION, detail_color);
 					}
 					dashTextFit(tx, ry + 0.0f, label_w, items[i].label, DASH_FS_SMALL, c);
 				}
 				dashGfxPopAlpha();
 			}
 			dashGfxScissorReset();
-			dashDrawScrollbar(x + w - 12, ly, rows * row_h - 4, top, rows, n);
+			dashDrawScrollbar(x + w - 12, ly, rows * row_h - 4, top_anim, rows, n);
 			{
 				float hx = x + 24, hy = y + h - 36;
 				modalHintRow(hx, hy, dashOkIcon(), "Select", dashBackIcon(), "Back");

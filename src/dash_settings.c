@@ -2695,7 +2695,7 @@ static void settingsDraw(void)
 		dashGfxPopAlpha();
 	}
 	dashGfxScissorReset();
-	dashDrawScrollbar(ix + iw + 10, iy, pane_bottom - iy, item_top, ITEM_ROWS, total);
+	dashDrawScrollbar(ix + iw + 10, iy, pane_bottom - iy, item_top_anim, ITEM_ROWS, total);
 	/* help line */
 	{
 		const SetItem *it = curItem();
@@ -2715,7 +2715,7 @@ static void settingsHints(void)
 	{
 		const SetItem *it = curItem();
 		if (it->type == ST_NUMBER)
-			h[n].button = DI_BTN_LEFT, h[n].key = NULL, h[n].label = "Change", n++;
+			h[n].button = -1, h[n].key = "LEFT/RIGHT", h[n].label = "Change", n++;
 		else
 			h[n].button = dashOkIcon(), h[n].key = NULL,
 			h[n].label = (it->type == ST_ACTION || it->type == ST_PAGE) ? "Open" : (it->type == ST_COLOR || it->type == ST_IP) ? "Edit" :

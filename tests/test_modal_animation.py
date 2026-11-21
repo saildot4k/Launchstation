@@ -63,11 +63,12 @@ static struct { int glow,highlight; } dashTheme;
 static float anim_time,frame_dt,section_anim=1,fade_in=1,bg_time,ui_time;
 static u64 last_frame_ms,now_ms;
 static int bg_calls,ui_calls,renders,depth,nested,frames[2],step_ms[3]={16,20,33};
-static int preview_calls,forward_icons,play_icons;
+static int preview_calls,forward_icons,play_icons,on_details,off_details;
 static int nav_scenario, timed_scenario, video_scenario, video_direction;
 static int edit_scenario, edit_nested, edit_calls, edit_value, edit_frames, flushes;
 static float edit_open;
-static int scroll_scenario, scroll_top, scroll_rows, scroll_count;
+static int scroll_scenario, scroll_rows, scroll_count;
+static float scroll_top;
 static float selection_y,selection_row;
 static int selections;
 static int swapKeys,button_count,drawn_icons[2];
@@ -83,7 +84,7 @@ static void recordSelection(float x,float y,float w,float h,float r,float a) {
     (void)x;(void)w;(void)h;(void)r;(void)a;
     selections++; selection_y=y;
 }
-static void recordScrollbar(float x,float y,float h,int top,int rows,int count) {
+static void recordScrollbar(float x,float y,float h,float top,int rows,int count) {
     (void)x;
     scroll_top=top; scroll_rows=rows; scroll_count=count;
     selection_row=top+(selection_y-y-TEST_MENU_SELECTION_TOP)/((h+4)/rows);
@@ -125,11 +126,23 @@ static void dashIconForward(float x,float y,float size,DashColor c) {
 code += button_icons
 input_start = header.rfind("enum {", 0, header.index("DASH_IN_UP"))
 code += header[input_start:header.index("};", input_start) + 2] + "\n"
-for color in colors:
-    code += f"#define {color} ((DashColor){{255,255,255,255}})\n"
+for index, color in enumerate(colors):
+    code += f"#define {color} ((DashColor){{{index+1},255,255,255}})\n"
+code += r"""
+static void recordDetail(const char *value,DashColor color) {
+    if(!strcmp(value,"On")) {
+        assert(color.r==DASH_C_OK.r||color.r==DASH_C_TEXT3.r);
+        if(color.r==DASH_C_OK.r)on_details++;
+    } else if(!strcmp(value,"Off")) {
+        assert(color.r==DASH_C_ACCENT.r||color.r==DASH_C_TEXT3.r);
+        if(color.r==DASH_C_ACCENT.r)off_details++;
+    }
+}
+#define dashTextRight(x,y,text,size,color) recordDetail(text,color)
+"""
 for draw in ("modalBackdrop", "dashGfxPushAlpha", "dashGfxPushOffset",
              "dashTextFit", "dashTextScrollTimed", "dashTextScroll", "dashGfxScissor",
-             "dashTextRight", "dashGfxScissorReset",
+             "dashGfxScissorReset",
              "modalHintRow", "dashGfxPopOffset", "dashGfxPopAlpha", "dashGfxBlend",
              "dashGlow", "dashTextWrap", "dashPanel", "dashPanelBorder", "dashTextCenter"):
     code += f"#define {draw}(...) ((void)0)\n"
@@ -227,7 +240,7 @@ static void reset(void) {
     depth=nested=nav_scenario=timed_scenario=video_scenario=0; memset(frames,0,sizeof(frames)); modal_preview=NULL;
     video_direction=selections=0;
     scroll_scenario=scroll_top=scroll_rows=scroll_count=0; selection_y=selection_row=0;
-    swapKeys=button_count=forward_icons=play_icons=0;
+    swapKeys=button_count=forward_icons=play_icons=on_details=off_details=0;
     dashCfg.anim=100; dashCfg.effects=100;
     edit_scenario=edit_nested=edit_calls=edit_value=edit_frames=flushes=0;edit_open=0;
 }
@@ -240,12 +253,13 @@ static void check(void) {
 int main(void) {
     DashMenuItem items[]={{0,"one",NULL,0},{0,"two",NULL,0}};
     const unsigned char popup_rows[]={0,1};
-    items[1].detail="value";
     for(int nested_edit=0;nested_edit<=1;nested_edit++) {
         reset();edit_scenario=1;edit_nested=nested_edit;
+        items[1].detail=nested_edit?"Off":"On";
         assert(dashModalMenuEdit("edit in place",NULL,items,2,0,nested_edit?popup_rows:NULL,editRow,&edit_value)==0);
         assert(frames[0]==8 && edit_calls==3 && edit_value==1 && edit_frames==7);
         assert(nested_edit ? (play_icons>0 && !forward_icons) : (forward_icons>0 && !play_icons));
+        assert(nested_edit ? (off_details>0 && !on_details) : (on_details>0 && !off_details));
         assert(flushes==(nested_edit?4:2)); /* only entry/exit, plus any nested dialog */
         check(); /* every frame still advances visuals exactly once */
     }
@@ -323,15 +337,17 @@ int main(void) {
         int bottom=scenario==2 || scenario==4;
         reset(); scroll_scenario=scenario;
         assert(dashModalMenu("wrap/jump",NULL,long_menu,20,bottom?0:19)==(bottom?19:0));
-        assert(scroll_top==(bottom?11:0) && renders==1);
+        assert(renders==1);
+        if(scenario<4)assert(scroll_top==(bottom?11:0)); /* endpoint wrap snaps */
+        else assert(scroll_top>0 && scroll_top<11); /* L2/R2 jumps glide */
     }
     /* Warm the viewport before paging so both the camera and focus glide. */
     reset();scroll_scenario=6;
     assert(dashModalMenu("page right",NULL,long_menu,20,0)==13);
-    assert(scroll_top==9 && renders==2);
+    assert(scroll_top>0 && scroll_top<9 && renders==2);
     reset();scroll_scenario=7;
     assert(dashModalMenu("page left",NULL,long_menu,20,19)==6);
-    assert(scroll_top==2 && renders==2);
+    assert(scroll_top>2 && scroll_top<11 && renders==2);
     for(int i=0;i<20;i++)long_menu[i].disabled=i<4 || i>15;
     reset();scroll_scenario=6;
     assert(dashModalMenu("last enabled page",NULL,long_menu,20,8)==15);

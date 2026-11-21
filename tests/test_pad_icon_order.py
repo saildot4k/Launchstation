@@ -27,7 +27,7 @@ print("PASS: START/SELECT hint keys map to their own glyphs")
 
 # Hint key badges must name real PS2 controller buttons ("BACK" is not one;
 # the back action uses dashBackIcon(), i.e. Circle or Cross).
-allowed = {"START", "SELECT", "L1", "L2", "L3", "R1", "R2", "R3", "L1/R1", "L2/R2"}
+allowed = {"START", "SELECT", "L1", "L2", "L3", "R1", "R2", "R3", "L1/R1", "L2/R2", "LEFT/RIGHT"}
 for path in sorted((root / "src").glob("*.c")):
     for key in re.findall(r'\.key = "([^"]+)"', path.read_text(encoding="utf-8", errors="replace")):
         assert key in allowed, f"{path.name}: hint key {key!r} is not a PS2 button"

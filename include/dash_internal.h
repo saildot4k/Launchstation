@@ -776,7 +776,8 @@ void dashDrawHeader(int section, float section_anim);
 void dashDrawClock(void);
 void dashDrawSectionTitle(float x, float y, const char *title, const char *subtitle);
 void dashDrawEmptyState(float cx, float cy, int icon, const char *title, const char *body);
-void dashDrawScrollbar(float x, float y, float h, int first, int visible, int total);
+/* Fractional first follows the view's animated scroll position. */
+void dashDrawScrollbar(float x, float y, float h, float first, int visible, int total);
 /* Themed building blocks: every list, card and selection goes through
  * these so the theme's panel, border and highlight style apply everywhere. */
 void dashDrawPanelBox(float x, float y, float w, float h, float r);

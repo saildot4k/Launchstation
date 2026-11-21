@@ -88,6 +88,12 @@ code += "static int optionsInput(EdDoc *d, int pressed) { struct { int pressed; 
 code += source[options_start:options_end] + "\nreturn action;}\n"
 code += "static void keyboardInputEvents(EdDoc *d, int pressed, int raw, int text_repeat) { struct { int pressed,raw_new,text_repeat; } in={pressed,raw,text_repeat};\n"
 code += source[input_start:input_end] + "\n}\n"
+# Execute the keyboard-hidden D-pad/page navigation from the real editor loop.
+navigation_start = source.index("\t\t\tint line = docLineOf(d, d->cur);", input_end)
+navigation_end = source.index("\t\t\tif (in.pressed & DASH_IN_FAV)", navigation_start)
+code += "static void documentInput(EdDoc *d,int pressed,int rows) { struct {int pressed;} in={pressed};\n"
+code += source[navigation_start:navigation_end] + "}\n"
+
 code += r'''
 static void keyboardInputRaw(EdDoc *d,int pressed,int raw) {
     keyboardInputEvents(d,pressed,raw,pressed&(DASH_IN_OK|DASH_IN_BACK));
@@ -636,14 +642,14 @@ static void checkCursorStick(void) {
         assert(kb_shown && !memcmp(&before,&editor_keyboard,sizeof(before)));
         moveCursor(&d,0,0);
         keyboardInputRaw(&d,DASH_IN_LEFT,PAD_R3_H0);
-        keyboardInputRaw(&d,DASH_IN_UP,PAD_R3_V0);assert(d.cur==0);
+        keyboardInputRaw(&d,DASH_IN_UP,PAD_R3_V0);assert(d.cur==d.lines[d.nlines-1] && d.want_col==0);
         moveCursor(&d,d.len,0);
         keyboardInputRaw(&d,DASH_IN_RIGHT,PAD_R3_H1);
-        keyboardInputRaw(&d,DASH_IN_DOWN,PAD_R3_V1);assert(d.cur==d.len);
+        keyboardInputRaw(&d,DASH_IN_DOWN,PAD_R3_V1);assert(d.cur==3 && d.want_col==3);
         assert(!memcmp(&before,&editor_keyboard,sizeof(before)));
         /* D-pad only moves key focus; both controls can act in one poll. */
         keyboardInput(&d,DASH_IN_RIGHT);
-        assert(d.cur==d.len && memcmp(&before,&editor_keyboard,sizeof(before)));
+        assert(d.cur==3 && memcmp(&before,&editor_keyboard,sizeof(before)));
         before=editor_keyboard;moveCursor(&d,11,0);
         keyboardInputRaw(&d,DASH_IN_UP|DASH_IN_RIGHT,PAD_R3_V0|PAD_RIGHT);
         assert(d.cur==9 && memcmp(&before,&editor_keyboard,sizeof(before)));
@@ -666,9 +672,10 @@ static void checkCursorStick(void) {
         keyboardInputRaw(&d,DASH_IN_DOWN,PAD_R3_V1);
         scrollToCursor(&d,visibleRows(),60);
         int line=docLineOf(&d,d.cur);
+        assert(line==(i+1)%d.nlines);
         assert(line>=d.top && line<d.top+visibleRows() && kb_shown);
     }
-    assert(docLineOf(&d,d.cur)==d.nlines-1 && d.top==d.nlines-11);
+    assert(docLineOf(&d,d.cur)==2 && d.top==0);
     free(d.buf);free(d.lines);
     puts("PASS: right-stick caret movement, tab/short-line columns, document bounds, independent D-pad focus, symbols pages and repeated viewport scrolling");
 }
@@ -736,8 +743,37 @@ static void checkTypingRepeat(void) {
     }
     puts("PASS: held Type/Delete edits both keyboards once per repeat, including Space/Tab/Return, caps, buffer limits and empty text; Symbols changes only on a new press");
 }
+static void checkCursorWrap(void) {
+    const char *texts[]={"", "x", "abcdef", "\n", "ab\n", "abcdef\nxy\n\t12345\nend", "\t12\nx\n\t\ttext"};
+    for(unsigned t=0;t<sizeof(texts)/sizeof(*texts);t++) {
+        EdDoc d={.mark=-1};docRelines(&d);
+        if(texts[t][0])assert(docInsert(&d,texts[t],strlen(texts[t])));
+        d.dirty=0;d.mark=0;
+        for(int col=0;col<=8;col++) {
+            moveCursor(&d,docOffAtCol(&d,0,col),0);
+            int wanted=d.want_col,original=d.cur,last=d.nlines-1;
+            documentInput(&d,DASH_IN_UP,18);
+            assert(docLineOf(&d,d.cur)==last && d.cur==docOffAtCol(&d,last,wanted));
+            assert(d.want_col==wanted);
+            scrollToCursor(&d,2,6);assert(last>=d.top && last<d.top+2);
+            documentInput(&d,DASH_IN_DOWN,18);
+            assert(d.cur==original && d.want_col==wanted);
+            scrollToCursor(&d,2,6);assert(d.top==0);
+            for(int step=0;step<d.nlines;step++)documentInput(&d,DASH_IN_DOWN,18);
+            assert(d.cur==original && d.want_col==wanted);
+            documentInput(&d,DASH_IN_L2,18);assert(docLineOf(&d,d.cur)==0);
+            moveCursor(&d,docOffAtCol(&d,last,wanted),0);
+            documentInput(&d,DASH_IN_R2,18);assert(docLineOf(&d,d.cur)==last);
+        }
+        assert(d.len==(int)strlen(texts[t]) && !d.dirty && d.mark==0);
+        if(d.len)assert(!memcmp(d.buf,texts[t],d.len));
+        free(d.buf);free(d.lines);
+    }
+    puts("PASS: D-pad cursor wraps first/last lines, preserves preferred columns and selection anchors, handles empty/trailing/tabbed lines, scrolls into view, and leaves page jumps clamped");
+}
 int main(void) {
     EdDoc d={.mark=-1}; docRelines(&d);
+    checkCursorWrap();
     assert(KA_COUNT==3 && !strcmp(ka_names[KA_TAB],"Tab") && !strcmp(ka_names[KA_RETURN],"Return"));
     /* Every real key and action is reachable; blank cells on partial pages never receive focus. */
     for(int layout=0;layout<VKEY_LAYOUT_COUNT;layout++) {
