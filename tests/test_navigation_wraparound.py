@@ -11,7 +11,6 @@ def src(name):
 
 browser = src("dash_browser.c")
 apps = src("dash_apps.c")
-files = src("dash_files.c")
 tools = src("dash_tools.c")
 settings = src("dash_settings.c")
 widgets = src("dash_widgets.c")
@@ -33,12 +32,6 @@ assert "next = (sel + delta) % norder;" in apps
 assert "if (next < 0)" in apps and "next += norder;" in apps
 assert "move(sel == 0 ? -1" in apps
 assert "move(sel == norder - 1 ? 1" in apps
-
-# Files list and Devices grid: movement wraps and keeps skipping non-selectable rows.
-assert "if (s < 0)\n\t\t\ts = nfentries - 1;" in files
-assert "else if (s >= nfentries)\n\t\t\ts = 0;" in files
-assert "while (s < 0)\n\t\t\ts += ndevs;" in files
-assert "while (s >= ndevs)\n\t\t\ts -= ndevs;" in files
 
 # Tools and Settings lists wrap at top/bottom.
 assert "if (s < 0)\n\t\t\ts = NTOOLS - 1;" in tools
@@ -165,31 +158,17 @@ code += "static void gridMove(const DashInput *in) {\n" + grid_move + "\n}\n"
 code += r"""
 #define DASH_IN_OK 64
 #define TA_HEADER 0
-#define FE_HEADER 0
 static const struct { int action; } tools[]={{0},{1},{0},{1},{1},{0},{1}};
 #define NTOOLS 7
-static const struct { int kind; } fentries[]={{0},{1},{0},{1},{1},{0},{1}};
-static int nfentries=7,tsel=1,fsel=1;
-static float tsel_anim=1,fsel_anim=1,ttop_anim=-1,ftop_anim=-1;
+static int tsel=1;
+static float tsel_anim=1,ttop_anim=-1;
 """
 code += function(tools, "static int tMove(") + "\n"
-code += function(files, "static int fMove(") + "\n"
 code += function(tools, "static void tPage(") + "\n"
-code += function(files, "static void fPage(") + "\n"
-for source, name in ((tools, "tools"), (files, "files")):
+for source, name in ((tools, "tools"),):
     body = function(source, f"static void {name}Input(")
     code += f"static void {name}Navigate(const DashInput *in) {{\n"
     code += body[body.index("int wrapped"):body.index("\tif (in->pressed & DASH_IN_OK)")] + "}\n"
-code += r"""
-#define DEV_COLS 3
-#define DEV_PY 88.0f
-static int dsel,ndevs;
-static float dsel_anim,dcam;
-static unsigned dev_selectable;
-static int devSelectable(int index) { return (dev_selectable >> index) & 1; }
-"""
-code += function(files, "static float devScrollTarget(") + "\n"
-code += function(files, "static void devMove(") + "\n"
 ip_start = widgets.index("\t\tif (in.pressed & DASH_IN_LEFT)", widgets.index("int dashModalIp("))
 ip_end = widgets.index("\t\tif (in.pressed & DASH_IN_UP)", ip_start)
 code += "static void ipMove(int *selected, float *animated, DashInput in) { int sel=*selected; float sel_anim=*animated;\n"
@@ -326,19 +305,9 @@ int main(void) {
  tsel=1;tsel_anim=1;assert(tMove(-1) && tsel==6 && tsel_anim==6);
  assert(tMove(1) && tsel==1 && tsel_anim==1);
  assert(!tMove(1) && tsel==3 && tsel_anim==1);
- fsel=1;fsel_anim=1;assert(fMove(-1) && fsel==6 && fsel_anim==6);
- assert(fMove(1) && fsel==1 && fsel_anim==1);
- assert(!fMove(1) && fsel==3 && fsel_anim==1);
  /* A page wraps to the first actionable row, skipping headers. */
  DashInput page={DASH_IN_R2};
  tsel=6;tsel_anim=6;toolsNavigate(&page);assert(tsel==1 && tsel_anim==1 && ttop_anim<0);
- fsel=6;fsel_anim=6;filesNavigate(&page);assert(fsel==1 && fsel_anim==1 && ftop_anim<0);
- ndevs=11;dev_selectable=(1u<<ndevs)-1;dsel=0;dsel_anim=dcam=0;
- devMove(-DEV_COLS);assert(dsel==8 && dsel_anim==8 && dcam==devScrollTarget());
- dsel=10;dsel_anim=10;devMove(1);assert(dsel==0 && dsel_anim==0 && dcam==0);
- devMove(1);assert(dsel==1 && dsel_anim==0); /* adjacent device tile */
- ndevs=6;dev_selectable=(1u<<0)|(1u<<3);dsel=0;dsel_anim=0;
- devMove(-1);assert(dsel==3 && dsel_anim==3); /* skip absent edge devices */
  int octet=0;float octet_anim=0;
  DashInput left={DASH_IN_LEFT},right={DASH_IN_RIGHT};
  ipMove(&octet,&octet_anim,left);assert(octet==3 && octet_anim==3);

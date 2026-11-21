@@ -2,6 +2,7 @@
 
 ## Rolling
 
+- **Cleanup:** removed the unused startup-sound payload/request path, obsolete Devices list/grid views and setting, old main-menu loop, and unused UI helpers. Saved Devices start-screen values still open Files. Both build definitions discard unused data; embedded payloads now have independent sections so unused blobs can be removed by the linker.
 - **Neutrino indicators:** in-place switches use the right arrow; Video mode and Video compatibility keep the play indicator because Confirm opens a choice popup.
 - **Home controls:** removed the Square favorite shortcut and its hint from Continue and Applications. Favorites remain available through Options.
 - **Startup:** sends the `LAUNCHSTATI` RetroGem game ID immediately after screen setup, before font loading, using the configured video mode. Audio drivers and samples finish preparing before the application scan and GUI input; music playback stays deferred until the startup screen is visible, with no startup sound cue.

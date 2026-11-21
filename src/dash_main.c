@@ -54,7 +54,7 @@ void dashStartupAudioAfterPresent(void)
 }
 
 static const DashScreen *const screens[DASH_SEC_COUNT] = {
-    &dashHomeScreen, &dashAppsScreen, &dashFilesScreen, &dashDevicesScreen, &dashToolsScreen, &dashSettingsScreen};
+    &dashHomeScreen, &dashAppsScreen, &dashFilesScreen, &dashFilesScreen, &dashToolsScreen, &dashSettingsScreen};
 
 static const char *const section_names[DASH_SEC_COUNT] = {"HOME", "APPS", "FILES", "DEVICES", "TOOLS", "SETTINGS"};
 static const int section_icons[DASH_SEC_COUNT] = {DI_HOME, DI_APPS, DI_FOLDER, DI_DEVICES, DI_TOOLS, DI_SETTINGS};
@@ -1230,7 +1230,6 @@ void DashRun(const MainExecuteContext *ctx, int from_boot)
 
 		/* Results of background work that change what screens point at. */
 		applyScanResult();
-		dashFilesPoll();
 		/*
 		 * Remote-control and receiver probes touch the network filesystem.
 		 * Polling them every rendered frame was needlessly hammering the IOP

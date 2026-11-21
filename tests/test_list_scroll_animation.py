@@ -145,7 +145,6 @@ with tempfile.TemporaryDirectory(prefix="list-slide-") as folder:
 for filename, camera, count, rows in (
     ("dash_apps.c", "list_top_anim", "norder", "LIST_ROWS"),
     ("dash_browser.c", "fb.top_anim", "rows_total", "FB_ROWS"),
-    ("dash_files.c", "ftop_anim", "nfentries", "rows"),
     ("dash_tools.c", "ttop_anim", "NTOOLS", "rows"),
     ("dash_settings.c", "item_top_anim", "total", "ITEM_ROWS"),
     ("dash_hdd.c", "top_anim", "hm.n", "ROWS"),
@@ -157,4 +156,4 @@ for filename, camera, count, rows in (
     assert f"i = (int){camera}; i < {count} && i < {camera} + {rows}" in text, filename
     assert f"(i - {camera}) *" in text, filename
     assert "dashGfxScissor(" in text and "dashGfxScissorReset();" in text, filename
-print("PASS: Home/Applications, File Browser, Files navigation, Tools, Settings, HDD Manager, menus and pickers draw the shared animated viewport and clipped edge rows")
+print("PASS: Home/Applications, File Browser, Tools, Settings, HDD Manager, menus and pickers draw the shared animated viewport and clipped edge rows")

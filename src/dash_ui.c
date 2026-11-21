@@ -143,11 +143,6 @@ int dashBackIcon(void)
 	return swapKeys ? DI_BTN_CIRCLE : DI_BTN_CROSS;
 }
 
-const char *dashOkLabelKey(void)
-{
-	return swapKeys ? "Cross" : "Circle";
-}
-
 //--------------------------------------------------------------
 // Buttons / hints
 //--------------------------------------------------------------
@@ -501,30 +496,6 @@ void dashDrawScrollbar(float x, float y, float h, int first, int visible, int to
 		th = 18;
 	ty = y + (h - th) * first / (float)(total - visible);
 	scrollbarShape(x, ty, th, dashColorA(DASH_C_ACCENT, 0.75f));
-}
-
-void dashDrawFocusFrame(float x, float y, float w, float h, float r, float strength)
-{
-	float pulse = 0.82f + 0.18f * dashSinf(dashTime() * 4.2f);
-	DashColor edge = dashColorLighten(DASH_C_ACCENT, 0.45f);
-
-	if (strength <= 0.01f)
-		return;
-	if (dashTheme.glow) {
-		DashColor g = DASH_C_ACCENT;
-		g.a = (u8)(120 * strength * pulse);
-		dashGfxBlend(DASH_BLEND_ADD);
-		dashGlowRect(x, y, w, h, 16.0f, g);
-		dashGfxBlend(DASH_BLEND_NORMAL);
-	}
-	edge.a = (u8)(230 * strength);
-	dashPanelBorder(x - 2, y - 2, w + 4, h + 4, r + 2, edge);
-	if (!dashTheme.glow) {
-		/* no glow: a second, fainter outline keeps focus obvious on a CRT */
-		/* Avoid animated shimmer from the second fine line on interlaced CRTs. */
-		edge.a = (u8)(65 * strength);
-		dashPanelBorder(x - 4, y - 4, w + 8, h + 8, r + 4, edge);
-	}
 }
 
 /* A panel's outline belongs to the panel: with Panels opacity 0 (transparent)

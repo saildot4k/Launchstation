@@ -70,7 +70,7 @@ assert "#define LIST_ROWS ((int)((DASH_PANE_B - 104.0f + 3.0f) / LIST_ROW_H))" i
 assert "DASH_PANE_B - (ly - 6), 14" in apps and "DASH_PANE_B - dy, 16" in apps
 app_rows = int((pane_bottom - 104 + 3) / float(row_define[:-1]))
 assert app_rows == 12 and rows == 9
-for filename in ("dash_tools.c", "dash_files.c"):
+for filename in ("dash_tools.c",):
     source = (root / "src" / filename).read_text()
     assert "pane_h = DASH_PANE_B - pane_y" in source
     assert "(int)((DASH_PANE_B - ly + 3.0f) / row_h)" in source

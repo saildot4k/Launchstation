@@ -119,11 +119,11 @@ settings = component_source('src/dash_settings.c')
 main = (root / "src/dash_main.c").read_text()
 code += header[header.index("enum DashSection"):header.index("enum DashView")]
 choice_start = settings.index("\t\tcase S_START: {", settings.index("static int choiceInfo("))
-choice_end = settings.index("\t\tcase S_FILES_MODE:", choice_start)
+choice_end = settings.index("\t\tcase S_HOME_SHORTCUTS:", choice_start)
 code += "enum { S_START };\nstatic int startChoice(int *cur,const char *const **names) { switch(S_START) {\n"
 code += settings[choice_start:choice_end] + "}return 0;}\n"
 set_start = settings.index("\t\tcase S_START:", settings.index("static void setChoice("))
-set_end = settings.index("\t\tcase S_FILES_MODE:", set_start)
+set_end = settings.index("\t\tcase S_HOME_SHORTCUTS:", set_start)
 code += "static void setStartChoice(int v) { switch(S_START) {\n" + settings[set_start:set_end] + "}}\n"
 code += "static int section,dash_inited;\nstatic const DashScreen home_screen={homeEnter};\n"
 code += "static const DashScreen *const screens[DASH_SEC_COUNT]={&home_screen,&dashAppsScreen,&dashAppsScreen,&dashAppsScreen,&dashAppsScreen,&dashAppsScreen};\n"

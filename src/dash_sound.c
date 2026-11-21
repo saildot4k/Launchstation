@@ -26,8 +26,6 @@ extern u8 sfx_transition_adp[];
 extern int size_sfx_transition_adp;
 extern u8 sfx_message_adp[];
 extern int size_sfx_message_adp;
-extern u8 sfx_boot_adp[];
-extern int size_sfx_boot_adp;
 extern u8 sfx_connect_adp[];
 extern int size_sfx_connect_adp;
 extern u8 sfx_disconnect_adp[];
@@ -60,7 +58,7 @@ typedef struct SoundJob {
 } SoundJob;
 static SoundJob sound_job;
 static int sound_job_id;
-static int sound_closing, sound_volume_pending, sound_boot_pending, sound_music_pending;
+static int sound_closing, sound_volume_pending, sound_music_pending;
 
 static int loadBgmSidecar(SoundJob *job);
 static void soundJobRun(void *arg);
@@ -83,7 +81,7 @@ static int soundAlive(void)
 }
 
 /* SPU2 voice allocation (24 hardware voices total):
- *   0..7: fixed single-voice SFX (boot, confirm, cancel, message, connect, disconnect)
+ *   0..7: fixed single-voice SFX (confirm, cancel, message, connect, disconnect)
  *   8..13: cursor SFX (6-voice rotating pool)
  *  14..17: transition SFX (4-voice rotating pool for L1/R1, #136)
  *  18..22: general SFX headroom
@@ -120,7 +118,6 @@ static void *blob_data(int id)
 		case DASH_SND_CANCEL: return sfx_cancel_adp;
 		case DASH_SND_TRANSITION: return sfx_transition_adp;
 		case DASH_SND_MESSAGE: return sfx_message_adp;
-		case DASH_SND_BOOT: return sfx_confirm_adp;
 		case DASH_SND_CONNECT: return sfx_connect_adp;
 		default: return sfx_disconnect_adp;
 	}
@@ -134,7 +131,6 @@ static int blob_size(int id)
 		case DASH_SND_CANCEL: return size_sfx_cancel_adp;
 		case DASH_SND_TRANSITION: return size_sfx_transition_adp;
 		case DASH_SND_MESSAGE: return size_sfx_message_adp;
-		case DASH_SND_BOOT: return size_sfx_confirm_adp;
 		case DASH_SND_CONNECT: return size_sfx_connect_adp;
 		default: return size_sfx_disconnect_adp;
 	}
@@ -215,8 +211,6 @@ static void soundJobDone(void *arg)
 		if (job->effects != dashCfg.sound || job->effects_volume != dashCfg.sound_vol)
 			sound_volume_pending = 1;
 	}
-	if (job->initialize && !job->ready)
-		sound_boot_pending = 0;
 	if (job->bgm_attempted)
 		bgm_tried = 1;
 	if (job->bgm_data != NULL) {
@@ -255,12 +249,6 @@ void dashSoundPrepareStartup(void)
 	sound_startup_preparing = 0;
 }
 
-void dashSoundRequestBoot(void)
-{
-	if (!sound_closing)
-		sound_boot_pending = 1;
-}
-
 void dashSoundMaintain(void)
 {
 	const char *directory;
@@ -286,10 +274,6 @@ void dashSoundMaintain(void)
 		if (bgm_loaded && sound_music_pending) {
 			sound_music_pending = 0;
 			dashBgmStart();
-		}
-		if (sound_boot_pending) {
-			sound_boot_pending = 0;
-			dashSoundPlay(DASH_SND_BOOT);
 		}
 		return;
 	}
@@ -319,7 +303,6 @@ void dashSoundShutdown(void)
 	sound_closing = 1;
 	if (sound_job_id)
 		dashWorkerAwait(sound_job_id, isStartupDriverStatusQuiet() ? NULL : "Finishing audio", 0);
-	sound_boot_pending = 0;
 	sound_music_pending = 0;
 	sound_volume_pending = 0;
 	if (soundAlive()) {
@@ -387,7 +370,7 @@ void dashSoundGetStatus(char *out, int out_size)
 {
 	static const char *const names[DASH_SND_COUNT] = {
 	    "Cursor", "Confirm", "Cancel", "Section switch", "Notification",
-	    "Startup", "Device connect", "Device disconnect"};
+	    "Device connect", "Device disconnect"};
 	char failure[128];
 
 	if (out == NULL || out_size <= 0)

@@ -52,7 +52,6 @@ enum SetId {
 	S_BGM,
 	S_BGMVOL,
 	S_START,
-	S_FILES_MODE,
 	S_VIEW,
 	S_HOME_SHORTCUTS,
 	S_ICON_BACKING,
@@ -577,11 +576,6 @@ static int choiceInfo(int id, int *cur, const char *const **names, const char **
 			       (dashCfg.start_section == DASH_SEC_TOOLS) ? 3 :
 			       (dashCfg.start_section == DASH_SEC_SETTINGS) ? 4 : 0;
 			return 5;
-		}
-		case S_FILES_MODE: {
-			static const char *const modes[] = {"Files", "Devices"};
-			*names = modes, *cur = dashCfg.files_mode;
-			return 2;
 		}
 		case S_HOME_SHORTCUTS:
 			*cur = dashCfg.home_shortcuts;
@@ -1182,9 +1176,6 @@ static void setChoice(int id, int v)
 			                        (v == 2) ? DASH_SEC_FILES :
 			                        (v == 3) ? DASH_SEC_TOOLS :
 			                        (v == 4) ? DASH_SEC_SETTINGS : DASH_SEC_HOME;
-			break;
-		case S_FILES_MODE:
-			dashCfg.files_mode = v;
 			break;
 		case S_HOME_SHORTCUTS:
 			dashCfg.home_shortcuts = v;

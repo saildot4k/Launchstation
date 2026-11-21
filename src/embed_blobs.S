@@ -12,10 +12,12 @@
  *
  * Paths are resolved through the assembler include path; ps2.yaml passes the
  * project root with -Wa,-I so these stay relative to the repository.
+ * Each payload and its size share one section; either reference keeps both,
+ * while the linker can discard unrelated, unused payload sections.
  */
 
 #define EMBED_FILE(sym, file)            \
-	.section .rodata;                    \
+	.section .rodata.sym, "a";            \
 	.align 4;                            \
 	.global sym;                         \
 	.global size_##sym;                  \
@@ -27,7 +29,7 @@ size_##sym:                              \
 	.word sym##_end - sym
 
 #define EMBED_SLICE(sym, file, off, len) \
-	.section .rodata;                    \
+	.section .rodata.sym, "a";            \
 	.align 4;                            \
 	.global sym;                         \
 	.global size_##sym;                  \
@@ -39,7 +41,7 @@ size_##sym:                              \
 	.word sym##_end - sym
 
 #define EMBED_TAIL(sym, file, off)       \
-	.section .rodata;                    \
+	.section .rodata.sym, "a";            \
 	.align 4;                            \
 	.global sym;                         \
 	.global size_##sym;                  \
@@ -75,7 +77,6 @@ EMBED_FILE(sfx_confirm_adp, "res/sfx/confirm.adp")
 EMBED_FILE(sfx_cancel_adp, "res/sfx/cancel.adp")
 EMBED_FILE(sfx_transition_adp, "res/sfx/transition.adp")
 EMBED_FILE(sfx_message_adp, "res/sfx/message.adp")
-EMBED_FILE(sfx_boot_adp, "res/sfx/boot.adp")
 EMBED_FILE(sfx_connect_adp, "res/sfx/bd_connect.adp")
 EMBED_FILE(sfx_disconnect_adp, "res/sfx/bd_disconnect.adp")
 

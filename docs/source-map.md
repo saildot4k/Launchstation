@@ -1,6 +1,6 @@
 # Launchstation source map
 
-Current ownership map, updated October 31, 2026. This describes the existing tree; proposed extractions are in the [refactoring and ELF-size plan](plans/2026-10-25-refactor-and-elf-size.md). All 104 top-level `src/*.c` files are listed once. The DS34 variant substitutes `pad_ds34.c` for the standard target's `pad.c`.
+Current ownership map, updated November 19, 2026. This describes the existing tree; proposed extractions are in the [refactoring and ELF-size plan](plans/2026-10-25-refactor-and-elf-size.md). The DS34 variant substitutes `pad_ds34.c` for the standard target's `pad.c`.
 
 ## Where to start
 
@@ -10,7 +10,7 @@ Current ownership map, updated October 31, 2026. This describes the existing tre
 | Device/IOP reset or driver ordering | `init.c`, then `filer_device.c`; read the worker rules before changing it |
 | Filesystem name/path behavior | `filer.c`, `filer_fileops.c`, `filer_mount.c` |
 | Copy, paste, PSU or replacement integrity | `filer_browser.c` entry points, `filer_device.c` preflight, `filer_copy.c`, `psu_functions.c` |
-| Native file browser | `dash_browser.c`; `dash_files.c` connects it to the Files tab |
+| Native file browser | `dash_browser.c` owns both the Files tab and modal browser |
 | Frame presentation or texture corruption | `draw_gs.c`, `dash_gfx.c`, texture owner in `dash_font.c`/`dash_art.c` |
 | Theme schema or saving | `dash_themes.c`; classic-screen adapter is `dash_theme.c` |
 | Settings Save/Discard | `dash_settings.c`, `dash_store.c`, `config.c` |
@@ -36,7 +36,6 @@ Current ownership map, updated October 31, 2026. This describes the existing tre
 | [main_boot.c](../src/main_boot.c) | Capture boot arguments and perform earliest initialization. |
 | [main_startup.c](../src/main_startup.c) | Boot paths, ROM/region detection, SYSTEM.CNF/IPCONFIG parsing and boot device/display setup. |
 | [main_modules.c](../src/main_modules.c) | Configured CNF path validation and runtime input/display startup. |
-| [main_menu.c](../src/main_menu.c) | Classic launch-key menu state, drawing, input and automatic launch timers. |
 | [main_console_info.c](../src/main_console_info.c) | Console model, boot ROM and DVD version identification/formatting. |
 | [main_title.c](../src/main_title.c) | Clock, date and temperature cache, conversion and title formatting. |
 | [main_info_screens.c](../src/main_info_screens.c) | Classic About, build, diagnostics and font screens. |
@@ -120,7 +119,6 @@ and the HOST ioctl.
 | [dash_devices.c](../src/dash_devices.c) | Cached device view model, presence/readiness, device rows and explicit startup requests. |
 | [dash_home.c](../src/dash_home.c) | Home view, application groups and application/shortcut focus. |
 | [dash_apps.c](../src/dash_apps.c) | Application list/grid views, filtering/focus and app actions. |
-| [dash_files.c](../src/dash_files.c) | Files section integration and pending device navigation; native browser implementation is in dash_browser.c. |
 | [dash_browser.c](../src/dash_browser.c) | Native file listing jobs, browser state, selection/actions and modal/Files-tab integration. |
 | [dash_settings.c](../src/dash_settings.c) | Settings pages/bindings, preview, Save/Discard sessions and classic/network configuration save jobs. |
 | [dash_tools.c](../src/dash_tools.c) | Tools menu, worker-owned update checks, package timestamps and tool actions. |
@@ -178,13 +176,13 @@ and the HOST ioctl.
 
 ## Public and private headers
 
-`launchelf.h` and `dash_internal.h` are current umbrella headers, not the desired boundary for new features. Prefer the narrowest existing owner header. These groups cover all 42 top-level `include/*.h` files.
+`launchelf.h` and `dash_internal.h` are current umbrella headers, not the desired boundary for new features. Prefer the narrowest existing owner header.
 
 | Header(s) | Current contract |
 | --- | --- |
 | `launchelf.h` | Legacy SDK imports, constants/types, application globals and broad subsystem declarations. |
 | `init.h`, `pccf_control.h`, `cdvd_macro.h` | Runtime device lifecycle; PC CARD control ABI; CD/DVD helpers. `init.h` currently relies on caller-provided SDK types. |
-| `main_actions.h`, `main_boot.h`, `main_startup.h`, `main_modules.h`, `main_menu.h` | Launch context/dispatch, startup stages and classic main menu. |
+| `main_actions.h`, `main_boot.h`, `main_startup.h`, `main_modules.h` | Launch context/dispatch and startup stages; the dashboard owns launch keys/countdowns. |
 | `main_console_info.h`, `main_title.h`, `main_info_screens.h`, `main_gameid.h`, `main_history.h` | Console identity, clock/title, information screens, game IDs and OSD history. |
 | `main_exploit_installer.h`, `kelf_signer.h` | Installer entry point and KELF signing API. |
 | `config_private.h` | Shared classic settings UI, save destinations, serialization and network snapshot helpers. |

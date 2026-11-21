@@ -415,8 +415,6 @@ static int loadPcCardCfModules(void) { return 0; }
 """
 devcode += re.sub(r"^#include[^\n]*\n", "", devices, flags=re.M)
 devcode += library_icon
-devcode += "static DashDevice devs[DASH_MAX_DEVICES]; static int ndevs;\n"
-devcode += function(read("src/dash_files.c"), "static int devSelectable(")
 # Compile the browser's real root-list assembly to catch duplicate VMCs and capacity loss.
 browser = read("src/dash_browser.c")
 a = browser.index('		fb.ndevs = dashDevicesList(')
@@ -439,20 +437,17 @@ devcode += r"""
 #define MAX_PATH 1025
 #define DASH_TOAST_INFO 1
 #define DASH_TOAST_WARN 2
-static int direct_opens,root_opens,insert_prompts,driver_starts;
+static int root_opens,insert_prompts,driver_starts;
 static char opened_card[MAX_PATH];
-static void dashOpenBrowser(const char *path) { direct_opens++;snprintf(opened_card,sizeof(opened_card),"%s",path); }
 static void dashModalMessage(int icon,const char *title,const char *body,const char *detail) {
     (void)icon;(void)title;(void)body;(void)detail;insert_prompts++;
 }
-static void startDevice(const DashDevice *device,int browse) { (void)device;(void)browse;driver_starts++; }
 static int browserStartDevice(const DashDevice *device) { (void)device;driver_starts++;return 0; }
 static void dashToast(int kind,const char *msg) { (void)kind;(void)msg;insert_prompts++; }
 static void openDir(const char *path,const char *select) {
     (void)select;root_opens++;snprintf(opened_card,sizeof(opened_card),"%s",path);
 }
 """
-devcode += function(read("src/dash_files.c"), "static void openDevice(")
 activation = function(browser, "static void activate(void)")
 a = activation.index("\tif (fb.dir[0] == '\\0') {")
 b = activation.index("\tif (fb.loading ||", a)
@@ -470,13 +465,6 @@ static void probe(const char *m) {
     assert(dashDevicesStart(&d,done,NULL)==0);
 }
 int main(void) {
-    ndevs=3;
-    strcpy(devs[0].mount,"udpfs:");devs[0].icon=DI_NETWORK_FOLDER;devs[0].state=DASH_DEV_ABSENT;
-    strcpy(devs[1].mount,"hdd0:");devs[1].icon=DI_HDD;devs[1].state=DASH_DEV_ABSENT;
-    strcpy(devs[2].mount,"mc0:");devs[2].icon=DI_MC;devs[2].state=DASH_DEV_BUSY;
-    assert(devSelectable(0) && !devSelectable(1) && devSelectable(2));
-    assert(!devSelectable(-1) && !devSelectable(ndevs));
-    devs[2].state=DASH_DEV_ABSENT;assert(devSelectable(2));
     for(int reverse=0;reverse<2;reverse++) {
         mc_present[0]=mc_present[1]=1;mc_types[0]=reverse?2:1;mc_types[1]=reverse?1:2;
         mc_free[0]=reverse?4096:7;mc_free[1]=reverse?7:4096;
@@ -492,14 +480,13 @@ int main(void) {
             assert(fb.sel==selected&&fb.sel_anim==animation&&opens==before_opens&&loads==before_loads);
             for(int cached=0;cached<4;cached++) {
                 DashDevice stale=fb.devs[port];stale.state=cached;
-                openDevice(&stale);assert(!strcmp(opened_card,stale.browse));
                 fb.devs[port]=stale;fb.sel=port;activateRoot();
                 assert(!strcmp(opened_card,stale.browse)&&!insert_prompts&&!driver_starts);
             }
             fb.sel=selected;dashDevicesRefreshMemoryCards(fb.devs,fb.ndevs);
         }
     }
-    assert(direct_opens==16&&root_opens==16);
+    assert(root_opens==16);
     mc_types[0]=mc_types[1]=2;mc_free[0]=mc_free[1]=1024;
     puts("PASS: mixed-card row snapshots refresh after reinsertion without rebuilding navigation or issuing device I/O");
     /* An initial lazy USB load is discovery, not an attach/failure sound.

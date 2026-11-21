@@ -14,7 +14,6 @@ copy_c = (root / "src/filer_copy.c").read_text(encoding="utf-8")
 actions_c = component_source('src/filer_actions.c')
 browser_c = component_source('src/filer_browser.c')
 dash_dev_c = (root / "src/dash_devices.c").read_text(encoding="utf-8")
-dash_files_c = (root / "src/dash_files.c").read_text(encoding="utf-8")
 dash_browser_c = (root / "src/dash_browser.c").read_text(encoding="utf-8")
 dash_lib_c = (root / "src/dash_lib.c").read_text(encoding="utf-8")
 main_act_c = (root / "src/main_actions.c").read_text(encoding="utf-8")
@@ -78,9 +77,9 @@ assert "Ready (PCMCIA)" in dash_dev_c
 assert "No compatible CF adapter" in dash_dev_c
 assert 'probeRoot("cf0:/", 2000)' in dash_dev_c
 
-# Check dash_files.c devSelectable allowing CF retry/selection
-assert "isPcCardCfPath(devs[idx].mount)" in dash_files_c
-assert "isPcCardCfEligible() && !boot_safe_mode && !isPcCardCfBusBusy()" in dash_files_c
+# The native browser lets absent/unprobed CF devices retry activation.
+assert "d->state == DASH_DEV_PROBE || d->state == DASH_DEV_ABSENT" in dash_browser_c
+assert "isPcCardCfEligible()" in dash_dev_c and '"cf0:"' in dash_dev_c
 
 # Check main_actions.c and dash_browser.c direct launch blocking
 assert "Direct launch from PC CARD CF is not supported" in main_act_c

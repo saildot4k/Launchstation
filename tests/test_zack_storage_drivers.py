@@ -41,27 +41,13 @@ typedef struct {
     const char *status;
 } DashDevice;
 
-static int modal_calls, start_calls, frame_calls, probe_calls, end_calls;
+static int start_calls, frame_calls, probe_calls, end_calls;
 static int worker_allowed = 1;
 static int startup_quiet, input_flushes, usb_probe_calls, usb_found, loading_active;
 static char loading_title[64];
 static int isStartupDriverStatusQuiet(void) { return startup_quiet; }
 static void setStartupDriverStatusQuiet(int quiet) { startup_quiet=quiet; }
 static void dashInputFlush(void) { input_flushes++; }
-static char last_body[256];
-
-static int isPcCardCfPath(const char *mount) {
-    return !strncmp(mount, "cf", 2);
-}
-static void dashModalMessage(int icon, const char *title,
-                             const char *body, const char *detail) {
-    assert(icon == DI_WARNING);
-    assert(!strcmp(title, "Device not found"));
-    assert(detail == NULL); /* never expose internal mount paths */
-    assert(body && body[0]);
-    snprintf(last_body, sizeof(last_body), "%s", body);
-    modal_calls++;
-}
 static int dashWorkerAwaitAll(const char *status) {
     assert(!strcmp(status, "Finishing up"));
     return worker_allowed;
@@ -92,7 +78,6 @@ static void dashLoadingEnd(void) {
 }
 """
 
-c += function("src/dash_files.c", "static void deviceNotFound(const DashDevice *d)\n{")
 c += function("src/dash_devices.c", "static int startSync(const char *mount, const char *title)\n{")
 
 c += r"""
@@ -131,23 +116,6 @@ c += function("iop/mmceman/src/mmceman.c", "static void mmce_init(int port)\n{")
 
 c += r"""
 int main(void) {
-    DashDevice mmce = {DI_SDCARD, "mmce0:", "MMCE Slot 1", "No MMCE storage found"};
-    DashDevice mx4sio = {DI_SDCARD, "mx4sio:", "MX4SIO SD Card Slot 2", "No MX4SIO storage found"};
-    DashDevice usb = {DI_USB, "usb0:", "MASS", "Not connected"};
-    DashDevice udpfs = {DI_NETWORK_FOLDER, "udpfs:", "UDPFS", "Not connected"};
-    DashDevice cf = {DI_SDCARD, "cf0:", "PC CARD CF", "CF card absent"};
-    deviceNotFound(&mmce);
-    assert(strstr(last_body, "MMCE Slot 1"));
-    deviceNotFound(&mx4sio);
-    assert(strstr(last_body, "MX4SIO SD Card Slot 2"));
-    deviceNotFound(&usb);
-    assert(strstr(last_body, "USB storage device"));
-    deviceNotFound(&udpfs);
-    assert(strstr(last_body, "network share"));
-    deviceNotFound(&cf);
-    assert(strstr(last_body, "CF card absent"));
-    assert(modal_calls == 5);
-
     assert(startSync("absent", "Checking absent device") == 0);
     assert(startSync("ready", "Checking present device") == 1);
     assert(start_calls == 2 && frame_calls == 2);
