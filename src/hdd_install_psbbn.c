@@ -2,6 +2,7 @@
 #include "dash_internal.h"
 #include "hdd_install.h"
 #include "install_ext2.h"
+#include "hdd_install_recovery.h"
 
 /* Match DP's creation order, using the standard driver's 128 MiB minimum.
  * All volumes are single APA extents, so Linux's 4 MiB main-header mapping
@@ -25,6 +26,16 @@ int hddInstallPsbbnPartitions(HddInstall *in)
         if (!mb) continue;
         hddInstallLog("Create %s: %u MiB type=%s", linux_names[i], mb, i == 1 ? "SWAP" : "EXT2");
         hddInstallLogFlush(in);
+        snprintf(path, sizeof(path), "hdd0:%s", linux_names[i]);
+        if (in->owned && in->recovery_attempts && fileXioGetStat(path, &st) >= 0) {
+            if (st.size != mb * 2048u || st.attr || st.private_0 || st.mode != (i == 1 ? 0x82u : 0x83u) ||
+                in->apa_sectors < st.size || st.private_5 < 2048 || st.private_5 > in->apa_sectors - st.size) return -EINVAL;
+            in->linux[i].start = st.private_5; in->linux[i].sectors = st.size;
+            hddInstallLog("RECOVERY reusing %s: LBA=%u sectors=%u", linux_names[i],
+                          (unsigned)st.private_5, (unsigned)st.size);
+            continue;
+        }
+        if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
         ret = hddCheckAllocation(mb * 2048u);
         hddInstallLog("Allocation check %s: rc=%d", linux_names[i], ret);
         if (ret < 0) return ret;
@@ -52,7 +63,7 @@ int hddInstallPsbbnPartitions(HddInstall *in)
         in->linux[i].start = st.private_5;
         in->linux[i].sectors = st.size;
     }
-    ret = hddMakeFilesystem(in->contents_mb ? in->contents_mb : 1024, "__contents", FS_GROUP_APPLICATION);
+    ret = hddInstallPfsPartition(in, in->contents_mb ? in->contents_mb : 1024, "__contents");
     if (ret != (int)(in->contents_mb ? in->contents_mb : 1024)) return ret < 0 ? ret : -ENOSPC;
     ret = fileXioMount("pfs0:", "hdd0:__common", FIO_MT_RDWR);
     if (ret < 0) return ret;
@@ -64,7 +75,7 @@ int hddInstallPsbbnPartitions(HddInstall *in)
 typedef struct {
     HddInstall *in;
     InstallExt2 *fs[HDD_INSTALL_LINUX_PARTITIONS];
-    int input, output, route, preflight;
+    int input, output, route;
     unsigned entries, required, archive, linux_required;
     uint64_t archive_done, archive_total;
     uint32_t file_done, file_size;
@@ -104,6 +115,7 @@ static int begin(void *context, const InstallTarEntry *entry)
     InstallTarEntry e = *entry;
     const char *relative, *link;
     int r, ret;
+    snprintf(p->current, sizeof(p->current), "%s", entry->name);
     if (p->archive == HI_PS2LINUX) { r = 8; relative = entry->name; }
     else r = routePath(entry->name, &relative);
     p->route = r;
@@ -118,7 +130,7 @@ static int begin(void *context, const InstallTarEntry *entry)
         memmove(e.link, link, strlen(link) + 1);
     }
     if (r >= HDD_INSTALL_LINUX_PARTITIONS && ((entry->type != '0' && entry->type != '5') || strchr(relative, ':') || strchr(relative, '\\'))) return -EINVAL;
-    if (p->preflight) {
+    {
         static const char *const required[] = {
             "__system/p2lboot/osdboot.elf", "__system/p2lboot/vmlinux",
             "__linux.1/sbin/init", "__linux.1/bin/sh", "__linux.1/etc/fstab",
@@ -142,9 +154,7 @@ static int begin(void *context, const InstallTarEntry *entry)
         if (r < HDD_INSTALL_LINUX_PARTITIONS && (p->inodes[r] > (hddInstallPartitionMb(p->in, r) / 128) * 8192 - 10 ||
             p->blocks[r] > (hddInstallPartitionMb(p->in, r) - 4) * 256 - (hddInstallPartitionMb(p->in, r) / 128) * 260)) return -ENOSPC;
         if (r >= HDD_INSTALL_LINUX_PARTITIONS && p->blocks[r] > 32u * 256) return -EFBIG;
-        return 0;
     }
-    snprintf(p->current, sizeof(p->current), "%s", entry->name);
     p->file_done = 0; p->file_size = entry->size;
     hddInstallProgress(p->current, 0, p->file_size);
     if (r < HDD_INSTALL_LINUX_PARTITIONS) {
@@ -167,7 +177,6 @@ static int data(void *context, const void *bytes, unsigned size)
 {
     Payload *p = context;
     unsigned done = 0;
-    if (p->preflight) return 0;
     if (p->route >= 0 && p->route < HDD_INSTALL_LINUX_PARTITIONS) {
         int ret = installExt2Data(p->fs[p->route], bytes, size);
         if (ret >= 0) {
@@ -189,9 +198,8 @@ static int data(void *context, const void *bytes, unsigned size)
 static int end(void *context)
 {
     Payload *p = context;
-    if (p->preflight) return 0;
     if (p->route >= 0 && p->route < HDD_INSTALL_LINUX_PARTITIONS) return installExt2End(p->fs[p->route]);
-    if (p->output >= 0) { int ret = genClose(p->output); p->output = -1; return ret < 0 ? ret : 0; }
+    if (p->output >= 0 && !hddInstallRecoveryFault()) { int ret = genClose(p->output); p->output = -1; return ret < 0 ? ret : 0; }
     return 0;
 }
 static int readArchive(void *context, uint32_t offset, void *bytes, unsigned size)
@@ -204,11 +212,9 @@ static int readArchive(void *context, uint32_t offset, void *bytes, unsigned siz
         if (n <= 0 || (unsigned)n > size - done) return n < 0 ? n : -EIO;
         done += n;
     }
-    if (p->preflight) hddInstallProgress("Checking PSBBN archive", offset + size, p->in->sizes[p->archive]);
     if (p->archive_total) {
         uint64_t completed = p->archive_done + offset + size;
-        if (p->preflight) hddInstallOverall(completed, p->archive_total);
-        else hddInstallOverall(100 + 800 * completed / p->archive_total, 1000);
+        hddInstallOverall(100 + 800 * completed / p->archive_total, 1000);
     }
     return 0;
 }
@@ -228,29 +234,19 @@ static int archives(Payload *p)
         if (snprintf(path, sizeof(path), "%s/%s", p->in->stage, hddInstallAssetName(i)) >= (int)sizeof(path)) return -ENAMETOOLONG;
         p->archive = i;
         p->input = genOpen(path, FIO_O_RDONLY); if (p->input < 0) return p->input;
-        hddInstallStatus(p->preflight ? "Checking PSBBN archives" : "Installing PSBBN archives", a, count);
-        hddInstallLog("%s %s (%u compressed bytes)", p->preflight ? "PREFLIGHT" : "EXTRACT", path, (unsigned)p->in->sizes[i]);
+        hddInstallStatus("Installing PSBBN archives", a, count);
+        hddInstallLog("EXTRACT %s (%u compressed bytes)", path, (unsigned)p->in->sizes[i]);
         hddInstallLogFlush(p->in);
         ret = installTarGzip(&io, p->in->sizes[i], &sink);
         hddInstallLog("ARCHIVE completed rc=%d entries=%u last=%s", ret, p->entries, p->current);
         hddInstallLogFlush(p->in);
-        { int closed = genClose(p->input); if (ret >= 0) ret = closed; }
+        { int closed = hddInstallRecoveryFault() ? HDD_INSTALL_ATA_TIMEOUT : genClose(p->input); if (ret >= 0) ret = closed; }
         p->input = -1;
-        if (p->output >= 0) { int closed = genClose(p->output); p->output = -1; if (ret >= 0) ret = closed; }
+        if (p->output >= 0 && !hddInstallRecoveryFault()) { int closed = genClose(p->output); p->output = -1; if (ret >= 0) ret = closed; }
         if (ret < 0) break;
         p->archive_done += p->in->sizes[i];
     }
     return ret;
-}
-int hddInstallPsbbnPreflight(HddInstall *in)
-{
-    Payload *p = calloc(1, sizeof(*p));
-    int ret;
-    if (!p) return -ENOMEM;
-    p->in = in; p->preflight = 1; p->input = p->output = -1;
-    ret = archives(p);
-    if (ret >= 0 && (p->required != (1u << 13) - 1 || ((in->flags & HDD_INSTALL_PS2LINUX) && p->linux_required != 3))) ret = -EINVAL;
-    free(p); return ret;
 }
 int hddInstallPsbbnPayload(void *context, const HddFormatIo *io)
 {
@@ -291,6 +287,9 @@ int hddInstallPsbbnPayload(void *context, const HddFormatIo *io)
         mounts++;
     }
     ret = archives(p); if (ret < 0) goto done;
+    /* Every archive is decompressed exactly once. Its CRC, routes, bounds
+     * and required boot files must pass before marking clean or enabling boot. */
+    if (p->required != (1u << 13) - 1 || ((in->flags & HDD_INSTALL_PS2LINUX) && p->linux_required != 3)) { ret = -EINVAL; goto done; }
     {
         InstallTarEntry entry = {0}; char shortcut[1024];
         ret = hddInstallGameShortcut(in, shortcut, sizeof(shortcut));
@@ -307,7 +306,7 @@ int hddInstallPsbbnPayload(void *context, const HddFormatIo *io)
     for (unsigned i = 0; i < HDD_INSTALL_LINUX_PARTITIONS; i++) if (p->fs[i]) { ret = installExt2Finish(p->fs[i]); if (ret < 0) goto done; }
     ret = io->flush(io->context);
 done:
-    while (mounts) {
+    while (mounts && !hddInstallRecoveryFault()) {
         char mount[8]; int closed;
         snprintf(mount, sizeof(mount), "pfs%u:", --mounts); closed = fileXioUmount(mount);
         if (ret >= 0 && closed < 0) ret = closed;
@@ -316,5 +315,6 @@ done:
     hddInstallLog("PSBBN population finished rc=%d entries=%u last=%s", ret, p->entries, p->current);
     hddInstallLogFlush(in);
     if (ret < 0) snprintf(in->error, sizeof(in->error), "PSBBN installation failed (error %d): %.160s. Boot MBR was not activated.", ret, p->current);
+    if (ret >= 0) in->populated = 1;
     free(p); return ret;
 }

@@ -513,6 +513,8 @@ extern int semRunning,semFinish;
 extern int isRunning;
 #endif
 int setupPad(void);
+void padSuspendForRecovery(void);
+void padForgetAfterRecovery(void);
 int reopenPadPorts(void);
 int readpad(void);
 int readpad_no_KB(void);

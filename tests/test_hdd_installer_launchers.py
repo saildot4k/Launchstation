@@ -38,6 +38,7 @@ code = r'''
 #define FIO_O_WRONLY O_WRONLY
 #define FIO_O_CREAT O_CREAT
 #define FIO_O_EXCL O_EXCL
+#define FIO_O_TRUNC O_TRUNC
 typedef int64_t s64;
 typedef uint64_t u64;
 static const char *work, *failure;
@@ -80,6 +81,9 @@ int httpsDownloadFd(const char *url,int fd,const char *ca,int maximum,int *size,
     assert(!strncmp(url,prefix,sizeof(prefix)-1)&&ca&&maximum>0&&!digest&&progress);(void)error;(void)error_size;
     downloads++;*size=0;
     if(!strcmp(failure,"write"))return -EIO;
+    if(!strncmp(failure,"resume",6)&&downloads==3){
+        assert(genWrite(fd,"unfinished",10)==10);hddInstallRecoveryObserve(-502);return -502;
+    }
     snprintf(path,sizeof(path),"%s/remote/%s",work,url+sizeof(prefix)-1);f=fopen(path,"rb");assert(f);
     while((n=fread(buffer,1,sizeof(buffer),f))){
         for(unsigned offset=0;offset<n;){int w=genWrite(fd,buffer+offset,n-offset);assert(w>0);offset+=w;}
@@ -103,10 +107,21 @@ int main(int argc,char **argv) {
     assert(argc==4);work=argv[1];failure=argv[2];in.game_launcher=atoi(argv[3]);
     strcpy(in.stage,"ata0:/stage");strcpy(in.ca_path,"fixture.pem");memset(in.commit,'a',40);
     ret=launcherMetadata(&in);
+    if(!strncmp(failure,"resume",6))hddInstallRecoveryBegin();
     if(ret>=0)ret=downloadLaunchers(&in,&phase,0,downloadBytes(&in));
-    assert((ret==0)==(!strcmp(failure,"ok")||!strcmp(failure,"hash-ignored")));
+    int resuming=!strncmp(failure,"resume",6), corrupt_cache=!strcmp(failure,"resume-corrupt");
+    if(resuming){
+        assert(ret==-502&&in.downloaded_launchers==2&&hddInstallRecoveryFault()==-502);
+        hddInstallRecoveryEnd();in.recovery_attempts=1;in.owned=1;overall_bytes=0;
+        if(corrupt_cache){int fd=genOpen("ata0:/stage/launcher-000.bin",FIO_O_WRONLY|FIO_O_TRUNC);assert(fd>=0);close(fd);}
+        unsigned saved_requests=requests;
+        hddInstallRecoveryBegin();ret=downloadLaunchers(&in,&phase,0,downloadBytes(&in));
+        assert(!hddInstallRecoveryFault()&&requests==saved_requests&&in.downloaded_launchers==in.launcher_count);
+        hddInstallRecoveryEnd();
+    }
+    assert((ret==0)==(!strcmp(failure,"ok")||!strcmp(failure,"hash-ignored")||resuming));
     unsigned nonempty=0;for(unsigned i=0;i<in.launcher_count;i++)nonempty+=!!in.launcher_files[i].size;
-    if(!ret){assert(in.launcher_count>=15&&downloads==nonempty&&requests>=8&&read_bytes==3*52);
+    if(!ret){assert(in.launcher_count>=15&&downloads==nonempty+resuming+2*corrupt_cache&&requests>=8&&read_bytes==3*52);
              assert(overall_bytes==downloadBytes(&in)&&overall_total==overall_bytes);
              assert(findLauncher(&in,launcherIcon(&in))>=0&&findLauncher(&in,launcherArt(&in))>=0);}
     free(in.launcher_files);return 0;
@@ -118,7 +133,7 @@ with tempfile.TemporaryDirectory(prefix="hdd-installer-launchers-") as directory
     (d / "test.c").write_text(code)
     subprocess.run(["gcc", "-std=c99", "-Wall", "-Wextra", "-Werror", "-Wno-misleading-indentation",
                     "-fsanitize=undefined", "-I", str(root / "include"), str(d / "test.c"),
-                    str(root / "src/hdd_install_plan.c"), str(root / "src/save_sign.c"), "-o", str(d / "test")], check=True)
+                    str(root / "src/hdd_install_plan.c"), str(root / 'src/hdd_install_recovery.c'), str(root / "src/save_sign.c"), "-o", str(d / "test")], check=True)
     elf = bytearray(120)
     elf[:6] = b"\x7fELF\x01\x01"
     elf[18] = 8
@@ -132,7 +147,7 @@ with tempfile.TemporaryDirectory(prefix="hdd-installer-launchers-") as directory
              **{f"icons/{kind}/APP_{app}{suffix}": b"icon" for app in ("OPL", "NHDDL")
                 for kind, suffix in (("art", ".png"), ("ico", "_LST.ico"))}}
     for choice in (0, 1):
-        for failure in ("ok", "hash-ignored", "truncated", "request", "write", "missing", "duplicate", "symlink", "traversal", "oversize", "file-limit", "directory-limit"):
+        for failure in ("ok", "hash-ignored", "resume", "resume-corrupt", "truncated", "request", "write", "missing", "duplicate", "symlink", "traversal", "oversize", "file-limit", "directory-limit"):
             work = d / f"{choice}-{failure}"
             (work / "stage").mkdir(parents=True)
             listings = {path: [] for path in ("scripts/assets/OPL", "scripts/assets/NHDDL", "scripts/assets/neutrino", "icons/art", "icons/ico", "scripts/licenses")}

@@ -2,6 +2,7 @@
 #include "hdd_format.h"
 #include "hdd_install.h"
 #include "hdd_format_rpc.h"
+#include "hdd_install_recovery.h"
 #include "init.h"
 #include "dash_internal.h"
 #include <loadfile.h>
@@ -41,6 +42,7 @@ static int call(int command, uint32_t lba, unsigned count, unsigned send, unsign
     hddInstallRawTrace(command, lba, count, 1, 0);
     ret = SifCallRpc(&client, command, 0, &packet, send, &packet, receive, NULL, NULL);
     ret = ret < 0 ? ret : packet.result;
+    hddInstallRecoveryObserve(ret);
     hddInstallRawTrace(command, lba, count, 0, ret);
     return ret;
 }
@@ -102,7 +104,7 @@ int hddFormatDisk(const HddFormatPlan *plan, int *started)
     *started = 1;
     ret = hddFormatExecute(plan, &io);
     hddInstallLog("FORMAT execute returned %d", ret);
-    finish = call(HF_FINISH, 0, 0, 64, 64);
+    finish = hddInstallRecoveryFault() ? HDD_INSTALL_ATA_TIMEOUT : call(HF_FINISH, 0, 0, 64, 64);
     return ret < 0 ? ret : finish;
 }
 
@@ -216,11 +218,11 @@ int hddInstallFinish(const HddFormatPlan *plan, const char *mbr, int *started,
     }
 finish:
     hddInstallLog("Finishing raw install: rc=%d", ret);
-    finish = call(HF_FINISH, 0, 0, 64, 64);
+    finish = hddInstallRecoveryFault() ? HDD_INSTALL_ATA_TIMEOUT : call(HF_FINISH, 0, 0, 64, 64);
     hddInstallLog("Raw install flush/end rc=%d", finish);
     if (ret >= 0) ret = finish;
 done:
-    if (fd >= 0) { int closed = genClose(fd); if (ret >= 0 && closed < 0) ret = closed; }
+    if (fd >= 0 && !hddInstallRecoveryFault()) { int closed = genClose(fd); if (ret >= 0 && closed < 0) ret = closed; }
     if (ret >= 0) hddInstallOverall(900, 1000);
     free(verify); free(buffer);
     return ret;

@@ -23,6 +23,7 @@ code = r'''
 #define MAX_PATH 1025
 #define FIO_O_CREAT O_CREAT
 #define FIO_O_EXCL O_EXCL
+#define FIO_O_TRUNC O_TRUNC
 #define FIO_O_RDONLY O_RDONLY
 #define FIO_O_WRONLY O_WRONLY
 #define FIO_MT_RDWR 1
@@ -73,10 +74,18 @@ int main(int argc,char**argv) {
     assert(!strcmp(in.ca_path,"ata0:/PSBBN_DP_TEMP/INSTALL_CA.PEM"));
     fd=genOpen(in.ca_path,FIO_O_RDONLY);assert(fd>=0);assert(read(fd,ca,16)==10&&!strcmp(ca,"CA fixture"));close(fd);
     assert(hddInstallFindStage(&in)==0);
+    /* Interrupted CA copy: keep the EE snapshot and replace only our file. */
+    in.ca_data=malloc(10);memcpy(in.ca_data,"CA fixture",10);in.ca_size=10;
+    in.stage_ready=0;in.recovery_attempts=1;
+    fd=genOpen(in.ca_path,FIO_O_WRONLY|FIO_O_TRUNC);assert(fd>=0);assert(write(fd,"bad trailing data",17)==17);close(fd);
+    assert(hddInstallCreateStage(&in)==0&&in.stage_ready&&!in.ca_data);
+    fd=genOpen(in.ca_path,FIO_O_RDONLY);assert(fd>=0);memset(ca,0,sizeof(ca));assert(read(fd,ca,16)==10&&!strcmp(ca,"CA fixture"));close(fd);
     in.launcher_files=calloc(1,sizeof(*in.launcher_files));assert(in.launcher_files);in.launcher_count=1;
     fd=genOpen("ata0:/PSBBN_DP_TEMP/launcher-000.bin",FIO_O_CREAT|FIO_O_EXCL|FIO_O_WRONLY);assert(fd>=0);close(fd);
     other.jail=1;strcpy(other.stage,in.stage);other.ca_data=malloc(1);other.ca_data[0]=0;other.ca_size=1;
     assert(hddInstallCreateStage(&other)==-EEXIST&&!other.owned);
+    other.owned=1;other.recovery_attempts=1;memset(other.owner,0xcc,sizeof(other.owner));
+    assert(hddInstallCreateStage(&other)==-ENOENT&&other.ca_data);other.owned=0;other.recovery_attempts=0;
     hddInstallCleanup(&other);assert(!other.ca_data&&hddInstallFindStage(&in)==0);
     snprintf(path,sizeof(path),"%s/ata/PSBBN_DP_TEMP/OSDMBR.XLF",work);fd=open(path,O_CREAT|O_WRONLY,0600);assert(fd>=0);close(fd);
     hddInstallCleanup(&in);assert(!in.owned&&!in.stage[0]);assert(access(path,F_OK)<0);
@@ -91,6 +100,6 @@ int main(int argc,char**argv) {
 with tempfile.TemporaryDirectory(prefix='hdd-installer-stage-') as directory:
     d = Path(directory); (d / 'test.c').write_text(code); (d / 'ata').mkdir(); (d / 'common').mkdir()
     subprocess.run(['gcc', '-std=c99', '-Wall', '-Wextra', '-Werror', '-I', str(root / 'include'),
-                    str(d / 'test.c'), str(root / 'src/hdd_install_plan.c'), str(root / 'src/save_sign.c'),
+                    str(d / 'test.c'), str(root / 'src/hdd_install_plan.c'), str(root / 'src/hdd_install_recovery.c'), str(root / 'src/save_sign.c'),
                     '-o', str(d / 'test')], check=True)
     subprocess.run([str(d / 'test'), str(d)], check=True, timeout=10)

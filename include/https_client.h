@@ -23,6 +23,10 @@ void httpsSetTraceCallback(HttpsStatusCallback callback, void *arg);
 /* Serialized, scoped CA snapshot for requests across an IOP/storage reset.
  * Caller owns the bytes until cleared with (NULL, 0), between requests. */
 void httpsSetCaBundle(const unsigned char *data, unsigned size);
+/* Serialized installer download scope. Reuses one same-host TLS session;
+ * end the scope before resetting the IOP or leaving the worker. */
+void httpsDownloadBatchBegin(void);
+void httpsDownloadBatchEnd(void);
 
 /* Download progress runs on the caller's thread after bytes are written.
  * A zero total means the server has not supplied a body length. */

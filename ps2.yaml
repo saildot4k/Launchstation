@@ -353,6 +353,7 @@ targets:
       - src/hdd_format_ps2.c
       - src/hdd_install_plan.c
       - src/hdd_install_log.c
+      - src/hdd_install_recovery.c
       - src/hdd_install_ps2.c
       - src/hdd_install_boot.c
       - src/hdd_install_psbbn.c

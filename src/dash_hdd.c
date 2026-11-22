@@ -20,6 +20,7 @@
 #include "hdd_filesystem.h"
 #include "hdd_format.h"
 #include "hdd_install.h"
+#include "hdd_install_recovery.h"
 #include <time.h>
 #include "gui_sort.h"
 #include "hdl_rpc.h"
@@ -363,7 +364,7 @@ static void hddJobRun(void *arg)
 			hddInstallLog("JOB download: mounting temporary volume");
 			j->ret = hddInstallMountStage(j->installer);
 			if (j->ret >= 0) {
-				j->ret = hddInstallCreateStage(j->installer);
+				j->ret = j->installer->stage_ready ? hddInstallFindStage(j->installer) : hddInstallCreateStage(j->installer);
 				if (j->ret >= 0) j->ret = hddInstallDownload(j->installer);
 				hddInstallLog("JOB download finished rc=%d", j->ret);
 				hddInstallLogFlush(j->installer);
@@ -371,11 +372,14 @@ static void hddJobRun(void *arg)
 			}
 			break;
 		case HOP_INSTALL_SOFTWARE:
+			j->installer->apa_sectors = j->format_plan.apa_sectors;
 			hddInstallLog("JOB install: verifying staged files and installing software");
 			filerSizeCacheInvalidate("hdd0:/");
 			filerSizeCacheInvalidate("ata0:/");
-			j->ret = hddInstallApply(j->installer);
+			j->ret = j->installer->applied ? 0 : hddInstallApply(j->installer);
+			if (j->ret >= 0) j->installer->applied = 1;
 			if (j->ret >= 0) j->ret = hddInstallMountStage(j->installer);
+			if (j->ret >= 0 && !j->installer->committed) j->ret = hddInstallFindStage(j->installer);
 			if (j->ret >= 0) {
 				char mbr[sizeof(j->installer->stage) + sizeof("/OSDMBR.XLF")];
 				const char *payload = NULL;
@@ -383,9 +387,10 @@ static void hddJobRun(void *arg)
 					snprintf(mbr, sizeof(mbr), "%s/OSDMBR.XLF", j->installer->stage);
 					payload = mbr;
 				}
-				j->ret = hddInstallFinish(&j->format_plan, payload, &j->format_started,
-				                     j->installer->flags & HDD_INSTALL_PSBBN ? hddInstallPsbbnPayload : NULL, j->installer);
-				if (j->ret >= 0) j->ret = hddInstallEnableBoot(j->installer);
+				j->ret = j->installer->committed ? 0 : hddInstallFinish(&j->format_plan, payload, &j->format_started,
+				                     (j->installer->flags & HDD_INSTALL_PSBBN) && !j->installer->populated ? hddInstallPsbbnPayload : NULL, j->installer);
+				if (j->ret >= 0 && !j->installer->committed) j->ret = hddInstallEnableBoot(j->installer);
+				if (j->ret >= 0) j->installer->committed = 1;
 				hddInstallLog("JOB install finished rc=%d raw-started=%d", j->ret, j->format_started);
 				hddInstallLogFlush(j->installer);
 				if (j->ret >= 0) hddInstallCleanup(j->installer);
@@ -428,18 +433,54 @@ static HddJob *jobNew(int op)
  * out (cancelable only) or it could not be queued (j freed or abandoned). */
 static int runJob(HddJob *j, const char *title, int cancelable)
 {
-	int id = dashWorkerSubmit(title, DASH_JOB_VISIBLE, hddJobRun, hddJobDone, j);
-
-	if (id < 0) {
-		dashToast(DASH_TOAST_WARN, "Busy, try again in a moment");
-		hddJobFree(j);
-		return 0;
+	int recoverable = j->installer && (j->op == HOP_DOWNLOAD_INSTALLER || j->op == HOP_INSTALL_SOFTWARE);
+	int owns_loading = recoverable && !dashLoadingActive();
+	if (owns_loading) dashLoadingBegin(title);
+	for (;;) {
+		int fault, was_reset;
+		if (recoverable) hddInstallRecoveryBegin();
+		int id = dashWorkerSubmit(title, DASH_JOB_VISIBLE, hddJobRun, hddJobDone, j);
+		if (id < 0) {
+			if (recoverable) hddInstallRecoveryEnd();
+			dashToast(DASH_TOAST_WARN, "Busy, try again in a moment");
+			hddJobFree(j);
+			if (owns_loading) dashLoadingEnd();
+			return 0;
+		}
+		if (!(recoverable || (j->installer && (j->installer->flags & HDD_INSTALL_PSBBN)) ?
+		      dashHddInstallAwait(id, title) : dashWorkerAwait(id, title, cancelable))) {
+			j->abandoned = 1; return 0;
+		}
+		if (!recoverable) return 1;
+		fault = hddInstallRecoveryFault(); was_reset = hddInstallRecoveryWasReset();
+		hddInstallRecoveryEnd();
+		if (!fault) { if (owns_loading) dashLoadingEnd(); return 1; }
+		hddInstallLog("ATA timeout: recovering %s (completed %u retries)", title, j->installer->recovery_attempts);
+		hddInstallProgress("Recovering storage and controller", 0, 0);
+		/* The worker has unwound. No old file/RPC buffers may be in use now. */
+		j->format_started = 0;
+		if ((!was_reset && !resetInstallerIopTransport()) || !reloadInstallerCoreAfterReset())
+			dashHddInstallRecoveryFailed();
+		j->ret = dashHddInstallPrepareStorage(j->installer);
+		if (j->ret < 0) {
+			j->installer->stage_ready = 0;
+			snprintf(j->installer->error, sizeof(j->installer->error), "Could not reload storage after the ATA timeout (error %d). Cached downloads are retained.", j->ret);
+			if (owns_loading) dashLoadingEnd();
+			return 1;
+		}
+		if (j->installer->recovery_attempts >= HDD_INSTALL_RECOVERY_LIMIT) {
+			j->ret = HDD_INSTALL_ATA_TIMEOUT;
+			snprintf(j->installer->error, sizeof(j->installer->error), "ATA timeout persisted after %u retries. Installation is incomplete; cached downloads are retained.", HDD_INSTALL_RECOVERY_LIMIT);
+			if (owns_loading) dashLoadingEnd();
+			return 1;
+		}
+		j->installer->recovery_attempts++;
+		if (j->op == HOP_INSTALL_SOFTWARE) j->ret = hddFormatLoad();
+		if (j->ret < 0) { if (owns_loading) dashLoadingEnd(); return 1; }
+		j->installer->error[0] = 0;
+		hddInstallLog("RECOVERY retry %u/%u: %s; downloaded files and completed stages retained",
+		              j->installer->recovery_attempts, HDD_INSTALL_RECOVERY_LIMIT, title);
 	}
-	if ((j->installer && (j->installer->flags & HDD_INSTALL_PSBBN) ?
-	     dashHddInstallAwait(id, title) : dashWorkerAwait(id, title, cancelable)))
-		return 1;
-	j->abandoned = 1;
-	return 0;
 }
 
 //--------------------------------------------------------------

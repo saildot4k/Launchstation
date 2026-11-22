@@ -79,7 +79,7 @@ int main(int argc,char**argv){
 '''
 with tempfile.TemporaryDirectory(prefix='hdd-log-') as directory:
  d=Path(directory);(d/'check.c').write_text(code)
- subprocess.run(['gcc','-std=c99','-Wall','-Wextra','-Werror','-I',str(root/'include'),str(d/'check.c'),'-o',str(d/'check')],check=True)
+ subprocess.run(['gcc','-std=c99','-Wall','-Wextra','-Werror','-I',str(root/'include'),str(d/'check.c'),str(root/'src/hdd_install_recovery.c'),'-o',str(d/'check')],check=True)
  subprocess.run([str(d/'check'),str(d/'INSTALLER.LOG')],check=True,timeout=10)
  log=(d/'INSTALLER.LOG').read_text()
  assert 'https://archive.org/' in log and 'older lines left the RAM buffer' in log and 'row 599' in log and 'LOG WRITE ERROR' in log

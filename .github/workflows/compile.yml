@@ -120,6 +120,9 @@ jobs:
           python3 tests/test_hdd_installer_apply.py
           python3 tests/test_hdd_installer_launchers.py
           python3 tests/test_hdd_installer_progress.py
+          python3 tests/test_hdd_installer_streaming.py
+          python3 tests/test_hdd_installer_recovery.py
+          python3 tests/test_hdd_installer_retry.py
           python3 tests/test_hdd_installer_partitions.py
           python3 tests/test_hdd_installer_choices.py
           python3 tests/test_hdd_installer_languages.py

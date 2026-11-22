@@ -167,7 +167,7 @@ with tempfile.TemporaryDirectory(prefix="hdd-format-ui-") as temp:
     cfile, executable = Path(temp) / "check.c", Path(temp) / "check"
     cfile.write_text(code)
     subprocess.run([compiler, "-std=c99", "-Wall", "-Wextra", "-Werror", "-I", str(root / "include"),
-                    str(cfile), str(root / "src/hdd_format.c"), str(root / "src/hdd_install_plan.c"), str(root / "src/hdd_format_upcase.c"),
+                    str(cfile), str(root / "src/hdd_format.c"), str(root / "src/hdd_install_plan.c"), str(root / 'src/hdd_install_recovery.c'), str(root / "src/hdd_format_upcase.c"),
                     "-o", str(executable)], check=True)
     subprocess.run([str(executable)], check=True, timeout=10)
 

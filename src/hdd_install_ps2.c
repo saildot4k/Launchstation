@@ -6,6 +6,7 @@
 #include "save_sign.h"
 #include "hdd_header_injector.h"
 #include "dash_internal.h"
+#include "hdd_install_recovery.h"
 
 #include <time.h>
 #define EXTRAS_URL "https://archive.org/download/psbbn-definitive-english-patch-v2/extras.zip"
@@ -45,6 +46,7 @@ static int writeAll(int fd, const void *data, unsigned size)
 }
 static int closeResult(int fd, int result)
 {
+    if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
     int closed = genClose(fd);
     return result < 0 ? result : closed < 0 ? closed : 0;
 }
@@ -74,7 +76,7 @@ int hddInstallLoadCa(HddInstall *in)
 int hddInstallMountStage(HddInstall *in)
 { return in->jail ? 0 : fileXioMount("pfs2:", "hdd0:__common", FIO_MT_RDWR); }
 int hddInstallUnmountStage(HddInstall *in)
-{ return in->jail ? 0 : fileXioUmount("pfs2:"); }
+{ return hddInstallRecoveryFault() ? HDD_INSTALL_ATA_TIMEOUT : in->jail ? 0 : fileXioUmount("pfs2:"); }
 int hddInstallCreateStage(HddInstall *in)
 {
     char path[MAX_PATH];
@@ -83,18 +85,18 @@ int hddInstallCreateStage(HddInstall *in)
     /* Freshly formatted storage: refuse an existing directory rather than
      * overwrite unknown contents after a failed/changed workflow. */
     hddInstallLog("Creating download folder: %s", in->stage);
-    ret = genMkdir(in->stage, 0777);
+    ret = in->owned && in->recovery_attempts ? hddInstallFindStage(in) : genMkdir(in->stage, 0777);
     hddInstallLog("mkdir download folder rc=%d", ret);
     if (ret < 0) return ret;
-    ret = hddInstallClaimStage(in);
+    ret = in->owned && in->recovery_attempts ? 0 : hddInstallClaimStage(in);
     if (ret < 0) { genRmdir(in->stage); return ret; }
     if (pathJoin(path, sizeof(path), in->stage, "INSTALL_CA.PEM") < 0) return -ENAMETOOLONG;
-    fd = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_EXCL);
+    fd = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | (in->recovery_attempts ? FIO_O_TRUNC : FIO_O_EXCL));
     if (fd < 0) return fd;
     ret = closeResult(fd, writeAll(fd, in->ca_data, in->ca_size));
     if (ret >= 0) {
         if (strlen(path) >= sizeof(in->ca_path)) return -ENAMETOOLONG;
-        strcpy(in->ca_path, path); hddInstallRelease(in);
+        strcpy(in->ca_path, path); in->stage_ready = 1; hddInstallRelease(in);
     }
     hddInstallLog("CA copy to %s rc=%d", path, ret);
     hddInstallLogFlush(in);
@@ -220,7 +222,7 @@ static int osdResources(HddInstall *in, const char *destination)
     for (unsigned i = 0; i < 7; i++) {
         if (destination) {
             if (pathJoin(path, sizeof(path), destination, hddInstallOsdFiles[i]) < 0) { ret = -ENAMETOOLONG; goto done; }
-            ctx.output = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_EXCL);
+            ctx.output = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | (in->owned && in->recovery_attempts ? FIO_O_TRUNC : FIO_O_EXCL));
             if (ctx.output < 0) { ret = ctx.output; goto done; }
         }
         snprintf(entry, sizeof(entry), "extras/%s", hddInstallOsdFiles[i]);
@@ -389,7 +391,12 @@ static int downloadLaunchers(HddInstall *in, const char **phase, uint64_t comple
         launcherStageName(i, name);
         if (pathJoin(local, sizeof(local), in->stage, name) < 0) return -ENAMETOOLONG;
         snprintf(url, sizeof(url), "https://raw.githubusercontent.com/" HDD_INSTALL_REPOSITORY "/%s/%s", in->commit, file->path);
-        fd = genOpen(local, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_EXCL); if (fd < 0) return fd;
+        if (i < in->downloaded_launchers && checkFileSize(in, name, file->size) == 0) {
+            completed += file->size; hddInstallOverall(completed, total); continue;
+        }
+        if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+        if (i < in->downloaded_launchers) in->downloaded_launchers = i;
+        fd = genOpen(local, FIO_O_WRONLY | FIO_O_CREAT | (in->recovery_attempts ? FIO_O_TRUNC : FIO_O_EXCL)); if (fd < 0) return fd;
         *phase = file->path;
         hddInstallLog("LAUNCHER download %u/%u: %s (%u bytes)", i + 1, in->launcher_count, file->path, (unsigned)file->size);
         hddInstallLogFlush(in);
@@ -399,6 +406,7 @@ static int downloadLaunchers(HddInstall *in, const char **phase, uint64_t comple
                                 transferProgress, &transfer, in->error, sizeof(in->error)); }
         ret = closeResult(fd, ret);
         if (ret < 0 || (uint32_t)size != file->size) return ret < 0 ? ret : -EIO;
+        in->downloaded_launchers = i + 1;
         completed += file->size;
     }
     return checkLaunchers(in);
@@ -417,6 +425,7 @@ static int downloadInstaller(HddInstall *in, const char **phase)
     int ret, fd, size;
     uint64_t downloaded = 0, download_total;
     in->ready = 0; in->error[0] = 0;
+    if (!in->manifest_ready) {
     hddInstallStatus("Reading PSBBN DP repository", 0, 0);
     ret = 0;
     if (!in->commit[0]) {
@@ -472,10 +481,17 @@ static int downloadInstaller(HddInstall *in, const char **phase)
         httpsResponseFree(&response);
         if (ret < 0) goto invalid;
     }
+    in->manifest_ready = 1;
+    }
     download_total = downloadBytes(in);
     for (unsigned asset = 0; asset < HDD_INSTALL_ASSETS; asset++) {
         if (!hddInstallSelectedAsset(in, asset)) continue;
         if (pathJoin(local, sizeof(local), in->stage, hddInstallAssetName(asset)) < 0) { ret = -ENAMETOOLONG; goto invalid; }
+        if ((in->downloaded_assets & (1u << asset)) && checkFileSize(in, hddInstallAssetName(asset), in->sizes[asset]) == 0) {
+            downloaded += in->sizes[asset]; hddInstallOverall(downloaded, download_total); continue;
+        }
+        if (hddInstallRecoveryFault()) { ret = HDD_INSTALL_ATA_TIMEOUT; goto invalid; }
+        in->downloaded_assets &= ~(1u << asset);
         if (asset == HI_EXTRAS) snprintf(url, sizeof(url), "%s", EXTRAS_URL);
         else if (asset == HI_PS2LINUX)
             snprintf(url, sizeof(url), "https://archive.org/download/%s/PS2Linux.tar.gz", in->archive_item);
@@ -483,7 +499,7 @@ static int downloadInstaller(HddInstall *in, const char **phase)
             snprintf(url, sizeof(url), "https://archive.org/download/%s/%s", in->archive_item,
                      asset == HI_CHANNELS ? in->channels : in->archives[asset - HI_SYSTEM]);
         else snprintf(url, sizeof(url), "https://raw.githubusercontent.com/" HDD_INSTALL_REPOSITORY "/%s/%s", in->commit, hddInstallAssetPath(asset));
-        fd = genOpen(local, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_EXCL);
+        fd = genOpen(local, FIO_O_WRONLY | FIO_O_CREAT | (in->recovery_attempts ? FIO_O_TRUNC : FIO_O_EXCL));
         if (fd < 0) { ret = fd; goto invalid; }
         size = 0; *phase = hddInstallAssetName(asset);
         hddInstallLog("DOWNLOAD %u/%u: %s", asset + 1, (unsigned)HDD_INSTALL_ASSETS, *phase);
@@ -499,6 +515,7 @@ static int downloadInstaller(HddInstall *in, const char **phase)
         hddInstallLog("DOWNLOAD result rc=%d bytes=%d expected=%u", ret, size, (unsigned)in->sizes[asset]);
         hddInstallLogFlush(in);
         if (ret < 0 || (uint32_t)size != in->sizes[asset]) { if (ret >= 0) ret = -EIO; goto invalid; }
+        in->downloaded_assets |= 1u << asset;
         downloaded += in->sizes[asset];
     }
     if (in->flags & HDD_INSTALL_PSBBN) {
@@ -530,10 +547,6 @@ static int downloadInstaller(HddInstall *in, const char **phase)
             if (ret < 0) goto invalid;
         }
     }
-    if (in->flags & HDD_INSTALL_PSBBN) {
-        ret = hddInstallPsbbnPreflight(in);
-        if (ret < 0) goto invalid;
-    }
     in->ready = 1;
     return 0;
 invalid:
@@ -549,7 +562,9 @@ int hddInstallDownload(HddInstall *in)
     hddInstallPhase(HDD_INSTALL_PHASE_DOWNLOAD);
     httpsSetStatusCallback(installerHttpsStatus, &phase);
     httpsSetTraceCallback(NULL, NULL);
+    httpsDownloadBatchBegin();
     ret = downloadInstaller(in, &phase);
+    httpsDownloadBatchEnd();
     httpsSetStatusCallback(NULL, NULL);
     httpsSetTraceCallback(NULL, NULL);
     return ret;
@@ -601,13 +616,16 @@ int hddInstallFindStage(HddInstall *in)
 void hddInstallCleanup(HddInstall *in)
 {
     char path[MAX_PATH];
+    if (hddInstallRecoveryFault()) return;
     if (hddInstallFindStage(in) < 0) { hddInstallRelease(in); return; }
     for (unsigned asset = 0; asset < HDD_INSTALL_ASSETS; asset++) {
         if (pathJoin(path, sizeof(path), in->stage, hddInstallAssetName(asset)) == 0) genRemove(path);
+        if (hddInstallRecoveryFault()) return;
     }
     for (unsigned i = 0; i < in->launcher_count; i++) {
         char name[32]; launcherStageName(i, name);
         if (pathJoin(path, sizeof(path), in->stage, name) == 0) genRemove(path);
+        if (hddInstallRecoveryFault()) return;
     }
     hddInstallRelease(in);
     if (pathJoin(path, sizeof(path), in->stage, "INSTALL_CA.PEM") == 0) genRemove(path);
@@ -632,12 +650,12 @@ static int makeDirectory(const char *path, int visible)
     memset(&stat, 0, sizeof(stat)); stat.attr = HDD_INSTALL_BROWSER_ATTR;
     return fileXioChStat(path, &stat, FIO_CST_ATTR);
 }
-static int writeNew(const char *path, const void *data, unsigned size)
+static int writeNew(HddInstall *in, const char *path, const void *data, unsigned size)
 {
     int fd, ret;
     unsigned done = 0;
     hddInstallLog("WRITE %s (%u bytes)", path, size);
-    fd = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_EXCL);
+    fd = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | (in->owned && in->recovery_attempts ? FIO_O_TRUNC : FIO_O_EXCL));
     if (fd < 0) return fd;
     hddInstallProgress(path, 0, size);
     ret = 0;
@@ -677,7 +695,27 @@ static int copyFile(HddInstall *in, const char *name, uint32_t size, const char 
     return ret;
 }
 static int copyAsset(HddInstall *in, unsigned asset, const char *destination)
-{ return copyFile(in, hddInstallAssetName(asset), in->sizes[asset], destination, 0); }
+{ return copyFile(in, hddInstallAssetName(asset), in->sizes[asset], destination, in->owned && in->recovery_attempts); }
+int hddInstallPfsPartition(HddInstall *in, unsigned mb, const char *name)
+{
+    if (in->owned && in->recovery_attempts) {
+        char path[96]; iox_stat_t st;
+        snprintf(path, sizeof(path), "hdd0:%s", name);
+        int ret = fileXioGetStat(path, &st);
+        if (ret >= 0) {
+            const int zone = 8192;
+            if (st.mode != 0x100 || st.size != mb * 2048u || st.attr || st.private_0 ||
+                in->apa_sectors < st.size || st.private_5 < 2048 || st.private_5 > in->apa_sectors - st.size) return -EINVAL;
+            /* Apply has not completed. This new install owns this volume,
+             * and an earlier timeout may have interrupted its PFS format. */
+            hddInstallLog("RECOVERY reinitializing owned PFS %s (%u MiB)", name, mb);
+            ret = fileXioFormat("pfs:", path, (const char *)&zone, sizeof(zone));
+            return ret < 0 ? ret : (int)mb;
+        }
+        if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+    }
+    return hddMakeFilesystem(mb, (char *)name, FS_GROUP_APPLICATION);
+}
 static int installApps(HddInstall *in)
 {
     const char *base = in->jail ? "ata0:/APPS" : "pfs2:/APPS";
@@ -692,7 +730,7 @@ static int installApps(HddInstall *in)
         if (ret >= 0) ret = makeDirectory(folder, !in->jail);
         for (unsigned i = 0; ret >= 0 && i < save.count; i++) {
             ret = pathJoin(path, sizeof(path), folder, save.files[i].name);
-            if (ret >= 0) ret = writeNew(path, save.files[i].data, save.files[i].size);
+            if (ret >= 0) ret = writeNew(in, path, save.files[i].data, save.files[i].size);
         }
         if (ret >= 0 && in->jail) {
             char elf[MAX_PATH];
@@ -700,7 +738,7 @@ static int installApps(HddInstall *in)
             for (unsigned i = 0; i < save.count; i++) if (!strcmp(save.files[i].name, "list.icn")) icon = &save.files[i];
             hddInstallLog("Create app launcher: %s (128 MiB)", app_partitions[index]);
             hddInstallLogFlush(in);
-            ret = hddMakeFilesystem(128, (char *)app_partitions[index], FS_GROUP_APPLICATION);
+            ret = hddInstallPfsPartition(in, 128, app_partitions[index]);
             if (ret != 128) ret = ret < 0 ? ret : -ENOSPC;
             else if (!icon || pathJoin(elf, sizeof(elf), folder, app_boot[index]) < 0) ret = -EINVAL;
             else ret = InjectHddAppLauncher(app_partitions[index], elf, app_names[index], icon->data, icon->size);
@@ -718,7 +756,7 @@ static int installApps(HddInstall *in)
                         "copyright_viewflag = 0\ncopyright_imgcount = 0\ngenre = \nparental_lock = 1\n"
                         "effective_date = 0\nexpire_date = 0\nviolence_flag = 0\ncontent_type = 255\ncontent_subtype = 0\n",
                         app_names[index], index ? "SYS-R3CONFIG" : "APP-WLER3Z");
-                    if (ret >= 0) ret = writeNew("pfs3:/res/info.sys", info, n);
+                    if (ret >= 0) ret = writeNew(in, "pfs3:/res/info.sys", info, n);
                     if (ret >= 0) ret = copyAsset(in, index ? HI_R3_ART : HI_WLE_ART, "pfs3:/res/jkt_001.png");
                     closed = fileXioUmount("pfs3:"); if (ret >= 0) ret = closed;
                 }
@@ -776,7 +814,7 @@ static int installLaunchers(HddInstall *in)
         snprintf(path, sizeof(path), "scripts/assets/OPL/LNG/lang_%s.lng", language);
         if (!*language || findLauncher(in, path) < 0) language = "English";
         int n = snprintf(config, sizeof(config), "enable_coverart=1\ndefault_device=0\nusb_mode=2\napp_mode=2\nenable_bdm_hdd=1\nlanguage_text=%s\nswap_select_btn=0\n", language);
-        return writeNew("ata0:/conf_opl.cfg", config, n);
+        return writeNew(in, "ata0:/conf_opl.cfg", config, n);
     }
 }
 
@@ -799,7 +837,7 @@ static int installGamePartition(HddInstall *in)
     }
     if (ret >= 0) {
         hddInstallLog("Creating PP.LAUNCHER (128 MiB): %s", title);
-        ret = hddMakeFilesystem(128, "PP.LAUNCHER", FS_GROUP_APPLICATION);
+        ret = hddInstallPfsPartition(in, 128, "PP.LAUNCHER");
         ret = ret == 128 ? 0 : ret < 0 ? ret : -ENOSPC;
     }
     snprintf(elf, sizeof(elf), "hdd0:__system:pfs:/launcher/%s", hddInstallGameElf(in->game_launcher));
@@ -815,9 +853,9 @@ static int installGamePartition(HddInstall *in)
         "image_topviewflag = 0\nimage_type = 0\nimage_count = 1\nimage_viewsec = 600\n"
         "copyright_viewflag = 0\ncopyright_imgcount = 0\ngenre = \nparental_lock = 1\n"
         "effective_date = 0\nexpire_date = 0\nviolence_flag = 0\ncontent_type = 255\ncontent_subtype = 0\n", title, id);
-    if (ret >= 0) ret = writeNew("pfs3:/res/info.sys", info, n);
+    if (ret >= 0) ret = writeNew(in, "pfs3:/res/info.sys", info, n);
     launcherStageName(art, name);
-    if (ret >= 0) ret = copyFile(in, name, in->launcher_files[art].size, "pfs3:/res/jkt_001.png", 0);
+    if (ret >= 0) ret = copyFile(in, name, in->launcher_files[art].size, "pfs3:/res/jkt_001.png", in->owned && in->recovery_attempts);
     { int closed = fileXioUmount("pfs3:"); if (ret >= 0) ret = closed; }
     return ret;
 }
@@ -829,7 +867,7 @@ int hddInstallWriteConfigs(HddInstall *in)
     if (installed < 0) return installed;
     for (unsigned i = 0; i < 2; i++) {
         int ret = hddInstallConfig(in, i == 0, config, sizeof(config));
-        if (ret >= 0) ret = writeNew(i ? "pfs1:/osdmenu/OSDMENU.CNF" : "pfs1:/osdmenu/OSDMBR.CNF", config, ret);
+        if (ret >= 0) ret = writeNew(in, i ? "pfs1:/osdmenu/OSDMENU.CNF" : "pfs1:/osdmenu/OSDMBR.CNF", config, ret);
         if (ret < 0) return ret;
     }
     /* Install kernels after the system archive, which may contain older copies. */
@@ -904,7 +942,7 @@ int hddInstallApply(HddInstall *in)
     ret = 0;
 failed:
     if (ret < 0) hddInstallLog("ERROR apply rc=%d", ret);
-    while (mounts) {
+    while (mounts && !hddInstallRecoveryFault()) {
         int closed = fileXioUmount(pfs[--mounts]);
         if (ret >= 0 && closed < 0) ret = closed;
     }

@@ -35,6 +35,8 @@ static unsigned expected_count=8,contents_mb=1024;
 static const char *const expected_names[]={"__linux.1","__linux.2","__linux.4","__linux.5","__linux.6","__linux.7","__linux.9","__linux.8","__linux.3","__linux.10"};
 static unsigned allocated,opened,closed,stats,contents,mounted,flushed,mkdirs,current_lba;
 static unsigned starts[10];
+static int replay;
+static unsigned reused,formatted,bad_geometry;
 static int fail_index,fail_phase;
 '''
 # Real stock-driver syntax. Its parser intentionally accepts 1G/2G, rather
@@ -67,11 +69,29 @@ static int fileXioOpen(const char *path,int flags,int mode){
 static int fileXioClose(int fd){assert(fd==99+(int)opened);closed++;return fail_index==(int)opened-1&&fail_phase==3?-EIO:0;}
 static int fileXioGetStat(const char *path,iox_stat_t *out){
     unsigned i=opened-1;char expected[64];stats++;
+    if(replay){
+        if(!strcmp(path,"hdd0:__contents")){
+            memset(out,0,sizeof(*out));out->mode=0x100;out->size=contents_mb*2048u;out->private_5=33554432;return 0;
+        }
+        assert(sscanf(path,"hdd0:__linux.%u",&i)==1);
+        for(i=0;i<expected_count;i++){snprintf(expected,sizeof(expected),"hdd0:%s",expected_names[i]);if(!strcmp(path,expected))break;}
+        assert(i<expected_count);
+        if(i>=reused)return -ENOENT;
+        memset(out,0,sizeof(*out));out->private_5=starts[i];out->size=expected_mb[i]*2048u;out->mode=i==1?0x82:0x83;
+        if(bad_geometry==1)out->mode=0x100;
+        if(bad_geometry==2)out->attr=1;
+        if(bad_geometry==3)out->private_0=1;
+        if(bad_geometry==4)out->private_5=131072u*2048;
+        return 0;
+    }
     snprintf(expected,sizeof(expected),"hdd0:%s",expected_names[i]);assert(!strcmp(path,expected));
     if(fail_index==(int)i&&fail_phase==4)return -EIO;
     memset(out,0,sizeof(*out));out->private_5=starts[i];out->size=expected_mb[i]*2048u;out->mode=i==1?0x82:0x83;
     if(fail_index==(int)i&&fail_phase==5)out->private_0=1;
     return 0;
+}
+static int fileXioFormat(const char *fs,const char *path,const char *args,int n){
+    assert(replay&&!strcmp(fs,"pfs:")&&!strcmp(path,"hdd0:__contents")&&n==sizeof(int)&&*(const int*)args==8192);formatted++;contents++;return 0;
 }
 static int hddMakeFilesystem(int mb,char *name,int group){assert(opened==expected_count&&closed==expected_count&&stats==expected_count&&mb==(int)contents_mb&&group==FS_GROUP_APPLICATION&&!strcmp(name,"__contents"));contents++;return mb;}
 static int fileXioMount(const char *mount,const char *partition,int flags){assert(contents==1&&!mounted&&!strcmp(mount,"pfs0:")&&!strcmp(partition,"hdd0:__common")&&flags==FIO_MT_RDWR);mounted++;return 0;}
@@ -80,6 +100,7 @@ static int fileXioUmount(const char *mount){assert(mounted&&!strcmp(mount,"pfs0:
 static int fileXioDevctl(const char *dev,int command,void*a,int n,void*b,int m){assert(!strcmp(dev,"hdd0:")&&command==HDIOC_FLUSH&&!a&&!b&&!n&&!m&&!mounted);flushed++;return 0;}
 '''
 code+=source[source.index('static const char *const linux_names'):source.index('static const char *const pfs_names')]
+code+=function((root/'src/hdd_install_ps2.c').read_text(),'int hddInstallPfsPartition(')
 code+=function(source,'int hddInstallPsbbnPartitions(')
 code+=r'''
 static void reset(void){allocated=opened=closed=stats=contents=mounted=flushed=mkdirs=0;current_lba=4194304;}
@@ -101,6 +122,14 @@ int main(void){
     in.flags=15;in.music_mb=4096;in.contents_mb=4096;in.linux_home_mb=8192;
     assert(hddInstallPsbbnPartitions(&in)==0&&opened==10&&closed==10&&stats==10&&contents==1&&flushed==1);
     for(unsigned i=0;i<10;i++)assert(in.linux[i].sectors==expected_mb[i]*2048u);
+    /* A timeout after partial APA creation reuses validated extents.
+     * Its contents PFS format may have been interrupted, so redo that. */
+    in.owned=in.recovery_attempts=1;in.apa_sectors=131072u*2048;replay=1;reused=expected_count;
+    reset();assert(hddInstallPsbbnPartitions(&in)==0&&!opened&&!allocated&&formatted==1&&contents==1);
+    for(bad_geometry=1;bad_geometry<=4;bad_geometry++){
+        reset();assert(hddInstallPsbbnPartitions(&in)==-EINVAL&&!opened&&!allocated&&!contents);
+    }
+    bad_geometry=0;replay=0;
     reset();in.jail=0;assert(hddInstallPsbbnPartitions(&in)==-EINVAL&&!allocated&&!opened);
     puts("PASS: all eight PSBBN partition requests use stock APA size syntax, validate extents, abort on errors and create/flush contents and saves folders");
 }
@@ -108,5 +137,5 @@ int main(void){
 with tempfile.TemporaryDirectory(prefix='hdd-installer-partitions-') as directory:
     d=Path(directory);(d/'check.c').write_text(code)
     for mini in (False,True):
-        subprocess.run(['gcc','-std=c99','-Wall','-Wextra','-Werror','-I',str(root/'include'),*(['-DAPA_8MB_PARTITION_SIZE'] if mini else []),str(d/'check.c'),str(root/'src/hdd_install_plan.c'),'-o',str(d/'check')],check=True)
+        subprocess.run(['gcc','-std=c99','-Wall','-Wextra','-Werror','-I',str(root/'include'),*(['-DAPA_8MB_PARTITION_SIZE'] if mini else []),str(d/'check.c'),str(root/'src/hdd_install_plan.c'), str(root / 'src/hdd_install_recovery.c'),'-o',str(d/'check')],check=True)
         subprocess.run([str(d/'check')],check=True,timeout=10)

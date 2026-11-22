@@ -134,6 +134,6 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-languages-') as directory
     d = Path(directory)
     (d / 'test.c').write_text(code)
     subprocess.run(['gcc', '-std=c99', '-Wall', '-Wextra', '-Werror', '-fsanitize=undefined',
-                    '-I', str(root / 'include'), str(d / 'test.c'), str(root / 'src/hdd_install_plan.c'),
+                    '-I', str(root / 'include'), str(d / 'test.c'), str(root / 'src/hdd_install_plan.c'), str(root / 'src/hdd_install_recovery.c'),
                     '-o', str(d / 'test')], check=True)
     subprocess.run([str(d / 'test')], check=True)

@@ -23,12 +23,14 @@ void hddInstallLog(const char *format,...) { (void)format; }
 void hddInstallLogFlush(HddInstall *in) { (void)in; }
 static void *observer_context;
 static char text[160];
-static int failure, changes;
+static int failure, changes, batch;
+void httpsDownloadBatchBegin(void){assert(!batch);batch=1;}
+void httpsDownloadBatchEnd(void){assert(batch);batch=0;}
 void httpsSetStatusCallback(HttpsStatusCallback callback,void *context){observer=callback;observer_context=context;changes++;}
 void hddInstallProgress(const char *s,int done,int total){assert(!done&&!total);snprintf(text,sizeof(text),"%s",s);}
 void hddInstallPhase(unsigned phase){assert(phase==HDD_INSTALL_PHASE_DOWNLOAD);}
 static int downloadInstaller(HddInstall *in,const char **phase){
-    assert(in&&observer&&observer_context&&!trace);
+    assert(in&&observer&&observer_context&&!trace&&batch);
     observer("Resolving server address",observer_context);assert(strstr(text,"PSBBN DP repository")&&strstr(text,"Resolving"));
     *phase="system.tar.gz";observer("Verifying secure connection",observer_context);assert(strstr(text,"system.tar.gz")&&strstr(text,"Verifying"));
     observer("Receiving download headers",observer_context);assert(strstr(text,"Receiving download headers"));
@@ -37,8 +39,8 @@ static int downloadInstaller(HddInstall *in,const char **phase){
 '''
 code += function('static void installerHttpsStatus(')+function('int hddInstallDownload(')
 code += r'''
-int main(void){HddInstall in={0};assert(!hddInstallDownload(&in)&&!observer&&!observer_context&&!trace&&changes==2);
- failure=-EIO;assert(hddInstallDownload(&in)==-EIO&&!observer&&!observer_context&&!trace&&changes==4);
+int main(void){HddInstall in={0};assert(!hddInstallDownload(&in)&&!observer&&!observer_context&&!trace&&!batch&&changes==2);
+ failure=-EIO;assert(hddInstallDownload(&in)==-EIO&&!observer&&!observer_context&&!trace&&!batch&&changes==4);
  puts("PASS: installer displays DNS/TLS/header phases and clears the observer after success/failure");}
 '''
 with tempfile.TemporaryDirectory(prefix='hdd-installer-transport-') as directory:

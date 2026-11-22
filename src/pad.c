@@ -384,6 +384,9 @@ void waitAnyPadReady(void)
 }
 //---------------------------------------------------------------------------
 // setup PAD
+void padSuspendForRecovery(void) { clearPadPressState(); }
+void padForgetAfterRecovery(void) { clearPadPressState(); }
+
 int setupPad(void)
 {
 	int ret, i, port, state, modes;

@@ -13,7 +13,7 @@ class Install(c.Structure):
     _fields_=[('flags',c.c_uint),('jail',c.c_int),('commit',c.c_char*41),('stage',c.c_char*1024),('ca_path',c.c_char*1024),('error',c.c_char*256),
               ('sizes',c.c_uint32*15),('hashes',(c.c_char*41)*15),('archives',(c.c_char*128)*2),('linux',Extent*10),
               ('owner',c.c_ubyte*20),('owned',c.c_uint),('ready',c.c_uint),('ca_data',c.c_void_p),('ca_size',c.c_uint),
-              ('music_mb',c.c_uint),('contents_mb',c.c_uint),('linux_home_mb',c.c_uint),('reserved_mb',c.c_uint), ('game_launcher', c.c_uint), ('launcher_files', c.c_void_p), ('launcher_count', c.c_uint), ('language', c.c_char * 52), ('archive_item', c.c_char * 96), ('channels', c.c_char * 128)]
+              ('music_mb',c.c_uint),('contents_mb',c.c_uint),('linux_home_mb',c.c_uint),('reserved_mb',c.c_uint), ('game_launcher', c.c_uint), ('launcher_files', c.c_void_p), ('launcher_count', c.c_uint), ('language', c.c_char * 52), ('archive_item', c.c_char * 96), ('channels', c.c_char * 128)] + [(name, c.c_uint) for name in ('recovery_attempts','stage_ready','manifest_ready','downloaded_assets','downloaded_launchers','applied','populated','committed','apa_sectors')]
 def function(source,signature):
     start=source.index(signature);depth=0
     for token in re.finditer(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|/\*.*?\*/|//[^\n]*|[{}]',source[start:],re.S):
@@ -22,7 +22,7 @@ def function(source,signature):
     raise AssertionError(signature)
 with tempfile.TemporaryDirectory(prefix='hdd-install-choices-') as directory:
     d=Path(directory)
-    subprocess.run(['gcc','-std=c99','-shared','-fPIC','-O2','-Wall','-Wextra','-Werror','-I',str(root/'include'),str(root/'src/hdd_install_plan.c'),'-o',str(d/'plan.so')],check=True)
+    subprocess.run(['gcc','-std=c99','-shared','-fPIC','-O2','-Wall','-Wextra','-Werror','-I',str(root/'include'),str(root/'src/hdd_install_plan.c'), str(root / 'src/hdd_install_recovery.c'),'-o',str(d/'plan.so')],check=True)
     lib=c.CDLL(str(d/'plan.so'))
     lib.hddInstallRequiredMb.argtypes=[c.POINTER(Install),c.c_uint]
     lib.hddInstallPartitionMb.argtypes=[c.POINTER(Install),c.c_uint]

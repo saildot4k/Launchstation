@@ -1904,6 +1904,52 @@ static void stopDs34Input(void)
 }
 #endif
 
+/* Fault-only reset. No calls to dead storage, PAD, audio or card servers.
+ * The UI can run this while the installer keeps an outstanding RPC's buffers
+ * pinned. Its EE clients are rebuilt only after that worker has unwound. */
+int resetInstallerIopTransport(void)
+{
+#ifdef NO_IOP_RESET
+	return 0;
+#else
+	u64 started = Timer();
+	padSuspendForRecovery();
+	resetUsbHostControllerBeforeIopReset();
+	SifInitRpc(0);
+	while (!SifIopReset("", 0)) {
+		if (Timer() - started >= 15000) return 0;
+	}
+	while (!SifIopSync()) {
+		if (Timer() - started >= 15000) return 0;
+	}
+	SifInitRpc(0);
+	pccf_bus_owned = pccf_loaded = 0;
+	iop_reset_generation++;
+	padForgetAfterRecovery();
+	clearPadPressState();
+	return 1;
+#endif
+}
+int reloadInstallerCoreAfterReset(void)
+{
+	/* Worker is finished; its old library mutexes and RPC buffers are free. */
+	fileXioExit();
+	SifLoadFileExit();
+	clearIopModuleState();
+	SifLoadFileInit();
+	SifInitIopHeap();
+	initsbv_patches();
+	ensureCoreIoStackReady();
+	dashSoundShutdown(); /* generation changed: discard EE audio state only */
+#ifdef DS34
+	loadDs34InputModules();
+#endif
+	if (!setupPad()) return 0;
+	clearPadPressState();
+	startKbd();
+	return 1;
+}
+
 int (*iopResetBlocked)(void) = NULL;
 
 static void resetRuntimeDeviceState(int show_status)

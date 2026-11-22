@@ -25,7 +25,7 @@ class Install(c.Structure):
     _fields_ = [('flags', c.c_uint), ('jail', c.c_int), ('commit', c.c_char * 41),
                 ('stage', c.c_char * 1024), ('ca_path', c.c_char * 1024), ('error', c.c_char * 256),
                 ('sizes', c.c_uint32 * 15), ('hashes', (c.c_char * 41) * 15),
-                ('archives', (c.c_char * 128) * 2), ('linux', Extent * 10), ('owner', c.c_ubyte * 20), ('owned', c.c_uint), ('ready', c.c_uint), ('ca_data', c.c_void_p), ('ca_size', c.c_uint), ('music_mb', c.c_uint), ('contents_mb', c.c_uint), ('linux_home_mb', c.c_uint), ('reserved_mb', c.c_uint), ('game_launcher', c.c_uint), ('launcher_files', c.c_void_p), ('launcher_count', c.c_uint), ('language', c.c_char * 52), ('archive_item', c.c_char * 96), ('channels', c.c_char * 128)]
+                ('archives', (c.c_char * 128) * 2), ('linux', Extent * 10), ('owner', c.c_ubyte * 20), ('owned', c.c_uint), ('ready', c.c_uint), ('ca_data', c.c_void_p), ('ca_size', c.c_uint), ('music_mb', c.c_uint), ('contents_mb', c.c_uint), ('linux_home_mb', c.c_uint), ('reserved_mb', c.c_uint), ('game_launcher', c.c_uint), ('launcher_files', c.c_void_p), ('launcher_count', c.c_uint), ('language', c.c_char * 52), ('archive_item', c.c_char * 96), ('channels', c.c_char * 128)] + [(name, c.c_uint) for name in ('recovery_attempts','stage_ready','manifest_ready','downloaded_assets','downloaded_launchers','applied','populated','committed','apa_sectors')]
 class Entry(c.Structure):
     _fields_ = [('name', c.c_char * 1024), ('link', c.c_char * 1024)] + [
         (n, c.c_uint32) for n in ('size', 'mode', 'uid', 'gid', 'mtime', 'major', 'minor')] + [('type', c.c_char)]
@@ -49,6 +49,7 @@ class Disk:
         self.size = mib * 1024 * 1024
         os.ftruncate(self.fd, self.size)
         self.fail = False
+        self.writes = None
         def read(_, lba, n, target):
             if self.fail or (lba + n) * 512 > self.size: return -errno.EIO
             data = os.pread(self.fd, n * 512, lba * 512)
@@ -56,7 +57,9 @@ class Disk:
             c.memmove(target, data, len(data)); return 0
         def write(_, lba, n, data):
             if self.fail or (lba + n) * 512 > self.size: return -errno.EIO
-            return 0 if os.pwrite(self.fd, c.string_at(data, n * 512), lba * 512) == n * 512 else -errno.EIO
+            payload = c.string_at(data, n * 512)
+            if self.writes is not None: self.writes.append((lba, n, payload))
+            return 0 if os.pwrite(self.fd, payload, lba * 512) == n * 512 else -errno.EIO
         def zero(_, lba, n):
             if self.fail or (lba + n) * 512 > self.size: return -errno.EIO
             offset = lba * 512
@@ -96,7 +99,7 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-') as directory:
     subprocess.run(['gcc', '-shared', '-fPIC', '-O1', '-g', '-std=c99', '-Wall', '-Wextra', '-Werror',
                     '-fsanitize=undefined', '-I', str(ROOT / 'include'),
                     *[str(ROOT / 'src' / (n + '.c')) for n in
-                      ('hdd_install_plan', 'install_archive', 'install_tar', 'install_ext2', 'install_psbbn_media')],
+                      ('hdd_install_plan', 'hdd_install_recovery', 'install_archive', 'install_tar', 'install_ext2', 'install_psbbn_media')],
                     '-lz', '-o', str(libpath)], check=True)
     lib = c.CDLL(str(libpath))
     lib.hddInstallCommit.argtypes = [c.c_char_p, c.c_void_p]
@@ -137,6 +140,38 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-') as directory:
         assert ('hdd0:__common:pfs:/APPS/' in text) == bool(flags & 2 and not jail)
         assert lib.hddInstallConfig(c.byref(settings), 0, config, 12) < 0
     print('PASS: commit/asset/version metadata bounds and layout-specific boot settings')
+
+    # Public writer API: payload sectors are written once, in existing-RPC-sized
+    # batches. A partial final block includes zero padding in that same write.
+    disk = Disk(d / 'batches.img', 128); fs = c.c_void_p()
+    assert lib.installExt2Create(c.byref(fs), c.byref(disk.io), 0, disk.size // 512, 1) == 0
+    disk.writes = []
+    e = Entry(name=b'payload', type=b'0', size=32768 + 17, mode=0o644)
+    assert lib.installExt2Begin(fs, c.byref(e)) == 0
+    assert lib.installExt2Data(fs, b'Z' * e.size, e.size) == 0
+    assert lib.installExt2End(fs) == 0
+    payload_writes = [w for w in disk.writes if w[2].startswith(b'Z' * 512)]
+    # One complete 32 KiB batch, followed by a zero-padded final block.
+    assert [(n, len(data)) for _, n, data in payload_writes] == [(64, 32768)]
+    tail = [w for w in disk.writes if w[2].startswith(b'Z' * 17 + b'\0')]
+    assert len(tail) == 1 and tail[0][1] == 8 and tail[0][2] == b'Z' * 17 + bytes(4096 - 17)
+    for lba, sectors, _ in payload_writes + tail:
+        for block in range(lba, lba + sectors, 8):
+            assert sum(start <= block < start + n for start, n, _ in disk.writes) == 1
+    assert lib.installExt2Finish(fs) == 0
+    lib.installExt2Free(fs); disk.close()
+    if shutil.which('e2fsck'):
+        subprocess.run(['e2fsck', '-fn', str(d / 'batches.img')], check=True, capture_output=True)
+    disk = Disk(d / 'batch-failure.img', 128); fs = c.c_void_p()
+    assert lib.installExt2Create(c.byref(fs), c.byref(disk.io), 0, disk.size // 512, 1) == 0
+    e = Entry(name=b'payload', type=b'0', size=32768, mode=0o644)
+    assert lib.installExt2Begin(fs, c.byref(e)) == 0
+    assert lib.installExt2Data(fs, b'Z' * e.size, e.size) == 0
+    disk.fail = True
+    assert lib.installExt2End(fs) == -errno.EIO and lib.installExt2Finish(fs) < 0
+    assert os.pread(disk.fd, 2, 1024 + 58) == b'\x02\x00'  # Never marked clean.
+    lib.installExt2Free(fs); disk.close()
+    print('PASS: one write per payload block, 32 KiB batches, zero-padded tails and deferred-write errors keep ext2 unclean')
 
     # Both archive formats: exact payload, CRC failures, traversal and truncated input.
     out = io.BytesIO()
@@ -207,6 +242,14 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-') as directory:
 
     noop = (BEGIN(lambda _, e: 0), DATA(lambda _, p, n: 0), FLUSH(lambda _: 0))
     discard = Sink(None, *noop)
+    probes = []
+    bounded = AREAD(lambda _, offset, target, count: probes.append((offset, count)) or -errno.EIO)
+    large = ArchiveIo(None, bounded, DATA(lambda *_: 0))
+    for compressed in (512 * 1024 * 1024 + 1, 979061613, 1024 * 1024 * 1024):
+        probes.clear()
+        assert lib.installTarGzip(c.byref(large), compressed, c.byref(discard)) == -errno.EIO and probes
+    probes.clear()
+    assert lib.installTarGzip(c.byref(large), 1024 * 1024 * 1024 + 1, c.byref(discard)) == -errno.EINVAL and not probes
     valid = tar([('safe', '0', b'payload')])
     damaged = bytearray(valid); damaged[-8] ^= 1
     for payload in (valid[:-8], bytes(damaged), valid + b'junk', tar([('../escape', '0', b'x')]),

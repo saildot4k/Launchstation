@@ -79,7 +79,9 @@ c = r'''
 #define MBEDTLS_ERR_SSL_WANT_READ -10
 #define MBEDTLS_ERR_SSL_WANT_WRITE -11
 #define MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY -12
-typedef struct { int ssl; } HttpsTls;
+typedef struct { int ssl, waiting; } HttpsTls;
+static const unsigned char *https_ca_bundle;
+static unsigned https_ca_size;
 /* Capture exact hash input rather than substituting a crypto library in CI. */
 typedef struct { unsigned char bytes[131072]; size_t len; } mbedtls_sha256_context;
 static int hash_starts, hash_updates, hash_finishes;
@@ -94,8 +96,8 @@ static int mbedtls_sha256_finish(mbedtls_sha256_context *s,unsigned char *out) {
 static void mbedtls_sha256_free(mbedtls_sha256_context *s) {(void)s;}
 static const char *replies[8];
 static char requests[8][4096], hosts[8][256], output[131072];
-static int connections, closed, reply_at, read_step, output_at, write_step;
-static int want_read, timeout, fail_write, fail_read;
+static int connections, closed, reply_at, read_step, output_at, write_step, reply_number, request_number;
+static int want_read, timeout, fail_write, fail_read, fail_send, fail_after;
 static int progress_calls,progress_done,progress_total;
 static int ui_calls,ui_done,ui_total,download_closes,download_removes,fail_close;
 static void set_error(char *e,int cap,const char *s,int r) {
@@ -109,17 +111,20 @@ static int tls_open(HttpsTls *tls,const char *host,const char *ca,char *e,int n)
 static void tls_free(HttpsTls *tls) {(void)tls;closed++;}
 static int ssl_write_all(HttpsTls *tls,const void *p,int n,char *e,int cap) {
     (void)e;(void)cap;assert(n>0 && n<4096);
-    memcpy(requests[tls->ssl],p,n);requests[tls->ssl][n]=0;return 0;
+    if(fail_send){fail_send=0;return -1;}
+    (void)tls;reply_number=request_number++;reply_at=0;assert(reply_number<8);
+    memcpy(requests[reply_number],p,n);requests[reply_number][n]=0;return 0;
 }
 static int wait_tls_io(HttpsTls *tls,int r) {(void)tls;(void)r;return timeout?-1:0;}
 static int mbedtls_ssl_read(int *ssl,unsigned char *p,size_t n) {
     size_t left;
     if(fail_read){fail_read=0;return -29056;}
+    if(fail_after&&reply_at>=fail_after)return -29056;
     if(want_read){want_read=0;return MBEDTLS_ERR_SSL_WANT_READ;}
-    assert(replies[*ssl]);left=strlen(replies[*ssl])-reply_at;
+    (void)ssl;assert(replies[reply_number]);left=strlen(replies[reply_number])-reply_at;
     if(n>left)n=left;
     if(read_step && n>(size_t)read_step)n=read_step;
-    memcpy(p,replies[*ssl]+reply_at,n);reply_at+=(int)n;return (int)n;
+    memcpy(p,replies[reply_number]+reply_at,n);reply_at+=(int)n;return (int)n;
 }
 static int genLseek(int fd,int offset,int whence) {
     assert(fd==5 && offset==0 && whence==SEEK_SET);output_at=0;return 0;
@@ -134,8 +139,8 @@ static int genWrite(int fd,void *p,int n) {
 static void reset(void) {
     memset(replies,0,sizeof(replies));memset(requests,0,sizeof(requests));
     memset(hosts,0,sizeof(hosts));memset(output,0,sizeof(output));
-    connections=closed=reply_at=read_step=output_at=write_step=0;
-    want_read=timeout=fail_write=fail_read=0;
+    connections=closed=reply_at=read_step=output_at=write_step=reply_number=request_number=0;
+    want_read=timeout=fail_write=fail_read=fail_send=fail_after=0;
     progress_calls=progress_done=progress_total=0;
     ui_calls=ui_done=ui_total=download_closes=download_removes=fail_close=0;
 }
@@ -151,8 +156,9 @@ for signature in ('static int header_value(', 'static int decode_chunked(',
     c += function(signature)
 c += http[http.index('typedef struct {\n    char line[40];'):
           http.index('static int download_write(')]
+c += http[http.index('/* Only a scoped download batch'):http.index('static int downloadOnce(')]
 for signature in ('static int download_write(', 'static int download_chunked_consume(',
-                  'int httpsDownloadFd('):
+                  'static int downloadOnce(', 'int httpsDownloadFd('):
     c += function(signature)
 c += r'''
 #define FIO_O_WRONLY 1
@@ -178,6 +184,7 @@ static void observe_download(int done,int total,void *arg) {
     progress_calls++;progress_done=done;progress_total=total;
 }
 static int download(int limit,int *size,unsigned char *hash,char *error) {
+    progress_calls=progress_done=progress_total=0;
     return httpsDownloadFd("https://github.com/release",5,"WLE-UPDATE-CA.PEM",
                            limit,size,hash,observe_download,&progress_calls,error,256);
 }
@@ -215,6 +222,69 @@ int main(void) {
         httpsResponseFree(&response);
     }
 
+
+    /* Same-host files reuse the live TLS object, including full chunk trailers. */
+    reset();httpsDownloadBatchBegin();
+    replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nABC";
+    replies[1]="HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nDEF\r\n0\r\nDigest: ignored\r\nX-Test: ok\r\n\r\n";
+    replies[2]="HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+    read_step=1;
+    assert(!download(100,&size,NULL,error)&&size==3&&!strcmp(output,"ABC"));
+    assert(!download(100,&size,NULL,error)&&size==3&&!strcmp(output,"DEF"));
+    assert(!download(100,&size,NULL,error)&&size==0&&!output_at);
+    assert(connections==1&&!closed&&request_number==3);
+    assert(strstr(requests[0],"Connection: keep-alive"));
+    httpsDownloadBatchEnd();assert(closed==1);
+    /* Cached peer closes before the next headers: one bounded, fresh GET. */
+    reset();httpsDownloadBatchBegin();
+    replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nABC";
+    replies[1]="";replies[2]="HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nXYZ";
+    assert(!download(100,&size,NULL,error));
+    assert(!download(100,&size,NULL,error)&&size==3&&!strcmp(output,"XYZ")&&!error[0]);
+    assert(connections==2&&closed==1&&request_number==3);httpsDownloadBatchEnd();assert(closed==2);
+    /* An explicit close, HTTP/1.0 or a new origin requires a fresh session. */
+    for(int kind=0;kind<3;kind++){
+        reset();httpsDownloadBatchBegin();
+        replies[0]=kind==0?"HTTP/1.1 200 OK\r\nConnection: keep-alive, CLOSE\r\nContent-Length: 3\r\n\r\nABC":
+                   kind==1?"HTTP/1.0 200 OK\r\nContent-Length: 3\r\n\r\nABC":
+                           "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nABC";
+        replies[1]="HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nDEF";
+        assert(!download(100,&size,NULL,error));
+        assert(!httpsDownloadFd(kind==2?"https://other.example/file":"https://github.com/release",5,
+                "WLE-UPDATE-CA.PEM",100,&size,NULL,NULL,NULL,error,sizeof(error)));
+        assert(connections==2&&closed==1);httpsDownloadBatchEnd();assert(closed==2);
+    }
+
+    /* Trust snapshot changes also invalidate the previously authenticated socket. */
+    reset();httpsDownloadBatchBegin();
+    replies[0]=replies[1]="HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nABC";
+    assert(!download(100,&size,NULL,error));https_ca_bundle=(const unsigned char*)"CA";https_ca_size=2;
+    assert(!download(100,&size,NULL,error)&&connections==2&&closed==1);
+    httpsDownloadBatchEnd();https_ca_bundle=NULL;https_ca_size=0;
+    /* Server can close either while sending the request or receiving its headers. */
+    reset();httpsDownloadBatchBegin();
+    replies[0]=replies[1]="HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nABC";
+    assert(!download(100,&size,NULL,error));fail_send=1;
+    assert(!download(100,&size,NULL,error)&&connections==2&&closed==1);httpsDownloadBatchEnd();
+    /* A failed fresh retry terminates instead of looping indefinitely. */
+    reset();httpsDownloadBatchBegin();
+    replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nABC";replies[1]=replies[2]="";
+    assert(!download(100,&size,NULL,error));
+    assert(download(100,&size,NULL,error)<0&&connections==2&&closed==2&&request_number==3);
+    httpsDownloadBatchEnd();assert(closed==2);
+    /* A mid-body failure preserves the partial file and never appends a retry. */
+    reset();httpsDownloadBatchBegin();
+    replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nABC";
+    char *interrupted=malloc(33000);assert(interrupted);
+    int header=sprintf(interrupted,"HTTP/1.1 200 OK\r\nContent-Length: 32769\r\n\r\n");
+    memset(interrupted+header,'Z',32769);interrupted[header+32769]=0;replies[1]=interrupted;
+    assert(!download(100,&size,NULL,error));read_step=1024;fail_after=20000;
+    assert(download(32769,&size,NULL,error)<0&&output_at>0&&size==0&&connections==1&&closed==1&&request_number==2);
+    httpsDownloadBatchEnd();free(interrupted);
+    /* A malformed or incomplete trailer cannot leave a reusable connection. */
+    reset();httpsDownloadBatchBegin();
+    replies[0]="HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nABC\r\n0\r\nX-Test: truncated";
+    assert(download(100,&size,NULL,error)<0&&closed==1);httpsDownloadBatchEnd();assert(closed==1);
     reset();replies[0]="HTTP/1.1 302 Found\r\nLocation: https://objects.githubusercontent.com/pkg\r\n\r\n";
     replies[1]="HTTP/1.1 307 Temporary Redirect\r\nLocation: /final\r\n\r\n";
     replies[2]="HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nABCDEF";

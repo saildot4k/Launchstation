@@ -124,6 +124,7 @@ void hddInstallLogFlush(HddInstall *in) { (void)in; }
 static void filerSizeCacheInvalidate(const char *s) { assert(s); }
 int hddInstallApply(HddInstall *in) { assert(in); applied++; return apply_error; }
 int hddInstallMountStage(HddInstall *in) { assert(in && applied); mounted++; return mount_error; }
+int hddInstallFindStage(HddInstall *in) { assert(in && mounted); return 0; }
 int hddInstallPsbbnPayload(void *in, const HddFormatIo *io) { (void)in; (void)io; return 0; }
 int hddInstallFinish(const HddFormatPlan *p, const char *mbr, int *started,
                      int (*populate)(void *, const HddFormatIo *), void *context) {
@@ -152,6 +153,7 @@ int main(void) {
     for (unsigned i = 0; i < sizeof(profiles) / sizeof(profiles[0]); i++) {
         in.flags = profiles[i];
         for (int failure = 0; failure <= 4; failure++) {
+            in.applied = in.populated = in.committed = 0;
             applied = mounted = finished = enabled = cleaned = unmounted = 0;
             apply_error = failure == 1 ? -EIO : 0; mount_error = failure == 2 ? -EIO : 0;
             finish_error = failure == 3 ? -EIO : 0; boot_error = failure == 4 ? -EIO : 0;

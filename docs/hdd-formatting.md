@@ -153,12 +153,14 @@ confirmation remains.
 
 Japanese also installs DP's Japanese PSBBN kernel and latest Japanese channel
 archive into `__linux.9`. Its download can approach 1 GiB and is included in
-overall/file progress and archive preflight. OSDMenu uses DP's corresponding
+overall/file progress and streaming archive validation. The metadata and tar
+reader share a 1 GiB compressed-archive limit for the Japanese channels.
+OSDMenu uses DP's corresponding
 supported language code (Japanese maps to `jap`; unsupported OSD languages use
 English). OPL selects the matching installed language file when available.
 
 Enabling PS2 Linux downloads `PS2Linux.tar.gz` from the same Archive.org item,
-checks its metadata size and preflights it along with
+checks its metadata size and validates it during extraction along with
 the PSBBN and language archives. Both Linux kernels come from the pinned DP
 Git revision. Permissions, links and device nodes are preserved; the home
 filesystem is prepared for first boot. Holding Circle boots the installed NTSC
@@ -195,13 +197,30 @@ fetch DP's referenced `extras.zip`. PSBBN installations fetch the newest
 complete system and selected language versions from DP's
 [Archive.org collection](https://archive.org/details/psbbn-definitive-patch-v4.1),
 using its published sizes. Archive decompression, CRCs, paths,
-required boot files and capacity bounds are checked after downloading and before
-installing the software. Staged file sizes are checked immediately before
+required boot files and capacity bounds are checked during installation. Each
+archive is decompressed once, with no separate preflight option. Invalid archives
+can leave a partial installation; boot activation remains conditional on complete
+success. Staged file sizes are checked immediately before
 copying installed files. Downloads and verification report file progress; DNS,
 connection, TLS and response-header stages are also shown so connection setup
 does not appear as an unexplained static download screen. The HTTPS idle
 budget also bounds repeated ready-but-no-progress socket retries; actual
 transferred bytes reset that budget.
+
+Installer file downloads reuse one TLS connection for consecutive requests to
+the same host and CA context. The batch is closed before the worker returns or
+the IOP is reset. Redirects, explicit server closes and host/CA changes discard
+the connection; responses must have a complete Content-Length body or complete
+chunk framing including trailers before reuse. A stale reused connection gets
+one fresh attempt if it fails before the file payload. Partial-body failures
+stop the operation, preserving the existing staging/error behavior. Metadata
+requests and updater downloads outside this scope retain their close behavior.
+
+The ext2 writer supplies complete, zero-padded data blocks and initializes
+pointer blocks separately. Adjacent file-data blocks are batched into up to
+32 KiB per raw RPC, without a preliminary zero write. Pending data must be
+written successfully before publishing the completed inode or marking the
+filesystem clean. Raw I/O errors propagate through the installation failure path.
 
 An ownership marker protects cleanup. Successful installation removes the
 temporary files; a failed download or install leaves the folder for inspection.
@@ -283,7 +302,7 @@ open at completion or failure.
 Two progress bars stay visible from preparation through completion. The upper
 bar is a monotonic, weighted estimate across preparation, formatting, downloading,
 checks, installation and final boot/storage setup. Download progress adds bytes
-across all selected files; archive checks/extraction add compressed bytes across
+across all selected files; archive extraction adds compressed bytes across
 the selected system, language and optional Linux archives. Starting a new file
 does not reset overall progress. Only a successful final result reaches 100%;
 failures retain the last overall value, and IOP resets preserve it in EE memory.
@@ -321,3 +340,47 @@ and that the diagnostic layout stays within its panel across display heights.
 and without Linux, individual file-write progress, and I/O errors. Log/view tests
 check both bars, large byte counters, phase transitions, file resets and the
 success-only completion rule.
+
+### Recovery from ATA timeouts
+
+During installer download and software installation jobs, ATA timeout `-502`
+stops further IOP calls, including disk-log writes, unmounts and flushes. An
+installer RPC or server binding that does not complete within 60 seconds also
+requests recovery. The UI performs an emergency IOP reset without first calling
+unresponsive storage, audio or controller servers. Outstanding RPC buffers stay
+alive until the reset is acknowledged; only after the worker unwinds are the EE
+clients recreated and controller, network and storage drivers reloaded. This
+does not depend on the controller responding. The DS34 polling thread is also
+stopped before its clients and buffers are reused.
+
+There are at most two automatic retries across the installation. Completed,
+closed downloads are retained after checking their sizes; a partial download is
+truncated and downloaded again. The pinned manifest and staging ownership marker
+remain in use. The drive is never formatted again by recovery. A partially
+completed partition/app setup reuses only the expected installer-owned partition
+names with matching types, sizes and APA bounds. Its new PFS volumes are
+reinitialized before copying their files again, including when their first PFS
+format was interrupted. The staging volume is preserved.
+
+An interrupted PSBBN filesystem population rebuilds its ext2 filesystems from
+the cached archives and reapplies PFS overlays and generated settings. It does
+not resume an arbitrary tar entry or a buffered filesystem write. Completed
+population is retained if the later MBR/boot stage needs retrying, and completed
+boot setup is not repeated for a cleanup retry. RAM diagnostics survive resets
+and disk logging resumes once storage is available again.
+
+If timeouts persist, a final reset restores the controller and reports the
+incomplete installation, preserving cached downloads. If the IOP cannot
+acknowledge the reset within 15 seconds, or core/controller initialization
+fails, the GUI displays a restart-console message. It does not release buffers
+that the old IOP might still reference or enter an unlimited reset loop.
+Checkpoints are held in EE memory for the current installer session; they do
+not provide resume after restarting the console or Launchstation.
+
+`tests/test_hdd_installer_recovery.py` exercises returned faults, stalled calls
+and bindings, the UI/reset handshake, client reconstruction order and failed
+reset handling. `tests/test_hdd_installer_retry.py` checks the retry limit and
+download/app/population/boot checkpoints. The staging, launcher, app and
+partition tests also cover partial-file replacement, completed-download reuse,
+ownership mismatches and invalid partition geometry. Real timeout recovery and
+controller reconnection still require PS2 hardware testing.

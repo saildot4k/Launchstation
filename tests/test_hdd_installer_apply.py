@@ -35,11 +35,11 @@ code = r'''
 #define HDIOC_FLUSH 1
 typedef uint64_t u64;
 typedef int64_t s64;
-typedef struct { unsigned mode,attr; } iox_stat_t;
+typedef struct { unsigned mode,attr,size,private_0,private_5; } iox_stat_t;
 static char work[1024];
 static const char *mounted[4];
 static unsigned mounts,attrcalls,partitions,injected,psbbn_parts;
-static int attr_error;
+static int attr_error, replay;
 static u64 Timer(void){return 1;}
 static void dashWorkerStatus(const char*s,unsigned n,unsigned total){assert(s);(void)n;(void)total;}
 static int map(const char*p,char*out,size_t cap) {
@@ -62,20 +62,29 @@ static int genWrite(int fd,const void*p,unsigned n){if(n>31)n=31;return write(fd
 static int genMkdir(const char*p,int mode){char path[4096];int r=map(p,path,sizeof(path));return r<0?r:mkdir(path,mode)<0?-errno:0;}
 static int genRemove(char*p){char path[4096];int r=map(p,path,sizeof(path));return r<0?r:unlink(path);}
 static int genRmdir(char*p){char path[4096];int r=map(p,path,sizeof(path));return r<0?r:rmdir(path);}
-static int fileXioGetStat(const char*p,iox_stat_t*s){char path[4096];struct stat st;int r=map(p,path,sizeof(path));if(r<0)return r;if(stat(path,&st)<0)return -errno;s->mode=st.st_mode;return 0;}
+static int fileXioGetStat(const char*p,iox_stat_t*s){
+    char path[4096];struct stat st;
+    if(!strncmp(p,"hdd0:PP.",8)){
+        snprintf(path,sizeof(path),"%s/%s",work,p+5);if(stat(path,&st)<0)return -errno;
+        memset(s,0,sizeof(*s));s->mode=0x100;s->size=128*2048u;s->private_5=1024*2048u;return 0;
+    }
+    int r=map(p,path,sizeof(path));if(r<0)return r;if(stat(path,&st)<0)return -errno;s->mode=st.st_mode;return 0;
+}
+static int fileXioFormat(const char*fs,const char*p,const char*args,int n){
+    assert(!strcmp(fs,"pfs:")&&!strncmp(p,"hdd0:PP.",8)&&n==sizeof(int)&&*(const int*)args==8192&&replay);return 0;
+}
 static int fileXioChStat(const char*p,const iox_stat_t*s,int flags){assert(strstr(p,"pfs2:/APPS") && s->attr==0xc4a7 && flags==FIO_CST_ATTR);attrcalls++;return attr_error;}
 static int fileXioMount(const char*m,const char*p,int flags){unsigned i=m[3]-'0';assert(i<4&&!mounted[i]&&flags==FIO_MT_RDWR);mounted[i]=p+5;mounts++;return 0;}
 static int fileXioUmount(const char*m){unsigned i=m[3]-'0';assert(i<4&&mounted[i]);mounted[i]=NULL;mounts--;return 0;}
 static int hddMakeFilesystem(int mb,char*name,int group){char path[4096];assert(mb==128&&group==FS_GROUP_APPLICATION);partitions++;snprintf(path,sizeof(path),"%s/%s",work,name);assert(!mkdir(path,0700));return mb;}
-static int InjectHddAppLauncher(const char*p,const char*elf,const char*title,const void*icon,unsigned size){assert(p&&title&&icon&&size&&strstr(elf,"ata0:/APPS/")&&partitions==injected+1);injected++;return 0;}
+static int InjectHddAppLauncher(const char*p,const char*elf,const char*title,const void*icon,unsigned size){assert(p&&title&&icon&&size&&strstr(elf,"ata0:/APPS/")&&(replay||partitions==injected+1));injected++;return 0;}
 static int InjectHddAppLauncherWithArg(const char*p,const char*elf,const char*title,const void*icon,unsigned size,const char*arg){
-    assert(!strcmp(p,"PP.LAUNCHER")&&title&&icon&&size&&partitions==injected+1);
+    assert(!strcmp(p,"PP.LAUNCHER")&&title&&icon&&size&&(replay||partitions==injected+1));
     assert(strstr(elf,"hdd0:__system:pfs:/launcher/"));
     if(strstr(elf,"nhddl"))assert(arg&&!strcmp(arg,"-mode=ata"));else assert(!arg&&strstr(elf,"OPNPS2LD.ELF"));
     injected++;return 0;
 }
 int hddInstallPsbbnPartitions(HddInstall*in){assert(in->jail&&(in->flags&7)==7);psbbn_parts++;return 0;}
-int hddInstallPsbbnPreflight(HddInstall*in){(void)in;return 0;}
 '''
 code += r'''
 
@@ -120,6 +129,11 @@ int main(int argc,char**argv){
     if(in.flags&2){snprintf(path,sizeof(path),"%s/%s/APPS/APP_WLE-R3Z/WLE-R3Z.ELF",work,in.jail?"ata":"__common");assert(!access(path,F_OK));}
     if(in.flags&1){snprintf(path,sizeof(path),"%s/__system/osdmenu/hosdmenu.elf",work);assert(!access(path,F_OK));}
     if(!in.jail&&(in.flags&1)){snprintf(path,sizeof(path),"%s/__sysconf/osdmenu/OSDMBR.CNF",work);assert(!access(path,F_OK));}
+    /* Replaying an incomplete apply overwrites generated/app files and
+     * reuses only installer-owned partitions, without creating duplicates. */
+    in.recovery_attempts=1;in.apa_sectors=131072u*2048;replay=1;
+    assert(hddInstallApply(&in)==0&&!mounts);
+    assert(partitions==(in.jail?3:0)&&injected==partitions*2);
     hddInstallRelease(&in);return 0;
 }
 '''
@@ -138,7 +152,7 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
     d = Path(directory); (d / 'test.c').write_text(code)
     subprocess.run(['gcc', '-std=c99', '-Wall', '-Wextra', '-Werror',
                     '-I', str(root / 'include'), str(d / 'test.c'),
-                    *[str(root / 'src' / (n + '.c')) for n in ('hdd_install_plan','install_archive','save_archive','save_lzari','save_sign')],
+                    *[str(root / 'src' / (n + '.c')) for n in ('hdd_install_plan','hdd_install_recovery','install_archive','save_archive','save_lzari','save_sign')],
                     '-lz', '-o', str(d / 'test')], check=True)
     extra = io.BytesIO()
     with zipfile.ZipFile(extra, 'w', zipfile.ZIP_DEFLATED) as z:

@@ -31,6 +31,7 @@ code = r'''
 #include <stdlib.h>
 #include <string.h>
 #define HTTPS_IO 16384
+#define HTTPS_HEADER_MAX 12288
 #define CAP 400000
 static unsigned char original[CAP], output[CAP];
 static unsigned offset, shifted_sectors, writes, short_step;

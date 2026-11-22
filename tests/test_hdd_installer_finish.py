@@ -123,6 +123,6 @@ int main(void) {
 with tempfile.TemporaryDirectory(prefix='hdd-installer-finish-') as temp:
     p = Path(temp); (p / 'test.c').write_text(code)
     subprocess.run(['gcc', '-std=c99', '-Wall', '-Wextra', '-Werror', '-I', str(root / 'include'),
-                    str(p / 'test.c'), str(root / 'src/hdd_format.c'), str(root / 'src/hdd_format_upcase.c'),
+                    str(p / 'test.c'), str(root / 'src/hdd_install_recovery.c'), str(root / 'src/hdd_format.c'), str(root / 'src/hdd_format_upcase.c'),
                     '-o', str(p / 'test')], check=True)
     subprocess.run([str(p / 'test')], check=True, timeout=10)
