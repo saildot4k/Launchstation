@@ -74,6 +74,8 @@ typedef struct { int sock, ssl, conf, ca, ctr, entropy; } HttpsTls;
 typedef int (*RngFn)(void *,unsigned char *,size_t);
 static int handshake_result, parse_result, want_once, timeout;
 static int required_mode, hostname_set, frees, handshakes, waits, verifies, connects, disconnects;
+static int file_unavailable, file_reads;
+static const char *expected_ca;
 static uint32_t verify_flags;
 static u32 https_entropy_network_ticks;
 #define INIT(name) static void name(int *p) { *p=1; }
@@ -88,10 +90,12 @@ static void mbedtls_strerror(int code,char *out,size_t cap) {
 }
 static unsigned char *read_file(const char *path,int *size) {
     assert(!strcmp(path,"WLE-UPDATE-CA.PEM"));
+    file_reads++;
+    if(file_unavailable)return NULL;
     unsigned char *out=malloc(3);assert(out);memcpy(out,"CA",3);*size=2;return out;
 }
 static int mbedtls_x509_crt_parse(int *ca,const unsigned char *pem,size_t n) {
-    assert(*ca && n==3 && !strcmp((const char *)pem,"CA"));return parse_result;
+    assert(*ca && n==strlen(expected_ca)+1 && !strcmp((const char *)pem,expected_ca));return parse_result;
 }
 static int ps2_tcp_connect(int *sock,const char *host) {
     assert(!strcmp(host,"api.github.com"));*sock=42;connects++;return 0;
@@ -164,11 +168,14 @@ program += source[source.index('static HttpsStatusCallback https_status_callback
 program += function("static void set_error(")
 program += function("static void tls_free(")
 program += function("static void tls_verify_error(")
+program += source[source.index('static const unsigned char *https_ca_bundle;'):
+                  source.index('static int tls_open(')]
 program += function("static int tls_open(")
 program += r'''
 static void reset(int result,uint32_t flags) {
     handshake_result=result;verify_flags=flags;
     parse_result=want_once=timeout=0;
+    file_unavailable=file_reads=0;expected_ca="CA";
     required_mode=hostname_set=frees=handshakes=waits=verifies=connects=disconnects=0;
 }
 static void expect_failure(uint32_t flags,const char *detail) {
@@ -188,6 +195,29 @@ int main(void) {
     assert(!tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error)));
     assert(required_mode==1 && hostname_set==1 && verifies==1 && !frees && status_updates==3);
     httpsSetStatusCallback(NULL,NULL);httpsStatus("ignored");assert(status_updates==3);
+    tls_free(&tls);
+    /* A storage/IOP reset may remove the original CA path. The borrowed
+     * snapshot need not have a NUL terminator and must retain strict TLS. */
+    const unsigned char snapshot[]={'R','A','M'};
+    reset(0,0);expected_ca="RAM";file_unavailable=1;
+    httpsSetCaBundle(snapshot,sizeof(snapshot));
+    assert(!tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error)));
+    assert(!file_reads && required_mode==1 && hostname_set==1 && verifies==1);
+    tls_free(&tls);assert(!memcmp(snapshot,"RAM",sizeof(snapshot)));
+    reset(MBEDTLS_ERR_X509_CERT_VERIFY_FAILED,MBEDTLS_X509_BADCERT_NOT_TRUSTED);
+    expected_ca="RAM";file_unavailable=1;
+    assert(tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error))<0);
+    assert(!file_reads && required_mode==1 && verifies && frees==1 && strstr(error,"not trusted"));
+    reset(0,0);expected_ca="RAM";file_unavailable=1;parse_result=-1;
+    assert(tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error))<0);
+    assert(!file_reads && !connects && frees==1 && strstr(error,"parse HTTPS CA"));
+    httpsSetCaBundle(NULL,0);
+    reset(0,0);file_unavailable=1;
+    assert(tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error))<0);
+    assert(file_reads==1 && !connects && frees==1 && strstr(error,"read HTTPS CA"));
+    reset(0,0);
+    assert(!tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error)));
+    assert(file_reads==1 && required_mode==1 && verifies==1);tls_free(&tls);
     expect_failure(MBEDTLS_X509_BADCERT_NOT_TRUSTED,"WLE-UPDATE-CA.PEM");
     expect_failure(MBEDTLS_X509_BADCERT_EXPIRED,"verify the PS2 date and time");
     expect_failure(MBEDTLS_X509_BADCERT_FUTURE,"verify the PS2 date and time");
@@ -227,7 +257,7 @@ int main(void) {
         tls_free(&tls);
         assert(disconnects==1 && frees==1 && tls.sock==-1);
     }
-    puts("PASS: reviewed updater roots; strict TLS, failed-handshake diagnostics, timeouts and cleanup");
+    puts("PASS: reviewed updater roots, scoped CA snapshots, strict TLS, failed-handshake diagnostics, timeouts and cleanup");
     return 0;
 }
 '''
