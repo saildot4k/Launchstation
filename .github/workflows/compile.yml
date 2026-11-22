@@ -114,6 +114,7 @@ jobs:
           python3 tests/test_hdd_format_ui.py
           python3 tests/test_hdd_installer.py
           python3 tests/test_hdd_installer_finish.py
+          python3 tests/test_hdd_installer_boot.py
           python3 tests/test_hdd_installer_stage.py
           python3 tests/test_hdd_installer_apply.py
           python3 tests/test_hdd_installer_partitions.py

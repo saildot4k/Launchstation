@@ -67,6 +67,9 @@ int hddInstallCreateStage(HddInstall *install);
 int hddInstallDownload(HddInstall *install);
 int hddInstallWriteConfigs(HddInstall *install);
 int hddInstallApply(HddInstall *install);
+/* Call only after successful software/MBR commit. Preserves unrelated console
+ * configuration and verifies the persistent HDD boot setting; HOSD only. */
+int hddInstallEnableBoot(HddInstall *install);
 int hddInstallPsbbnPreflight(HddInstall *install);
 int hddInstallPsbbnPartitions(HddInstall *install);
 int hddInstallPsbbnPayload(void *install, const HddFormatIo *io);

@@ -181,6 +181,14 @@ explicitly. Network setup and CA readability are checked before the erase prompt
 The installer activates the downloaded MBR only after files/configuration
 succeed, after flushing the payload and verifying its readback. APA-Jail
 recovery metadata is refreshed after creating the software's partitions.
+After that commit succeeds, MBR/HOSDMenu installs also enable the console's
+persistent HDD boot setting through the MECHACON configuration service, using
+the same set-0 boot flags as FreeMcBoot. All unrelated configuration bits are
+preserved and the entire 15-byte block is read back for verification. An already
+enabled console needs no write. Format-only and apps-only installs leave the
+console setting alone. A configuration read/write/verification failure is
+reported explicitly and retains the staged files and diagnostic log; the
+installed software and MBR remain on disk.
 Installation keeps the ATA filesystem mounted so archives can be read from
 the same drive. The private raw service validates the on-disk APA-Jail boundary
 and refuses writes into exFAT. Installation transfers use the existing HDD
@@ -208,6 +216,9 @@ asset metadata and the Linux boot hotkey.
 The stage test checks internal folder creation,
 CA preservation and ownership-checked cleanup. `tests/test_hdd_installer_finish.py` verifies software
 and flush/readback checks precede MBR activation, with failure cleanup.
+`tests/test_hdd_installer_boot.py` checks console configuration preservation,
+already-enabled behavior, bounded service failures and readback verification,
+and exercises the installation job's ordering and component/failure guards.
 The format UI test also exercises format-before-download and failed-install
 cache retention. Raw-session tests verify the ATA source remains available,
 HDD/PFS serialization and exFAT write bounds; transport tests verify status

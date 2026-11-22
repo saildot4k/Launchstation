@@ -385,6 +385,7 @@ static void hddJobRun(void *arg)
 				}
 				j->ret = hddInstallFinish(&j->format_plan, payload, &j->format_started,
 				                     j->installer->flags & HDD_INSTALL_PSBBN ? hddInstallPsbbnPayload : NULL, j->installer);
+				if (j->ret >= 0) j->ret = hddInstallEnableBoot(j->installer);
 				hddInstallLog("JOB install finished rc=%d raw-started=%d", j->ret, j->format_started);
 				hddInstallLogFlush(j->installer);
 				if (j->ret >= 0) hddInstallCleanup(j->installer);
@@ -930,12 +931,12 @@ static void actFormat(void)
 		snprintf(body, sizeof(body), "Erase the whole HDD and create standard APA system partitions? The minimum APA partition size is 128 MiB.");
 	if (install.flags & HDD_INSTALL_PSBBN) {
 		/* Six compact lines fit the shared confirmation popup. */
-		snprintf(body, sizeof(body), "Erase HDD for APA Jail? APA %u MiB.\nMusic %u MiB; Contents %u MiB.\nPS2 Linux %s; home %u MiB.\nAPA additional free %u MiB; Recovery: 32 MiB.\nexFAT %u MiB; PS2 label; 32 KiB clusters.\nDownload software after formatting.", (unsigned)(plan.apa_sectors / 2048), install.music_mb, install.contents_mb, install.flags & HDD_INSTALL_PS2LINUX ? "On (2 GiB)" : "Off", install.linux_home_mb, install.reserved_mb, (unsigned)(plan.exfat_sectors / 2048));
+		snprintf(body, sizeof(body), "Erase HDD for APA Jail? APA %u MiB.\nMusic %u MiB; Contents %u MiB.\nPS2 Linux %s; home %u MiB.\nAPA additional free %u MiB; Recovery: 32 MiB.\nexFAT %u MiB; PS2 label; 32 KiB clusters.\nDownload software; enable console HDD boot.", (unsigned)(plan.apa_sectors / 2048), install.music_mb, install.contents_mb, install.flags & HDD_INSTALL_PS2LINUX ? "On (2 GiB)" : "Off", install.linux_home_mb, install.reserved_mb, (unsigned)(plan.exfat_sectors / 2048));
 	}
 	if (install.flags) {
 		if (!(install.flags & HDD_INSTALL_PSBBN)) {
 			size_t used = strlen(body);
-			snprintf(body + used, sizeof(body) - used, " Software will be downloaded to the new HDD after formatting.");
+			snprintf(body + used, sizeof(body) - used, " Software will be downloaded to the new HDD after formatting.%s", install.flags & HDD_INSTALL_HOSD ? " Console HDD boot will be enabled." : "");
 		}
 		dashHddInstallDebugBegin(&install, &plan);
 		if (!dashHddInstallPrepare(&install)) { dashHddInstallDebugEnd(&install, -EIO); return; }
