@@ -24,8 +24,8 @@ class Extent(c.Structure):
 class Install(c.Structure):
     _fields_ = [('flags', c.c_uint), ('jail', c.c_int), ('commit', c.c_char * 41),
                 ('stage', c.c_char * 1024), ('ca_path', c.c_char * 1024), ('error', c.c_char * 256),
-                ('sizes', c.c_uint32 * 10), ('hashes', (c.c_char * 41) * 10),
-                ('archives', (c.c_char * 128) * 2), ('linux', Extent * 8), ('owner', c.c_ubyte * 20), ('owned', c.c_uint), ('ready', c.c_uint), ('ca_data', c.c_void_p), ('ca_size', c.c_uint)]
+                ('sizes', c.c_uint32 * 13), ('hashes', (c.c_char * 41) * 13),
+                ('archives', (c.c_char * 128) * 2), ('linux', Extent * 10), ('owner', c.c_ubyte * 20), ('owned', c.c_uint), ('ready', c.c_uint), ('ca_data', c.c_void_p), ('ca_size', c.c_uint), ('music_mb', c.c_uint), ('contents_mb', c.c_uint), ('linux_home_mb', c.c_uint), ('reserved_mb', c.c_uint)]
 class Entry(c.Structure):
     _fields_ = [('name', c.c_char * 1024), ('link', c.c_char * 1024)] + [
         (n, c.c_uint32) for n in ('size', 'mode', 'uid', 'gid', 'mtime', 'major', 'minor')] + [('type', c.c_char)]
@@ -154,7 +154,7 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-') as directory:
 
     image = d / 'linux.img'; disk = Disk(image, 128); fs = c.c_void_p()
     assert lib.installExt2Create(c.byref(fs), c.byref(disk.io), 0, disk.size // 512, 1700000000) == 0
-    entries = [('etc', '5', ''), ('usr', '5', ''), ('usr/lib', '5', ''), ('bin', '5', ''),
+    entries = [('late/sub/child', '5', ''), ('late', '5', ''), ('late/sub', '5', ''), ('etc', '5', ''), ('usr', '5', ''), ('usr/lib', '5', ''), ('bin', '5', ''),
                ('dev', '5', ''), ('etc/settings', '0', b'a' * 13000), ('bin/tool', '0', b'ELF fixture'),
                ('bin/tool-link', '1', 'bin/tool'), ('bin/tool-peer', '1', 'bin/tool'), ('usr/lib/lib:fixture', '0', b'colon name'),
                ('etc/symbolic', '2', '/usr/lib/libc.so'), ('etc/long-symbolic', '2', '/' + 'target/' * 20),
@@ -185,6 +185,7 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-') as directory:
         target.unlink(); debug('dump usr/large ' + str(target)); assert target.read_bytes() == b'z' * (2 * 1024 * 1024)
         target.unlink(); debug('dump bin/tool-peer ' + str(target)); assert target.read_bytes() == b'ELF fixture'
         target.unlink(); debug('dump bin/tool ' + str(target)); assert target.read_bytes() == b'replaced binary'
+        assert '0751' in debug('stat late/sub')
         stat = debug('stat bin/tool')
         assert '0751' in stat and 'User:   100' in stat and 'Group:   200' in stat
         other = re.search(r'Inode: (\d+)', debug('stat bin/other')).group(1)

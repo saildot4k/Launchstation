@@ -67,7 +67,7 @@ static int fileXioMount(const char*m,const char*p,int flags){unsigned i=m[3]-'0'
 static int fileXioUmount(const char*m){unsigned i=m[3]-'0';assert(i<4&&mounted[i]);mounted[i]=NULL;mounts--;return 0;}
 static int hddMakeFilesystem(int mb,char*name,int group){char path[4096];assert(mb==128&&group==FS_GROUP_APPLICATION);partitions++;snprintf(path,sizeof(path),"%s/%s",work,name);assert(!mkdir(path,0700));return mb;}
 static int InjectHddAppLauncher(const char*p,const char*elf,const char*title,const void*icon,unsigned size){assert(p&&title&&icon&&size&&strstr(elf,"ata0:/APPS/")&&partitions==injected+1);injected++;return 0;}
-int hddInstallPsbbnPartitions(HddInstall*in){assert(in->jail&&in->flags==7);psbbn_parts++;return 0;}
+int hddInstallPsbbnPartitions(HddInstall*in){assert(in->jail&&(in->flags&7)==7);psbbn_parts++;return 0;}
 int hddInstallPsbbnPreflight(HddInstall*in){(void)in;return 0;}
 '''
 code += r'''
@@ -81,15 +81,20 @@ code += native
 code += r'''
 int main(int argc,char**argv){
     HddInstall in={0};FILE*f;char path[4096],hash[41];unsigned i,size;int ret;
-    assert(argc==4);snprintf(work,sizeof(work),"%s",argv[1]);in.flags=atoi(argv[2]);in.jail=in.flags==7;
+    assert(argc==4);snprintf(work,sizeof(work),"%s",argv[1]);in.flags=atoi(argv[2]);in.jail=!!(in.flags&4);
     in.ready=in.owned=1;strcpy(in.stage,in.jail?"ata0:/PSBBN_DP_TEMP":"pfs2:/PSBBN_DP_TEMP");memset(in.commit,'a',40);
     snprintf(path,sizeof(path),"%s/manifest",work);f=fopen(path,"r");assert(f);
-    while(fscanf(f,"%u %u %40s",&i,&size,hash)==3){assert(i<10);in.sizes[i]=size;strcpy(in.hashes[i],hash);}fclose(f);
+    while(fscanf(f,"%u %u %40s",&i,&size,hash)==3){assert(i<HDD_INSTALL_ASSETS);in.sizes[i]=size;strcpy(in.hashes[i],hash);}fclose(f);
     if(!strcmp(argv[3],"hash"))in.hashes[2][0]='0';
     if(!strcmp(argv[3],"attr"))attr_error=-EIO;
     ret=hddInstallApply(&in);assert(!mounts);
     if(strcmp(argv[3],"ok")){assert(ret<0);assert(!partitions&&!injected);return 0;}
-    assert(ret==0);assert(attrcalls==(!in.jail&&(in.flags&2)?3:0));
+    assert(ret==0);
+    if(in.flags&8){
+        assert(!fileXioMount("pfs0:","hdd0:__system",1));assert(!fileXioMount("pfs1:","hdd0:__sysconf",1));
+        assert(hddInstallWriteConfigs(&in)==0);assert(!fileXioUmount("pfs1:")&&!fileXioUmount("pfs0:"));
+    }
+    assert(attrcalls==(!in.jail&&(in.flags&2)?3:0));
     assert(partitions==(in.jail?2:0)&&injected==partitions&&psbbn_parts==(unsigned)in.jail);
     if(in.flags&2){snprintf(path,sizeof(path),"%s/%s/APPS/APP_WLE-R3Z/WLE-R3Z.ELF",work,in.jail?"ata":"__common");assert(!access(path,F_OK));}
     if(in.flags&1){snprintf(path,sizeof(path),"%s/__system/osdmenu/hosdmenu.elf",work);assert(!access(path,F_OK));}
@@ -123,20 +128,25 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
               ('SYS_R3CONFIGURATOR.psu', psu('SYS_R3CONFIGURATOR','r3configurator.elf')),
               ('extras.zip', extra.getvalue()), ('version.txt', b'fixture'),
               ('system.tar.gz', b'preflight fixture'), ('language.tar.gz', b'preflight fixture'),
-              ('APP_WLER3Z.png', b'jacket fixture'), ('SYS_R3CONFIG.png', b'jacket fixture')]
-    for flags, failure in ((1,'ok'),(2,'ok'),(3,'ok'),(7,'ok'),(3,'hash'),(3,'attr')):
+              ('APP_WLER3Z.png', b'jacket fixture'), ('SYS_R3CONFIG.png', b'jacket fixture'), ('PS2Linux.tar.gz', b'linux preflight fixture'), ('ps2-linux-ntsc', b'new NTSC kernel'), ('ps2-linux-vga', b'new VGA kernel')]
+    for flags, failure in ((1,'ok'),(2,'ok'),(3,'ok'),(7,'ok'),(15,'ok'),(3,'hash'),(3,'attr')):
         work = d / (str(flags) + failure); work.mkdir()
         for part in ('stage','ata','__system','__sysconf','__common'): (work / part).mkdir()
-        stage = work / ('ata' if flags == 7 else '__common') / 'PSBBN_DP_TEMP'; stage.mkdir()
+        stage = work / ('ata' if flags & 4 else '__common') / 'PSBBN_DP_TEMP'; stage.mkdir()
+        if flags & 8: (work / '__system/p2lboot').mkdir()
         (stage / 'owner.bin').write_bytes(bytes(20))
         manifest = []
         for i, (name, data) in enumerate(assets):
             (stage / name).write_bytes(data)
-            prefix = b'' if i in (4,6,7) else b'blob ' + str(len(data)).encode() + b'\0'
+            prefix = b'' if i in (4,6,7,10) else b'blob ' + str(len(data)).encode() + b'\0'
             manifest.append(f'{i} {len(data)} {hashlib.sha1(prefix+data).hexdigest()}\n')
         (work / 'manifest').write_text(''.join(manifest))
         subprocess.run([str(d / 'test'),str(work),str(flags),failure],check=True,timeout=20)
-        if flags == 7:
+        if flags & 8:
+            assert (work / '__system/p2lboot/ps2-linux-ntsc').read_bytes() == b'new NTSC kernel'
+            assert (work / '__system/p2lboot/ps2-linux-vga').read_bytes() == b'new VGA kernel'
+            assert b'boot_circle = $PSBBN' in (work / '__sysconf/osdmenu/OSDMBR.CNF').read_bytes()
+        if flags & 4:
             assert (work / 'PP.APP_WLE-R3Z/res/info.sys').exists()
             assert (work / 'PP.SYS_R3CONFIGURATOR/res/jkt_001.png').read_bytes() == b'jacket fixture'
     print('PASS: production PSU/app/HOSD copying, shared APPS attributes, exFAT/PATINFO/browser resources, hashes, short I/O and failed-install unmounts')

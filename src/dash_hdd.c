@@ -856,7 +856,7 @@ static void actFormat(void)
 	HddFormatPlan plan;
 	HddInstall install;
 	HddJob *j;
-	char body[384];
+	char body[640];
 	int kind, reserve = 0, total, ret, began, format_ok;
 #endif
 
@@ -887,19 +887,34 @@ static void actFormat(void)
 		int minimum = install.flags & HDD_INSTALL_PSBBN ? 6400 : install.flags & HDD_INSTALL_APPS ? 256 : 0;
 		if (install.flags & HDD_INSTALL_PSBBN) {
 			HddFormatPlan base;
+			int needed, free_reserve;
 			int extent = fileXioDevctl("hdd0:", HDIOC_MAXSECTOR, NULL, 0, NULL, 0);
 			if (extent < 2048 * 2048 || hddFormatPlan(&base, kind, (u32)total, 0, 0) < 0) {
 				dashModalMessage(DI_WARNING, "Drive too small for PSBBN", "This installer needs the existing HDD driver to support a single 2 GiB APA extent for PSBBN's data partition.", NULL);
 				return;
 			}
 			if (max > 131072 - (int)(base.apa_sectors / 2048)) max = 131072 - (int)(base.apa_sectors / 2048);
+			for (;;) {
+				if (!dashHddInstallConfigure(&install, (unsigned)extent / 2048)) return;
+				install.reserved_mb = 0;
+				needed = hddInstallRequiredMb(&install, base.apa_sectors / 2048);
+				if (needed >= 0 && needed <= max) break;
+				dashModalMessage(DI_WARNING, "Not enough APA space", "The selected Music, Contents and Linux sizes do not fit. Choose smaller sizes or cancel.", NULL);
+			}
+			snprintf(body, sizeof(body), "APA system: %u MiB; PSBBN system: 4096 MiB.\nMusic: %u MiB; Contents: %u MiB.\nPS2 Linux: %s; home: %u MiB.\nSoftware and alignment: %d MiB.\nChoose extra APA space to keep free for future use.", (unsigned)(base.apa_sectors / 2048), install.music_mb, install.contents_mb, install.flags & HDD_INSTALL_PS2LINUX ? "On (2 GiB system)" : "Off", install.linux_home_mb, needed);
+			dashModalMessage(DI_INFO, "APA space allocation", body, NULL);
+			free_reserve = pickSize("Reserved APA space for future use", 0, max - needed, 0);
+			if (free_reserve < 0) return;
+			install.reserved_mb = free_reserve;
+			reserve = hddInstallRequiredMb(&install, base.apa_sectors / 2048);
+		} else {
+			if (max < minimum) {
+				dashModalMessage(DI_WARNING, "Not enough APA space", "This drive cannot reserve enough APA space for the selected software.", NULL);
+				return;
+			}
+			reserve = pickSize("Additional APA space", minimum, max, max < 8192 ? max : 8192);
+			if (reserve < 0) return;
 		}
-		if (max < minimum) {
-			dashModalMessage(DI_WARNING, "Not enough APA space", "This drive cannot reserve enough APA space for the selected software.", NULL);
-			return;
-		}
-		reserve = pickSize("Additional APA space", minimum, max, max < 8192 ? max : 8192);
-		if (reserve < 0) return;
 	}
 	ret = hddFormatPlan(&plan, kind, (u32)total, reserve, (u32)time(NULL));
 	if (ret < 0) {
@@ -913,9 +928,15 @@ static void actFormat(void)
 		snprintf(body, sizeof(body), "Erase the whole HDD and create one MBR exFAT partition? Size: %u MiB. Label: PS2. Cluster size: 32 KiB.", (unsigned)(plan.exfat_sectors / 2048));
 	else
 		snprintf(body, sizeof(body), "Erase the whole HDD and create standard APA system partitions? The minimum APA partition size is 128 MiB.");
+	if (install.flags & HDD_INSTALL_PSBBN) {
+		/* Six compact lines fit the shared confirmation popup. */
+		snprintf(body, sizeof(body), "Erase HDD for APA Jail? APA %u MiB.\nMusic %u MiB; Contents %u MiB.\nPS2 Linux %s; home %u MiB.\nAPA additional free %u MiB; Recovery: 32 MiB.\nexFAT %u MiB; PS2 label; 32 KiB clusters.\nDownload software after formatting.", (unsigned)(plan.apa_sectors / 2048), install.music_mb, install.contents_mb, install.flags & HDD_INSTALL_PS2LINUX ? "On (2 GiB)" : "Off", install.linux_home_mb, install.reserved_mb, (unsigned)(plan.exfat_sectors / 2048));
+	}
 	if (install.flags) {
-		size_t used = strlen(body);
-		snprintf(body + used, sizeof(body) - used, " Software will be downloaded to the new HDD after formatting.");
+		if (!(install.flags & HDD_INSTALL_PSBBN)) {
+			size_t used = strlen(body);
+			snprintf(body + used, sizeof(body) - used, " Software will be downloaded to the new HDD after formatting.");
+		}
 		dashHddInstallDebugBegin(&install, &plan);
 		if (!dashHddInstallPrepare(&install)) { dashHddInstallDebugEnd(&install, -EIO); return; }
 		/* Network preparation may have reloaded the IOP. */

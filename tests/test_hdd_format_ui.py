@@ -24,6 +24,7 @@ typedef uint32_t u32;
 typedef struct { HddFormatPlan format_plan; HddInstall *installer; int format_started, ret, op; } HddJob;
 #define ETH
 #define DI_WARNING 1
+#define DI_INFO 20
 #define DASH_TOAST_OK 2
 #define HOP_FORMAT 3
 #define HDIOC_TOTALSECTOR 4
@@ -49,11 +50,13 @@ static int dashModalChoice(const char *title, const char *const *options, int co
     return selected;
 }
 static int pickSize(const char *title, int min, int max, int initial) {
-    assert(strstr(title, "Additional APA") && min == (install_flags & HDD_INSTALL_PSBBN ? 6400 : install_flags & HDD_INSTALL_APPS ? 256 : 0) && max % 128 == 0 && initial <= max);
+    assert((strstr(title, "Additional APA") || strstr(title, "Reserved APA")) && min == (install_flags & HDD_INSTALL_PSBBN ? 0 : install_flags & HDD_INSTALL_APPS ? 256 : 0) && max % 128 == 0 && initial <= max);
     return reserve;
 }
 static void dashModalMessage(int icon, const char *title, const char *body, const char *detail) {
-    assert(icon == DI_WARNING && title && body); if(detail) cache_kept++; messages++;
+    assert(title && body);
+    if (icon == DI_INFO) return;
+    assert(icon == DI_WARNING); if(detail) cache_kept++; messages++;
 }
 static int dashModalConfirm(const char *title, const char *body, const char *button, int danger) {
     assert(title && body && button && danger == 1);
@@ -68,6 +71,7 @@ void dashHddInstallDebugBegin(HddInstall *in,const HddFormatPlan *p) { (void)in;
 void dashHddInstallDebugEnd(HddInstall *in,int ret) { (void)in;(void)ret; }
 void hddInstallLog(const char *format,...) { (void)format; }
 int dashHddInstallChoose(HddInstall *in, int jail) { in->jail = jail; in->flags = install_flags; return 1; }
+int dashHddInstallConfigure(HddInstall *in,unsigned max) { assert(max>=2048); in->music_mb=in->contents_mb=1024; return 1; }
 int dashHddInstallPrepare(HddInstall *in) { assert(!confirms && !jobs); (void)in; return 1; }
 int dashHddInstallPrepareStorage(HddInstall *in) { assert(confirms == 2 && reset == 1 && jobs == 1); strcpy(in->stage, in->jail ? "ata0:/PSBBN_DP_TEMP" : "pfs2:/PSBBN_DP_TEMP"); return 0; }
 void hddInstallRelease(HddInstall *in) { (void)in; }
@@ -147,7 +151,7 @@ with tempfile.TemporaryDirectory(prefix="hdd-format-ui-") as temp:
     cfile, executable = Path(temp) / "check.c", Path(temp) / "check"
     cfile.write_text(code)
     subprocess.run([compiler, "-std=c99", "-Wall", "-Wextra", "-Werror", "-I", str(root / "include"),
-                    str(cfile), str(root / "src/hdd_format.c"), str(root / "src/hdd_format_upcase.c"),
+                    str(cfile), str(root / "src/hdd_format.c"), str(root / "src/hdd_install_plan.c"), str(root / "src/hdd_format_upcase.c"),
                     "-o", str(executable)], check=True)
     subprocess.run([str(executable)], check=True, timeout=10)
 

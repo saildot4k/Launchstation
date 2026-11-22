@@ -120,14 +120,33 @@ Progress counts bytes accepted by storage, including the final buffered flush.
   Each has a standard 128 MiB PFS launcher with PATINFO, HDD icons, and PSBBN
   browser metadata. The installer does not enable 8 MiB APA partitions.
 
-APA-Jail software installs create DP's Linux system/swap/data partitions,
-a 1 GiB music volume, and a 1 GiB PFS contents partition. At least **6400 MiB
-of additional APA space** is required; the default remains 8192 MiB. The APA
-region is capped at 128 GiB for PSBBN. The existing driver must support a
+APA-Jail software installs create DP's required Linux system/swap/data partitions.
+The user chooses Music and Contents sizes (both default to 1 GiB), whether to
+install standalone PS2 Linux (default Off), and additional APA space to leave
+free for future use (default zero). The required allocation is calculated from
+the selected volumes, app launchers and standard APA allocator alignment, then
+the future reserve is added. The default PSBBN/media/apps layout requires
+**6400 MiB beyond the standard APA system partitions**, before any future reserve.
+The APA region is capped at 128 GiB for PSBBN. The existing driver must support a
 single 2 GiB APA extent (checked before download/format); smaller-capacity
 configurations are refused rather than inventing a subpartition mapping.
-PSBBN needs a compatible Sony Network Adapter. This first version uses English
-and fixed music/contents sizes.
+PSBBN needs a compatible Sony Network Adapter. This version uses English.
+
+Music and Contents offer power-of-two sizes from 1 GiB up to the driver's
+single-extent limit (at most 32 GiB). Optional PS2 Linux adds a fixed 2 GiB
+`__linux.3` root and a user-selected `__linux.10` home partition from 1 GiB up
+to the lesser of 16 GiB and the driver's single-extent limit. The limits keep
+the PS2 Linux mapping to one validated APA extent per filesystem. Oversized
+combinations return to the size choices before any erase confirmation.
+The confirmation includes the selected media, Linux and future-reserve sizes.
+
+Enabling PS2 Linux downloads `PS2Linux.tar.gz` from the same Archive.org item,
+checks its authenticated metadata size and SHA-1, and preflights it along with
+the PSBBN and language archives. Both Linux kernels come from the pinned DP
+Git revision. Permissions, links and device nodes are preserved; the home
+filesystem is prepared for first boot. Holding Circle boots the installed NTSC
+Linux kernel, matching DP's default configuration. Linux requires a USB keyboard.
+With Linux Off, its archive/kernels and both extra partitions are omitted.
 
 The system archive's Unix permissions, owners, hard links, symlinks and device
 nodes are preserved in ext2. The music volume is FAT32, matching DP's Linux
@@ -181,8 +200,11 @@ filesystems, and injected errors. `e2fsck`, `debugfs` and `fsck.fat` validate th
 output independently. `tests/test_hdd_installer_apply.py` exercises the production
 app/HOSD copy path against a host storage facade, including visibility flags
 and PSBBN browser resources. `tests/test_hdd_installer_partitions.py` runs all
-eight Linux partition requests against the actual HDD driver's size parser,
-including its required `1G`/`2G` syntax, extent validation and injected errors.
+default and optional Linux partition requests against the actual HDD driver's
+size parser, including its required `1G`/`2G` syntax, custom media/home sizes,
+extent validation and injected errors. `tests/test_hdd_installer_choices.py`
+checks choice defaults/cancellation, allocation and reserve bounds, optional
+asset metadata and the Linux boot hotkey.
 The stage test checks internal folder creation,
 CA preservation and ownership-checked cleanup. `tests/test_hdd_installer_finish.py` verifies software
 and flush/readback checks precede MBR activation, with failure cleanup.

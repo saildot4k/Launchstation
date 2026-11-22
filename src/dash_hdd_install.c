@@ -26,10 +26,54 @@ int dashHddInstallChoose(HddInstall *in, int jail)
         in->flags = jail && selected ? HDD_INSTALL_PSBBN | HDD_INSTALL_HOSD | HDD_INSTALL_APPS : flags[selected];
         if (in->flags & HDD_INSTALL_PSBBN)
             dashModalMessage(DI_INFO, "PSBBN DP installation",
-                "Requires a compatible Sony Network Adapter. Installs the English system, with 1 GiB each for music and contents. Installer files are downloaded to the new HDD after formatting.", NULL);
+                "Requires a compatible Sony Network Adapter. Choose Music and Contents sizes next. Standalone PS2 Linux is optional; PSBBN always needs its own system partitions. Downloads are stored on the new HDD after formatting.", NULL);
     }
 #endif
     return 1;
+}
+
+#if defined(ETH) && defined(WLE_NATIVE_HTTPS)
+static int installSize(const char *title, unsigned maximum)
+{
+    char labels[6][24];
+    const char *items[6];
+    int count = 0, selected;
+    for (unsigned mb = 1024; mb <= maximum && count < 6; mb *= 2) {
+        snprintf(labels[count], sizeof(labels[count]), "%u GiB", mb / 1024);
+        items[count] = labels[count]; count++;
+    }
+    if (!count) return -1;
+    selected = dashModalChoice(title, items, count, 0);
+    return selected < 0 ? -1 : 1024 << selected;
+}
+#endif
+int dashHddInstallConfigure(HddInstall *in, unsigned max_extent)
+{
+#if defined(ETH) && defined(WLE_NATIVE_HTTPS)
+    static const char *const linux[] = {"Off", "On"};
+    int value;
+    value = installSize("Music partition size", max_extent);
+    if (value < 0) return 0;
+    in->music_mb = value;
+    value = installSize("Contents partition size", max_extent);
+    if (value < 0) return 0;
+    in->contents_mb = value;
+    value = dashModalChoice("Install standalone PS2 Linux", linux, 2, 0);
+    if (value < 0) return 0;
+    in->flags &= ~HDD_INSTALL_PS2LINUX;
+    in->linux_home_mb = 0;
+    if (value) {
+        unsigned maximum = max_extent < HDD_INSTALL_HOME_MAX_MB ? max_extent : HDD_INSTALL_HOME_MAX_MB;
+        dashModalMessage(DI_INFO, "PS2 Linux space", "PS2 Linux needs a 2 GiB system partition plus the home size you choose next. A USB keyboard is required to use it.", NULL);
+        value = installSize("PS2 Linux home size", maximum);
+        if (value < 0) return 0;
+        in->linux_home_mb = value;
+        in->flags |= HDD_INSTALL_PS2LINUX;
+    }
+    return 1;
+#else
+    (void)in; (void)max_extent; return 0;
+#endif
 }
 
 /* Preserve the CA file before formatting, including when Launchstation and
@@ -169,6 +213,8 @@ void dashHddInstallDebugBegin(HddInstall *in, const HddFormatPlan *plan)
     hddInstallLog("Launchstation build %s", GIT_HASH);
     hddInstallLog("Layout kind=%u sectors=%u APA=%u reserve=%u MiB", (unsigned)plan->kind, (unsigned)plan->sectors, (unsigned)plan->apa_sectors, (unsigned)plan->reserve_mb);
     hddInstallLog("exFAT first=%u sectors=%u recovery=%u", (unsigned)plan->exfat_start, (unsigned)plan->exfat_sectors, (unsigned)plan->recovery_start);
+    hddInstallLog("Choices: Music=%u MiB Contents=%u MiB PS2 Linux=%s Home=%u MiB Free APA reserve=%u MiB",
+                  in->music_mb, in->contents_mb, in->flags & HDD_INSTALL_PS2LINUX ? "On" : "Off", in->linux_home_mb, in->reserved_mb);
     hddInstallStatus("Preparing installer; the HDD has not been erased yet", 0, 0);
     dashLoadingBegin("PSBBN DP installer diagnostics");
 }

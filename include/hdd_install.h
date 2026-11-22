@@ -8,10 +8,13 @@
 #define HDD_INSTALL_REPOSITORY "CosmicScale/PSBBN-Definitive-Project"
 #define HDD_INSTALL_API "/repos/" HDD_INSTALL_REPOSITORY
 #define HDD_INSTALL_BROWSER_ATTR 0xc4a7u
-#define HDD_INSTALL_ASSETS 10
+#define HDD_INSTALL_ASSETS 13
+#define HDD_INSTALL_LINUX_PARTITIONS 10
+#define HDD_INSTALL_HOME_MAX_MB 16384u
 
-enum { HDD_INSTALL_HOSD = 1, HDD_INSTALL_APPS = 2, HDD_INSTALL_PSBBN = 4 };
-enum { HI_MBR, HI_HOSD, HI_WLE, HI_R3CONFIG, HI_EXTRAS, HI_VERSION, HI_SYSTEM, HI_LANGUAGE, HI_WLE_ART, HI_R3_ART };
+enum { HDD_INSTALL_HOSD = 1, HDD_INSTALL_APPS = 2, HDD_INSTALL_PSBBN = 4, HDD_INSTALL_PS2LINUX = 8 };
+enum { HI_MBR, HI_HOSD, HI_WLE, HI_R3CONFIG, HI_EXTRAS, HI_VERSION, HI_SYSTEM, HI_LANGUAGE, HI_WLE_ART, HI_R3_ART,
+       HI_PS2LINUX, HI_KERNEL_NTSC, HI_KERNEL_VGA };
 
 typedef struct {
     unsigned flags;
@@ -23,12 +26,19 @@ typedef struct {
     uint32_t sizes[HDD_INSTALL_ASSETS];
     char hashes[HDD_INSTALL_ASSETS][41];
     char archives[2][128];
-    struct { uint32_t start, sectors; } linux[8];
+    struct { uint32_t start, sectors; } linux[HDD_INSTALL_LINUX_PARTITIONS];
     unsigned char owner[20];
     unsigned owned, ready;
     unsigned char *ca_data;
     unsigned ca_size;
+    unsigned music_mb, contents_mb, linux_home_mb, reserved_mb;
 } HddInstall;
+
+unsigned hddInstallPartitionMb(const HddInstall *install, unsigned index);
+/* Minimum additional APA allocation in MiB beyond the standard system partitions,
+ * including allocator alignment, apps and explicitly reserved free space. */
+int hddInstallRequiredMb(const HddInstall *install, unsigned base_mb);
+int dashHddInstallConfigure(HddInstall *install, unsigned max_extent_mb);
 
 const char *hddInstallAssetPath(unsigned asset);
 const char *hddInstallAssetName(unsigned asset);
@@ -40,6 +50,7 @@ int hddInstallAssetMetadata(const char *json, const char *name,
                              char hash[41], uint32_t *size);
 int hddInstallArchiveMetadata(const char *json, const char *prefix,
                               char name[128], char hash[41], uint32_t *size);
+int hddInstallLinuxMetadata(const char *json, char hash[41], uint32_t *size);
 /* Config generation is based on installed components and the actual layout. */
 int hddInstallConfig(const HddInstall *install, int mbr, char *text, size_t capacity);
 extern const char *const hddInstallOsdFiles[7];

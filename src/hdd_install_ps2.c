@@ -114,7 +114,7 @@ static int checkHash(HddInstall *in, unsigned asset)
     if (fd < 0) return fd;
     if (genLseek(fd, 0, SEEK_END) != in->sizes[asset] || genLseek(fd, 0, SEEK_SET) < 0) { genClose(fd); return -EIO; }
     saveHashInit(&hash);
-    if (asset != HI_EXTRAS && asset != HI_SYSTEM && asset != HI_LANGUAGE) {
+    if (asset != HI_EXTRAS && asset != HI_SYSTEM && asset != HI_LANGUAGE && asset != HI_PS2LINUX) {
         int n = snprintf(header, sizeof(header), "blob %u", (unsigned)in->sizes[asset]);
         saveHashUpdate(&hash, (const uint8_t *)header, n + 1);
     }
@@ -264,16 +264,16 @@ static int downloadInstaller(HddInstall *in, const char **phase)
     if (ret < 0) goto invalid;
     /* Directory listings contain only metadata, avoiding GitHub's base64
      * file contents and keeping responses within the HTTPS client's limit. */
-    for (unsigned directory = 0; directory < 3; directory++) {
-        if (!(in->flags & (directory ? HDD_INSTALL_APPS : HDD_INSTALL_HOSD)) || (directory == 2 && !(in->flags & HDD_INSTALL_PSBBN))) continue;
+    for (unsigned directory = 0; directory < 4; directory++) {
+        if (!(in->flags & (directory ? HDD_INSTALL_APPS : HDD_INSTALL_HOSD)) || (directory == 2 && !(in->flags & HDD_INSTALL_PSBBN)) || (directory == 3 && !(in->flags & HDD_INSTALL_PS2LINUX))) continue;
         snprintf(path, sizeof(path), HDD_INSTALL_API "/contents/%s?ref=%s",
-                 directory == 2 ? "icons/art" : directory ? "games/APPS" : "scripts/assets/osdmenu", in->commit);
-        *phase = directory ? "App metadata" : "OSDMenu metadata";
+                 directory == 3 ? "scripts/assets/kernel" : directory == 2 ? "icons/art" : directory ? "games/APPS" : "scripts/assets/osdmenu", in->commit);
+        *phase = directory == 3 ? "PS2 Linux kernels" : directory ? "App metadata" : "OSDMenu metadata";
         ret = request(in, path, &response);
         if (ret < 0) return ret;
         for (unsigned asset = 0; asset < HDD_INSTALL_ASSETS; asset++) {
             if (!hddInstallNeedsAsset(in->flags, asset) || !hddInstallAssetPath(asset) ||
-                directory != (asset == HI_WLE_ART || asset == HI_R3_ART ? 2u : (unsigned)(asset == HI_WLE || asset == HI_R3CONFIG))) continue;
+                directory != (asset >= HI_KERNEL_NTSC ? 3u : asset == HI_WLE_ART || asset == HI_R3_ART ? 2u : (unsigned)(asset == HI_WLE || asset == HI_R3CONFIG))) continue;
             if (!hddInstallAssetMetadata(response.body, hddInstallAssetName(asset), in->hashes[asset], &in->sizes[asset])) {
                 ret = -EINVAL; break;
             }
@@ -298,6 +298,8 @@ static int downloadInstaller(HddInstall *in, const char **phase)
             for (unsigned i = 0; i < 2; i++)
                 if (!hddInstallArchiveMetadata(response.body, prefixes[i], in->archives[i],
                                                in->hashes[HI_SYSTEM + i], &in->sizes[HI_SYSTEM + i])) ret = -EINVAL;
+            if ((in->flags & HDD_INSTALL_PS2LINUX) && !hddInstallLinuxMetadata(response.body,
+                    in->hashes[HI_PS2LINUX], &in->sizes[HI_PS2LINUX])) ret = -EINVAL;
         } else if (ret >= 0) ret = -EIO;
         httpsResponseFree(&response);
         if (ret < 0) goto invalid;
@@ -306,6 +308,8 @@ static int downloadInstaller(HddInstall *in, const char **phase)
         if (!hddInstallNeedsAsset(in->flags, asset)) continue;
         if (pathJoin(local, sizeof(local), in->stage, hddInstallAssetName(asset)) < 0) { ret = -ENAMETOOLONG; goto invalid; }
         if (asset == HI_EXTRAS) snprintf(url, sizeof(url), "%s", EXTRAS_URL);
+        else if (asset == HI_PS2LINUX)
+            snprintf(url, sizeof(url), "https://archive.org/download/psbbn-definitive-patch-v4.1/PS2Linux.tar.gz");
         else if (asset == HI_SYSTEM || asset == HI_LANGUAGE)
             snprintf(url, sizeof(url), "https://archive.org/download/psbbn-definitive-patch-v4.1/%s", in->archives[asset - HI_SYSTEM]);
         else snprintf(url, sizeof(url), "https://raw.githubusercontent.com/" HDD_INSTALL_REPOSITORY "/%s/%s", in->commit, hddInstallAssetPath(asset));
@@ -543,6 +547,12 @@ int hddInstallWriteConfigs(HddInstall *in)
         if (ret >= 0) ret = writeNew(i ? "pfs1:/osdmenu/OSDMENU.CNF" : "pfs1:/osdmenu/OSDMBR.CNF", config, ret);
         if (ret < 0) return ret;
     }
+    /* Install kernels after the system archive, which may contain older copies. */
+    if (in->flags & HDD_INSTALL_PS2LINUX) {
+        int ret = copyAsset(in, HI_KERNEL_NTSC, "pfs0:/p2lboot/ps2-linux-ntsc");
+        if (ret < 0) return ret;
+        return copyAsset(in, HI_KERNEL_VGA, "pfs0:/p2lboot/ps2-linux-vga");
+    }
     return 0;
 }
 
@@ -551,7 +561,7 @@ int hddInstallApply(HddInstall *in)
     int ret = -EINVAL, mounts = 0;
     static const char *const partitions[] = {"hdd0:__system", "hdd0:__sysconf", "hdd0:__common"};
     static const char *const pfs[] = {"pfs0:", "pfs1:", "pfs2:"};
-    if (!in->ready || !in->flags || (in->jail ? in->flags != (HDD_INSTALL_HOSD | HDD_INSTALL_APPS | HDD_INSTALL_PSBBN) :
+    if (!in->ready || !in->flags || (in->jail ? (in->flags & ~HDD_INSTALL_PS2LINUX) != (HDD_INSTALL_HOSD | HDD_INSTALL_APPS | HDD_INSTALL_PSBBN) :
         !!(in->flags & ~(HDD_INSTALL_HOSD | HDD_INSTALL_APPS)))) goto failed;
     ret = hddInstallMountStage(in);
     if (ret < 0) goto failed;
