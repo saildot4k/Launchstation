@@ -28,6 +28,7 @@ code = r'''
 #include <stdlib.h>
 #include <string.h>
 #include "hdd_format.h"
+#include "hdd_install.h"
 typedef uint32_t u32;
 typedef uint64_t u64;
 typedef struct { u32 lba, size; unsigned char data[]; } hddAtaTransfer_t;

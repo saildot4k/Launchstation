@@ -17,6 +17,8 @@ typedef struct {
  * only between requests; observers must not draw or re-enter HTTPS. */
 typedef void (*HttpsStatusCallback)(const char *status, void *arg);
 void httpsSetStatusCallback(HttpsStatusCallback callback, void *arg);
+/* Optional installer diagnostics; never emits headers, credentials or bodies. */
+void httpsSetTraceCallback(HttpsStatusCallback callback, void *arg);
 
 /* Download progress runs on the caller's thread after bytes are written.
  * A zero total means the server has not supplied a body length. */

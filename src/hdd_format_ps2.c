@@ -1,5 +1,6 @@
 #include "launchelf.h"
 #include "hdd_format.h"
+#include "hdd_install.h"
 #include "hdd_format_rpc.h"
 #include "init.h"
 #include "dash_internal.h"
@@ -37,8 +38,11 @@ static int call(int command, uint32_t lba, unsigned count, unsigned send, unsign
 {
     int ret;
     packet.lba = lba; packet.count = count;
+    hddInstallRawTrace(command, lba, count, 1, 0);
     ret = SifCallRpc(&client, command, 0, &packet, send, &packet, receive, NULL, NULL);
-    return ret < 0 ? ret : packet.result;
+    ret = ret < 0 ? ret : packet.result;
+    hddInstallRawTrace(command, lba, count, 0, ret);
+    return ret;
 }
 
 static int readDisk(void *ctx, uint32_t lba, unsigned count, void *data)
@@ -60,13 +64,22 @@ static int writeDisk(void *ctx, uint32_t lba, unsigned count, const void *data)
 }
 
 static int zeroDisk(void *ctx, uint32_t lba, uint32_t count)
-{ (void)ctx; return call(HF_ZERO, lba, count, 64, 64); }
+{
+    (void)ctx;
+    while (count) {
+        unsigned n = count > 2048 ? 2048 : count;
+        int ret = call(HF_ZERO, lba, n, 64, 64);
+        if (ret < 0) return ret;
+        lba += n; count -= n;
+    }
+    return 0;
+}
 static int flushDisk(void *ctx)
 { (void)ctx; return call(HF_FLUSH, 0, 0, 64, 64); }
 static int apaDisk(void *ctx)
 { (void)ctx; return hddFormat(); }
 static void progress(void *ctx, const char *stage, uint32_t done, uint32_t total)
-{ (void)ctx; dashWorkerStatus(stage, done, total); }
+{ (void)ctx; hddInstallStatus(stage, done, total); }
 
 int hddFormatDisk(const HddFormatPlan *plan, int *started)
 {
@@ -74,10 +87,13 @@ int hddFormatDisk(const HddFormatPlan *plan, int *started)
     int ret, finish;
     *started = 0;
     packet.sectors = plan->sectors;
+    hddInstallLog("FORMAT begin: capacity=%u sectors; ATA will be detached", (unsigned)plan->sectors);
     ret = call(HF_BEGIN, 0, 0, 64, 64);
+    hddInstallLog("FORMAT begin returned %d", ret);
     if (ret < 0) return ret;
     *started = 1;
     ret = hddFormatExecute(plan, &io);
+    hddInstallLog("FORMAT execute returned %d", ret);
     finish = call(HF_FINISH, 0, 0, 64, 64);
     return ret < 0 ? ret : finish;
 }
@@ -102,4 +118,98 @@ int hddCheckAllocation(uint32_t sectors)
     int total = fileXioDevctl("hdd0:", HDIOC_TOTALSECTOR, NULL, 0, NULL, 0);
     if (total >= -4095 && total <= 0) return total ? total : -ENODEV;
     return hddApaCanAllocate(readApa, "hdd0:", (uint32_t)total, sectors);
+}
+
+static int readPhysicalSector(void *ctx, uint32_t lba, void *sector)
+{ return readDisk(ctx, lba, 1, sector); }
+
+int hddInstallFinish(const HddFormatPlan *plan, const char *mbr, int *started,
+                     int (*populate)(void *, const HddFormatIo *), void *context)
+{
+    HddFormatIo io = {NULL, readDisk, writeDisk, zeroDisk, flushDisk, apaDisk, progress};
+    HddFormatPlan expected;
+    unsigned char *buffer = NULL, *verify = NULL;
+    uint32_t bytes = 0, copied = 0, limit = 0;
+    int fd = -1, ret = 0, finish;
+    if (!started) return -EINVAL;
+    *started = 0;
+    if (!plan || plan->kind == HDD_FORMAT_EXFAT ||
+        hddFormatPlan(&expected, plan->kind, plan->sectors, plan->reserve_mb, plan->serial) < 0 ||
+        memcmp(&expected, plan, sizeof(expected))) return -EINVAL;
+    if (!mbr && !populate && plan->kind != HDD_FORMAT_APA_JAIL) return 0;
+    if (mbr) {
+        s64 length;
+        buffer = malloc(32768); verify = malloc(32768);
+        if (!buffer || !verify) { ret = -ENOMEM; goto done; }
+        fd = genOpen(mbr, FIO_O_RDONLY);
+        if (fd < 0) { ret = fd; goto done; }
+        length = genLseek(fd, 0, SEEK_END);
+        if (length < 512 || length > 1024 * 1024 || length % 512 || genLseek(fd, 0, SEEK_SET) < 0) { ret = -EINVAL; goto done; }
+        bytes = (uint32_t)length;
+    }
+    packet.sectors = plan->sectors;
+    packet.write_limit = plan->exfat_start;
+    hddInstallLog("RAW INSTALL begin capacity=%u write-limit=%u", (unsigned)plan->sectors, (unsigned)plan->exfat_start);
+    ret = call(HF_INSTALL_BEGIN, 0, 0, 64, 64);
+    hddInstallLog("RAW INSTALL begin returned %d", ret);
+    if (ret < 0) goto done;
+    *started = 1;
+    ret = hddApaLimit(readPhysicalSector, NULL, plan->sectors, &limit);
+    hddInstallLog("APA boundary rc=%d limit=%u expected=%u", ret, (unsigned)limit,
+                  (unsigned)(plan->kind == HDD_FORMAT_APA_JAIL ? plan->apa_sectors : plan->sectors));
+    if (ret < 0 || limit != (plan->kind == HDD_FORMAT_APA_JAIL ? plan->apa_sectors : plan->sectors)) { if (ret >= 0) ret = -EINVAL; goto finish; }
+    if (populate) {
+        hddInstallLog("Starting PSBBN filesystem population");
+        ret = populate(context, &io);
+        hddInstallLog("PSBBN filesystem population rc=%d", ret);
+        if (ret < 0) goto finish;
+    }
+    while (copied < bytes) {
+        unsigned n = bytes - copied > 32768 ? 32768 : bytes - copied, read = 0;
+        while (read < n) {
+            int got = genRead(fd, buffer + read, n - read);
+            if (got <= 0 || (unsigned)got > n - read) { ret = got < 0 ? got : -EIO; goto finish; }
+            read += got;
+        }
+        if (!copied && memcmp(buffer, "\x01\x00\x00\x04", 4)) { ret = -EINVAL; goto finish; }
+        hddInstallStatus("Installing OSDMenu MBR", copied, bytes);
+        ret = writeDisk(NULL, 8192 + copied / 512, n / 512, buffer);
+        if (ret >= 0) ret = readDisk(NULL, 8192 + copied / 512, n / 512, verify);
+        if (ret < 0 || memcmp(buffer, verify, n)) { if (ret >= 0) ret = -EIO; goto finish; }
+        copied += n;
+    }
+    /* Persist the software and MBR payload before exposing its APA pointer. */
+    ret = flushDisk(NULL); if (ret < 0) goto finish;
+    if (mbr) {
+        hddSetOsdMBR_t info;
+        unsigned char header[1024] __attribute__((aligned(64)));
+        info.start = 8192; info.size = bytes / 512;
+        /* Update through the existing driver so its APA cache and checksum
+         * preserve the A2 signature and MBR partition table. */
+        hddInstallLog("Activating verified OSDMenu MBR: LBA=%u bytes=%u", 8192u, (unsigned)bytes);
+        ret = fileXioDevctl("hdd0:", HDIOC_SETOSDMBR, &info, sizeof(info), NULL, 0);
+        if (ret >= 0) ret = readDisk(NULL, 0, 2, header);
+        if (ret < 0) goto finish;
+        {
+            uint32_t first, count;
+            memcpy(&first, header + 304, 4); memcpy(&count, header + 308, 4);
+            if (first != 8192 || count != bytes / 512) { ret = -EIO; goto finish; }
+        }
+        ret = hddApaLimit(readPhysicalSector, NULL, plan->sectors, &limit);
+        if (ret < 0) goto finish;
+    }
+    if (plan->kind == HDD_FORMAT_APA_JAIL) {
+        hddInstallLog("Refreshing A2 recovery snapshot");
+        ret = hddFormatRecovery(plan, &io);
+        hddInstallLog("Recovery snapshot rc=%d", ret);
+    }
+finish:
+    hddInstallLog("Finishing raw install: rc=%d", ret);
+    finish = call(HF_FINISH, 0, 0, 64, 64);
+    hddInstallLog("Raw install flush/end rc=%d", finish);
+    if (ret >= 0) ret = finish;
+done:
+    if (fd >= 0) { int closed = genClose(fd); if (ret >= 0 && closed < 0) ret = closed; }
+    free(verify); free(buffer);
+    return ret;
 }
