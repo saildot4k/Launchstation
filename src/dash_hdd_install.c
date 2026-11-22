@@ -19,11 +19,17 @@ int dashHddInstallChoose(HddInstall *in, int jail)
         };
         static const unsigned flags[] = {0, HDD_INSTALL_APPS, HDD_INSTALL_HOSD, HDD_INSTALL_HOSD | HDD_INSTALL_APPS};
         static const char *const jail_profiles[] = {
-            "Format only", "Install PSBBN DP (English), MBR, HOSDMenu and apps"
+            "Format only", "Install PSBBN DP, MBR, HOSDMenu and apps"
         };
         int selected = dashModalChoice("Software after formatting", jail ? jail_profiles : profiles, jail ? 2 : 4, 0);
         if (selected < 0) return 0;
         in->flags = jail && selected ? HDD_INSTALL_PSBBN | HDD_INSTALL_HOSD | HDD_INSTALL_APPS : flags[selected];
+        if (in->flags & HDD_INSTALL_PSBBN) {
+            static const char *const launchers[] = {"Open PS2 Loader (OPL)", "Neutrino (NHDDL)"};
+            selected = dashModalChoice("Default game launcher (both installed)", launchers, 2, 0);
+            if (selected < 0) return 0;
+            in->game_launcher = (unsigned)selected;
+        }
         if (in->flags & HDD_INSTALL_PSBBN)
             dashModalMessage(DI_INFO, "PSBBN DP installation",
                 "Requires a compatible Sony Network Adapter. Choose Music and Contents sizes next. Standalone PS2 Linux is optional; PSBBN always needs its own system partitions. Downloads are stored on the new HDD after formatting.", NULL);
@@ -78,6 +84,18 @@ int dashHddInstallConfigure(HddInstall *in, unsigned max_extent)
 
 /* Preserve the CA file before formatting, including when Launchstation and
  * its settings were loaded from the drive that is about to be erased. */
+#if defined(ETH) && defined(WLE_NATIVE_HTTPS)
+typedef struct {
+    HddInstall *install;
+    HddInstallLanguage languages[HDD_INSTALL_LANGUAGES];
+    int count;
+} LanguageChoices;
+static void loadLanguages(void *context)
+{
+    LanguageChoices *choices = context;
+    choices->count = hddInstallLanguageChoices(choices->install, choices->languages, HDD_INSTALL_LANGUAGES);
+}
+#endif
 int dashHddInstallPrepare(HddInstall *in)
 {
 #if defined(ETH) && defined(WLE_NATIVE_HTTPS)
@@ -93,6 +111,25 @@ int dashHddInstallPrepare(HddInstall *in)
         dashModalMessage(DI_WARNING, "Internet unavailable", dashboardIpNetworkError(), NULL);
         hddInstallRelease(in); return 0;
     }
+    if (in->flags & HDD_INSTALL_PSBBN) {
+        LanguageChoices choices = {.install = in, .count = -EIO};
+        const char *labels[HDD_INSTALL_LANGUAGES];
+        int initial = 0, selected;
+        int id = dashWorkerSubmit("Reading PSBBN languages", DASH_JOB_VISIBLE, loadLanguages, NULL, &choices);
+        if (id < 0 || !dashHddInstallAwait(id, "Reading PSBBN languages") || choices.count < 1) {
+            dashModalMessage(DI_WARNING, "PSBBN languages unavailable", in->error[0] ? in->error : "Could not read the repository language choices. The HDD has not been changed.", NULL);
+            hddInstallRelease(in); return 0;
+        }
+        for (int i = 0; i < choices.count; i++) {
+            labels[i] = choices.languages[i].name;
+            if (!strcmp(choices.languages[i].code, "eng")) initial = i;
+        }
+        selected = dashModalChoice("PSBBN language", labels, choices.count, initial);
+        if (selected < 0) { hddInstallRelease(in); return -ECANCELED; }
+        in->language = choices.languages[selected];
+        hddInstallLog("PSBBN language: %s (%s); repository %.7s", in->language.name, in->language.code, in->commit);
+    }
+    hddInstallOverall(1, 1);
     return 1;
 #else
     (void)in;
@@ -124,7 +161,7 @@ int dashHddInstallPrepareStorage(HddInstall *in)
 #endif
 }
 
-/* Temporary verbose UI. The loading-view callback only draws; controller
+/* Installation log. The loading-view callback only draws; controller
  * polling belongs to the normal wait/review loops, never RPC wait frames. */
 static DashLoadingView debug_previous_view;
 static int debug_open, debug_review, debug_result, debug_rows = 8;
@@ -149,7 +186,7 @@ static void debugDraw(const char *title)
 {
     HddInstallLogSnapshot snapshot;
     const float x = 20, y = 20, w = DASH_VW - 40, h = DASH_VH - 40;
-    const float log_y = y + 150, hints_y = y + h - 50;
+    const float log_y = y + 178, hints_y = y + h - 50;
     char line[HDD_INSTALL_LOG_COLS], counters[160];
     unsigned first, tail;
     float hx;
@@ -159,6 +196,7 @@ static void debugDraw(const char *title)
     tail = snapshot.next > (unsigned)debug_rows ? snapshot.next - debug_rows : 0;
     if (tail < snapshot.first) tail = snapshot.first;
     if (debug_top >= 0 && debug_top < (int)snapshot.first) debug_top = snapshot.first;
+    if (debug_top >= 0 && debug_top > (int)tail) debug_top = tail;
     first = debug_top < 0 ? tail : (unsigned)debug_top;
     dashRenderScene();
     dashModalBackdrop(1);
@@ -167,26 +205,41 @@ static void debugDraw(const char *title)
              x + 20, y + 18, 22, debug_result < 0 && debug_review ? DASH_C_DANGER : DASH_C_ACCENT);
     dashTextFit(x + 52, y + 18, w - 90, title, DASH_FS_LABEL, DASH_C_TEXT);
     if (!debug_review) dashDrawSpinner(x + w - 24, y + 29, 7, DASH_C_ACCENT);
-    dashTextFit(x + 20, y + 48, w - 40, snapshot.status, DASH_FS_SMALL, DASH_C_TEXT2);
-    if (snapshot.io[0]) dashTextFit(x + 20, y + 72, w - 40, snapshot.io, DASH_FS_SMALL, DASH_C_TEXT3);
-    dashRect(x + 20, y + 100, w - 40, 5, dashColorA(DASH_C_TEXT3, 0.3f));
+    snprintf(counters, sizeof(counters), "Overall (estimated): %u%% | %s", snapshot.overall / 10, snapshot.phase);
+    dashTextFit(x + 20, y + 48, w - 40, counters, DASH_FS_SMALL, DASH_C_TEXT2);
+    dashRect(x + 20, y + 68, w - 40, 5, dashColorA(DASH_C_TEXT3, 0.3f));
+    dashRect(x + 20, y + 68, (w - 40) * dashClampf(snapshot.overall / 1000.0f, 0, 1), 5, DASH_C_ACCENT);
+    dashTextFit(x + 20, y + 82, w - 40, snapshot.status, DASH_FS_SMALL, DASH_C_TEXT2);
+    dashRect(x + 20, y + 104, w - 40, 5, dashColorA(DASH_C_TEXT3, 0.3f));
     if (snapshot.total > 0)
-        dashRect(x + 20, y + 100, (w - 40) * dashClampf(snapshot.done / (float)snapshot.total, 0, 1), 5, DASH_C_ACCENT);
-    snprintf(counters, sizeof(counters), "Elapsed %u:%02u | Last update %u s ago | %d / %d",
-             (unsigned)(snapshot.elapsed / 60000), (unsigned)(snapshot.elapsed / 1000 % 60),
-             (unsigned)(snapshot.idle / 1000), snapshot.done, snapshot.total);
-    dashTextFit(x + 20, y + 112, w - 40, counters, DASH_FS_SMALL, DASH_C_TEXT2);
-    snprintf(counters, sizeof(counters), "Diagnostic log: lines %u-%u of %u%s", first + 1,
+        dashRect(x + 20, y + 104, (w - 40) * dashClampf(snapshot.done / (float)snapshot.total, 0, 1), 5, DASH_C_ACCENT);
+    else if (!debug_review) {
+        float part = (snapshot.elapsed % 1600) / 1600.0f;
+        dashRect(x + 20 + (w - 40) * 0.8f * part, y + 104, (w - 40) * 0.2f, 5, DASH_C_ACCENT);
+    }
+    if (snapshot.total > 0)
+        snprintf(counters, sizeof(counters), "Elapsed %u:%02u | Last update %u s ago | %d / %d",
+                 (unsigned)(snapshot.elapsed / 60000), (unsigned)(snapshot.elapsed / 1000 % 60),
+                 (unsigned)(snapshot.idle / 1000), snapshot.done, snapshot.total);
+    else
+        snprintf(counters, sizeof(counters), "Elapsed %u:%02u | Last update %u s ago | %s",
+                 (unsigned)(snapshot.elapsed / 60000), (unsigned)(snapshot.elapsed / 1000 % 60),
+                 (unsigned)(snapshot.idle / 1000), debug_review ? "Stopped" : "Working...");
+    dashTextFit(x + 20, y + 116, w - 40, counters, DASH_FS_SMALL, DASH_C_TEXT2);
+    if (snapshot.io[0]) dashTextFit(x + 20, y + 138, w - 40, snapshot.io, DASH_FS_SMALL, DASH_C_TEXT3);
+    snprintf(counters, sizeof(counters), "Installation log: lines %u-%u of %u%s", first + 1,
              first + debug_rows < snapshot.next ? first + debug_rows : snapshot.next,
              snapshot.next, debug_top < 0 ? " (live)" : " (scrolling)");
-    dashText(x + 20, y + 134, counters, DASH_FS_CAPTION, DASH_C_TEXT3);
-    dashGfxScissorPush(x + 20, log_y, w - 40, debug_rows * 24);
+    dashText(x + 20, y + 160, counters, DASH_FS_CAPTION, DASH_C_TEXT3);
+    dashGfxScissorPush(x + 20, log_y, w - 54, debug_rows * 24);
     for (int row = 0; row < debug_rows && first + row < snapshot.next; row++) {
         if (!hddInstallLogRead(first + row, line)) continue;
-        dashTextFit(x + 20, log_y + row * 24, w - 40, line, DASH_FS_SMALL,
+        dashTextFit(x + 20, log_y + row * 24, w - 54, line, DASH_FS_SMALL,
                     strstr(line, "ERROR") || strstr(line, "FAILED") ? DASH_C_DANGER : DASH_C_TEXT);
     }
     dashGfxScissorPop();
+    dashDrawScrollbar(x + w - 16, log_y, debug_rows * 24,
+                      (float)(first - snapshot.first), debug_rows, snapshot.next - snapshot.first);
     hx = x + 20;
     hx += dashDrawButton(hx, hints_y, DI_BTN_UP, NULL);
     hx += dashDrawButton(hx, hints_y, DI_BTN_DOWN, NULL) + 4;
@@ -215,8 +268,9 @@ void dashHddInstallDebugBegin(HddInstall *in, const HddFormatPlan *plan)
     hddInstallLog("exFAT first=%u sectors=%u recovery=%u", (unsigned)plan->exfat_start, (unsigned)plan->exfat_sectors, (unsigned)plan->recovery_start);
     hddInstallLog("Choices: Music=%u MiB Contents=%u MiB PS2 Linux=%s Home=%u MiB Free APA reserve=%u MiB",
                   in->music_mb, in->contents_mb, in->flags & HDD_INSTALL_PS2LINUX ? "On" : "Off", in->linux_home_mb, in->reserved_mb);
+    hddInstallLog("Game launchers: install OPL + NHDDL/Neutrino; default %s", hddInstallGameName(in->game_launcher));
     hddInstallStatus("Preparing installer; the HDD has not been erased yet", 0, 0);
-    dashLoadingBegin("PSBBN DP installer diagnostics");
+    dashLoadingBegin("PSBBN DP installer log");
 }
 int dashHddInstallAwait(int id, const char *title)
 {
@@ -236,6 +290,7 @@ int dashHddInstallAwait(int id, const char *title)
 static void debugSave(void *context)
 {
     HddInstall *in = context;
+    hddInstallProgress("Saving installation log", 0, 0);
     int ret = hddInstallMountStage(in);
     if (ret >= 0) { hddInstallLogFlush(in); ret = hddInstallUnmountStage(in); }
     if (ret < 0) hddInstallLog("ERROR reopening log volume: %d", ret);
@@ -246,10 +301,11 @@ void dashHddInstallDebugEnd(HddInstall *in, int result)
     hddInstallLog("SESSION %s: result=%d", result == -ECANCELED ? "CANCELLED" : result < 0 ? "FAILED" : "COMPLETE", result);
     if (in->error[0]) hddInstallLog("ERROR detail: %s", in->error);
     if (in->owned) {
-        int id = dashWorkerSubmit("Saving installer diagnostics", 0, debugSave, NULL, in);
-        if (id > 0) dashHddInstallAwait(id, "Saving installer diagnostics");
+        int id = dashWorkerSubmit("Saving installer log", 0, debugSave, NULL, in);
+        if (id > 0) dashHddInstallAwait(id, "Saving installer log");
         else hddInstallLog("ERROR log-save job could not be queued");
     }
+    if (result == 0) hddInstallPhase(HDD_INSTALL_PHASE_COMPLETE);
     hddInstallLogStop();
     dashLoadingEnd();
     debug_review = 1; debug_result = result; debug_top = -1;

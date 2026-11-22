@@ -66,6 +66,8 @@ typedef struct {
     InstallExt2 *fs[HDD_INSTALL_LINUX_PARTITIONS];
     int input, output, route, preflight;
     unsigned entries, required, archive, linux_required;
+    uint64_t archive_done, archive_total;
+    uint32_t file_done, file_size;
     uint32_t blocks[HDD_INSTALL_LINUX_PARTITIONS + 3], inodes[HDD_INSTALL_LINUX_PARTITIONS + 3];
     char current[INSTALL_TAR_PATH];
 } Payload;
@@ -142,12 +144,9 @@ static int begin(void *context, const InstallTarEntry *entry)
         if (r >= HDD_INSTALL_LINUX_PARTITIONS && p->blocks[r] > 32u * 256) return -EFBIG;
         return 0;
     }
-    if (!(p->entries % 64)) hddInstallStatus("Installing PSBBN DP", p->entries, 0);
     snprintf(p->current, sizeof(p->current), "%s", entry->name);
-    if (!(p->entries % 64) || r >= HDD_INSTALL_LINUX_PARTITIONS) {
-        hddInstallLog("EXTRACT entry=%u type=%c bytes=%u path=%s", p->entries, entry->type, (unsigned)entry->size, entry->name);
-        hddInstallLogFlush(p->in);
-    }
+    p->file_done = 0; p->file_size = entry->size;
+    hddInstallProgress(p->current, 0, p->file_size);
     if (r < HDD_INSTALL_LINUX_PARTITIONS) {
         memmove(e.name, relative, strlen(relative) + 1);
         return installExt2Begin(p->fs[r], &e);
@@ -169,12 +168,21 @@ static int data(void *context, const void *bytes, unsigned size)
     Payload *p = context;
     unsigned done = 0;
     if (p->preflight) return 0;
-    if (p->route >= 0 && p->route < HDD_INSTALL_LINUX_PARTITIONS) return installExt2Data(p->fs[p->route], bytes, size);
+    if (p->route >= 0 && p->route < HDD_INSTALL_LINUX_PARTITIONS) {
+        int ret = installExt2Data(p->fs[p->route], bytes, size);
+        if (ret >= 0) {
+            p->file_done += size;
+            hddInstallProgress(p->current, p->file_done, p->file_size);
+        }
+        return ret;
+    }
     if (p->output < 0) return -EINVAL;
     while (done < size) {
         int n = genWrite(p->output, (void *)((const unsigned char *)bytes + done), size - done);
         if (n <= 0 || (unsigned)n > size - done) return n < 0 ? n : -EIO;
         done += n;
+        p->file_done += n;
+        hddInstallProgress(p->current, p->file_done, p->file_size);
     }
     return 0;
 }
@@ -196,8 +204,12 @@ static int readArchive(void *context, uint32_t offset, void *bytes, unsigned siz
         if (n <= 0 || (unsigned)n > size - done) return n < 0 ? n : -EIO;
         done += n;
     }
-    hddInstallStatus(p->preflight ? "Checking PSBBN archive" : "Installing PSBBN archive",
-                     offset + size, p->in->sizes[p->archive]);
+    if (p->preflight) hddInstallProgress("Checking PSBBN archive", offset + size, p->in->sizes[p->archive]);
+    if (p->archive_total) {
+        uint64_t completed = p->archive_done + offset + size;
+        if (p->preflight) hddInstallOverall(completed, p->archive_total);
+        else hddInstallOverall(100 + 800 * completed / p->archive_total, 1000);
+    }
     return 0;
 }
 static int archives(Payload *p)
@@ -206,8 +218,11 @@ static int archives(Payload *p)
     InstallTarSink sink = {p, begin, data, end};
     char path[MAX_PATH];
     int ret = 0;
-    static const unsigned assets[] = {HI_SYSTEM, HI_LANGUAGE, HI_PS2LINUX};
-    unsigned count = p->in->flags & HDD_INSTALL_PS2LINUX ? 3 : 2;
+    unsigned assets[4] = {HI_SYSTEM, HI_LANGUAGE}, count = 2;
+    if (hddInstallSelectedAsset(p->in, HI_CHANNELS)) assets[count++] = HI_CHANNELS;
+    if (p->in->flags & HDD_INSTALL_PS2LINUX) assets[count++] = HI_PS2LINUX;
+    p->archive_done = p->archive_total = 0;
+    for (unsigned a = 0; a < count; a++) p->archive_total += p->in->sizes[assets[a]];
     for (unsigned a = 0; a < count; a++) {
         unsigned i = assets[a];
         if (snprintf(path, sizeof(path), "%s/%s", p->in->stage, hddInstallAssetName(i)) >= (int)sizeof(path)) return -ENAMETOOLONG;
@@ -223,6 +238,7 @@ static int archives(Payload *p)
         p->input = -1;
         if (p->output >= 0) { int closed = genClose(p->output); p->output = -1; if (ret >= 0) ret = closed; }
         if (ret < 0) break;
+        p->archive_done += p->in->sizes[i];
     }
     return ret;
 }
@@ -275,6 +291,17 @@ int hddInstallPsbbnPayload(void *context, const HddFormatIo *io)
         mounts++;
     }
     ret = archives(p); if (ret < 0) goto done;
+    {
+        InstallTarEntry entry = {0}; char shortcut[1024];
+        ret = hddInstallGameShortcut(in, shortcut, sizeof(shortcut));
+        if (ret < 0) goto done;
+        strcpy(entry.name, "bn/sysconf/shortcut_0"); entry.type = '0';
+        entry.size = ret; entry.mode = 0644; entry.mtime = (uint32_t)time(NULL);
+        ret = installExt2Begin(p->fs[5], &entry);
+        if (ret >= 0) ret = installExt2Data(p->fs[5], shortcut, entry.size);
+        if (ret >= 0) ret = installExt2End(p->fs[5]);
+        if (ret < 0) goto done;
+    }
     /* Tar overlays never supply our generated component-specific settings. */
     ret = hddInstallWriteConfigs(in); if (ret < 0) goto done;
     for (unsigned i = 0; i < HDD_INSTALL_LINUX_PARTITIONS; i++) if (p->fs[i]) { ret = installExt2Finish(p->fs[i]); if (ret < 0) goto done; }

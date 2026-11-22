@@ -415,6 +415,13 @@ static void tls_verify_error(HttpsTls *tls, const char *host,
     set_error(error, error_size, "TLS certificate verification failed", result);
 }
 
+static const unsigned char *https_ca_bundle;
+static unsigned https_ca_size;
+void httpsSetCaBundle(const unsigned char *data, unsigned size)
+{
+    https_ca_bundle = data;
+    https_ca_size = size;
+}
 static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
                     char *error, int error_size)
 {
@@ -438,7 +445,11 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
     }
     httpsTrace("TLS begin host=%s CA=%s", host, ca_path);
     httpsStatus("Loading trusted certificates");
-    ca_data = read_file(ca_path, &ca_len);
+    if (https_ca_bundle && https_ca_size && https_ca_size <= 256 * 1024) {
+        ca_len = https_ca_size;
+        ca_data = malloc(ca_len + 1);
+        if (ca_data) { memcpy(ca_data, https_ca_bundle, ca_len); ca_data[ca_len] = 0; }
+    } else ca_data = read_file(ca_path, &ca_len);
     if (ca_data == NULL) {
         set_error(error, error_size, "Could not read HTTPS CA bundle", 0);
         goto fail;
@@ -884,7 +895,7 @@ static int download_write(int fd, HttpsDownloadBuffer *buffer,
         if (buffer->used == HTTPS_IO && download_flush(fd, buffer, error, error_size) < 0)
             return -1;
     }
-    if (mbedtls_sha256_update(sha, data, (size_t)len) != 0) {
+    if (sha && mbedtls_sha256_update(sha, data, (size_t)len) != 0) {
         set_error(error, error_size, "Could not hash downloaded update", 0);
         return -1;
     }
@@ -987,6 +998,7 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
         int used = 0, header_len, body_len, status, chunked = 0;
         int content_length = -1, written = 0, complete = 0, r;
         mbedtls_sha256_context sha;
+        mbedtls_sha256_context *checksum = digest ? &sha : NULL;
         HttpsChunkDecoder decoder;
         HttpsDownloadBuffer buffer;
 
@@ -1142,7 +1154,7 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
             return -1;
         }
         mbedtls_sha256_init(&sha);
-        if (mbedtls_sha256_starts(&sha, 0) != 0) {
+        if (checksum && mbedtls_sha256_starts(checksum, 0) != 0) {
             mbedtls_sha256_free(&sha);
             tls_free(&tls);
             free(raw);
@@ -1158,14 +1170,14 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
                 r = download_chunked_consume(&decoder,
                                              (unsigned char *)raw + header_len,
                                              body_len, fd, &buffer, max_bytes, &written,
-                                             &sha, error, error_size);
+                                             checksum, error, error_size);
             else {
                 int take = body_len;
                 if (content_length >= 0 && take > content_length)
                     take = content_length;
                 r = download_write(fd, &buffer, (unsigned char *)raw + header_len,
                                    take, max_bytes, &written,
-                                   &sha, error, error_size);
+                                   checksum, error, error_size);
             }
             if (r < 0) {
                 mbedtls_sha256_free(&sha);
@@ -1222,7 +1234,7 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
 
             if (chunked) {
                 int cr = download_chunked_consume(&decoder, io_buf, r, fd,
-                                                  &buffer, max_bytes, &written, &sha,
+                                                  &buffer, max_bytes, &written, checksum,
                                                   error, error_size);
                 if (cr < 0) {
                     mbedtls_sha256_free(&sha);
@@ -1238,7 +1250,7 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
                     take = content_length - written;
                 if (take > 0 &&
                     download_write(fd, &buffer, io_buf, take, max_bytes, &written,
-                                   &sha, error, error_size) < 0) {
+                                   checksum, error, error_size) < 0) {
                     mbedtls_sha256_free(&sha);
                     tls_free(&tls);
                     free(io_buf);
@@ -1256,7 +1268,7 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
             free(io_buf);
             return -1;
         }
-        if (mbedtls_sha256_finish(&sha, digest != NULL ? digest : (unsigned char [32]){0}) != 0) {
+        if (checksum && mbedtls_sha256_finish(checksum, digest) != 0) {
             mbedtls_sha256_free(&sha);
             tls_free(&tls);
             free(io_buf);

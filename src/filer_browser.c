@@ -1860,21 +1860,7 @@ int getFilePath(char *out, int cnfmode)
 						iconbase = ICON_FILE;
 						if (genCmpFileExt(files[top + i].name, "ELF"))
 							iconcolr = COLOR_GRAPH2;
-						else if (
-									genCmpFileExt(files[top + i].name, "TXT") || 
-									genCmpFileExt(files[top + i].name, "CFG") || 
-									genCmpFileExt(files[top + i].name, "CNF") || 
-									genCmpFileExt(files[top + i].name, "INI") || 
-									genCmpFileExt(files[top + i].name, "CHT") || 
-									genCmpFileExt(files[top + i].name, "PBT") ||
-									genCmpFileExt(files[top + i].name, "JS") ||
-									genCmpFileExt(files[top + i].name, "LUA") ||
-									genCmpFileExt(files[top + i].name, "XML") ||
-									genCmpFileExt(files[top + i].name, "TOML") ||
-									genCmpFileExt(files[top + i].name, "YAML") ||
-									genCmpFileExt(files[top + i].name, "YML") ||
-									genCmpFileExt(files[top + i].name, "ARG")
-									)
+						else if (IsTextEditorFileType(files[top + i].name))
 							iconcolr = COLOR_GRAPH4;
 						else
 							iconcolr = COLOR_GRAPH3;

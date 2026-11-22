@@ -81,6 +81,9 @@ void hddInstallLog(const char *format, ...) { (void)format; }
 int hddInstallLogEnabled(void) { return 0; }
 void hddInstallLogFlush(HddInstall *in) { (void)in; }
 void hddInstallStatus(const char *s,int done,int total) { dashWorkerStatus(s,done,total); }
+void hddInstallProgress(const char *s,int done,int total) { dashWorkerStatus(s,done,total); }
+void hddInstallOverall(uint64_t done,uint64_t total) { assert(total&&done<=total); }
+void hddInstallPhase(unsigned phase) { assert(phase==HDD_INSTALL_PHASE_FINISH&&!activated); }
 '''
 code += function
 code += r'''

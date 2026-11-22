@@ -79,7 +79,15 @@ static int flushDisk(void *ctx)
 static int apaDisk(void *ctx)
 { (void)ctx; return hddFormat(); }
 static void progress(void *ctx, const char *stage, uint32_t done, uint32_t total)
-{ (void)ctx; hddInstallStatus(stage, done, total); }
+{
+    static const char *const stages[] = {"Clearing old disk metadata", "Clearing old GPT backup",
+        "Formatting APA system partitions", "Clearing exFAT allocation table", "Backing up APA recovery metadata"};
+    (void)ctx; hddInstallStatus(stage, done, total);
+    for (unsigned i = 0; i < sizeof(stages) / sizeof(stages[0]); i++) if (!strcmp(stage, stages[i])) {
+        uint64_t part = total ? (uint64_t)(done > total ? total : done) * 200 / total : 0;
+        hddInstallOverall(i * 200 + part, 1000); break;
+    }
+}
 
 int hddFormatDisk(const HddFormatPlan *plan, int *started)
 {
@@ -164,6 +172,7 @@ int hddInstallFinish(const HddFormatPlan *plan, const char *mbr, int *started,
         hddInstallLog("PSBBN filesystem population rc=%d", ret);
         if (ret < 0) goto finish;
     }
+    hddInstallPhase(HDD_INSTALL_PHASE_FINISH);
     while (copied < bytes) {
         unsigned n = bytes - copied > 32768 ? 32768 : bytes - copied, read = 0;
         while (read < n) {
@@ -177,6 +186,8 @@ int hddInstallFinish(const HddFormatPlan *plan, const char *mbr, int *started,
         if (ret >= 0) ret = readDisk(NULL, 8192 + copied / 512, n / 512, verify);
         if (ret < 0 || memcmp(buffer, verify, n)) { if (ret >= 0) ret = -EIO; goto finish; }
         copied += n;
+        hddInstallProgress("Installing OSDMenu MBR", copied, bytes);
+        hddInstallOverall(copied, (uint64_t)bytes * 4);
     }
     /* Persist the software and MBR payload before exposing its APA pointer. */
     ret = flushDisk(NULL); if (ret < 0) goto finish;
@@ -210,6 +221,7 @@ finish:
     if (ret >= 0) ret = finish;
 done:
     if (fd >= 0) { int closed = genClose(fd); if (ret >= 0 && closed < 0) ret = closed; }
+    if (ret >= 0) hddInstallOverall(900, 1000);
     free(verify); free(buffer);
     return ret;
 }

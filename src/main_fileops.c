@@ -56,6 +56,7 @@ int uLE_related(char *pathout, const char *pathin)
 int IsTextEditorFileType(const char *path)
 {
 	return (genCmpFileExt(path, "TXT") ||
+	        genCmpFileExt(path, "LOG") ||
 	        genCmpFileExt(path, "CHT") ||
 	        genCmpFileExt(path, "CFG") ||
 	        genCmpFileExt(path, "INI") ||

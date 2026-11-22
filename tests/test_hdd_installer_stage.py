@@ -5,7 +5,7 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 s = (root / 'src/hdd_install_ps2.c').read_text()
-helpers = s[s.index('static int pathJoin('):s.index('static int checkHash(')]
+helpers = s[s.index('static int pathJoin('):s.index('static int checkFileSize(')]
 stage = s[s.index('int hddInstallClaimStage('):s.index('static int makeDirectory(')]
 code = r'''
 #define _POSIX_C_SOURCE 200809L
@@ -58,7 +58,8 @@ int hddInstallLogEnabled(void) { return 0; }
 void hddInstallLogFlush(HddInstall *in) { (void)in; }
 void hddInstallStatus(const char *s,int done,int total) { (void)s;(void)done;(void)total; }
 '''
-code += helpers + stage
+a=s.index('static void launcherStageName('); b=s.index('static int findLauncher(',a)
+code += helpers + s[a:b] + stage
 code += r'''
 int main(int argc,char**argv) {
     char path[2048]; HddInstall in={0},other={0}; int fd; char ca[16]={0};
@@ -72,6 +73,8 @@ int main(int argc,char**argv) {
     assert(!strcmp(in.ca_path,"ata0:/PSBBN_DP_TEMP/INSTALL_CA.PEM"));
     fd=genOpen(in.ca_path,FIO_O_RDONLY);assert(fd>=0);assert(read(fd,ca,16)==10&&!strcmp(ca,"CA fixture"));close(fd);
     assert(hddInstallFindStage(&in)==0);
+    in.launcher_files=calloc(1,sizeof(*in.launcher_files));assert(in.launcher_files);in.launcher_count=1;
+    fd=genOpen("ata0:/PSBBN_DP_TEMP/launcher-000.bin",FIO_O_CREAT|FIO_O_EXCL|FIO_O_WRONLY);assert(fd>=0);close(fd);
     other.jail=1;strcpy(other.stage,in.stage);other.ca_data=malloc(1);other.ca_data[0]=0;other.ca_size=1;
     assert(hddInstallCreateStage(&other)==-EEXIST&&!other.owned);
     hddInstallCleanup(&other);assert(!other.ca_data&&hddInstallFindStage(&in)==0);

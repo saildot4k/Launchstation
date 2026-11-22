@@ -105,6 +105,7 @@ jobs:
           python3 tests/test_scene_override_nesting.py
           python3 tests/test_gage_alignment.py
           python3 tests/test_modal_animation.py
+          python3 tests/test_modal_confirm_table.py
           python3 tests/test_browser_startup_status.py
           python3 tests/test_nested_scissor.py
           python3 tests/test_hdd_manager_browse.py
@@ -117,8 +118,11 @@ jobs:
           python3 tests/test_hdd_installer_boot.py
           python3 tests/test_hdd_installer_stage.py
           python3 tests/test_hdd_installer_apply.py
+          python3 tests/test_hdd_installer_launchers.py
+          python3 tests/test_hdd_installer_progress.py
           python3 tests/test_hdd_installer_partitions.py
           python3 tests/test_hdd_installer_choices.py
+          python3 tests/test_hdd_installer_languages.py
           python3 tests/test_hdd_installer_raw.py
           python3 tests/test_hdd_installer_transport.py
           python3 tests/test_hdd_installer_log.py

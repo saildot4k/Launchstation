@@ -21,6 +21,7 @@ code = r'''
 #include "hdd_format.h"
 #include "hdd_install.h"
 typedef uint32_t u32;
+typedef struct { const char *label, *value; } DashTableRow;
 typedef struct { HddFormatPlan format_plan; HddInstall *installer; int format_started, ret, op; } HddJob;
 #define ETH
 #define DI_WARNING 1
@@ -61,18 +62,33 @@ static void dashModalMessage(int icon, const char *title, const char *body, cons
 static int dashModalConfirm(const char *title, const char *body, const char *button, int danger) {
     assert(title && body && button && danger == 1);
     confirms++;
-    if (confirms == 1 && selected == HDD_FORMAT_EXFAT)
-        assert(strstr(body, "PS2") && strstr(body, "32 KiB") && strstr(body, "one MBR"));
-    if (confirms == 1 && selected == HDD_FORMAT_APA_JAIL)
-        assert(strstr(body, "PS2") && strstr(body, "Recovery: 32 MiB") && strstr(body, "additional"));
+    assert(confirms == 2 && strstr(body,"Every partition") && !strcmp(button,"Format"));
     return confirms != cancel_confirm;
+}
+static const char *reviewValue(const DashTableRow *rows,int count,const char *label) {
+    for(int i=0;i<count;i++){assert(rows[i].label&&rows[i].value);if(!strcmp(rows[i].label,label))return rows[i].value;}
+    assert(0);return NULL;
+}
+static int dashModalConfirmTable(const char *title,const DashTableRow *rows,int count,const char *button,int danger) {
+    assert(!strcmp(title,"Review HDD format") && count>2 && count<=18 && !strcmp(button,"Continue") && danger==1);
+    assert(!confirms);confirms++;
+    assert(!strcmp(reviewValue(rows,count,"Format"),selected==0?"APA":selected==1?"exFAT":"APA Jail (APA + exFAT)"));
+    if(selected!=HDD_FORMAT_APA)assert(!strcmp(reviewValue(rows,count,"exFAT label / cluster"),"PS2 / 32 KiB"));
+    if(selected==HDD_FORMAT_APA_JAIL)assert(!strcmp(reviewValue(rows,count,"Recovery"),"32 MiB"));
+    if(install_flags&HDD_INSTALL_PSBBN){
+        assert(!strcmp(reviewValue(rows,count,"PSBBN language"),"French"));
+        assert(!strcmp(reviewValue(rows,count,"Music"),"1024 MiB"));
+        assert(!strcmp(reviewValue(rows,count,"Console HDD boot"),"Enable"));
+    }
+    return confirms!=cancel_confirm;
 }
 void dashHddInstallDebugBegin(HddInstall *in,const HddFormatPlan *p) { (void)in;(void)p; }
 void dashHddInstallDebugEnd(HddInstall *in,int ret) { (void)in;(void)ret; }
 void hddInstallLog(const char *format,...) { (void)format; }
+void hddInstallPhase(unsigned phase) { assert(phase==HDD_INSTALL_PHASE_FORMAT||phase==HDD_INSTALL_PHASE_DOWNLOAD); }
 int dashHddInstallChoose(HddInstall *in, int jail) { in->jail = jail; in->flags = install_flags; return 1; }
 int dashHddInstallConfigure(HddInstall *in,unsigned max) { assert(max>=2048); in->music_mb=in->contents_mb=1024; return 1; }
-int dashHddInstallPrepare(HddInstall *in) { assert(!confirms && !jobs); (void)in; return 1; }
+int dashHddInstallPrepare(HddInstall *in) { assert(!confirms && !jobs); strcpy(in->language.name,"French"); return 1; }
 int dashHddInstallPrepareStorage(HddInstall *in) { assert(confirms == 2 && reset == 1 && jobs == 1); strcpy(in->stage, in->jail ? "ata0:/PSBBN_DP_TEMP" : "pfs2:/PSBBN_DP_TEMP"); return 0; }
 void hddInstallRelease(HddInstall *in) { (void)in; }
 void hddInstallCleanup(HddInstall *in) { in->stage[0] = 0; }

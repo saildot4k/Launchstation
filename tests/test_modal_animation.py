@@ -429,6 +429,11 @@ int main(void) {
     puts("PASS: direct Confirm/Cancel and classic overrides, both button icon mappings, video timeout, ordinary/preview/nested menus, measured timing, RTC interpolation, motion off and stalls");
 }
 """
+if "const DashTableRow *table" in buttons:
+    code = 'typedef struct { const char *label,*value; } DashTableRow;\n#define dashText(...) ((void)0)\n' + code
+    code = code.replace("const char *,const char *,u64);", "const char *,const char *,u64,const DashTableRow *,int);")
+    for arguments in ('"OK","Cancel",0', '"Keep","Revert",7000', '"Keep","Revert",1032'):
+        code = code.replace(arguments + ")", arguments + ",NULL,0)")
 compiler = shutil.which("gcc") or shutil.which("clang")
 if not compiler:
     raise SystemExit("Host gcc or clang required")

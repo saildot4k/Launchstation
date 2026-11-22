@@ -861,6 +861,8 @@ void dashModalSetPreview(void (*fn)(int index)); /* applies to the next dashModa
 int dashModalKeepVideo(void);
 /* Direct Confirm/Back actions; D-pad input never selects a button. */
 int dashModalConfirm(const char *title, const char *body, const char *ok_label, int danger);
+typedef struct { const char *label, *value; } DashTableRow;
+int dashModalConfirmTable(const char *title, const DashTableRow *rows, int count, const char *ok_label, int danger);
 void dashModalMessage(int icon, const char *title, const char *body, const char *detail);
 int dashModalChoice(const char *title, const char *const *options, int n, int current);
 

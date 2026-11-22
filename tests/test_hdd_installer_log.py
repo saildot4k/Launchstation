@@ -41,7 +41,12 @@ int main(int argc,char**argv){
  assert(argc==2);filename=argv[1];in.owned=1;strcpy(in.stage,"ata0:/PSBBN_DP_TEMP");
  hddInstallLogStart();hddInstallLog("URL: https://archive.org/a-very-long-download-path-with-enough-characters-to-wrap-over-multiple-lines.tar.gz");
  hddInstallStatus("Downloading system.tar.gz",100,1000);now+=2300;hddInstallStatus("Downloading system.tar.gz",200,1000);
- hddInstallLogFlush(&in);hddInstallLogSnapshot(&snapshot);assert(!snapshot.disk_error&&snapshot.path[0]&&snapshot.elapsed==2300&&snapshot.idle==0);
+ hddInstallLogSnapshot(&snapshot);unsigned initial_lines=snapshot.next;
+ for(int i=201;i<=1000;i++){now+=10;hddInstallStatus("Downloading system.tar.gz",i,1000);}
+ hddInstallLogSnapshot(&snapshot);assert(snapshot.next==initial_lines&&snapshot.done==1000);
+ hddInstallProgress("Receiving download headers",0,0);hddInstallLogSnapshot(&snapshot);assert(snapshot.next==initial_lines);
+ hddInstallProgress("Downloading system.tar.gz",200,1000);
+ hddInstallLogFlush(&in);hddInstallLogSnapshot(&snapshot);assert(!snapshot.disk_error&&snapshot.path[0]&&snapshot.elapsed==10300&&snapshot.idle==0);
  hddInstallRawTrace(3,8192,64,1,0);now+=7000;hddInstallLogSnapshot(&snapshot);assert(strstr(snapshot.io,"WAITING 7 s"));assert(snapshot.idle==7000&&snapshot.done==200&&snapshot.total==1000);
  hddInstallRawTrace(3,8192,64,0,-EIO);hddInstallLogSnapshot(&snapshot);assert(strstr(snapshot.io,"rc=-5"));
  for(unsigned i=0;i<600;i++)hddInstallLog("row %u",i);
@@ -50,6 +55,25 @@ int main(int argc,char**argv){
  hddInstallLog("checkpoint retry");fail_write=1;hddInstallLogFlush(&in);hddInstallLogSnapshot(&snapshot);assert(snapshot.disk_error==-EIO);
  fail_write=0;hddInstallLogFlush(&in);hddInstallLogSnapshot(&snapshot);assert(!snapshot.disk_error);
  unsigned count=snapshot.next;hddInstallLogStop();hddInstallLog("must not appear");hddInstallLogSnapshot(&snapshot);assert(snapshot.next==count&&!hddInstallLogEnabled()&&!locked);
+ /* Independent overall progress never resets with the current file, survives
+  * log checkpoints, and reaches 100% only on an explicit successful finish. */
+ hddInstallLogStart();hddInstallLogSnapshot(&snapshot);assert(!snapshot.overall&&!strcmp(snapshot.phase,"Preparing"));
+ hddInstallOverall(1,1);hddInstallPhase(HDD_INSTALL_PHASE_FORMAT);hddInstallOverall(1,2);
+ hddInstallLogSnapshot(&snapshot);assert(snapshot.overall==60&&!strcmp(snapshot.phase,"Formatting"));
+ hddInstallPhase(HDD_INSTALL_PHASE_DOWNLOAD);hddInstallOverall(3,4);
+ hddInstallLogSnapshot(&snapshot);assert(snapshot.overall==325);unsigned overall=snapshot.overall;
+ hddInstallProgress("next file",0,100);hddInstallOverall(0,4);hddInstallPhase(HDD_INSTALL_PHASE_PREPARE);
+ hddInstallLogSnapshot(&snapshot);assert(snapshot.overall==overall&&!strcmp(snapshot.phase,"Downloading"));
+ hddInstallPhase(HDD_INSTALL_PHASE_CHECK);hddInstallOverall(UINT64_C(3000000000),UINT64_C(4000000000));
+ hddInstallLogSnapshot(&snapshot);assert(snapshot.overall==475);
+ hddInstallPhase(HDD_INSTALL_PHASE_INSTALL);hddInstallOverall(1,2);
+ hddInstallLogSnapshot(&snapshot);assert(snapshot.overall==725);
+ hddInstallPhase(HDD_INSTALL_PHASE_FINISH);hddInstallOverall(1,1);
+ hddInstallLogSnapshot(&snapshot);assert(snapshot.overall==999);
+ hddInstallLogStop();hddInstallPhase(HDD_INSTALL_PHASE_COMPLETE);hddInstallLogSnapshot(&snapshot);assert(snapshot.overall==999); /* failed/stopped session */
+ hddInstallLogStart();hddInstallPhase(HDD_INSTALL_PHASE_COMPLETE);hddInstallLogSnapshot(&snapshot);
+ assert(snapshot.overall==1000&&!strcmp(snapshot.phase,"Complete")&&snapshot.done==snapshot.total);
+ hddInstallLogStop();
  puts("PASS: timestamped wrapped lines, live progress/idle time, bounded history, short writes, disk-error recovery and no file I/O under the log lock");
 }
 '''
@@ -60,3 +84,4 @@ with tempfile.TemporaryDirectory(prefix='hdd-log-') as directory:
  log=(d/'INSTALLER.LOG').read_text()
  assert 'https://archive.org/' in log and 'older lines left the RAM buffer' in log and 'row 599' in log and 'LOG WRITE ERROR' in log
  assert 'must not appear' not in log
+ assert 'done=' not in log and 'total=' not in log and log.count('Downloading system.tar.gz')==1

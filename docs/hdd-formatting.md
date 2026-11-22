@@ -116,7 +116,7 @@ Progress counts bytes accepted by storage, including the final buffered flush.
   visibility attribute `0xc4a7` on APPS and each application folder. No separate
   app partitions or PSBBN/Linux partitions are created.
 - **APA Jail:** format only, or install English PSBBN DP, OSDMenu MBR,
-  HOSDMenu, WLE-R3Z and R3CONFIGURATOR. Apps live on exFAT under `ata0:/APPS`.
+  HOSDMenu, WLE-R3Z, R3CONFIGURATOR, OPL, and NHDDL with Neutrino. Apps live on exFAT under `ata0:/APPS`.
   Each has a standard 128 MiB PFS launcher with PATINFO, HDD icons, and PSBBN
   browser metadata. The installer does not enable 8 MiB APA partitions.
 
@@ -126,11 +126,18 @@ install standalone PS2 Linux (default Off), and additional APA space to leave
 free for future use (default zero). The required allocation is calculated from
 the selected volumes, app launchers and standard APA allocator alignment, then
 the future reserve is added. The default PSBBN/media/apps layout requires
-**6400 MiB beyond the standard APA system partitions**, before any future reserve.
+**6528 MiB beyond the standard APA system partitions**, before any future reserve.
 The APA region is capped at 128 GiB for PSBBN. The existing driver must support a
 single 2 GiB APA extent (checked before download/format); smaller-capacity
 configurations are refused rather than inventing a subpartition mapping.
-PSBBN needs a compatible Sony Network Adapter. This version uses English.
+PSBBN needs a compatible Sony Network Adapter. Before the erase confirmations,
+the installer resolves the DP Git revision and reads its language choices and
+English display names from the upstream installer and UI data. It offers only
+languages with a published pack in the Archive.org item referenced by that
+installer. English is selected initially when available. New language entries
+in the same upstream format appear without rebuilding Launchstation; unavailable
+packs are omitted. A network or metadata failure stops before formatting.
+Downloaded scripts are parsed as data and are never executed.
 
 Music and Contents offer power-of-two sizes from 1 GiB up to the driver's
 single-extent limit (at most 32 GiB). Optional PS2 Linux adds a fixed 2 GiB
@@ -138,10 +145,20 @@ single-extent limit (at most 32 GiB). Optional PS2 Linux adds a fixed 2 GiB
 to the lesser of 16 GiB and the driver's single-extent limit. The limits keep
 the PS2 Linux mapping to one validated APA extent per filesystem. Oversized
 combinations return to the size choices before any erase confirmation.
-The confirmation includes the selected media, Linux and future-reserve sizes.
+The review is a borderless two-column table containing the format, capacity,
+software, language, default launcher, media/Linux sizes and future reserve.
+It uses 24-pixel rows and scrolls with Up/Down or Left/Right for a visible page
+when the current video mode cannot fit every row. The separate final erase
+confirmation remains.
+
+Japanese also installs DP's Japanese PSBBN kernel and latest Japanese channel
+archive into `__linux.9`. Its download can approach 1 GiB and is included in
+overall/file progress and archive preflight. OSDMenu uses DP's corresponding
+supported language code (Japanese maps to `jap`; unsupported OSD languages use
+English). OPL selects the matching installed language file when available.
 
 Enabling PS2 Linux downloads `PS2Linux.tar.gz` from the same Archive.org item,
-checks its authenticated metadata size and SHA-1, and preflights it along with
+checks its metadata size and preflights it along with
 the PSBBN and language archives. Both Linux kernels come from the pinned DP
 Git revision. Permissions, links and device nodes are preserved; the home
 filesystem is prepared for first boot. Holding Circle boots the installed NTSC
@@ -155,17 +172,31 @@ Boot configuration is generated for the actual installed components and paths.
 Pure APA boots HOSDMenu; PSBBN installs boot PSBBN with `-dev9=NICHDD` and offer
 HOSDMenu on Cross. Start/Select hotkeys launch the included apps when present.
 
+PSBBN installs ask for a default game launcher: **Open PS2 Loader (OPL)** or
+**Neutrino (NHDDL)**. Both launchers are downloaded from the same pinned DP
+commit. Their ELFs are installed in `__system/launcher`; the complete Neutrino
+runtime (including config files and IRX modules) goes to `ata0:/neutrino` and
+OPL's language assets go to `ata0:/LNG`. Matching licenses and version files are
+included. The generated OPL configuration enables BDM HDD, apps, and cover art.
+These binaries are copied after archive extraction to replace any older copies.
+
+The choice controls the Square boot shortcut, the first HOSDMenu launcher entry,
+and DP's standard `PP.LAUNCHER` partition, including its icon, artwork, and PSBBN
+Navigator shortcut. NHDDL receives `-mode=ata`. The other launcher remains in the
+HOSDMenu menu. The extra launcher uses a standard 128 MiB APA partition and is
+included in allocation calculations. Pure APA profiles are unchanged.
+
 ### Download and failure behavior
 
 Repository assets come from
 [PSBBN DP](https://github.com/CosmicScale/PSBBN-Definitive-Project) at one
-resolved Git commit; their Git blob hashes are verified. HDD-OSD-only installs
+resolved Git commit. File content hashes are not calculated or compared. HDD-OSD-only installs
 fetch DP's referenced `extras.zip`. PSBBN installations fetch the newest
-complete system and English language versions from DP's
+complete system and selected language versions from DP's
 [Archive.org collection](https://archive.org/details/psbbn-definitive-patch-v4.1),
-using its published sizes and SHA-1 hashes. Archive decompression, CRCs, paths,
+using its published sizes. Archive decompression, CRCs, paths,
 required boot files and capacity bounds are checked after downloading and before
-installing the software. Staged hashes are checked again immediately before
+installing the software. Staged file sizes are checked immediately before
 copying installed files. Downloads and verification report file progress; DNS,
 connection, TLS and response-header stages are also shown so connection setup
 does not appear as an unexplained static download screen. The HTTPS idle
@@ -213,6 +244,11 @@ size parser, including its required `1G`/`2G` syntax, custom media/home sizes,
 extent validation and injected errors. `tests/test_hdd_installer_choices.py`
 checks choice defaults/cancellation, allocation and reserve bounds, optional
 asset metadata and the Linux boot hotkey.
+`tests/test_hdd_installer_launchers.py` runs production package discovery and
+downloads against a local HTTPS facade, checking pinned URLs, recursive runtime
+trees, quick size/ELF-header checks without full-file reads, short I/O, missing files, duplicate/traversal/symlink
+metadata, and network/storage failures. Apply tests cover both defaults, archive
+replacement, runtime modules/configuration, OPL settings, and launcher resources.
 The stage test checks internal folder creation,
 CA preservation and ownership-checked cleanup. `tests/test_hdd_installer_finish.py` verifies software
 and flush/readback checks precede MBR activation, with failure cleanup.
@@ -234,19 +270,34 @@ short writes and write failures against the production download writer.
 
 ### Temporary verbose PSBBN diagnostics
 
-APA-Jail PSBBN installs currently show a large diagnostic popup throughout
-preparation, formatting, downloading, verification and installation. It includes
+APA-Jail PSBBN installs show a scrolling installation log throughout
+preparation, formatting, downloading, checks and installation. It includes
 elapsed time, time since the last activity, progress counts, the last raw-disk
 command (including its LBA, sector count and result), and a timestamped log.
 An outstanding raw command shows how long it has been waiting.
 Up/Down scroll by line, Left/Right by a visible page, and Square returns
-to the latest messages. A review screen stays open at completion or failure.
+to the latest messages. The shared scrollbar tracks the visible position within
+the retained log history, including during installation. A review screen stays
+open at completion or failure.
 
-The log records the Launchstation build, disk layout and LBAs, CA file size,
-Git revision, full download URLs, DNS results, TCP/TLS phases and verification
-flags, HTTP responses/redirects, downloaded byte counts, expected/actual SHA-1,
-partition creation, filesystem setup, sampled archive entries, MBR activation,
-recovery and errors. It never records certificate contents, credentials,
+Two progress bars stay visible from preparation through completion. The upper
+bar is a monotonic, weighted estimate across preparation, formatting, downloading,
+checks, installation and final boot/storage setup. Download progress adds bytes
+across all selected files; archive checks/extraction add compressed bytes across
+the selected system, language and optional Linux archives. Starting a new file
+does not reset overall progress. Only a successful final result reaches 100%;
+failures retain the last overall value, and IOP resets preserve it in EE memory.
+
+The lower bar tracks the current file or operation independently. Extracted
+files show their names and uncompressed write progress. Operations whose size
+is unknown show an animated segment rather than a misleading percentage.
+
+The log records the Launchstation build, disk layout and LBAs, Git revision,
+downloaded files, partition creation, filesystem setup, archive completion,
+MBR activation, recovery and errors. Byte counters and transient DNS/TLS/header
+status update the live display without adding history entries or disk checkpoints.
+Repeated status counters and sampled archive-entry records are omitted.
+It never records certificate contents, credentials,
 request headers or response bodies.
 
 After the temporary folder exists, checkpoints append diagnostics to
@@ -256,8 +307,17 @@ the entire temporary folder. If the drive cannot write the log, the GUI reports
 the write error and keeps the latest 256 display lines in RAM. Before a log
 file can be created, diagnostics are available in the GUI only.
 
-This is intentionally verbose for console troubleshooting and can be simplified
-later. `tests/test_hdd_installer_log.py` checks the bounded history, timestamps,
+File SHA-1 comparisons and their full-file read passes are omitted. The HTTPS
+downloader also skips SHA-256 when no digest is requested, as in this installer;
+callers requesting a digest, including the app updater, still receive one.
+TLS validation, transfer/file-size bounds, archive CRC/format checks and
+MBR/NVRAM readback checks remain in place.
+
+`tests/test_hdd_installer_log.py` checks the bounded history, timestamps,
 progress/idle snapshots, raw command snapshots, file checkpoints, short writes
 and error handling. `tests/test_hdd_installer_log_view.py` checks log navigation
 and that the diagnostic layout stays within its panel across display heights.
+`tests/test_hdd_installer_progress.py` checks cumulative archive progress with
+and without Linux, individual file-write progress, and I/O errors. Log/view tests
+check both bars, large byte counters, phase transitions, file resets and the
+success-only completion rule.

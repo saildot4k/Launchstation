@@ -82,13 +82,14 @@ c = r'''
 typedef struct { int ssl; } HttpsTls;
 /* Capture exact hash input rather than substituting a crypto library in CI. */
 typedef struct { unsigned char bytes[131072]; size_t len; } mbedtls_sha256_context;
+static int hash_starts, hash_updates, hash_finishes;
 static void mbedtls_sha256_init(mbedtls_sha256_context *s) { memset(s,0,sizeof(*s)); }
-static int mbedtls_sha256_starts(mbedtls_sha256_context *s,int n) {(void)s;assert(!n);return 0;}
+static int mbedtls_sha256_starts(mbedtls_sha256_context *s,int n) {(void)s;assert(!n);hash_starts++;return 0;}
 static int mbedtls_sha256_update(mbedtls_sha256_context *s,const unsigned char *p,size_t n) {
-    assert(s->len+n<=sizeof(s->bytes));memcpy(s->bytes+s->len,p,n);s->len+=n;return 0;
+    hash_updates++;assert(s->len+n<=sizeof(s->bytes));memcpy(s->bytes+s->len,p,n);s->len+=n;return 0;
 }
 static int mbedtls_sha256_finish(mbedtls_sha256_context *s,unsigned char *out) {
-    memset(out,0,32);memcpy(out,s->bytes,s->len<32?s->len:32);return 0;
+    hash_finishes++;memset(out,0,32);memcpy(out,s->bytes,s->len<32?s->len:32);return 0;
 }
 static void mbedtls_sha256_free(mbedtls_sha256_context *s) {(void)s;}
 static const char *replies[8];
@@ -231,6 +232,19 @@ int main(void) {
     assert(!download(6,&size,hash,error));
     assert(size==6 && !strcmp(output,"ABCDEF") && !memcmp(hash,"ABCDEF",6));
     assert(progress_calls>3 && progress_done==6 && progress_total==6);
+
+    /* Installer callers request no digest: raw and chunked bodies must
+     * stream to disk without starting, updating or finishing SHA-256. */
+    for(int chunked=0;chunked<2;chunked++) {
+        int starts=hash_starts,updates=hash_updates,finishes=hash_finishes;
+        reset();replies[0]=chunked?
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n6\r\nABCDEF\r\n0\r\n\r\n":
+            "HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nABCDEF";
+        read_step=1;write_step=2;
+        assert(!download(6,&size,NULL,error)&&size==6&&!strcmp(output,"ABCDEF"));
+        assert(hash_starts==starts&&hash_updates==updates&&hash_finishes==finishes);
+    }
+    assert(hash_starts>0&&hash_updates>0&&hash_finishes>0); /* Digest callers still hash. */
 
     /* Exercise the entire downloader across several output batches, with
      * TLS input and pending output alive together in the shared allocation. */

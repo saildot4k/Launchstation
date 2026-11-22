@@ -1,4 +1,4 @@
-/* Temporary installer diagnostics. Keep the UI responsive even when writing
+/* Installer log. Keep the UI responsive even when writing
  * the log blocks: snapshots only hold an EE semaphore for small RAM copies. */
 #include "launchelf.h"
 #include "dash_internal.h"
@@ -8,13 +8,18 @@
 static struct {
     char lines[HDD_INSTALL_LOG_ROWS][HDD_INSTALL_LOG_COLS];
     unsigned next, saved;
-    u64 started, changed, sampled, stopped, io_started;
+    u64 started, changed, stopped, io_started;
     unsigned io_lba, io_count;
     int io_command, io_pending, io_result;
     char status[192], path[1024];
     int done, total, disk_error, active;
+    unsigned phase, overall;
 } log_state;
 static int log_sema = -1;
+static const unsigned phase_start[] = {0, 20, 100, 400, 500, 950, 1000};
+static const char *const phase_names[] = {
+    "Preparing", "Formatting", "Downloading", "Checking files", "Installing", "Finishing", "Complete"
+};
 
 static void lock(void) { if (log_sema >= 0) WaitSema(log_sema); }
 static void unlock(void) { if (log_sema >= 0) SignalSema(log_sema); }
@@ -29,7 +34,7 @@ void hddInstallLogStart(void)
     if (log_sema < 0) return;
     lock(); memset(&log_state, 0, sizeof(log_state));
     log_state.active = 1; log_state.started = log_state.changed = Timer(); unlock();
-    hddInstallLog("Verbose PSBBN DP installer diagnostics enabled");
+    hddInstallLog("PSBBN DP installation started");
 }
 void hddInstallLogStop(void) { lock(); log_state.stopped = Timer(); log_state.active = 0; unlock(); }
 void hddInstallLog(const char *format, ...)
@@ -58,7 +63,7 @@ void hddInstallLog(const char *format, ...)
     } while (*p);
     unlock();
 }
-void hddInstallStatus(const char *text, int done, int total)
+static void updateStatus(const char *text, int done, int total, int history)
 {
     int record = 0;
     u64 now;
@@ -66,16 +71,46 @@ void hddInstallStatus(const char *text, int done, int total)
     if (!log_state.active) return;
     now = Timer();
     lock();
-    if (text && strcmp(log_state.status, text)) { record = 1; log_state.sampled = now; }
-    else if (done != log_state.done && (now - log_state.sampled >= 2000 || (total > 0 && done >= total))) {
-        record = 1; log_state.sampled = now;
-    }
+    record = history && text && strcmp(log_state.status, text);
     if ((text && strcmp(log_state.status, text)) || done != log_state.done || total != log_state.total)
         log_state.changed = now;
     if (text) snprintf(log_state.status, sizeof(log_state.status), "%s", text);
     log_state.done = done; log_state.total = total;
     unlock();
-    if (record) hddInstallLog("%s [done=%d total=%d]", text ? text : "", done, total);
+    if (record) hddInstallLog("%s", text);
+}
+void hddInstallStatus(const char *text, int done, int total)
+{ updateStatus(text, done, total, 1); }
+void hddInstallProgress(const char *text, int done, int total)
+{ updateStatus(text, done, total, 0); }
+void hddInstallPhase(unsigned phase)
+{
+    if (!log_state.active || phase > HDD_INSTALL_PHASE_COMPLETE) return;
+    lock();
+    if (phase > log_state.phase) {
+        log_state.phase = phase;
+        if (log_state.overall < phase_start[phase]) log_state.overall = phase_start[phase];
+        log_state.done = log_state.total = 0;
+        snprintf(log_state.status, sizeof(log_state.status), "%s", phase_names[phase]);
+        if (phase == HDD_INSTALL_PHASE_COMPLETE) log_state.done = log_state.total = 1;
+        log_state.changed = Timer();
+    }
+    unlock();
+}
+void hddInstallOverall(uint64_t done, uint64_t total)
+{
+    unsigned value;
+    if (!log_state.active || !total) return;
+    if (done > total) done = total;
+    lock();
+    if (log_state.phase != HDD_INSTALL_PHASE_COMPLETE) {
+        unsigned start = phase_start[log_state.phase], span = phase_start[log_state.phase + 1] - start;
+        /* Installer counters are bounded archive/download byte counts. */
+        value = start + (unsigned)(done * span / total);
+        if (value > 999) value = 999;
+        if (value > log_state.overall) log_state.overall = value;
+    }
+    unlock();
 }
 void hddInstallRawTrace(int command, uint32_t lba, unsigned count, int pending, int result)
 {
@@ -104,6 +139,8 @@ void hddInstallLogSnapshot(HddInstallLogSnapshot *out)
                       log_state.io_lba, log_state.io_count, log_state.io_result);
     }
     out->done = log_state.done; out->total = log_state.total; out->disk_error = log_state.disk_error;
+    out->overall = log_state.overall;
+    snprintf(out->phase, sizeof(out->phase), "%s", phase_names[log_state.phase]);
     memcpy(out->status, log_state.status, sizeof(out->status)); memcpy(out->path, log_state.path, sizeof(out->path));
     unlock();
 }
