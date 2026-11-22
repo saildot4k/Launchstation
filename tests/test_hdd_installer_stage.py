@@ -1,4 +1,4 @@
-"""Cache identity follows USB renumbering; unowned/ambiguous folders survive."""
+"""Internal temporary folders preserve the CA through format and check ownership."""
 from pathlib import Path
 import subprocess
 import tempfile
@@ -25,15 +25,20 @@ code = r'''
 #define FIO_O_EXCL O_EXCL
 #define FIO_O_RDONLY O_RDONLY
 #define FIO_O_WRONLY O_WRONLY
+#define FIO_MT_RDWR 1
 typedef uint64_t u64;
+typedef int64_t s64;
 static unsigned ticks;
-static const char *units[10];
+static const char *work;
+static int mounted;
 static u64 Timer(void) { return ++ticks; }
 static int mapped(const char *p, char *out, size_t cap) {
-    unsigned u; int n;
-    if(strncmp(p,"usb",3) || p[3]<'0' || p[3]>'9' || p[4]!=':')return -ENOENT;
-    u=p[3]-'0';if(!units[u])return -ENOENT;
-    n=snprintf(out,cap,"%s%s",units[u],p+5);return n<0||n>=(int)cap?-ENAMETOOLONG:0;
+    const char *base,*tail=strchr(p,':');int n;
+    if(!tail)return -EINVAL;
+    if(!strncmp(p,"ata0:",5))base="ata";
+    else if(!strncmp(p,"pfs2:",5)&&mounted)base="common";
+    else return -ENOENT;
+    n=snprintf(out,cap,"%s/%s%s",work,base,tail+1);return n<0||n>=(int)cap?-ENAMETOOLONG:0;
 }
 static int genOpen(const char*p,int mode) { char path[2048]; int r=mapped(p,path,sizeof(path));return r<0?r:open(path,mode,0600); }
 static int genRead(int fd,void*p,unsigned n) {if(n>3)n=3;return read(fd,p,n);}
@@ -42,36 +47,47 @@ static int genWrite(int fd,const void*p,unsigned n) {if(n>3)n=3;return write(fd,
 #define genClose close
 static int genRemove(char*p) {char path[2048];int r=mapped(p,path,sizeof(path));return r<0?r:unlink(path);}
 static int genRmdir(char*p) {char path[2048];int r=mapped(p,path,sizeof(path));return r<0?r:rmdir(path);}
+static int genMkdir(const char*p,int mode) {char path[2048];int r=mapped(p,path,sizeof(path));return r<0?r:mkdir(path,mode)<0?-errno:0;}
+static int fileXioMount(const char*m,const char*p,int flags){assert(!strcmp(m,"pfs2:")&&!strcmp(p,"hdd0:__common")&&flags==FIO_MT_RDWR&&!mounted);mounted=1;return 0;}
+static int fileXioUmount(const char*m){assert(!strcmp(m,"pfs2:")&&mounted);mounted=0;return 0;}
+'''
+code += r'''
+
+void hddInstallLog(const char *format, ...) { (void)format; }
+int hddInstallLogEnabled(void) { return 0; }
+void hddInstallLogFlush(HddInstall *in) { (void)in; }
+void hddInstallStatus(const char *s,int done,int total) { (void)s;(void)done;(void)total; }
 '''
 code += helpers + stage
 code += r'''
 int main(int argc,char**argv) {
-    char path[2048]; HddInstall in={0},other={0}; int fd;
-    assert(argc==3); units[0]=argv[1]; units[1]=argv[2];
-    snprintf(path,sizeof(path),"%s/cache",argv[1]);assert(!mkdir(path,0700));
-    snprintf(path,sizeof(path),"%s/cache",argv[2]);assert(!mkdir(path,0700));
-    strcpy(in.stage,"usb0:/cache"); strcpy(other.stage,"usb1:/cache");
-    assert(hddInstallClaimStage(&in)==0 && in.owned);
-    assert(hddInstallClaimStage(&other)==0 && memcmp(in.owner,other.owner,20));
-    assert(hddInstallClaimStage(&other)<0); /* refuses overwriting a marker */
-    /* Markers remain valid after a refused second claim. */
-    units[0]=argv[2]; units[1]=argv[1];
-    assert(hddInstallFindStage(&in)==0 && !strcmp(in.stage,"usb1:/cache"));
-    snprintf(path,sizeof(path),"%s/cache/OSDMBR.XLF",argv[1]);fd=open(path,O_CREAT|O_WRONLY,0600);assert(fd>=0);close(fd);
-    /* Duplicate the exact marker onto the other USB drive: fail closed. */
-    snprintf(path,sizeof(path),"%s/cache/owner.bin",argv[2]);fd=open(path,O_WRONLY|O_TRUNC);assert(fd>=0);assert(write(fd,in.owner,20)==20);close(fd);
-    assert(hddInstallFindStage(&in)==-EEXIST); hddInstallCleanup(&in);
-    snprintf(path,sizeof(path),"%s/cache/OSDMBR.XLF",argv[1]);assert(access(path,F_OK)==0);
-    snprintf(path,sizeof(path),"%s/cache/owner.bin",argv[2]);assert(!unlink(path));
-    assert(hddInstallFindStage(&in)==0); hddInstallCleanup(&in); assert(!in.stage[0] && !in.owned);
-    snprintf(path,sizeof(path),"%s/cache",argv[1]);assert(access(path,F_OK)<0);
-    snprintf(path,sizeof(path),"%s/cache",argv[2]);assert(access(path,F_OK)==0);
-    puts("PASS: short marker I/O, USB renumbering, duplicate rejection and ownership-checked cleanup");
+    char path[2048]; HddInstall in={0},other={0}; int fd; char ca[16]={0};
+    assert(argc==2);work=argv[1];
+    snprintf(path,sizeof(path),"%s/ata/old-ca.pem",work);fd=open(path,O_CREAT|O_WRONLY,0600);assert(fd>=0);assert(write(fd,"CA fixture",10)==10);close(fd);
+    strcpy(in.ca_path,"ata0:/old-ca.pem");assert(hddInstallLoadCa(&in)==0&&in.ca_size==10);
+    assert(!unlink(path)); /* source disappears during formatting */
+    in.jail=1;strcpy(in.stage,"ata0:/PSBBN_DP_TEMP");
+    assert(hddInstallMountStage(&in)==0&&!mounted);
+    assert(hddInstallCreateStage(&in)==0&&in.owned&&!in.ca_data);
+    assert(!strcmp(in.ca_path,"ata0:/PSBBN_DP_TEMP/INSTALL_CA.PEM"));
+    fd=genOpen(in.ca_path,FIO_O_RDONLY);assert(fd>=0);assert(read(fd,ca,16)==10&&!strcmp(ca,"CA fixture"));close(fd);
+    assert(hddInstallFindStage(&in)==0);
+    other.jail=1;strcpy(other.stage,in.stage);other.ca_data=malloc(1);other.ca_data[0]=0;other.ca_size=1;
+    assert(hddInstallCreateStage(&other)==-EEXIST&&!other.owned);
+    hddInstallCleanup(&other);assert(!other.ca_data&&hddInstallFindStage(&in)==0);
+    snprintf(path,sizeof(path),"%s/ata/PSBBN_DP_TEMP/OSDMBR.XLF",work);fd=open(path,O_CREAT|O_WRONLY,0600);assert(fd>=0);close(fd);
+    hddInstallCleanup(&in);assert(!in.owned&&!in.stage[0]);assert(access(path,F_OK)<0);
+    strcpy(other.stage,"pfs2:/PSBBN_DP_TEMP");other.jail=0;other.ca_data=malloc(2);memcpy(other.ca_data,"CA",2);other.ca_size=2;
+    assert(hddInstallMountStage(&other)==0&&mounted);
+    assert(hddInstallCreateStage(&other)==0&&other.owned);
+    assert(hddInstallUnmountStage(&other)==0&&!mounted);
+    assert(hddInstallMountStage(&other)==0);hddInstallCleanup(&other);assert(!other.owned);assert(hddInstallUnmountStage(&other)==0);
+    puts("PASS: create ATA/PFS temp folders, preserve CA before erasure, short I/O, refuse existing folders and ownership-checked cleanup");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='hdd-installer-stage-') as directory:
-    d = Path(directory); (d / 'test.c').write_text(code); (d / 'a').mkdir(); (d / 'b').mkdir()
+    d = Path(directory); (d / 'test.c').write_text(code); (d / 'ata').mkdir(); (d / 'common').mkdir()
     subprocess.run(['gcc', '-std=c99', '-Wall', '-Wextra', '-Werror', '-I', str(root / 'include'),
                     str(d / 'test.c'), str(root / 'src/hdd_install_plan.c'), str(root / 'src/save_sign.c'),
                     '-o', str(d / 'test')], check=True)
-    subprocess.run([str(d / 'test'), str(d / 'a'), str(d / 'b')], check=True, timeout=10)
+    subprocess.run([str(d / 'test'), str(d)], check=True, timeout=10)

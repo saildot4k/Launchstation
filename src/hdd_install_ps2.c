@@ -49,6 +49,57 @@ static int closeResult(int fd, int result)
     int closed = genClose(fd);
     return result < 0 ? result : closed < 0 ? closed : 0;
 }
+void hddInstallRelease(HddInstall *in)
+{
+    free(in->ca_data); in->ca_data = NULL; in->ca_size = 0;
+}
+int hddInstallLoadCa(HddInstall *in)
+{
+    s64 size;
+    int fd, ret;
+    hddInstallRelease(in);
+    hddInstallLog("Reading CA bundle: %s", in->ca_path);
+    fd = genOpen(in->ca_path, FIO_O_RDONLY);
+    if (fd < 0) return fd;
+    size = genLseek(fd, 0, SEEK_END);
+    if (size <= 0 || size > 256 * 1024 || genLseek(fd, 0, SEEK_SET) != 0) return closeResult(fd, -EINVAL);
+    in->ca_data = malloc((unsigned)size);
+    if (!in->ca_data) return closeResult(fd, -ENOMEM);
+    ret = closeResult(fd, readAll(fd, in->ca_data, (unsigned)size));
+    if (ret < 0) { hddInstallRelease(in); return ret; }
+    in->ca_size = (unsigned)size;
+    hddInstallLog("CA snapshot ready: %u bytes in EE memory", in->ca_size);
+    return 0;
+}
+int hddInstallMountStage(HddInstall *in)
+{ return in->jail ? 0 : fileXioMount("pfs2:", "hdd0:__common", FIO_MT_RDWR); }
+int hddInstallUnmountStage(HddInstall *in)
+{ return in->jail ? 0 : fileXioUmount("pfs2:"); }
+int hddInstallCreateStage(HddInstall *in)
+{
+    char path[MAX_PATH];
+    int fd, ret;
+    if (!in->ca_data || !in->ca_size || !in->stage[0]) return -EINVAL;
+    /* Freshly formatted storage: refuse an existing directory rather than
+     * overwrite unknown contents after a failed/changed workflow. */
+    hddInstallLog("Creating download folder: %s", in->stage);
+    ret = genMkdir(in->stage, 0777);
+    hddInstallLog("mkdir download folder rc=%d", ret);
+    if (ret < 0) return ret;
+    ret = hddInstallClaimStage(in);
+    if (ret < 0) { genRmdir(in->stage); return ret; }
+    if (pathJoin(path, sizeof(path), in->stage, "INSTALL_CA.PEM") < 0) return -ENAMETOOLONG;
+    fd = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_EXCL);
+    if (fd < 0) return fd;
+    ret = closeResult(fd, writeAll(fd, in->ca_data, in->ca_size));
+    if (ret >= 0) {
+        if (strlen(path) >= sizeof(in->ca_path)) return -ENAMETOOLONG;
+        strcpy(in->ca_path, path); hddInstallRelease(in);
+    }
+    hddInstallLog("CA copy to %s rc=%d", path, ret);
+    hddInstallLogFlush(in);
+    return ret;
+}
 static int checkHash(HddInstall *in, unsigned asset)
 {
     unsigned char buffer[32768], digest[20];
@@ -57,6 +108,8 @@ static int checkHash(HddInstall *in, unsigned asset)
     uint32_t done = 0;
     int fd, ret = 0;
     if (pathJoin(path, sizeof(path), in->stage, hddInstallAssetName(asset)) < 0) return -ENAMETOOLONG;
+    hddInstallLog("Verify %s: expected bytes=%u SHA1=%s", path, (unsigned)in->sizes[asset], in->hashes[asset]);
+    hddInstallLogFlush(in);
     fd = genOpen(path, FIO_O_RDONLY);
     if (fd < 0) return fd;
     if (genLseek(fd, 0, SEEK_END) != in->sizes[asset] || genLseek(fd, 0, SEEK_SET) < 0) { genClose(fd); return -EIO; }
@@ -70,12 +123,17 @@ static int checkHash(HddInstall *in, unsigned asset)
         ret = readAll(fd, buffer, n);
         if (ret < 0) break;
         saveHashUpdate(&hash, buffer, n); done += n;
+        snprintf(header, sizeof(header), "Checking %s", hddInstallAssetName(asset));
+        hddInstallStatus(header, done, in->sizes[asset]);
     }
     ret = closeResult(fd, ret);
     if (ret < 0) return ret;
     saveHashFinish(&hash, digest);
     for (unsigned i = 0; i < 20; i++) snprintf(hex + i * 2, 3, "%02x", digest[i]);
-    return strcmp(hex, in->hashes[asset]) ? -EIO : 0;
+    ret = strcmp(hex, in->hashes[asset]) ? -EIO : 0;
+    hddInstallLog("SHA1 actual=%s result=%s", hex, ret < 0 ? "FAILED" : "OK");
+    hddInstallLogFlush(in);
+    return ret;
 }
 static int safeLeaf(const char *name)
 {
@@ -140,7 +198,7 @@ static int osdResources(HddInstall *in, const char *destination)
             if (ctx.output < 0) { ret = ctx.output; goto done; }
         }
         snprintf(entry, sizeof(entry), "extras/%s", hddInstallOsdFiles[i]);
-        dashWorkerStatus(destination ? "Installing HDD-OSD resources" : "Checking HDD-OSD resources", i, 7);
+        hddInstallStatus(destination ? "Installing HDD-OSD resources" : "Checking HDD-OSD resources", i, 7);
         ret = installZipExtract(&io, in->sizes[HI_EXTRAS], entry, 4u * 1024 * 1024, NULL);
         if (ctx.output >= 0) { ret = closeResult(ctx.output, ret); ctx.output = -1; }
         if (ret < 0) { if (destination) genRemove(path); goto done; }
@@ -151,35 +209,58 @@ done:
 }
 
 #if defined(ETH) && defined(WLE_NATIVE_HTTPS)
+typedef struct { HddInstall *in; const char *name; unsigned bytes; u64 time; } InstallTransfer;
 static void transferProgress(int done, int total, void *context)
 {
-    const char *name = context;
-    dashWorkerStatus(name, done, total);
+    InstallTransfer *transfer = context;
+    u64 now = Timer();
+    hddInstallStatus(transfer->name, done, total);
+    if ((unsigned)done - transfer->bytes >= 1024 * 1024 || now - transfer->time >= 3000 || (total > 0 && done >= total)) {
+        hddInstallLog("DOWNLOAD bytes=%d/%d asset=%s", done, total, transfer->name);
+        hddInstallLogFlush(transfer->in); transfer->bytes = done; transfer->time = now;
+    }
 }
 static int request(HddInstall *in, const char *path, HttpsResponse *response)
 {
     const char headers[] = "User-Agent: Launchstation-PS2\r\nAccept: application/vnd.github+json\r\n";
     int ret;
     memset(response, 0, sizeof(*response));
+    hddInstallLog("GET https://api.github.com%s", path);
+    hddInstallLogFlush(in);
     ret = httpsRequest("GET", "api.github.com", path, headers, NULL, 0, in->ca_path,
                        response, in->error, sizeof(in->error));
+    hddInstallLog("GitHub response: rc=%d HTTP=%d body=%d bytes", ret, response->status, response->body_len);
+    hddInstallLogFlush(in);
     if (ret < 0 || response->status != 200 || !response->body) {
         if (ret >= 0) snprintf(in->error, sizeof(in->error), "GitHub returned HTTP %d. Try again later.", response->status);
         httpsResponseFree(response); return ret < 0 ? ret : -EIO;
     }
     return 0;
 }
-int hddInstallDownload(HddInstall *in)
+static void installerHttpsStatus(const char *status, void *context)
+{
+    const char *const *phase = context;
+    char text[128];
+    snprintf(text, sizeof(text), "%.48s: %.72s", *phase, status);
+    hddInstallStatus(text, 0, 0);
+}
+static void installerHttpsTrace(const char *text, void *context)
+{
+    hddInstallLog("HTTPS %s", text);
+    hddInstallLogFlush(context);
+}
+static int downloadInstaller(HddInstall *in, const char **phase)
 {
     HttpsResponse response;
     char path[256], url[512], local[MAX_PATH];
     int ret, fd, size;
     in->ready = 0; in->error[0] = 0;
-    dashWorkerStatus("Reading PSBBN DP repository", 0, 0);
+    hddInstallStatus("Reading PSBBN DP repository", 0, 0);
     ret = request(in, HDD_INSTALL_API "/git/ref/heads/main", &response);
     if (ret < 0) return ret;
     ret = hddInstallCommit(response.body, in->commit) ? 0 : -EINVAL;
     httpsResponseFree(&response);
+    hddInstallLog("Pinned PSBBN DP Git commit: %s rc=%d", in->commit, ret);
     if (ret < 0) goto invalid;
     /* Directory listings contain only metadata, avoiding GitHub's base64
      * file contents and keeping responses within the HTTPS client's limit. */
@@ -187,6 +268,7 @@ int hddInstallDownload(HddInstall *in)
         if (!(in->flags & (directory ? HDD_INSTALL_APPS : HDD_INSTALL_HOSD)) || (directory == 2 && !(in->flags & HDD_INSTALL_PSBBN))) continue;
         snprintf(path, sizeof(path), HDD_INSTALL_API "/contents/%s?ref=%s",
                  directory == 2 ? "icons/art" : directory ? "games/APPS" : "scripts/assets/osdmenu", in->commit);
+        *phase = directory ? "App metadata" : "OSDMenu metadata";
         ret = request(in, path, &response);
         if (ret < 0) return ret;
         for (unsigned asset = 0; asset < HDD_INSTALL_ASSETS; asset++) {
@@ -204,9 +286,13 @@ int hddInstallDownload(HddInstall *in)
         strcpy(in->hashes[HI_EXTRAS], EXTRAS_SHA1);
     }
     if (in->flags & HDD_INSTALL_PSBBN) {
+        *phase = "PSBBN release metadata";
         memset(&response, 0, sizeof(response));
+        hddInstallLog("GET https://archive.org/metadata/psbbn-definitive-patch-v4.1");
+        hddInstallLogFlush(in);
         ret = httpsRequest("GET", "archive.org", "/metadata/psbbn-definitive-patch-v4.1", NULL, NULL, 0,
                            in->ca_path, &response, in->error, sizeof(in->error));
+        hddInstallLog("Archive.org response: rc=%d HTTP=%d body=%d bytes", ret, response.status, response.body_len);
         if (ret >= 0 && response.status == 200 && response.body) {
             static const char *const prefixes[] = {"psbbn-definitive-patch-v", "language-pak-eng-v"};
             for (unsigned i = 0; i < 2; i++)
@@ -225,10 +311,19 @@ int hddInstallDownload(HddInstall *in)
         else snprintf(url, sizeof(url), "https://raw.githubusercontent.com/" HDD_INSTALL_REPOSITORY "/%s/%s", in->commit, hddInstallAssetPath(asset));
         fd = genOpen(local, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_EXCL);
         if (fd < 0) { ret = fd; goto invalid; }
-        size = 0;
-        ret = httpsDownloadFd(url, fd, in->ca_path, in->sizes[asset], &size, NULL,
-                              transferProgress, (void *)hddInstallAssetName(asset), in->error, sizeof(in->error));
+        size = 0; *phase = hddInstallAssetName(asset);
+        hddInstallLog("DOWNLOAD %u/%u: %s", asset + 1, (unsigned)HDD_INSTALL_ASSETS, *phase);
+        hddInstallLog("URL: %s", url);
+        hddInstallLog("Destination: %s; expected=%u bytes", local, (unsigned)in->sizes[asset]);
+        hddInstallLogFlush(in);
+        {
+            InstallTransfer transfer = {in, hddInstallAssetName(asset), 0, Timer()};
+            ret = httpsDownloadFd(url, fd, in->ca_path, in->sizes[asset], &size, NULL,
+                                  transferProgress, &transfer, in->error, sizeof(in->error));
+        }
         ret = closeResult(fd, ret);
+        hddInstallLog("DOWNLOAD result rc=%d bytes=%d expected=%u", ret, size, (unsigned)in->sizes[asset]);
+        hddInstallLogFlush(in);
         if (ret < 0 || (uint32_t)size != in->sizes[asset]) { if (ret >= 0) ret = -EIO; goto invalid; }
         ret = checkHash(in, asset);
         if (ret < 0) goto invalid;
@@ -263,7 +358,20 @@ int hddInstallDownload(HddInstall *in)
     in->ready = 1;
     return 0;
 invalid:
-    if (!in->error[0]) snprintf(in->error, sizeof(in->error), "Downloaded installer files failed verification (error %d). The HDD has not been changed.", ret);
+    hddInstallLog("ERROR download/verification rc=%d detail=%s", ret, in->error);
+    hddInstallLogFlush(in);
+    if (!in->error[0]) snprintf(in->error, sizeof(in->error), "Downloaded installer files failed verification (error %d). The HDD is formatted; installation is incomplete.", ret);
+    return ret;
+}
+int hddInstallDownload(HddInstall *in)
+{
+    const char *phase = "PSBBN DP repository";
+    int ret;
+    httpsSetStatusCallback(installerHttpsStatus, &phase);
+    httpsSetTraceCallback(installerHttpsTrace, in);
+    ret = downloadInstaller(in, &phase);
+    httpsSetStatusCallback(NULL, NULL);
+    httpsSetTraceCallback(NULL, NULL);
     return ret;
 }
 #else
@@ -274,8 +382,7 @@ int hddInstallDownload(HddInstall *in)
 }
 #endif
 
-/* Identify our cache by contents, not a USB unit number that can change
- * across IOP resets. An ambiguous duplicate is never deleted or installed. */
+/* Only delete a temporary folder whose marker belongs to this install. */
 int hddInstallClaimStage(HddInstall *in)
 {
     char path[MAX_PATH];
@@ -308,34 +415,26 @@ static int stageMatches(HddInstall *in, const char *stage)
 }
 int hddInstallFindStage(HddInstall *in)
 {
-    char candidate[sizeof(in->stage)], found[sizeof(in->stage)];
-    const char *tail;
-    int matches = 0;
-    if (!in->owned || !in->stage[0]) return -ENOENT;
-    if (strncmp(in->stage, "usb", 3) || !(tail = strchr(in->stage, ':')))
-        return stageMatches(in, in->stage) ? 0 : -ENOENT;
-    for (unsigned unit = 0; unit < 10; unit++) {
-        if (snprintf(candidate, sizeof(candidate), "usb%u%s", unit, tail) >= (int)sizeof(candidate)) return -ENAMETOOLONG;
-        if (stageMatches(in, candidate)) {
-            if (++matches > 1) return -EEXIST;
-            strcpy(found, candidate);
-        }
-    }
-    if (!matches) return -ENOENT;
-    strcpy(in->stage, found); return 0;
+    return in->owned && in->stage[0] && stageMatches(in, in->stage) ? 0 : -ENOENT;
 }
 
 void hddInstallCleanup(HddInstall *in)
 {
     char path[MAX_PATH];
+    hddInstallRelease(in);
     if (hddInstallFindStage(in) < 0) return;
     for (unsigned asset = 0; asset < HDD_INSTALL_ASSETS; asset++) {
         if (pathJoin(path, sizeof(path), in->stage, hddInstallAssetName(asset)) == 0) genRemove(path);
     }
-    if (pathJoin(path, sizeof(path), in->stage, "owner.bin") == 0) genRemove(path);
-    snprintf(path, sizeof(path), "%s", in->stage);
-    genRmdir(path);
-    in->stage[0] = 0; in->owned = in->ready = 0;
+    if (pathJoin(path, sizeof(path), in->stage, "INSTALL_CA.PEM") == 0) genRemove(path);
+    if (hddInstallLogEnabled()) {
+        hddInstallLog("Staged payloads cleaned; retaining owner marker and INSTALLER.LOG");
+        hddInstallLogFlush(in); in->ready = 0;
+    } else {
+        if (pathJoin(path, sizeof(path), in->stage, "owner.bin") == 0) genRemove(path);
+        snprintf(path, sizeof(path), "%s", in->stage); genRmdir(path);
+        in->stage[0] = 0; in->owned = in->ready = 0;
+    }
 }
 
 static int makeDirectory(const char *path, int visible)
@@ -351,7 +450,9 @@ static int makeDirectory(const char *path, int visible)
 }
 static int writeNew(const char *path, const void *data, unsigned size)
 {
-    int fd = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_EXCL), ret;
+    int fd, ret;
+    hddInstallLog("WRITE %s (%u bytes)", path, size);
+    fd = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_EXCL);
     if (fd < 0) return fd;
     ret = closeResult(fd, writeAll(fd, data, size));
     if (ret < 0) { char remove[MAX_PATH]; snprintf(remove, sizeof(remove), "%s", path); genRemove(remove); }
@@ -368,6 +469,7 @@ static int copyAsset(HddInstall *in, unsigned asset, const char *destination)
     if (!buffer) return -ENOMEM;
     input = genOpen(source, FIO_O_RDONLY);
     if (input < 0) { free(buffer); return input; }
+    hddInstallLog("COPY %s -> %s (%u bytes)", source, destination, (unsigned)in->sizes[asset]);
     output = genOpen(destination, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_EXCL);
     if (output < 0) { genClose(input); free(buffer); return output; }
     while (done < in->sizes[asset]) {
@@ -375,7 +477,7 @@ static int copyAsset(HddInstall *in, unsigned asset, const char *destination)
         ret = readAll(input, buffer, n);
         if (ret >= 0) ret = writeAll(output, buffer, n);
         if (ret < 0) break;
-        done += n; dashWorkerStatus(hddInstallAssetName(asset), done, in->sizes[asset]);
+        done += n; hddInstallStatus(hddInstallAssetName(asset), done, in->sizes[asset]);
     }
     ret = closeResult(output, ret); ret = closeResult(input, ret); free(buffer);
     return ret;
@@ -395,12 +497,14 @@ static int installApps(HddInstall *in)
         for (unsigned i = 0; ret >= 0 && i < save.count; i++) {
             ret = pathJoin(path, sizeof(path), folder, save.files[i].name);
             if (ret >= 0) ret = writeNew(path, save.files[i].data, save.files[i].size);
-            dashWorkerStatus(app_names[index], i + 1, save.count);
+            hddInstallStatus(app_names[index], i + 1, save.count);
         }
         if (ret >= 0 && in->jail) {
             char elf[MAX_PATH];
             const SaveArchiveEntry *icon = NULL;
             for (unsigned i = 0; i < save.count; i++) if (!strcmp(save.files[i].name, "list.icn")) icon = &save.files[i];
+            hddInstallLog("Create app launcher: %s (128 MiB)", app_partitions[index]);
+            hddInstallLogFlush(in);
             ret = hddMakeFilesystem(128, (char *)app_partitions[index], FS_GROUP_APPLICATION);
             if (ret != 128) ret = ret < 0 ? ret : -ENOSPC;
             else if (!icon || pathJoin(elf, sizeof(elf), folder, app_boot[index]) < 0) ret = -EINVAL;
@@ -449,25 +553,30 @@ int hddInstallApply(HddInstall *in)
     static const char *const pfs[] = {"pfs0:", "pfs1:", "pfs2:"};
     if (!in->ready || !in->flags || (in->jail ? in->flags != (HDD_INSTALL_HOSD | HDD_INSTALL_APPS | HDD_INSTALL_PSBBN) :
         !!(in->flags & ~(HDD_INSTALL_HOSD | HDD_INSTALL_APPS)))) goto failed;
+    ret = hddInstallMountStage(in);
+    if (ret < 0) goto failed;
     ret = hddInstallFindStage(in);
     if (ret < 0) {
-        snprintf(in->error, sizeof(in->error), "The temporary installer folder is %s after storage reload. The HDD is formatted; software installation has not started.",
-                 ret == -EEXIST ? "duplicated" : "missing");
+        hddInstallUnmountStage(in);
+        snprintf(in->error, sizeof(in->error), "The temporary installer folder is missing or has a different owner. The HDD is formatted; software installation has not started.");
         return ret;
     }
-    /* Recheck after the storage reset: a removable staging device must still
-     * contain precisely the files that were checked before formatting. */
+    /* Recheck staged hashes immediately before writing installed files. */
     for (unsigned asset = 0; asset < HDD_INSTALL_ASSETS; asset++) {
         if (!hddInstallNeedsAsset(in->flags, asset)) continue;
         ret = checkHash(in, asset);
-        if (ret < 0) goto failed;
+        if (ret < 0) break;
     }
+    { int closed = hddInstallUnmountStage(in); if (ret >= 0) ret = closed; }
+    if (ret < 0) goto failed;
     if (in->flags & HDD_INSTALL_PSBBN) {
         ret = hddInstallPsbbnPartitions(in);
         if (ret < 0) goto failed;
     }
     for (unsigned i = 0; i < 3; i++) {
+        hddInstallLog("MOUNT %s -> %s", partitions[i], pfs[i]);
         ret = fileXioMount(pfs[i], partitions[i], FIO_MT_RDWR);
+        hddInstallLog("MOUNT rc=%d", ret);
         if (ret < 0) goto failed;
         mounts++;
     }
@@ -489,6 +598,7 @@ int hddInstallApply(HddInstall *in)
     }
     ret = 0;
 failed:
+    if (ret < 0) hddInstallLog("ERROR apply rc=%d", ret);
     while (mounts) {
         int closed = fileXioUmount(pfs[--mounts]);
         if (ret >= 0 && closed < 0) ret = closed;

@@ -64,17 +64,21 @@ static int dashModalConfirm(const char *title, const char *body, const char *but
         assert(strstr(body, "PS2") && strstr(body, "Recovery: 32 MiB") && strstr(body, "additional"));
     return confirms != cancel_confirm;
 }
+void dashHddInstallDebugBegin(HddInstall *in,const HddFormatPlan *p) { (void)in;(void)p; }
+void dashHddInstallDebugEnd(HddInstall *in,int ret) { (void)in;(void)ret; }
+void hddInstallLog(const char *format,...) { (void)format; }
 int dashHddInstallChoose(HddInstall *in, int jail) { in->jail = jail; in->flags = install_flags; return 1; }
-int dashHddInstallPrepare(HddInstall *in) { assert(!confirms); strcpy(in->stage, "usb0:/cache"); return 1; }
+int dashHddInstallPrepare(HddInstall *in) { assert(!confirms && !jobs); (void)in; return 1; }
+int dashHddInstallPrepareStorage(HddInstall *in) { assert(confirms == 2 && reset == 1 && jobs == 1); strcpy(in->stage, in->jail ? "ata0:/PSBBN_DP_TEMP" : "pfs2:/PSBBN_DP_TEMP"); return 0; }
+void hddInstallRelease(HddInstall *in) { (void)in; }
 void hddInstallCleanup(HddInstall *in) { in->stage[0] = 0; }
-static int prepareTransferDeviceStacks(const char *a, const char *b) { assert(a && b); return 0; }
 static HddJob *jobNew(int operation) { HddJob *j = calloc(1, sizeof(HddJob)); j->op = operation; return j; }
 static void hddJobFree(HddJob *j) { freed++; free(j); }
 int hddFormatLoad(void) { assert(confirms == 2); loaded++; return load_error; }
 static void dashSoundShutdown(void) { assert(loaded); stopped++; }
 static int runJob(HddJob *j, const char *title, int cancelable) {
     assert(title && cancelable == 0);
-    if (j->op == HOP_DOWNLOAD_INSTALLER) { assert(!confirms && !stopped); downloads++; j->ret = download_error; return 1; }
+    if (j->op == HOP_DOWNLOAD_INSTALLER) { assert(confirms == 2 && stopped && reset == 1 && jobs == 1); assert(strstr(j->installer->stage, "/PSBBN_DP_TEMP")); downloads++; j->ret = download_error; return 1; }
     if (j->op == HOP_INSTALL_SOFTWARE) { assert(reset && confirms == 2); installed++; j->ret = install_error; j->format_started = 1; return 1; }
     assert(stopped); jobs++;
     actual = j->format_plan;
@@ -83,7 +87,7 @@ static int runJob(HddJob *j, const char *title, int cancelable) {
     return 1;
 }
 static void rebootIopAndReloadCoreStackSilent(void) { assert(jobs && started); reset++; }
-static void loadHddModules(void) { assert(reset || downloads); reloaded++; }
+static void loadHddModules(void) { assert(reset || install_flags); reloaded++; }
 static void dashSoundMaintain(void) { maintained++; }
 static void dashBgmStart(void) { bgm++; }
 static void dashToast(int icon, const char *text) { assert(icon == DASH_TOAST_OK && text); toasts++; }
@@ -127,10 +131,14 @@ int main(void) {
     clear(); total = 100 * 1024 * 2048; reserve = 8192; install_flags = 7; actFormat();
     assert(downloads == 1 && installed == 1 && confirms == 2 && jobs == 1 && reset == 2 && !messages && toasts == 1);
     clear(); total = 100 * 1024 * 2048; reserve = 8192; install_flags = 7; download_error = -EIO; actFormat();
-    assert(downloads == 1 && !confirms && !jobs && !stopped && messages == 1);
+    assert(downloads == 1 && confirms == 2 && jobs == 1 && stopped && reset == 1 && !installed && !toasts && cache_kept == 1 && messages == 1);
     clear(); total = 100 * 1024 * 2048; reserve = 8192; install_flags = 7; install_error = -EIO; actFormat();
     assert(downloads == 1 && installed == 1 && jobs == 1 && reset == 2 && !toasts && cache_kept == 1 && messages == 1);
-    puts("PASS: pre-erase download, failed-install cache retention, three format choices, PSX/FTP/capacity guards, two confirmations, cancellation, queue/load failures and storage reload after success/failure");
+    clear(); selected = HDD_FORMAT_APA; install_flags = 3; actFormat();
+    assert(downloads == 1 && installed == 1 && confirms == 2 && toasts == 1 && !messages);
+    clear(); total = 100 * 1024 * 2048; reserve = 8192; install_flags = 7; cancel_confirm = 2; actFormat();
+    assert(confirms == 2 && !downloads && !jobs);
+    puts("PASS: format-before-download, internal staging, failed-install cache retention, three format choices, PSX/FTP/capacity guards, two confirmations, cancellation, queue/load failures and storage reload after success/failure");
 }
 '''
 compiler = shutil.which("gcc") or shutil.which("cc")

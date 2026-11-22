@@ -4,6 +4,7 @@
 //--------------------------------------------------------------
 #include "launchelf.h"
 #include "https_client.h"
+#include <stdarg.h>
 
 #include <ctype.h>
 #include <limits.h>
@@ -77,10 +78,24 @@ typedef struct {
     mbedtls_x509_crt ca;
     mbedtls_ctr_drbg_context ctr;
     mbedtls_entropy_context entropy;
+    u64 wait_started;
+    int waiting;
 } HttpsTls;
 
 static HttpsStatusCallback https_status_callback;
 static void *https_status_arg;
+static HttpsStatusCallback https_trace_callback;
+static void *https_trace_arg;
+void httpsSetTraceCallback(HttpsStatusCallback callback, void *arg)
+{ https_trace_callback = callback; https_trace_arg = arg; }
+static void httpsTrace(const char *format, ...)
+{
+    char text[512];
+    va_list args;
+    if (!https_trace_callback) return;
+    va_start(args, format); vsnprintf(text, sizeof(text), format, args); va_end(args);
+    https_trace_callback(text, https_trace_arg);
+}
 
 void httpsSetStatusCallback(HttpsStatusCallback callback, void *arg)
 {
@@ -170,23 +185,27 @@ int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t 
 
 static int ps2_tls_send(void *ctx, const unsigned char *buf, size_t len)
 {
-    int sock = *(int *)ctx;
+    HttpsTls *tls = ctx;
+    int sock = tls->sock;
     int r;
 
     if (len > INT_MAX)
         len = INT_MAX;
     r = ps2ipc_send(sock, buf, (int)len, 0);
+    if (r > 0) tls->waiting = 0;
     return r < 0 ? MBEDTLS_ERR_SSL_WANT_WRITE : r;
 }
 
 static int ps2_tls_recv(void *ctx, unsigned char *buf, size_t len)
 {
-    int sock = *(int *)ctx;
+    HttpsTls *tls = ctx;
+    int sock = tls->sock;
     int r;
 
     if (len > INT_MAX)
         len = INT_MAX;
     r = ps2ipc_recv(sock, buf, (int)len, 0);
+    if (r > 0) tls->waiting = 0;
     return r < 0 ? MBEDTLS_ERR_SSL_WANT_READ : r;
 }
 
@@ -221,7 +240,14 @@ static int socket_wait(int sock, int want_write, int timeout_ms)
 static int wait_tls_io(HttpsTls *tls, int result)
 {
     int want_write = result == MBEDTLS_ERR_SSL_WANT_WRITE;
-    return socket_wait(tls->sock, want_write, HTTPS_IO_TIMEOUT_MS) > 0 ? 0 : -1;
+    u64 now = Timer(), elapsed;
+    if (!tls->waiting) { tls->wait_started = now; tls->waiting = 1; }
+    elapsed = now - tls->wait_started;
+    /* Some socket failures keep select() ready while recv/send still fail.
+     * Bound the whole no-progress retry sequence, not each select() alone.
+     * BIO callbacks reset the budget only when actual bytes move. */
+    if (elapsed >= HTTPS_IO_TIMEOUT_MS) return -1;
+    return socket_wait(tls->sock, want_write, HTTPS_IO_TIMEOUT_MS - (int)elapsed) > 0 ? 0 : -1;
 }
 
 static int ps2_tcp_connect(int *sock, const char *host)
@@ -234,12 +260,17 @@ static int ps2_tcp_connect(int *sock, const char *host)
 
     if (sock == NULL || host == NULL)
         return -1;
+    httpsTrace("DNS begin host=%s", host);
     httpsStatus("Resolving server address");
     entry = (HttpsHostEnt *)(void *)ps2ipc_gethostbyname(host);
-    if (entry == NULL || entry->h_addr_list == NULL || entry->h_addr_list[0] == NULL)
-        return -1;
+    if (entry == NULL || entry->h_addr_list == NULL || entry->h_addr_list[0] == NULL) {
+        httpsTrace("DNS FAILED host=%s", host); return -1;
+    }
+    { const unsigned char *ip = (const unsigned char *)entry->h_addr_list[0];
+      httpsTrace("DNS result %s -> %u.%u.%u.%u", host, ip[0], ip[1], ip[2], ip[3]); }
 
     *sock = ps2ipc_socket(AF_INET, SOCK_STREAM, HTTPS_IPPROTO_TCP);
+    httpsTrace("TCP socket result=%d", *sock);
     if (*sock < 0)
         return -1;
     if (ps2ipc_ioctl(*sock, HTTPS_FIONBIO, &nonblock) < 0) {
@@ -255,16 +286,22 @@ static int ps2_tcp_connect(int *sock, const char *host)
     memcpy(&addr.sin_addr, entry->h_addr_list[0], sizeof(addr.sin_addr));
 
     httpsStatus("Connecting to server");
+    httpsTrace("TCP connect host=%s port=443 socket=%d", host, *sock);
     r = ps2ipc_connect(*sock, (struct sockaddr *)&addr, sizeof(addr));
+    httpsTrace("TCP connect returned %d", r);
     if (r < 0) {
-        if (socket_wait(*sock, 1, HTTPS_IO_TIMEOUT_MS) <= 0) {
+        r = socket_wait(*sock, 1, HTTPS_IO_TIMEOUT_MS);
+        httpsTrace("TCP ready wait returned %d (timeout=%d ms)", r, HTTPS_IO_TIMEOUT_MS);
+        if (r <= 0) {
             ps2ipc_disconnect(*sock);
             *sock = -1;
             return -1;
         }
         memset(&peer, 0, sizeof(peer));
         peer_len = sizeof(peer);
-        if (ps2ipc_getpeername(*sock, (struct sockaddr *)&peer, &peer_len) < 0) {
+        r = ps2ipc_getpeername(*sock, (struct sockaddr *)&peer, &peer_len);
+        httpsTrace("TCP getpeername rc=%d", r);
+        if (r < 0) {
             ps2ipc_disconnect(*sock);
             *sock = -1;
             return -1;
@@ -399,13 +436,16 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
         set_error(error, error_size, "HTTPS CA bundle is required", 0);
         goto fail;
     }
+    httpsTrace("TLS begin host=%s CA=%s", host, ca_path);
     httpsStatus("Loading trusted certificates");
     ca_data = read_file(ca_path, &ca_len);
     if (ca_data == NULL) {
         set_error(error, error_size, "Could not read HTTPS CA bundle", 0);
         goto fail;
     }
+    httpsTrace("CA loaded: %d bytes", ca_len);
     r = mbedtls_x509_crt_parse(&tls->ca, ca_data, (size_t)ca_len + 1);
+    httpsTrace("CA parse rc=%d", r);
     free(ca_data);
     ca_data = NULL;
     if (r < 0) {
@@ -423,6 +463,7 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
         set_error(error, error_size, "TCP connection", 0);
         goto fail;
     }
+    httpsTrace("TCP connected; seeding TLS entropy");
     httpsStatus("Preparing secure connection");
     r = mbedtls_ctr_drbg_seed(&tls->ctr, mbedtls_entropy_func, &tls->entropy,
                               personal, sizeof(personal) - 1);
@@ -450,13 +491,15 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
         set_error(error, error_size, "TLS hostname", r);
         goto fail;
     }
-    mbedtls_ssl_set_bio(&tls->ssl, &tls->sock, ps2_tls_send, ps2_tls_recv, NULL);
+    mbedtls_ssl_set_bio(&tls->ssl, tls, ps2_tls_send, ps2_tls_recv, NULL);
 
+    httpsTrace("TLS handshake start host=%s", host);
     httpsStatus("Verifying secure connection");
     while ((r = mbedtls_ssl_handshake(&tls->ssl)) != 0) {
         if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {
             if (wait_tls_io(tls, r) == 0)
                 continue;
+            httpsTrace("TLS handshake idle timeout host=%s", host);
             set_error(error, error_size, "TLS handshake timed out", 0);
             goto fail;
         }
@@ -468,13 +511,16 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
             set_error(error, error_size, "TLS handshake", r);
         goto fail;
     }
-    if (mbedtls_ssl_get_verify_result(&tls->ssl) != 0) {
+    u32 verified = mbedtls_ssl_get_verify_result(&tls->ssl);
+    httpsTrace("TLS handshake complete; verification flags=0x%08x", (unsigned)verified);
+    if (verified != 0) {
         tls_verify_error(tls, host, error, error_size, 0);
         goto fail;
     }
     return 0;
 
 fail:
+    httpsTrace("TLS FAILED host=%s: %s", host, error && error_size > 0 ? error : "no error text");
     free(ca_data);
     tls_free(tls);
     return -1;
@@ -944,6 +990,7 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
             return -1;
         }
 
+        httpsStatus("Receiving download headers");
         header_end = NULL;
         while (used < HTTPS_HEADER_MAX + HTTPS_IO && header_end == NULL) {
             r = mbedtls_ssl_read(&tls.ssl, (unsigned char *)raw + used,
@@ -986,9 +1033,11 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
             set_error(error, error_size, "Missing HTTPS download status", 0);
             return -1;
         }
+        httpsTrace("HTTP response host=%s status=%d", host, status);
         location[0] = 0;
         header_value(raw, "Location", location, sizeof(location));
 
+        if (location[0]) httpsTrace("HTTP Location: %s", location);
         if (status == 301 || status == 302 || status == 303 ||
             status == 307 || status == 308) {
             tls_free(&tls);

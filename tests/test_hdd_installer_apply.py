@@ -33,6 +33,7 @@ code = r'''
 #define FS_GROUP_APPLICATION 1
 #define HDIOC_FLUSH 1
 typedef uint64_t u64;
+typedef int64_t s64;
 typedef struct { unsigned mode,attr; } iox_stat_t;
 static char work[1024];
 static const char *mounted[4];
@@ -69,12 +70,19 @@ static int InjectHddAppLauncher(const char*p,const char*elf,const char*title,con
 int hddInstallPsbbnPartitions(HddInstall*in){assert(in->jail&&in->flags==7);psbbn_parts++;return 0;}
 int hddInstallPsbbnPreflight(HddInstall*in){(void)in;return 0;}
 '''
+code += r'''
+
+void hddInstallLog(const char *format, ...) { (void)format; }
+int hddInstallLogEnabled(void) { return 0; }
+void hddInstallLogFlush(HddInstall *in) { (void)in; }
+void hddInstallStatus(const char *s,int done,int total) { dashWorkerStatus(s,done,total); }
+'''
 code += native
 code += r'''
 int main(int argc,char**argv){
     HddInstall in={0};FILE*f;char path[4096],hash[41];unsigned i,size;int ret;
     assert(argc==4);snprintf(work,sizeof(work),"%s",argv[1]);in.flags=atoi(argv[2]);in.jail=in.flags==7;
-    in.ready=in.owned=1;strcpy(in.stage,"usb0:/");memset(in.commit,'a',40);
+    in.ready=in.owned=1;strcpy(in.stage,in.jail?"ata0:/PSBBN_DP_TEMP":"pfs2:/PSBBN_DP_TEMP");memset(in.commit,'a',40);
     snprintf(path,sizeof(path),"%s/manifest",work);f=fopen(path,"r");assert(f);
     while(fscanf(f,"%u %u %40s",&i,&size,hash)==3){assert(i<10);in.sizes[i]=size;strcpy(in.hashes[i],hash);}fclose(f);
     if(!strcmp(argv[3],"hash"))in.hashes[2][0]='0';
@@ -119,10 +127,11 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
     for flags, failure in ((1,'ok'),(2,'ok'),(3,'ok'),(7,'ok'),(3,'hash'),(3,'attr')):
         work = d / (str(flags) + failure); work.mkdir()
         for part in ('stage','ata','__system','__sysconf','__common'): (work / part).mkdir()
-        (work / 'stage/owner.bin').write_bytes(bytes(20))
+        stage = work / ('ata' if flags == 7 else '__common') / 'PSBBN_DP_TEMP'; stage.mkdir()
+        (stage / 'owner.bin').write_bytes(bytes(20))
         manifest = []
         for i, (name, data) in enumerate(assets):
-            (work / 'stage' / name).write_bytes(data)
+            (stage / name).write_bytes(data)
             prefix = b'' if i in (4,6,7) else b'blob ' + str(len(data)).encode() + b'\0'
             manifest.append(f'{i} {len(data)} {hashlib.sha1(prefix+data).hexdigest()}\n')
         (work / 'manifest').write_text(''.join(manifest))

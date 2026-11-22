@@ -96,9 +96,13 @@ reload. No test opens a physical disk. PS2 hardware validation is still needed.
 Native HTTPS builds offer software installation as part of formatting. All
 application binaries, icons and system resources are downloaded; none are
 bundled in Launchstation. A working network connection and
-`WLE-UPDATE-CA.PEM` are required. Choose a USB or MMCE folder for temporary
-files and leave that device connected throughout installation. Use the matching
-release CA bundle; it includes the Go Daddy G2 root required by Archive.org.
+`WLE-UPDATE-CA.PEM` are required. After the two erase confirmations the HDD is
+formatted, then installer files are downloaded to `ata0:/PSBBN_DP_TEMP` for
+APA-Jail. Pure APA uses `__common/PSBBN_DP_TEMP` through a temporary PFS mount.
+No USB or MMCE download folder is needed. The CA bundle is held in EE memory
+before erasing and written to the new temporary folder, so it also works when
+the original CA file was on the formatted HDD. Use the matching release CA
+bundle; it includes the Go Daddy G2 root required by Archive.org.
 
 - **Pure APA:** format only, install WLE-R3Z/R3CONFIGURATOR, install OSDMenu MBR
   and HOSDMenu, or install both. Apps share `__common/APPS`, with the HDD-OSD
@@ -134,19 +138,33 @@ fetch DP's referenced `extras.zip`. PSBBN installations fetch the newest
 complete system and English language versions from DP's
 [Archive.org collection](https://archive.org/details/psbbn-definitive-patch-v4.1),
 using its published sizes and SHA-1 hashes. Archive decompression, CRCs, paths,
-required boot files and capacity bounds are checked **before the two erase
-confirmations**. All staged hashes are checked again after the formatting IOP
-reset. The temporary folder has a contents-based ownership marker so it can
-be located after USB renumbering. Missing or duplicate markers stop installation
-and cleanup rather than selecting a different drive.
+required boot files and capacity bounds are checked after downloading and before
+installing the software. Staged hashes are checked again immediately before
+copying installed files. Downloads and verification report file progress; DNS,
+connection, TLS and response-header stages are also shown so connection setup
+does not appear as an unexplained static download screen. The HTTPS idle
+budget also bounds repeated ready-but-no-progress socket retries; actual
+transferred bytes reset that budget.
+
+An ownership marker protects cleanup. Successful installation removes the
+temporary files; a failed download or install leaves the folder for inspection.
+Because formatting now happens first, download/verification failure leaves a
+formatted HDD with an incomplete software installation. The UI reports this
+explicitly. Network setup and CA readability are checked before the erase prompts.
 
 The installer activates the downloaded MBR only after files/configuration
 succeed, after flushing the payload and verifying its readback. APA-Jail
 recovery metadata is refreshed after creating the software's partitions.
-Storage is reset/reloaded after raw writes, including errors. A failed software
-install reports the incomplete installation and retains the download folder;
-it does not silently reformat or report success. Failures before formatting
-leave the HDD untouched.
+Installation keeps the ATA filesystem mounted so archives can be read from
+the same drive. The private raw service validates the on-disk APA-Jail boundary
+and refuses writes into exFAT. Installation transfers use the existing HDD
+driver's devctl semaphore; reads/copies/raw writes run sequentially on the EE
+worker. The destructive formatter still detaches ATA before formatting. The
+HDD and ATA driver sources/ABIs are unchanged. Storage is reset/reloaded after
+raw writes, including errors. A failed software install reports the incomplete
+installation and retains the download folder; it does not silently reformat or
+report success. Cancellation or preparation failure before formatting leaves
+the HDD untouched.
 
 ### Installer verification
 
@@ -155,9 +173,43 @@ settings, Unix metadata, language overlays, allocation cleanup, music/swap
 filesystems, and injected errors. `e2fsck`, `debugfs` and `fsck.fat` validate the
 output independently. `tests/test_hdd_installer_apply.py` exercises the production
 app/HOSD copy path against a host storage facade, including visibility flags
-and PSBBN browser resources. The stage test checks USB renumbering and
-ownership-checked cleanup. `tests/test_hdd_installer_finish.py` verifies software
+and PSBBN browser resources. The stage test checks internal folder creation,
+CA preservation and ownership-checked cleanup. `tests/test_hdd_installer_finish.py` verifies software
 and flush/readback checks precede MBR activation, with failure cleanup.
-The format UI test also exercises download-before-erase and failed-install
-cache retention. Host tests never open a physical disk. PS2 hardware boot and
-network/storage validation are still required.
+The format UI test also exercises format-before-download and failed-install
+cache retention. Raw-session tests verify the ATA source remains available,
+HDD/PFS serialization and exFAT write bounds; transport tests verify status
+callbacks and cleanup. `tests/test_https_io_timeout.py` exercises the no-progress
+socket retry deadline. Host tests never open a physical disk. PS2 hardware boot
+and network/storage validation are still required.
+
+
+### Temporary verbose PSBBN diagnostics
+
+APA-Jail PSBBN installs currently show a large diagnostic popup throughout
+preparation, formatting, downloading, verification and installation. It includes
+elapsed time, time since the last activity, progress counts, the last raw-disk
+command (including its LBA, sector count and result), and a timestamped log.
+An outstanding raw command shows how long it has been waiting.
+Up/Down scroll by line, Left/Right by a visible page, and Square returns
+to the latest messages. A review screen stays open at completion or failure.
+
+The log records the Launchstation build, disk layout and LBAs, CA file size,
+Git revision, full download URLs, DNS results, TCP/TLS phases and verification
+flags, HTTP responses/redirects, downloaded byte counts, expected/actual SHA-1,
+partition creation, filesystem setup, sampled archive entries, MBR activation,
+recovery and errors. It never records certificate contents, credentials,
+request headers or response bodies.
+
+After the temporary folder exists, checkpoints append diagnostics to
+`ata0:/PSBBN_DP_TEMP/INSTALLER.LOG`. Successful installs remove downloaded
+payloads but retain this log and its ownership marker. Failed installs retain
+the entire temporary folder. If the drive cannot write the log, the GUI reports
+the write error and keeps the latest 256 display lines in RAM. Before a log
+file can be created, diagnostics are available in the GUI only.
+
+This is intentionally verbose for console troubleshooting and can be simplified
+later. `tests/test_hdd_installer_log.py` checks the bounded history, timestamps,
+progress/idle snapshots, raw command snapshots, file checkpoints, short writes
+and error handling. `tests/test_hdd_installer_log_view.py` checks log navigation
+and that the diagnostic layout stays within its panel across display heights.

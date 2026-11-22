@@ -360,12 +360,22 @@ static void hddJobRun(void *arg)
 			j->nsources = j->sources ? HddHeaderListSourcePartitions(j->b, j->sources, MAX_PARTITIONS, &j->invalid) : -ENOMEM;
 			break;
 		case HOP_DOWNLOAD_INSTALLER:
-			j->ret = hddInstallDownload(j->installer);
+			hddInstallLog("JOB download: mounting temporary volume");
+			j->ret = hddInstallMountStage(j->installer);
+			if (j->ret >= 0) {
+				j->ret = hddInstallCreateStage(j->installer);
+				if (j->ret >= 0) j->ret = hddInstallDownload(j->installer);
+				hddInstallLog("JOB download finished rc=%d", j->ret);
+				hddInstallLogFlush(j->installer);
+				{ int closed = hddInstallUnmountStage(j->installer); if (j->ret >= 0) j->ret = closed; }
+			}
 			break;
 		case HOP_INSTALL_SOFTWARE:
+			hddInstallLog("JOB install: verifying staged files and installing software");
 			filerSizeCacheInvalidate("hdd0:/");
 			filerSizeCacheInvalidate("ata0:/");
 			j->ret = hddInstallApply(j->installer);
+			if (j->ret >= 0) j->ret = hddInstallMountStage(j->installer);
 			if (j->ret >= 0) {
 				char mbr[sizeof(j->installer->stage) + sizeof("/OSDMBR.XLF")];
 				const char *payload = NULL;
@@ -375,6 +385,10 @@ static void hddJobRun(void *arg)
 				}
 				j->ret = hddInstallFinish(&j->format_plan, payload, &j->format_started,
 				                     j->installer->flags & HDD_INSTALL_PSBBN ? hddInstallPsbbnPayload : NULL, j->installer);
+				hddInstallLog("JOB install finished rc=%d raw-started=%d", j->ret, j->format_started);
+				hddInstallLogFlush(j->installer);
+				if (j->ret >= 0) hddInstallCleanup(j->installer);
+				{ int closed = hddInstallUnmountStage(j->installer); if (j->ret >= 0) j->ret = closed; }
 			}
 			break;
 		case HOP_UNMOUNT:
@@ -420,7 +434,8 @@ static int runJob(HddJob *j, const char *title, int cancelable)
 		hddJobFree(j);
 		return 0;
 	}
-	if (dashWorkerAwait(id, title, cancelable))
+	if ((j->installer && (j->installer->flags & HDD_INSTALL_PSBBN) ?
+	     dashHddInstallAwait(id, title) : dashWorkerAwait(id, title, cancelable)))
 		return 1;
 	j->abandoned = 1;
 	return 0;
@@ -841,7 +856,7 @@ static void actFormat(void)
 	HddFormatPlan plan;
 	HddInstall install;
 	HddJob *j;
-	char body[320];
+	char body[384];
 	int kind, reserve = 0, total, ret, began, format_ok;
 #endif
 
@@ -900,43 +915,36 @@ static void actFormat(void)
 		snprintf(body, sizeof(body), "Erase the whole HDD and create standard APA system partitions? The minimum APA partition size is 128 MiB.");
 	if (install.flags) {
 		size_t used = strlen(body);
-		snprintf(body + used, sizeof(body) - used, " Selected software will be installed after formatting.");
-		if (!dashHddInstallPrepare(&install)) return;
-		j = jobNew(HOP_DOWNLOAD_INSTALLER);
-		if (!j) { hddInstallCleanup(&install); return; }
-		j->installer = &install;
-		if (!runJob(j, "Downloading installer", 0)) { hddInstallCleanup(&install); return; }
-		ret = j->ret;
-		hddJobFree(j);
-		if (ret < 0) {
-			dashModalMessage(DI_WARNING, "Installer download failed", install.error, NULL);
-			hddInstallCleanup(&install);
-			return;
-		}
-		/* Network setup may have reloaded the IOP after the initial scan. */
+		snprintf(body + used, sizeof(body) - used, " Software will be downloaded to the new HDD after formatting.");
+		dashHddInstallDebugBegin(&install, &plan);
+		if (!dashHddInstallPrepare(&install)) { dashHddInstallDebugEnd(&install, -EIO); return; }
+		/* Network preparation may have reloaded the IOP. */
 		loadHddModules();
 	}
-	if (!dashModalConfirm("Format the HDD", body, "Continue", 1)) { hddInstallCleanup(&install); return; }
-	if (!dashModalConfirm("Are you sure?", "Every partition, game and file on this HDD will be erased. This cannot be undone.", "Format", 1)) { hddInstallCleanup(&install); return; }
+	if (!dashModalConfirm("Format the HDD", body, "Continue", 1)) { hddInstallCleanup(&install); dashHddInstallDebugEnd(&install, -ECANCELED); return; }
+	if (!dashModalConfirm("Are you sure?", "Every partition, game and file on this HDD will be erased. This cannot be undone.", "Format", 1)) { hddInstallCleanup(&install); dashHddInstallDebugEnd(&install, -ECANCELED); return; }
 	j = jobNew(HOP_FORMAT);
-	if (!j) { hddInstallCleanup(&install); return; }
+	if (!j) { hddInstallCleanup(&install); dashHddInstallDebugEnd(&install, -ENOMEM); return; }
 	j->format_plan = plan;
+	j->installer = install.flags ? &install : NULL;
+	hddInstallLog("Starting disk-format RPC service");
 	if (hddFormatLoad() < 0) {
 		hddJobFree(j);
 		hddInstallCleanup(&install);
 		dashModalMessage(DI_WARNING, "Format unavailable", "The disk formatting service could not be started. The HDD has not been changed.", NULL);
-		return;
+		dashHddInstallDebugEnd(&install, -EIO); return;
 	}
 	/* Release audio file handles before the formatter detaches ATA volumes. */
 	dashSoundShutdown();
 	if (!runJob(j, "Formatting the HDD", 0)) {
 		hddInstallCleanup(&install);
 		dashSoundMaintain(); dashBgmStart();
-		return;
+		dashHddInstallDebugEnd(&install, -EBUSY); return;
 	}
 	ret = j->ret;
 	began = j->format_started;
 	if (began) {
+		hddInstallLog("Format completed rc=%d; resetting IOP and reloading HDD", ret);
 		/* Discard all APA and BDM caches, including after partial failures.
 		 * This is the existing runtime reset path, with PAD/audio recovery. */
 		rebootIopAndReloadCoreStackSilent();
@@ -945,9 +953,18 @@ static void actFormat(void)
 	hddJobFree(j);
 	format_ok = ret == 0;
 	if (ret == 0 && install.flags) {
-		/* The new ATA volume and removable cache are prepared on the UI
-		 * thread. The worker never starts drivers or resets the IOP. */
-		ret = prepareTransferDeviceStacks(install.stage, install.jail && (install.flags & HDD_INSTALL_APPS) ? "ata0:/APPS/" : "hdd0:/__common/");
+		hddInstallLog("Preparing network and ATA after format");
+		ret = dashHddInstallPrepareStorage(&install);
+		hddInstallLog("Storage preparation rc=%d stage=%s", ret, install.stage);
+		if (ret >= 0) {
+			j = jobNew(HOP_DOWNLOAD_INSTALLER);
+			if (!j) ret = -ENOMEM;
+			else {
+				j->installer = &install;
+				if (!runJob(j, "Downloading PSBBN DP installer", 0)) ret = -EBUSY;
+				else { ret = j->ret; hddJobFree(j); }
+			}
+		}
 		if (ret >= 0) ret = hddFormatLoad();
 		if (ret >= 0) {
 			j = jobNew(HOP_INSTALL_SOFTWARE);
@@ -959,6 +976,7 @@ static void actFormat(void)
 				else {
 					ret = j->ret;
 					if (j->format_started) {
+						hddInstallLog("Install completed rc=%d; resetting IOP", ret);
 						rebootIopAndReloadCoreStackSilent();
 						loadHddModules();
 					}
@@ -967,16 +985,18 @@ static void actFormat(void)
 			}
 		}
 		if (ret < 0) {
-			if (!install.error[0]) snprintf(install.error, sizeof(install.error), "Software installation failed (error %d). The HDD is formatted, but installation is incomplete.", ret);
-			dashModalMessage(DI_WARNING, "Software installation incomplete", install.error, install.stage);
+			if (!install.error[0]) snprintf(install.error, sizeof(install.error), "Installer error %d.", ret);
+			snprintf(body, sizeof(body), "The HDD is formatted, but software installation is incomplete. %s", install.error);
+			dashModalMessage(DI_WARNING, "Software installation incomplete", body, install.stage[0] ? install.stage : NULL);
 		} else {
-			if (prepareTransferDeviceStacks(install.stage, install.stage) >= 0) hddInstallCleanup(&install);
 			dashToast(DASH_TOAST_OK, "HDD formatted and software installed");
 		}
 	} else if (ret == 0) {
 		hddInstallCleanup(&install);
 		dashToast(DASH_TOAST_OK, "HDD formatted");
 	}
+	dashHddInstallDebugEnd(&install, ret);
+	hddInstallRelease(&install);
 	dashSoundMaintain(); dashBgmStart();
 	if (ret < 0 && !format_ok) {
 		if (began)

@@ -26,6 +26,8 @@ typedef struct {
     struct { uint32_t start, sectors; } linux[8];
     unsigned char owner[20];
     unsigned owned, ready;
+    unsigned char *ca_data;
+    unsigned ca_size;
 } HddInstall;
 
 const char *hddInstallAssetPath(unsigned asset);
@@ -45,6 +47,12 @@ extern const char *const hddInstallOsdFiles[7];
 /* Native frontend/backend. No downloaded payload is embedded in the ELF. */
 int dashHddInstallChoose(HddInstall *install, int jail);
 int dashHddInstallPrepare(HddInstall *install);
+int dashHddInstallPrepareStorage(HddInstall *install);
+int hddInstallLoadCa(HddInstall *install);
+void hddInstallRelease(HddInstall *install);
+int hddInstallMountStage(HddInstall *install);
+int hddInstallUnmountStage(HddInstall *install);
+int hddInstallCreateStage(HddInstall *install);
 int hddInstallDownload(HddInstall *install);
 int hddInstallWriteConfigs(HddInstall *install);
 int hddInstallApply(HddInstall *install);
@@ -54,5 +62,28 @@ int hddInstallPsbbnPayload(void *install, const HddFormatIo *io);
 int hddInstallClaimStage(HddInstall *install);
 int hddInstallFindStage(HddInstall *install);
 void hddInstallCleanup(HddInstall *install);
+
+/* Temporary verbose diagnostics: one serialized writer, UI snapshots, no
+ * file I/O while the log lock is held. Times are elapsed milliseconds. */
+#define HDD_INSTALL_LOG_ROWS 256
+#define HDD_INSTALL_LOG_COLS 80
+typedef struct {
+    unsigned first, next;
+    uint64_t elapsed, idle;
+    char status[192], path[1024], io[112];
+    int done, total, disk_error;
+} HddInstallLogSnapshot;
+void hddInstallLogStart(void);
+void hddInstallLogStop(void);
+int hddInstallLogEnabled(void);
+void hddInstallLog(const char *format, ...) __attribute__((format(printf, 1, 2)));
+void hddInstallStatus(const char *text, int done, int total);
+void hddInstallRawTrace(int command, uint32_t lba, unsigned count, int pending, int result);
+void hddInstallLogSnapshot(HddInstallLogSnapshot *snapshot);
+int hddInstallLogRead(unsigned index, char line[HDD_INSTALL_LOG_COLS]);
+void hddInstallLogFlush(HddInstall *install);
+void dashHddInstallDebugBegin(HddInstall *install, const HddFormatPlan *plan);
+void dashHddInstallDebugEnd(HddInstall *install, int result);
+int dashHddInstallAwait(int id, const char *title);
 
 #endif

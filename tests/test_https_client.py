@@ -65,6 +65,7 @@ assert not (root / 'src/qrcodegen.c').exists()
 
 c = r'''
 #include <assert.h>
+#include <stdarg.h>
 #include <ctype.h>
 #include <limits.h>
 #include <malloc.h>

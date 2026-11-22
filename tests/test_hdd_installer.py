@@ -25,7 +25,7 @@ class Install(c.Structure):
     _fields_ = [('flags', c.c_uint), ('jail', c.c_int), ('commit', c.c_char * 41),
                 ('stage', c.c_char * 1024), ('ca_path', c.c_char * 1024), ('error', c.c_char * 256),
                 ('sizes', c.c_uint32 * 10), ('hashes', (c.c_char * 41) * 10),
-                ('archives', (c.c_char * 128) * 2), ('linux', Extent * 8), ('owner', c.c_ubyte * 20), ('owned', c.c_uint), ('ready', c.c_uint)]
+                ('archives', (c.c_char * 128) * 2), ('linux', Extent * 8), ('owner', c.c_ubyte * 20), ('owned', c.c_uint), ('ready', c.c_uint), ('ca_data', c.c_void_p), ('ca_size', c.c_uint)]
 class Entry(c.Structure):
     _fields_ = [('name', c.c_char * 1024), ('link', c.c_char * 1024)] + [
         (n, c.c_uint32) for n in ('size', 'mode', 'uid', 'gid', 'mtime', 'major', 'minor')] + [('type', c.c_char)]
