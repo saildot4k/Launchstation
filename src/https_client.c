@@ -832,7 +832,39 @@ typedef struct {
     unsigned long left;
 } HttpsChunkDecoder;
 
-static int download_write(int fd, const unsigned char *data, int len,
+typedef struct {
+    unsigned char *data;
+    int used, offset;
+} HttpsDownloadBuffer;
+
+/* TLS records and HTTP chunks have arbitrary lengths and source alignment.
+ * fileXio splits unaligned EE buffers before FatFs, whose direct whole-sector
+ * writes can then pass an unaligned IOP pointer to ATA DMA. Accumulate aligned
+ * batches so both the file offset and IOP source stay aligned for those writes.
+ * A partial final sector goes through the filesystem's own sector buffer. */
+static int download_flush(int fd, HttpsDownloadBuffer *buffer,
+                          char *error, int error_size)
+{
+    while (buffer->used) {
+        int take = buffer->used, r;
+        /* A short write can end inside a sector. Finish just that sector
+         * before submitting another direct whole-sector transfer. */
+        if ((buffer->offset & 511) && take > 512 - (buffer->offset & 511))
+            take = 512 - (buffer->offset & 511);
+        r = genWrite(fd, buffer->data, take);
+        if (r <= 0 || r > take) {
+            set_error(error, error_size, "Could not write downloaded update", 0);
+            return -1;
+        }
+        buffer->offset += r;
+        buffer->used -= r;
+        if (buffer->used) memmove(buffer->data, buffer->data + r, buffer->used);
+    }
+    return 0;
+}
+
+static int download_write(int fd, HttpsDownloadBuffer *buffer,
+                          const unsigned char *data, int len,
                           int max_bytes, int *written,
                           mbedtls_sha256_context *sha,
                           char *error, int error_size)
@@ -844,12 +876,13 @@ static int download_write(int fd, const unsigned char *data, int len,
         return -1;
     }
     while (done < len) {
-        int r = genWrite(fd, (void *)(data + done), len - done);
-        if (r <= 0) {
-            set_error(error, error_size, "Could not write downloaded update", 0);
+        int take = HTTPS_IO - buffer->used;
+        if (take > len - done) take = len - done;
+        memcpy(buffer->data + buffer->used, data + done, take);
+        buffer->used += take;
+        done += take;
+        if (buffer->used == HTTPS_IO && download_flush(fd, buffer, error, error_size) < 0)
             return -1;
-        }
-        done += r;
     }
     if (mbedtls_sha256_update(sha, data, (size_t)len) != 0) {
         set_error(error, error_size, "Could not hash downloaded update", 0);
@@ -861,7 +894,8 @@ static int download_write(int fd, const unsigned char *data, int len,
 
 static int download_chunked_consume(HttpsChunkDecoder *dec,
                                     const unsigned char *data, int len,
-                                    int fd, int max_bytes, int *written,
+                                    int fd, HttpsDownloadBuffer *buffer,
+                                    int max_bytes, int *written,
                                     mbedtls_sha256_context *sha,
                                     char *error, int error_size)
 {
@@ -900,7 +934,7 @@ static int download_chunked_consume(HttpsChunkDecoder *dec,
             if ((unsigned long)take > dec->left)
                 take = (int)dec->left;
             if (take > 0 &&
-                download_write(fd, data + at, take, max_bytes, written,
+                download_write(fd, buffer, data + at, take, max_bytes, written,
                                sha, error, error_size) < 0)
                 return -1;
             at += take;
@@ -954,15 +988,19 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
         int content_length = -1, written = 0, complete = 0, r;
         mbedtls_sha256_context sha;
         HttpsChunkDecoder decoder;
+        HttpsDownloadBuffer buffer;
 
         raw = malloc(HTTPS_HEADER_MAX + HTTPS_IO + 1);
-        io_buf = memalign(64, HTTPS_IO);
+        /* Keep TLS input and the aligned file-output batch separate. */
+        io_buf = memalign(64, HTTPS_IO * 2);
         if (raw == NULL || io_buf == NULL) {
             free(raw);
             free(io_buf);
             set_error(error, error_size, "Out of memory preparing HTTPS download", 0);
             return -1;
         }
+        buffer.data = io_buf + HTTPS_IO;
+        buffer.used = buffer.offset = 0;
         if (split_https_url(current, host, sizeof(host), path, sizeof(path)) < 0) {
             free(raw);
             free(io_buf);
@@ -1119,13 +1157,13 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
             if (chunked)
                 r = download_chunked_consume(&decoder,
                                              (unsigned char *)raw + header_len,
-                                             body_len, fd, max_bytes, &written,
+                                             body_len, fd, &buffer, max_bytes, &written,
                                              &sha, error, error_size);
             else {
                 int take = body_len;
                 if (content_length >= 0 && take > content_length)
                     take = content_length;
-                r = download_write(fd, (unsigned char *)raw + header_len,
+                r = download_write(fd, &buffer, (unsigned char *)raw + header_len,
                                    take, max_bytes, &written,
                                    &sha, error, error_size);
             }
@@ -1143,7 +1181,7 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
         }
         free(raw);
         raw = NULL;
-        if (progress) progress(written, chunked || content_length < 0 ? 0 : content_length, progress_arg);
+        if (progress) progress(buffer.offset, chunked || content_length < 0 ? 0 : content_length, progress_arg);
 
         while (!complete) {
             r = mbedtls_ssl_read(&tls.ssl, io_buf, HTTPS_IO);
@@ -1184,7 +1222,7 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
 
             if (chunked) {
                 int cr = download_chunked_consume(&decoder, io_buf, r, fd,
-                                                  max_bytes, &written, &sha,
+                                                  &buffer, max_bytes, &written, &sha,
                                                   error, error_size);
                 if (cr < 0) {
                     mbedtls_sha256_free(&sha);
@@ -1199,7 +1237,7 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
                 if (content_length >= 0 && written + take > content_length)
                     take = content_length - written;
                 if (take > 0 &&
-                    download_write(fd, io_buf, take, max_bytes, &written,
+                    download_write(fd, &buffer, io_buf, take, max_bytes, &written,
                                    &sha, error, error_size) < 0) {
                     mbedtls_sha256_free(&sha);
                     tls_free(&tls);
@@ -1209,9 +1247,15 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
                 if (content_length >= 0 && written == content_length)
                     complete = 1;
             }
-            if (progress) progress(written, chunked || content_length < 0 ? 0 : content_length, progress_arg);
+            if (progress) progress(buffer.offset, chunked || content_length < 0 ? 0 : content_length, progress_arg);
         }
 
+        if (download_flush(fd, &buffer, error, error_size) < 0) {
+            mbedtls_sha256_free(&sha);
+            tls_free(&tls);
+            free(io_buf);
+            return -1;
+        }
         if (mbedtls_sha256_finish(&sha, digest != NULL ? digest : (unsigned char [32]){0}) != 0) {
             mbedtls_sha256_free(&sha);
             tls_free(&tls);

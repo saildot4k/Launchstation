@@ -104,6 +104,13 @@ before erasing and written to the new temporary folder, so it also works when
 the original CA file was on the formatted HDD. Use the matching release CA
 bundle; it includes the Go Daddy G2 root required by Archive.org.
 
+The HTTPS downloader combines arbitrary TLS/HTTP fragments into 16 KiB file
+writes from a 64-byte-aligned buffer. Writes start at sector boundaries and use
+DMA-aligned source buffers for direct FatFs/ATA transfers; the filesystem handles
+the final partial sector. Short writes finish the current sector before continuing.
+This avoids the one-to-three-byte shifts caused by unaligned ATA DMA pointers.
+Progress counts bytes accepted by storage, including the final buffered flush.
+
 - **Pure APA:** format only, install WLE-R3Z/R3CONFIGURATOR, install OSDMenu MBR
   and HOSDMenu, or install both. Apps share `__common/APPS`, with the HDD-OSD
   visibility attribute `0xc4a7` on APPS and each application folder. No separate
@@ -182,6 +189,11 @@ HDD/PFS serialization and exFAT write bounds; transport tests verify status
 callbacks and cleanup. `tests/test_https_io_timeout.py` exercises the no-progress
 socket retry deadline. Host tests never open a physical disk. PS2 hardware boot
 and network/storage validation are still required.
+
+`tests/test_https_download_alignment.py` reproduces the fileXio prefix split,
+FatFs partial-sector handling and ATA DMA address rounding. It checks raw and
+chunked bodies, arbitrary fragment lengths/source alignments, buffer tails,
+short writes and write failures against the production download writer.
 
 
 ### Temporary verbose PSBBN diagnostics

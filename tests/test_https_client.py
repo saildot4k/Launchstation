@@ -81,7 +81,7 @@ c = r'''
 #define MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY -12
 typedef struct { int ssl; } HttpsTls;
 /* Capture exact hash input rather than substituting a crypto library in CI. */
-typedef struct { unsigned char bytes[1024]; size_t len; } mbedtls_sha256_context;
+typedef struct { unsigned char bytes[131072]; size_t len; } mbedtls_sha256_context;
 static void mbedtls_sha256_init(mbedtls_sha256_context *s) { memset(s,0,sizeof(*s)); }
 static int mbedtls_sha256_starts(mbedtls_sha256_context *s,int n) {(void)s;assert(!n);return 0;}
 static int mbedtls_sha256_update(mbedtls_sha256_context *s,const unsigned char *p,size_t n) {
@@ -92,7 +92,7 @@ static int mbedtls_sha256_finish(mbedtls_sha256_context *s,unsigned char *out) {
 }
 static void mbedtls_sha256_free(mbedtls_sha256_context *s) {(void)s;}
 static const char *replies[8];
-static char requests[8][4096], hosts[8][256], output[1024];
+static char requests[8][4096], hosts[8][256], output[131072];
 static int connections, closed, reply_at, read_step, output_at, write_step;
 static int want_read, timeout, fail_write, fail_read;
 static int progress_calls,progress_done,progress_total;
@@ -232,10 +232,40 @@ int main(void) {
     assert(size==6 && !strcmp(output,"ABCDEF") && !memcmp(hash,"ABCDEF",6));
     assert(progress_calls>3 && progress_done==6 && progress_total==6);
 
+    /* Exercise the entire downloader across several output batches, with
+     * TLS input and pending output alive together in the shared allocation. */
+    for(int chunked=0;chunked<2;chunked++)for(int step=0;step<3;step++) {
+        const int length=65537;
+        const int fragments[]={1,1378,16384};
+        char *payload=malloc(length+1),*wire=malloc(length*2+256),*at=wire;
+        assert(payload&&wire);
+        for(int j=0;j<length;j++)payload[j]='A'+(j*7+j/11)%26;
+        payload[length]=0;
+        if(chunked) {
+            at+=sprintf(at,"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n");
+            for(int j=0;j<length;) {
+                int n=length-j;if(n>4093)n=4093;
+                at+=sprintf(at,"%x\r\n",n);memcpy(at,payload+j,n);at+=n;
+                memcpy(at,"\r\n",2);at+=2;j+=n;
+            }
+            memcpy(at,"0\r\n\r\n",5);at+=5;*at=0;
+        } else {
+            at+=sprintf(at,"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n",length);
+            memcpy(at,payload,length+1);
+        }
+        reset();replies[0]=wire;read_step=fragments[step];
+        if(step==1)write_step=97;
+        assert(!download(length,&size,hash,error));
+        assert(size==length && output_at==length && !memcmp(output,payload,length));
+        assert(!memcmp(hash,payload,32) && progress_done==length && progress_total==length);
+        assert(connections==1 && closed==1);
+        free(wire);free(payload);
+    }
+
     reset();replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nABC";
     assert(download(100,&size,hash,error)<0 && size==0);
     assert(strstr(error,"Truncated HTTPS download") && closed==1);
-    assert(progress_done==3 && progress_total==6);
+    assert(progress_done==0 && progress_total==6); /* Incomplete buffered bytes are not committed. */
     reset();replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nABCDEF";
     assert(download(5,&size,hash,error)<0 && !output_at);
     assert(strstr(error,"size limit") && closed==1);
