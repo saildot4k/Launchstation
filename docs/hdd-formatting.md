@@ -180,7 +180,10 @@ settings, Unix metadata, language overlays, allocation cleanup, music/swap
 filesystems, and injected errors. `e2fsck`, `debugfs` and `fsck.fat` validate the
 output independently. `tests/test_hdd_installer_apply.py` exercises the production
 app/HOSD copy path against a host storage facade, including visibility flags
-and PSBBN browser resources. The stage test checks internal folder creation,
+and PSBBN browser resources. `tests/test_hdd_installer_partitions.py` runs all
+eight Linux partition requests against the actual HDD driver's size parser,
+including its required `1G`/`2G` syntax, extent validation and injected errors.
+The stage test checks internal folder creation,
 CA preservation and ownership-checked cleanup. `tests/test_hdd_installer_finish.py` verifies software
 and flush/readback checks precede MBR activation, with failure cleanup.
 The format UI test also exercises format-before-download and failed-install

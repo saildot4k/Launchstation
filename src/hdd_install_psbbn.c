@@ -25,14 +25,25 @@ int hddInstallPsbbnPartitions(HddInstall *in)
         hddInstallLog("Create %s: %u MiB type=%s", linux_names[i], linux_mb[i], i == 1 ? "SWAP" : "EXT2");
         hddInstallLogFlush(in);
         ret = hddCheckAllocation(linux_mb[i] * 2048u);
+        hddInstallLog("Allocation check %s: rc=%d", linux_names[i], ret);
         if (ret < 0) return ret;
         hddInstallStatus("Creating PSBBN partitions", i, 9);
-        snprintf(path, sizeof(path), "hdd0:%s,,,%uM,%s", linux_names[i], linux_mb[i], i == 1 ? "EXT2SWAP" : "EXT2");
+        /* The stock driver's size lookup accepts 1G/2G, not 1024M/2048M. */
+        snprintf(path, sizeof(path), "hdd0:%s,,,%u%c,%s", linux_names[i],
+                 linux_mb[i] >= 1024 ? linux_mb[i] / 1024 : linux_mb[i],
+                 linux_mb[i] >= 1024 ? 'G' : 'M', i == 1 ? "EXT2SWAP" : "EXT2");
+        hddInstallLog("OPEN %s", path);
+        hddInstallLogFlush(in);
         ret = fileXioOpen(path, FIO_O_CREAT | FIO_O_EXCL | FIO_O_RDWR, 0);
+        hddInstallLog("OPEN %s: rc=%d", linux_names[i], ret);
         if (ret < 0) return ret;
-        ret = fileXioClose(ret); if (ret < 0) return ret;
+        ret = fileXioClose(ret);
+        hddInstallLog("CLOSE %s: rc=%d", linux_names[i], ret);
+        if (ret < 0) return ret;
         snprintf(path, sizeof(path), "hdd0:%s", linux_names[i]);
-        ret = fileXioGetStat(path, &st); if (ret < 0) return ret;
+        ret = fileXioGetStat(path, &st);
+        hddInstallLog("STAT %s: rc=%d", linux_names[i], ret);
+        if (ret < 0) return ret;
         hddInstallLog("Partition %s: LBA=%u sectors=%u type=0x%x flags=0x%x subs=%u", linux_names[i],
                       (unsigned)st.private_5, (unsigned)st.size, (unsigned)st.mode, (unsigned)st.attr, (unsigned)st.private_0);
         if (st.private_0 || st.attr || st.size != linux_mb[i] * 2048u || st.mode != (i == 1 ? 0x82 : 0x83) ||
