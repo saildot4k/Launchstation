@@ -78,7 +78,7 @@ static void refreshApaFree(void)
 	uint32_t capacity = 0;
 	if (hddGetApaCapacity(&capacity) < 0) capacity = 0;
 	capacity /= SECTORS_PER_MB;
-	hddFreeSpace = capacity > hddUsed ? (capacity - hddUsed) & 0x7FFFFF80 : 0;
+	hddFreeSpace = capacity > hddUsed ? (capacity - hddUsed) & 0x7FFFFFF8 : 0;
 	hddFree = hddSize ? hddFreeSpace * 100 / hddSize : 0;
 }
 
@@ -463,11 +463,11 @@ int sizeSelector(int size)
 		if (readpad()) {
 			if (new_pad & PAD_RIGHT) {
 				event |= 2;  //event |= valid pad command
-				if ((size += 128) > MAX_PARTMB)
+				if ((size += 8) > MAX_PARTMB)
 					size = MAX_PARTMB;
 			} else if (new_pad & PAD_LEFT) {
 				event |= 2;  //event |= valid pad command
-				if ((size -= 128) < saveSize)
+				if ((size -= 8) < saveSize)
 					size = saveSize;
 			} else if (new_pad & PAD_R1) {
 				event |= 2;  //event |= valid pad command
@@ -516,7 +516,7 @@ int sizeSelector(int size)
 			          mSprite_X2 - 7 * FONT_WIDTH, mSprite_Y1 + FONT_HEIGHT * 2 + FONT_HEIGHT / 2, setting->color[COLOR_FRAME]);
 
 			//RA NB: Next line assumes a scrollbar 19 characters wide (see below)
-			sprintf(c, "128%s            %3d%s", LNG(MB), MAX_PARTGB, LNG(GB));
+			sprintf(c, "8%s              %3d%s", LNG(MB), MAX_PARTGB, LNG(GB));
 			printXY(c, mSprite_X1 + FONT_WIDTH, mSprite_Y1 + FONT_HEIGHT * 3, setting->color[COLOR_TEXT], TRUE, 0);
 
 			drawOpSprite(setting->color[COLOR_FRAME],
@@ -525,7 +525,7 @@ int sizeSelector(int size)
 
 
 			//RA NB: Next line sets scroll position on a bar 19 chars wide (see above)
-			scrollBar = (size * (19 * FONT_WIDTH) / (MAX_PARTMB - 128));
+			scrollBar = (size * (19 * FONT_WIDTH) / (MAX_PARTMB - 8));
 
 			drawOpSprite(setting->color[COLOR_FRAME],
 			             mSprite_X1 + 2 * FONT_WIDTH + FONT_WIDTH / 2 + (int)scrollBar - LINE_THICKNESS + 1,
@@ -545,7 +545,7 @@ int sizeSelector(int size)
 				           "0:%s \xFF"
 				           "3:%s \xFF"
 				           "</\xFF"
-				           "::-/+128%s L1/R1:-/+1%s L2/R2:-/+10%s",
+				           "::-/+8%s L1/R1:-/+1%s L2/R2:-/+10%s",
 				        LNG(OK), LNG(Cancel), LNG(Back), LNG(MB), LNG(GB), LNG(GB));
 			else
 				sprintf(c, "\xFF"
@@ -553,7 +553,7 @@ int sizeSelector(int size)
 				           "1:%s \xFF"
 				           "3:%s \xFF"
 				           "</\xFF"
-				           "::-/+128%s L1/R1:-/+1%s L2/R2:-/+10%s",
+				           "::-/+8%s L1/R1:-/+1%s L2/R2:-/+10%s",
 				        LNG(OK), LNG(Cancel), LNG(Back), LNG(MB), LNG(GB), LNG(GB));
 			printXY(c, x, y, setting->color[COLOR_SELECT], TRUE, 0);
 		}  //ends if(event||post_event)
@@ -1489,7 +1489,7 @@ static void InjectMatchingHeadersFromSource(const char *source_device, int creat
 
 		drawMsg(LNG(Select_New_Partition_Size_In_MB));
 		drawMsg(LNG(Select_New_Partition_Size_In_MB));
-		party_size = sizeSelector(128);
+		party_size = sizeSelector(8);
 		if (party_size <= 0) {
 			stats.Stopped = 1;
 			break;
@@ -1581,7 +1581,7 @@ void hddManager(void)
 					drawMsg(LNG(Enter_New_Partition_Name));
 					drawMsg(LNG(Enter_New_Partition_Name));
 					if (keyboard(tmp, MAX_PART_NAME) > 0) {
-						partySize = 128;
+						partySize = 8;
 						drawMsg(LNG(Select_New_Partition_Size_In_MB));
 						drawMsg(LNG(Select_New_Partition_Size_In_MB));
 						if ((ret = sizeSelector(partySize)) > 0) {

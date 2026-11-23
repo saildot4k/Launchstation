@@ -277,9 +277,10 @@ void dashHddInstallRecoveryFailed(void)
 {
     /* No acknowledgement means old DMA buffers must remain pinned. Keep an
      * explicit terminal screen alive, with no more RPCs or automatic resets. */
-    hddInstallLog("ERROR IOP recovery failed; restart console. Old RPC buffers retained.");
-    hddInstallProgress("IOP recovery failed. Restart the console.", 0, 0);
-    for (;;) dashLoadingFrame("IOP recovery failed. Restart the console.", 0, 0);
+    const char *reason = installerIopRecoveryError();
+    hddInstallLog("ERROR IOP recovery failed: %s", reason);
+    hddInstallProgress(reason, 0, 0);
+    for (;;) dashLoadingFrame(reason, 0, 0);
 }
 int dashHddInstallAwait(int id, const char *title)
 {

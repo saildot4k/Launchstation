@@ -3,6 +3,7 @@
 #include "hdd_install.h"
 #include "install_ext2.h"
 #include "hdd_install_recovery.h"
+#include "hdd_install_resume.h"
 
 /* Match DP's creation order, using the standard driver's 128 MiB minimum.
  * All volumes are single APA extents, so Linux's 4 MiB main-header mapping
@@ -27,7 +28,7 @@ int hddInstallPsbbnPartitions(HddInstall *in)
         hddInstallLog("Create %s: %u MiB type=%s", linux_names[i], mb, i == 1 ? "SWAP" : "EXT2");
         hddInstallLogFlush(in);
         snprintf(path, sizeof(path), "hdd0:%s", linux_names[i]);
-        if (in->owned && in->recovery_attempts && fileXioGetStat(path, &st) >= 0) {
+        if (in->owned && (in->recovery_attempts || in->resumed) && fileXioGetStat(path, &st) >= 0) {
             if (st.size != mb * 2048u || st.attr || st.private_0 || st.mode != (i == 1 ? 0x82u : 0x83u) ||
                 in->apa_sectors < st.size || st.private_5 < 2048 || st.private_5 > in->apa_sectors - st.size) return -EINVAL;
             in->linux[i].start = st.private_5; in->linux[i].sectors = st.size;
@@ -315,6 +316,6 @@ done:
     hddInstallLog("PSBBN population finished rc=%d entries=%u last=%s", ret, p->entries, p->current);
     hddInstallLogFlush(in);
     if (ret < 0) snprintf(in->error, sizeof(in->error), "PSBBN installation failed (error %d): %.160s. Boot MBR was not activated.", ret, p->current);
-    if (ret >= 0) in->populated = 1;
+    if (ret >= 0) { in->populated = 1; ret = hddInstallResumeSave(in); }
     free(p); return ret;
 }

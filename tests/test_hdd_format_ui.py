@@ -7,7 +7,7 @@ import tempfile
 root = Path(__file__).resolve().parents[1]
 source = (root / "src/dash_hdd.c").read_text()
 start = source.index("static void actFormat(void)")
-end = source.index("\nstatic void actStatus(void)", start)
+end = source.index("\nstatic void actResume(void)", start)
 action = source[start:end]
 
 code = r'''
@@ -90,6 +90,8 @@ int dashHddInstallChoose(HddInstall *in, int jail) { in->jail = jail; in->flags 
 int dashHddInstallConfigure(HddInstall *in,unsigned max) { assert(max>=2048); in->music_mb=in->contents_mb=1024; return 1; }
 int dashHddInstallPrepare(HddInstall *in) { assert(!confirms && !jobs); strcpy(in->language.name,"French"); return 1; }
 int dashHddInstallPrepareStorage(HddInstall *in) { assert(confirms == 2 && reset == 1 && jobs == 1); strcpy(in->stage, in->jail ? "ata0:/PSBBN_DP_TEMP" : "pfs2:/PSBBN_DP_TEMP"); return 0; }
+void hddInstallResumeBegin(HddInstall *in,const HddFormatPlan *p,unsigned n){assert(in&&p&&!n);}
+void hddInstallResumeEnd(void){}
 void hddInstallRelease(HddInstall *in) { (void)in; }
 void hddInstallCleanup(HddInstall *in) { in->stage[0] = 0; }
 static HddJob *jobNew(int operation) { HddJob *j = calloc(1, sizeof(HddJob)); j->op = operation; return j; }

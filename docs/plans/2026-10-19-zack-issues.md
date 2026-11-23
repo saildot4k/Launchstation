@@ -122,8 +122,8 @@ all Zack issues open until he confirms acceptance. Stock sounds remain deferred.
   data fixtures (246018 bytes total), boundary lengths around 16/64 KiB, a nested
   child and SHA256SUMS. It does not include an ELF or alter app packages. Verify
   returned files using `--verify <returned LS-COPY-TEST folder>`; expected hashes
-  come from the generator rather than trusting the returned manifest. CI uploads
-  this ZIP separately as `Launchstation-copy-test`.
+  come from the generator rather than trusting the returned manifest. Generate
+  this ZIP manually when needed; it is not included in build artifacts.
 
 Console pass: UDPFS -> mc0 new files; repeat over existing files twice; compare
 USB -> mc0 and UDPFS -> USB with the same fixtures. Copy results back to a new PC

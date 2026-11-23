@@ -98,6 +98,7 @@ transport = r'''
 #include <setjmp.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include "hdd_install_recovery.h"
 typedef uint64_t u64;
 typedef struct { int pressed; } DashInput;
@@ -112,15 +113,21 @@ static u64 Timer(void){return now+=1000;}
 static void padSuspendForRecovery(void){assert(!rebuilding);suspended++;}
 static void resetUsbHostControllerBeforeIopReset(void){assert(suspended&&!rebuilding);}
 static void SifInitRpc(int n){assert(!n&&!rebuilding);}
-static int SifIopReset(const char *s,int n){assert(s&&!s[0]&&!n&&suspended&&!rebuilding);reset_calls++;return !fail_reset&&reset_calls>=2;}
+#define SIF_REG_SMFLAG 1
+#define SIF_REG_MSFLAG 2
+#define SIF_SYSREG_SUBADDR 3
+static int exited_rpc;
+static void SifExitRpc(void){assert(!rebuilding);exited_rpc++;}
+static unsigned SifGetReg(int reg){assert(reg>=1&&reg<=3);return 0x12345678;}
+static int SifIopReset(const char *s,int n){assert(s&&!s[0]&&!n&&suspended&&!rebuilding&&exited_rpc);reset_calls++;return !fail_reset&&reset_calls>=2;}
 static int SifIopSync(void){assert(reset_calls>=2&&!rebuilding);sync_calls++;if(!fail_sync&&sync_calls>=2){stopped=1;return 1;}return 0;}
 static void padForgetAfterRecovery(void){assert(stopped&&!rebuilding);forgot++;}
 static void clearPadPressState(void){assert(stopped);}
 static void fileXioExit(void){assert(stopped&&!worker_alive&&forgot);rebuilding=1;core_calls++;}
 static void SifLoadFileExit(void){assert(rebuilding);}
 static void clearIopModuleState(void){assert(rebuilding&&!worker_alive);}
-static void SifLoadFileInit(void){assert(rebuilding);}
-static void SifInitIopHeap(void){assert(rebuilding);}
+static int SifLoadFileInit(void){assert(rebuilding);return 0;}
+static int SifInitIopHeap(void){assert(rebuilding);return 0;}
 static void initsbv_patches(void){assert(rebuilding);}
 static void ensureCoreIoStackReady(void){assert(rebuilding);}
 static void dashSoundShutdown(void){assert(rebuilding);}
@@ -148,13 +155,14 @@ static void dashInputPoll(DashInput *in){assert(in&&!hddInstallRecoveryFault());
 static void debugInput(DashInput *in){assert(in);}
 static int dashWorkerAwait(int id,const char *s,int cancelable){assert(id==1&&s&&!cancelable);fallback++;return 1;}
 '''
+transport += init[init.index('static const char *installer_recovery_error'):init.index('int resetInstallerIopTransport(')]
 transport += function(init, 'int resetInstallerIopTransport(')
 transport += function(init, 'int reloadInstallerCoreAfterReset(')
 transport += function(ui, 'void dashHddInstallRecoveryFailed(')
 transport += function(ui, 'int dashHddInstallAwait(')
 transport += r'''
 static void reset(void){
-    hddInstallRecoveryEnd();worker_alive=1;done=suspended=stopped=forgot=reset_calls=sync_calls=0;
+    hddInstallRecoveryEnd();exited_rpc=0;worker_alive=1;done=suspended=stopped=forgot=reset_calls=sync_calls=0;
     rebuilding=core_calls=pads=inputs=frames=pumps=fallback=loading=ds34=0;
     fail_reset=fail_sync=fail_pad=expect_terminal=0;pccf_bus_owned=pccf_loaded=1;now=0;
 }
@@ -177,6 +185,7 @@ int main(void){
         reset();fail_reset=!failure;fail_sync=failure;expect_terminal=1;
         hddInstallRecoveryBegin();hddInstallRecoveryRequestReset();
         if(!setjmp(terminal)){dashHddInstallAwait(1,"Failed reset");assert(0);}
+        assert(strstr(installerIopRecoveryError(),failure?"boot completion":"could not be queued"));
         assert(now>=15000&&worker_alive&&!forgot&&!core_calls&&!hddInstallRecoveryWasReset());
     }
     puts("PASS: reset skips old-server cleanup, UI releases RPC only after IOP acknowledgment, rebuild follows worker unwind, reset failures retain buffers");

@@ -75,10 +75,19 @@ code += r'''
 #define DASH_JOB_VISIBLE 1
 static int ready=1,worker_error,worker_runs,cancel_choice,releases,modal_errors;
 static int dashWorkerAwaitAll(const char *s){assert(s);return 1;}
-static int dashHttpsCaPath(char *p,int size){assert(size>10);strcpy(p,"pfs0:/CA");return 1;}
-int hddInstallLoadCa(HddInstall *in){in->ca_data=(unsigned char*)"CA";in->ca_size=2;return 0;}
+static char LaunchElfBootDir[128]="udpfs:/apps/Launchstation/",LaunchElfDir[128]="mc0:/SYS-CONF/";
+static int source_ready,source_reads,snapshot_ready;
+static int ensurePathDeviceStackReady(const char *p){assert(strstr(p,"udpfs:")||strstr(p,"mc0:"));source_ready=1;return 1;}
+static int wleExists(const char *p){assert(source_ready&&strstr(p,"WLE-UPDATE-CA.PEM"));return 1;}
+static int dashStoreBuildPath(char *p,int size,const char *name){return snprintf(p,size,"mc0:/SYS-CONF/%s",name)>=size?-1:0;}
+
+'''
+code += function((root / 'src/dash_tools.c').read_text(), 'static int launchstationUpdateCaPath(')
+code += r'''
+static int dashHttpsCaPath(char *p,int size){return launchstationUpdateCaPath(p,size);}
+int hddInstallLoadCa(HddInstall *in){assert(source_ready&&strstr(in->ca_path,"udpfs:"));source_reads++;snapshot_ready=1;in->ca_data=(unsigned char*)"CA";in->ca_size=2;return 0;}
 void hddInstallRelease(HddInstall *in){in->ca_data=NULL;in->ca_size=0;releases++;}
-static int ensureDashboardIpNetworkReady(void){return ready;}
+static int ensureDashboardIpNetworkReady(void){assert(snapshot_ready&&source_reads);source_ready=0;return ready;}
 static const char *dashboardIpNetworkError(void){return "offline";}
 static void dashModalMessage(int icon,const char *title,const char *body,const char *detail){assert(icon==DI_WARNING&&title&&body&&!detail);modal_errors++;}
 static int dashWorkerSubmit(const char *s,int flags,void(*run)(void*),void(*done)(void*),void *arg){
@@ -113,7 +122,7 @@ int main(void){
   requests=0;in.error[0]=0;assert(hddInstallLanguageChoices(&in,langs,32)<0&&!bundle&&in.error[0]);
  }
  fail_request=0;requests=0;
- assert(dashHddInstallPrepare(&in)==1&&worker_runs==1&&!strcmp(in.language.code,"zzz")&&in.ca_data);
+ assert(dashHddInstallPrepare(&in)==1&&source_reads==1&&!source_ready&&worker_runs==1&&!strcmp(in.language.code,"zzz")&&in.ca_data);
  cancel_choice=1;assert(dashHddInstallPrepare(&in)==-ECANCELED&&!in.ca_data&&!modal_errors);cancel_choice=0;
  worker_error=1;assert(dashHddInstallPrepare(&in)==0&&!in.ca_data&&modal_errors==1);worker_error=0;
  ready=0;assert(dashHddInstallPrepare(&in)==0&&!in.ca_data&&modal_errors==2);ready=1;

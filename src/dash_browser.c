@@ -14,6 +14,7 @@
 //  follows the classic rules (filerMenuEnables).
 //--------------------------------------------------------------
 #include "dash_internal.h"
+#include "hdd_app.h"
 #include "filer_size_cache.h"
 #include "dash_sound.h"
 #include "filer_shared.h"
@@ -1513,7 +1514,8 @@ static void actionsMenu(void)
 		F_SORT,
 		F_BOOKMARK,
 		F_HOME,
-		F_REFRESH
+		F_REFRESH,
+		F_HDD_APP
 	};
 	static const char *const show_names[] = {"File names", "Names and details", "Game titles and details", "Game titles"};
 	static const char *const sort_names[FB_SORT_COUNT] = {"Type", "Name", "Game title", "Size", "Date-Time", "Extension", "As stored"};
@@ -1559,6 +1561,10 @@ static void actionsMenu(void)
 		ADD(DI_INFO, "Size", NULL, !has_target || !en[GETSIZE], F_SIZE);
 		if (f != NULL && !isDir(f) && filerMenuVisible(OPEN_TEXTEDITOR, en, FILER_MENU_NATIVE))
 			ADD(DI_TEXT, "Open in Text Editor", NULL, 0, F_EDIT);
+#if defined(ETH) && defined(WLE_NATIVE_HTTPS) && defined(EXFAT)
+		if (f && !isDir(f) && fb.nmarked <= 1 && fullPath(f, path, sizeof(path)) && genCmpFileExt(path, "PSU"))
+			ADD(DI_HDD, "Install app to HDD...", "APA Jail; Internet required", 0, F_HDD_APP);
+#endif
 		if (is_elf && !ps1_card) {
 			int args_disabled = isPcCardCfPath(fb.dir) ? 1 : 0;
 			ADD(DI_LAUNCH_ARGS, "Start with arguments...", args_disabled ? "Direct launch unsupported" : NULL,
@@ -1705,6 +1711,10 @@ static void actionsMenu(void)
 				openDir(dir, NULL);
 			break;
 		}
+		case F_HDD_APP:
+			if (f && fullPath(f, path, sizeof(path))) dashHddInstallApp(path);
+			refresh();
+			break;
 		case F_REFRESH:
 			refresh();
 			break;

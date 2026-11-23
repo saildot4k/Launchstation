@@ -51,6 +51,7 @@ typedef struct {
     unsigned recovery_attempts, stage_ready, manifest_ready, downloaded_assets, downloaded_launchers;
     unsigned applied, populated, committed;
     unsigned apa_sectors;
+    unsigned resumed;
 } HddInstall;
 
 unsigned hddInstallPartitionMb(const HddInstall *install, unsigned index);

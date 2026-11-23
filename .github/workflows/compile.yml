@@ -112,6 +112,9 @@ jobs:
           python3 tests/test_hdd_manager_mounts.py
           python3 tests/test_hdd_filesystem.py
           python3 tests/test_hdd_format.py
+          python3 tests/test_hdd_mini.py
+          python3 tests/test_hdd_app.py
+          python3 tests/test_hdd_app_install.py
           python3 tests/test_hdd_format_ui.py
           python3 tests/test_hdd_installer.py
           python3 tests/test_hdd_installer_finish.py
@@ -123,6 +126,7 @@ jobs:
           python3 tests/test_hdd_installer_streaming.py
           python3 tests/test_hdd_installer_recovery.py
           python3 tests/test_hdd_installer_retry.py
+          python3 tests/test_hdd_installer_resume.py
           python3 tests/test_hdd_installer_partitions.py
           python3 tests/test_hdd_installer_choices.py
           python3 tests/test_hdd_installer_languages.py
@@ -195,7 +199,6 @@ jobs:
           python3 tests/test_https_tls.py
           python3 tests/test_https_io_timeout.py
           python3 tests/test_app_packages.py
-          python3 scripts/copy_test_pack.py --output test-fixtures/LS-COPY-TEST.zip
           python3 tests/test_rolling_release_workflow.py
           python3 tests/test_release_notes.py
           python3 tests/test_update_sidecar_transaction.py
@@ -282,18 +285,10 @@ jobs:
           python3 scripts/configure_ds34.py
           ps2build build -c .ps2-ds34.yaml -o build-ds34
 
-      - name: Cross-build experimental VU integration and hardware probe
+      - name: Cross-build experimental VU integration
         run: |
           python3 scripts/configure_vu.py both
           ps2build build -c .ps2-vu-both.yaml -o build-vu-both
-          ps2build build -c bench/vu/ps2.yaml -o build-vu-probe
-
-      - name: Upload standalone VU hardware probe
-        uses: actions/upload-artifact@v4
-        with:
-          name: Launchstation-VU-hardware-probe
-          path: build-vu-probe/bin/launchstation-vu-probe.elf
-          if-no-files-found: error
 
       - name: Verify installed-build identity in both release ELFs
         run: |
@@ -354,14 +349,6 @@ jobs:
             --output artifacts --revision "${GITHUB_SHA}" \
             --epoch "$(git show -s --format=%ct HEAD)"
           python3 tests/test_app_packages.py
-          python3 scripts/copy_test_pack.py --output test-fixtures/LS-COPY-TEST.zip
-
-      - name: Upload copy-test fixtures
-        uses: actions/upload-artifact@v4
-        with:
-          name: Launchstation-copy-test
-          path: test-fixtures/LS-COPY-TEST.zip
-          retention-days: 7
 
       - name: Show artifact hashes
         run: sha256sum artifacts/*
