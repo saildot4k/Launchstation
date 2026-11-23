@@ -531,21 +531,23 @@ static int apaRemove(s32 device, const char *id, const char *fpwd)
 static int apaRename(s32 device, const char *oldId, const char *newId)
 {
     apa_cache_t *clink;
-    int i, rv;
+    int i, rv = 0;
 
+    /* Both IDs have already been validated and padded to APA_IDMAX bytes. */
+    if (!memcmp(oldId, newId, APA_IDMAX)) return 0;
     // look to see if can make(newname) or not...
     if ((clink = apaFindPartition(device, newId, &rv)) != NULL) {
         apaCacheFree(clink);
-        SignalSema(fioSema);
         return -EEXIST; // File exists
     }
+
+    if (rv != -ENOENT) return rv < 0 ? rv : -EIO;
 
     // look to see if open(oldname)
     for (i = 0; i < apaMaxOpen; i++) {
         if (hddFileSlots[i].f != NULL) {
             if (hddFileSlots[i].device == (u32)device &&
                 memcmp(hddFileSlots[i].id, oldId, APA_IDMAX) == 0) {
-                SignalSema(fioSema);
                 return -EBUSY;
             }
         }
@@ -553,19 +555,18 @@ static int apaRename(s32 device, const char *oldId, const char *newId)
 
     // Do not allow system partitions (__*) to be renamed.
 #ifndef APA_ALLOW_REMOVE_PARTITION_WITH_LEADING_UNDERSCORE
-    if (oldId[0] == '_' && oldId[1] == '_')
+    if ((oldId[0] == '_' && oldId[1] == '_') || (newId[0] == '_' && newId[1] == '_'))
         return -EACCES;
 #endif
 
     // find :)
+    rv = 0;
     if ((clink = apaFindPartition(device, oldId, &rv)) == NULL) {
-        SignalSema(fioSema);
-        return rv;
+        return rv < 0 ? rv : -EIO;
     }
 
     // do the renaming :) note: subs have no names!!
-    memset(clink->header->id, 0, APA_IDMAX);
-    strncpy(clink->header->id, newId, APA_IDMAX - 1);
+    memcpy(clink->header->id, newId, APA_IDMAX);
 
     // touch creation time
     apaGetTime(&clink->header->created);
@@ -573,10 +574,10 @@ static int apaRename(s32 device, const char *oldId, const char *newId)
 
     clink->flags |= APA_CACHE_FLAG_DIRTY;
 
-    apaCacheFlushAllDirty(device);
+    rv = apaCacheFlushAllDirty(device);
     apaCacheFree(clink);
 
-    return 0;
+    return rv;
 }
 
 int hddRemove(iomanX_iop_file_t *f, const char *name)
@@ -806,14 +807,32 @@ int hddDread(iomanX_iop_file_t *f, iox_dirent_t *dirent)
 
 /*  Originally, SONY provided no function for renaming partitions.
     Syntax: rename <Old ID> <New ID>*/
+static int renameId(const char *name, char id[APA_IDMAX])
+{
+    unsigned length = 0;
+    if (!name) return -EINVAL;
+    while (length <= APA_IDMAX && name[length]) {
+        unsigned char c = name[length++];
+        if (c < 32 || c == 127 || c == ',' || c == '/' || c == '\\' || c == ':') return -EINVAL;
+    }
+    if (!length) return -EINVAL;
+    if (length > APA_IDMAX) return -ENAMETOOLONG;
+    if (!strcmp(name, ".") || !strcmp(name, "..")) return -EINVAL;
+    memset(id, 0, APA_IDMAX);
+    memcpy(id, name, length);
+    return 0;
+}
+
 int hddReName(iomanX_iop_file_t *f, const char *oldname, const char *newname)
 {
-    int rv;
-
+    char oldId[APA_IDMAX], newId[APA_IDMAX];
+    int rv = renameId(oldname, oldId);
+    if (rv < 0) return rv;
+    rv = renameId(newname, newId);
+    if (rv < 0) return rv;
     WaitSema(fioSema);
-    rv = apaRename(f->unit, oldname, newname);
+    rv = apaRename(f->unit, oldId, newId);
     SignalSema(fioSema);
-
     return rv;
 }
 

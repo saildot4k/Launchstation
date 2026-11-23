@@ -1014,7 +1014,7 @@ int DashSaveConflictChoice(const char *name)
 	return choice == 0 ? 1 : choice == 1 ? 0 : -1;
 }
 
-int dashModalChoice(const char *title, const char *const *options, int n, int current)
+static int modalChoice(const char *title, const char *const *options, int n, int current, int initial)
 {
 	DashMenuItem items[24];
 	int i;
@@ -1029,7 +1029,18 @@ int dashModalChoice(const char *title, const char *const *options, int n, int cu
 		items[i].detail = NULL;
 		items[i].disabled = 0;
 	}
-	return dashModalMenu(title, NULL, items, n, current);
+	return dashModalMenu(title, NULL, items, n, initial);
+}
+
+int dashModalChoice(const char *title, const char *const *options, int n, int current)
+{
+	return modalChoice(title, options, n, current, current);
+}
+
+/* One-time choices have a starting cursor, but no previously applied value. */
+int dashModalSelect(const char *title, const char *const *options, int n, int initial)
+{
+	return modalChoice(title, options, n, -1, initial);
 }
 
 static int modalButtons(const char *title, const char *body, const char *detail, int icon, DashColor icon_col,

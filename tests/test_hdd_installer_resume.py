@@ -46,6 +46,7 @@ static int genWrite(int fd,const void*p,unsigned n){
 #define genClose close
 static int genRemove(char *path){char local[2048];snprintf(local,sizeof(local),"%s/%s",directory,strrchr(path,'/')+1);return unlink(local)<0?-errno:0;}
 static int fileXioMount(const char *m,const char*p,int flags){assert(!strcmp(m,"pfs2:")&&!strcmp(p,"hdd0:__common")&&flags==2&&!mounted);mounted=1;return 0;}
+static int mountParty(const char *p){assert(!strcmp(p,"hdd0:__common"));mounted=1;return 2;}
 static int fileXioUmount(const char *m){assert(!strcmp(m,"pfs2:")&&mounted);mounted=0;return 0;}
 static void put32(unsigned char*p,unsigned n){for(unsigned i=0;i<4;i++)p[i]=n>>(i*8);}
 static int fileXioDevctl(const char *dev,int cmd,void *arg,unsigned n,void *out,unsigned size){
@@ -67,6 +68,11 @@ void hddInstallLog(const char *s,...){assert(s);}
 code += (root / 'src/hdd_install_resume.c').read_text()
 code += (root / 'src/hdd_install_resume_ps2.c').read_text().replace('#include "launchelf.h"', '')
 code += r'''
+static void logText(const char *text){
+ char path[2048];snprintf(path,sizeof(path),"%s/INSTALLER.LOG",directory);
+ FILE*f=fopen(path,"wb");assert(f);assert(fwrite(text,1,strlen(text),f)==strlen(text));assert(!fclose(f));
+}
+static int available(int jail){int result=hddInstallResumeAvailable(jail);mounted=0;return result;}
 static void original(HddInstall *in,int jail){
  memset(in,0,sizeof(*in));in->flags=3;in->jail=jail;in->owned=in->stage_ready=1;
  strcpy(in->stage,jail?"ata0:/PSBBN_DP_TEMP":"pfs2:/PSBBN_DP_TEMP");
@@ -89,7 +95,23 @@ int main(int argc,char **argv){
   wrong_disk=1;assert(hddInstallResumeLoad(&loaded,&plan,&sequence)==-EINVAL&&!loaded.ca_data);wrong_disk=0;
   wrong_owner=1;assert(hddInstallResumeLoad(&loaded,&plan,&sequence)==-EINVAL);wrong_owner=0;
   if(jail){wrong_serial=1;assert(hddInstallResumeLoad(&loaded,&plan,&sequence)==-EINVAL);wrong_serial=0;}
+  char log_path[2048];snprintf(log_path,sizeof(log_path),"%s/INSTALLER.LOG",directory);unlink(log_path);
+  assert(!available(jail)); /* missing log hides Resume despite valid journals */
+  logText("[ 1.000] Downloading system software\n");assert(available(jail)==1);
+  wrong_owner=1;assert(!available(jail));wrong_owner=0;
+  logText("[ 1.000] " HDD_INSTALL_LOG_COMPLETE "\r\n\r\n");assert(!available(jail));
+  char long_log[1600];memset(long_log,'x',1000);strcpy(long_log+1000,"\n[ 2.000] " HDD_INSTALL_LOG_COMPLETE "\n");
+  logText(long_log);assert(!available(jail)); /* bounded tail read, not a full log scan */
+  logText("[ 1.000] SESSION COMPLETE: result=0\n");assert(!available(jail)); /* old builds */
+  logText("[ 1.000] " HDD_INSTALL_LOG_COMPLETE "\n[ 2.000] Installation incomplete.\n");assert(available(jail)==1);
+  logText("[ 1.000] Installation cancelled.\n");assert(available(jail)==1);
+  /* The newest committed record wins over an older unfinished slot, even
+   * when cleanup/log finalization did not finish after the actual install. */
+  in.manifest_ready=in.applied=in.populated=in.committed=1;memset(in.commit,'a',40);
+  mounted=!jail;hddInstallResumeBegin(&in,&actual,3);assert(!hddInstallResumeSave(&in));hddInstallResumeEnd();mounted=0;
+  assert(!available(jail));
   mounted=!jail;assert(!hddInstallResumeRemove(&in));mounted=0;
+  assert(!available(jail)); /* an incomplete log alone cannot be resumed */
   assert(hddInstallResumeLoad(&loaded,&plan,&sequence)==-ENOENT);hddInstallRelease(&loaded);
  }
  HddInstall in={0},out={0};HddFormatPlan p;unsigned seq;
@@ -110,7 +132,7 @@ int main(int argc,char **argv){
   strcpy(in.launcher_files[0].path,bad[i]);assert(hddInstallResumeEncode(&in,&actual,1,buffer,sizeof(buffer))<0);
  }
  hddInstallRelease(&in);
- puts("PASS: little-endian bounded journals, CRC/truncation rejection, torn-write fallback, durable close/flush checkpoints, restart reload, drive/owner/serial checks and restricted runtime paths");
+ puts("PASS: journal persistence/validation, log-based Resume visibility, legacy/new completion markers, newest committed checkpoints, staging ownership and restricted runtime paths");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='hdd-installer-resume-') as directory:

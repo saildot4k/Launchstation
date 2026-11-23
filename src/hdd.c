@@ -3,6 +3,7 @@
 //--------------------------------------------------------------
 #include "launchelf.h"
 #include "hdd_format.h"
+#include "hdd_partition_size.h"
 #include "hdd_header_injector.h"
 
 #define MAX_PARTGB 128                  //Partition MAX in GB
@@ -456,43 +457,32 @@ int sizeSelector(int size)
 	int mSprite_X2 = SCREEN_WIDTH / 2 + 12 * FONT_WIDTH;   //Right edge of sprite
 	int mSprite_Y2 = SCREEN_HEIGHT / 2 + 3 * FONT_HEIGHT;  //Bottom edge of sprite
 
+	size = hddPartitionSizeStep(size, 0, saveSize, MAX_PARTMB);
+	if (size < 0) return -1;
+
 	event = 1;  //event = initial entry
 	while (1) {
 		//Pad response section
 		waitPadReady(0, 0);
 		if (readpad()) {
 			if (new_pad & PAD_RIGHT) {
-				event |= 2;  //event |= valid pad command
-				if ((size += 8) > MAX_PARTMB)
-					size = MAX_PARTMB;
+				event |= 2;
+				size = hddPartitionSizeStep(size, 128, saveSize, MAX_PARTMB);
 			} else if (new_pad & PAD_LEFT) {
-				event |= 2;  //event |= valid pad command
-				if ((size -= 8) < saveSize)
-					size = saveSize;
+				event |= 2;
+				size = hddPartitionSizeStep(size, -128, saveSize, MAX_PARTMB);
 			} else if (new_pad & PAD_R1) {
-				event |= 2;  //event |= valid pad command
-				if (size < 1024)
-					size = 1024;
-				else {
-					if ((size += 1024) > MAX_PARTMB)
-						size = MAX_PARTMB;
-				}
+				event |= 2;
+				size = hddPartitionSizeStep(size, 1024, saveSize, MAX_PARTMB);
 			} else if (new_pad & PAD_L1) {
-				event |= 2;  //event |= valid pad command
-				if ((size -= 1024) < saveSize)
-					size = saveSize;
+				event |= 2;
+				size = hddPartitionSizeStep(size, -1024, saveSize, MAX_PARTMB);
 			} else if (new_pad & PAD_R2) {
-				event |= 2;  //event |= valid pad command
-				if (size < 10240)
-					size = 10240;
-				else {
-					if ((size += 10240) > MAX_PARTMB)
-						size = MAX_PARTMB;
-				}
+				event |= 2;
+				size = hddPartitionSizeStep(size, 10240, saveSize, MAX_PARTMB);
 			} else if (new_pad & PAD_L2) {
-				event |= 2;  //event |= valid pad command
-				if ((size -= 10240) < saveSize)
-					size = saveSize;
+				event |= 2;
+				size = hddPartitionSizeStep(size, -10240, saveSize, MAX_PARTMB);
 			} else if ((new_pad & PAD_TRIANGLE) || (!swapKeys && new_pad & PAD_CROSS) || (swapKeys && new_pad & PAD_CIRCLE)) {
 				return -1;
 			} else if ((swapKeys && new_pad & PAD_CROSS) || (!swapKeys && new_pad & PAD_CIRCLE)) {
@@ -545,7 +535,7 @@ int sizeSelector(int size)
 				           "0:%s \xFF"
 				           "3:%s \xFF"
 				           "</\xFF"
-				           "::-/+8%s L1/R1:-/+1%s L2/R2:-/+10%s",
+				           "::-/+128%s L1/R1:-/+1%s L2/R2:-/+10%s",
 				        LNG(OK), LNG(Cancel), LNG(Back), LNG(MB), LNG(GB), LNG(GB));
 			else
 				sprintf(c, "\xFF"
@@ -553,7 +543,7 @@ int sizeSelector(int size)
 				           "1:%s \xFF"
 				           "3:%s \xFF"
 				           "</\xFF"
-				           "::-/+8%s L1/R1:-/+1%s L2/R2:-/+10%s",
+				           "::-/+128%s L1/R1:-/+1%s L2/R2:-/+10%s",
 				        LNG(OK), LNG(Cancel), LNG(Back), LNG(MB), LNG(GB), LNG(GB));
 			printXY(c, x, y, setting->color[COLOR_SELECT], TRUE, 0);
 		}  //ends if(event||post_event)
@@ -1062,7 +1052,7 @@ int RemoveParty(PARTYINFO Info)
 //--------------------------------------------------------------
 int RenameParty(PARTYINFO Info, char *newName)
 {
-	int i, num = 1, ret = 0;
+	int i, ret = 0;
 	char in[MAX_ENTRY], out[MAX_ENTRY], tmpName[MAX_ENTRY];
 
 	drawMsg(LNG(Renaming_Partition));
@@ -1073,15 +1063,15 @@ int RenameParty(PARTYINFO Info, char *newName)
 	sprintf(tmpName, "%s", newName);
 	if (!strcmp(Info.Name, tmpName)) //Exactly the same name entered.
 		goto end;
-	//If other partitions exist with the same name, append a number to keep the name unique.
+	// Keep the requested ID exact, including a possible .HIDDEN suffix.
 	for (i = 0; i < numParty; i++) {
 		if (!strcmp(PartyInfo[i].Name, tmpName)) {
-			sprintf(tmpName, "%s%d", newName, num);
-			num++;
+			ret = -EEXIST;
+			goto end2;
 		}
 	}
 	strcpy(newName, tmpName);
-	if (strlen(newName) >= MAX_PART_NAME) {
+	if (strlen(newName) > MAX_PART_NAME) {
 		ret = -ENAMETOOLONG;
 		goto end2;  //For this case HDL renaming can't be done
 	}
@@ -1130,7 +1120,7 @@ int RenameGame(PARTYINFO Info, char *newName)
 		}
 	}
 	strcpy(newName, tmpName);
-	if (strlen(newName) >= MAX_PART_NAME) {
+	if (strlen(newName) > MAX_PART_NAME) {
 		ret = -ENAMETOOLONG;
 		goto end2;  //For this case HDL renaming can't be done
 	}

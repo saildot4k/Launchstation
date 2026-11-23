@@ -13,5 +13,9 @@ void hddInstallResumeBegin(HddInstall *in, const HddFormatPlan *plan, unsigned s
 void hddInstallResumeEnd(void);
 int hddInstallResumeSave(HddInstall *in);
 int hddInstallResumeLoad(HddInstall *in, HddFormatPlan *plan, unsigned *sequence);
+/* Menu probe: existing incomplete log plus newest valid, uncommitted journal.
+ * No CA/network preparation or full installation-layout validation. */
+int hddInstallResumeAvailable(int jail);
+int hddInstallLogComplete(const char *tail, unsigned size);
 int hddInstallResumeRemove(HddInstall *in);
 #endif

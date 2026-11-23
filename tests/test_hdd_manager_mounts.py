@@ -47,6 +47,7 @@ typedef int HddHeaderSourcePartition;
 #define PDIOC_ZONEFREE 12
 #define PDIOC_ZONESZ 13
 #define HDIOC_READSECTOR 14
+#define FIO_S_ISREG(mode) (((mode) & 0xf000) == 0x2000)
 '''
 for macro, text in (("MOUNT_LIMIT", header), ("SECTORS_PER_MB", source), ("HDD_MB", source)):
     code += re.search(r"^#define " + macro + r" .+$", text, re.M).group() + "\n"
@@ -63,6 +64,7 @@ static unsigned fail_unmount;
 static int live_scans, scan_position, busy, submissions;
 static u64 now;
 static int driver_status, read_error, format_reads;
+static int hosd_stat_result, hosd_directory;
 static u32 driver_sectors;
 static unsigned char format_boot[512], format_mbr[512];
 static u32 format_volume_lba;
@@ -100,6 +102,14 @@ static void unmountParty(int i) {
 }
 typedef struct { unsigned mode; u32 size; int private_0; } Stat;
 typedef struct { char name[MAX_NAME]; Stat stat; } iox_dirent_t;
+typedef Stat iox_stat_t;
+static int fileXioGetStat(const char *path, iox_stat_t *stat) {
+    int slot = path[3] - '0';
+    assert(slot >= 0 && slot < MOUNT_LIMIT && !strcmp(driver_mounts[slot], "hdd0:__system"));
+    assert(!strcmp(path + 4, ":/osdmenu/hosdmenu.elf") || !strcmp(path + 4, ":/p2lboot/osdboot.elf"));
+    stat->mode = hosd_directory ? 0x1000 : 0x2000;
+    return hosd_stat_result;
+}
 static int hddCheckPresent(void) { return driver_status < 3 ? 0 : -1; }
 static int hddCheckFormatted(void) { return driver_status == 0 ? 0 : -1; }
 static int fileXioDopen(const char *dev) {
@@ -154,7 +164,7 @@ static int dashWorkerSubmit(const char *label, int flags, void (*run)(void *), v
 }
 '''
 for signature in ("static int pfsMakeRoom(", "static int pfsMountForInfo(",
-                  "static int hddReadFormatSector(", "static void scanRun(", "static void pfsRun(",
+                  "static int hddReadFormatSector(", "static void scanRun(", "static void pfsRun(", "static void systemAppRun(",
                   "static HddJob *jobNew(", "static void hddJobFree(",
                   "static int findPart("):
     code += function(signature)
@@ -222,6 +232,7 @@ static void reset(void) {
     latestMount = -1;
     mounts = unmounts = busy = submissions = mount_error = zone_error = 0;
     fail_unmount = 0; zone_size = 8192; now = 100;
+    hosd_stat_result = hosd_directory = 0;
     driver_status = read_error = format_reads = 0; driver_sectors = 4096 * SECTORS_PER_MB;
     memset(format_boot, 0, sizeof(format_boot));
     memset(format_mbr, 0, sizeof(format_mbr)); format_volume_lba = 0;
@@ -242,6 +253,23 @@ static void preMount(int i, int part) {
     dashStrCopy(driver_mounts[i], mountedParty[i], sizeof(driver_mounts[i])); latestMount = i;
 }
 int main(void) {
+    HddJob hosd = {0};
+    strcpy(hosd.a, "osdmenu/hosdmenu.elf");
+    reset(); systemAppRun(&hosd); assert(hosd.ret == 1 && mountedCount() == 1 && mounts == 1);
+    hosd_stat_result = -ENOENT; systemAppRun(&hosd); assert(!hosd.ret && mounts == 1 && !unmounts);
+    hosd_stat_result = -EIO; systemAppRun(&hosd); assert(hosd.ret == -EIO && mounts == 1);
+    hosd_stat_result = 0; hosd_directory = 1; systemAppRun(&hosd); assert(!hosd.ret);
+    reset(); mount_error = -EINVAL; systemAppRun(&hosd); assert(hosd.ret == -EINVAL && !mountedCount());
+    reset(); for (int i = 0; i < MOUNT_LIMIT; i++) preMount(i, i);
+    Party_vmcIndex[0] = 0; systemAppRun(&hosd);
+    assert(hosd.ret == 1 && mountedCount() == MOUNT_LIMIT && slotFor("hdd0:__system") == 1);
+    assert(slotFor("hdd0:+TEST0") == 0 && slotFor("hdd0:+TEST3") == 3);
+    strcpy(hosd.a, "p2lboot/osdboot.elf");
+    reset(); systemAppRun(&hosd); assert(hosd.ret == 1 && mountedCount() == 1);
+    hosd_stat_result = -ENOENT; systemAppRun(&hosd); assert(!hosd.ret && mounts == 1);
+    hosd_directory = 1; hosd_stat_result = 0; systemAppRun(&hosd); assert(!hosd.ret);
+    hosd_stat_result = -EIO; systemAppRun(&hosd); assert(hosd.ret == -EIO);
+    puts("PASS: HOSDMenu/PSBBN DP ELF presence, missing file, directory/error refusal and shared retained mount policy");
     reset();
     for (int i = 0; i < 20; i++) {
         probe(i); assert(mountedCount() == (i < 4 ? i + 1 : 4));

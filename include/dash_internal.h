@@ -865,6 +865,8 @@ typedef struct { const char *label, *value; } DashTableRow;
 int dashModalConfirmTable(const char *title, const DashTableRow *rows, int count, const char *ok_label, int danger);
 void dashModalMessage(int icon, const char *title, const char *body, const char *detail);
 int dashModalChoice(const char *title, const char *const *options, int n, int current);
+/* Initial cursor only; no current-value check mark. */
+int dashModalSelect(const char *title, const char *const *options, int n, int initial);
 
 /* Synchronous work feedback: draws a full frame immediately.
  * A scoped alternate view receives the operation title, draws/presents its own

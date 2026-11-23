@@ -45,7 +45,7 @@ static int fileXioDevctl(const char *dev, int op, void *a, int alen, void *b, in
     assert(!strcmp(dev, "hdd0:") && (op == HDIOC_TOTALSECTOR || op == HDIOC_MAXSECTOR) && !a && !alen && !b && !blen);
     return op == HDIOC_TOTALSECTOR ? total : 2048 * 2048;
 }
-static int dashModalChoice(const char *title, const char *const *options, int count, int current) {
+static int dashModalSelect(const char *title, const char *const *options, int count, int current) {
     assert(!strcmp(title, "Format HDD") && count == 3 && current == 0);
     assert(!strcmp(options[0], "APA") && !strcmp(options[1], "exFAT") && strstr(options[2], "APA Jail"));
     return selected;

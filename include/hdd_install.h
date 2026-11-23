@@ -116,6 +116,7 @@ enum {
 };
 #define HDD_INSTALL_LOG_ROWS 256
 #define HDD_INSTALL_LOG_COLS 80
+#define HDD_INSTALL_LOG_COMPLETE "Installation finished successfully."
 typedef struct {
     unsigned first, next;
     uint64_t elapsed, idle;
@@ -128,6 +129,7 @@ void hddInstallLogStart(void);
 void hddInstallLogStop(void);
 int hddInstallLogEnabled(void);
 void hddInstallLog(const char *format, ...) __attribute__((format(printf, 1, 2)));
+void hddInstallLogResult(int result);
 void hddInstallStatus(const char *text, int done, int total);
 /* Update live progress without adding a history entry. */
 void hddInstallProgress(const char *text, int done, int total);

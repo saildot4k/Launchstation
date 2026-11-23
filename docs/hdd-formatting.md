@@ -63,15 +63,22 @@ power of two and aligned to its own size; mixed 8/16/32/64/128 MiB extents do
 not require groups of sixteen mini partitions. Appending a larger extent
 creates appropriately sized free alignment blocks. Allocation first reuses
 an eligible free extent, splitting it as necessary. Occupied PFS partitions
-are never split based on their filesystem free space. Create/grow requests
-use 8 MiB increments; the APA Jail outer reservation and system partition
-layout retain their existing 128 MiB alignment. Other apps must also support
-mini APA layouts before managing these disks.
+are never split based on their filesystem free space. The size picker offers
+8 MiB, then 128/256/384 MiB and larger in 128 MiB steps. Its 1/10 GiB jump
+buttons use the same choices; a non-aligned free-space limit is rounded down
+to a selectable size. Existing volumes retain their original size as the
+minimum when expanding them. Internal create/grow requests still support
+8 MiB increments so allocation can split/reuse smaller free extents without
+exposing those details in the picker. The APA Jail outer reservation and
+system partition layout retain their existing 128 MiB alignment. Other apps
+must also support mini APA layouts before managing these disks.
 
 ## Install an app PSU
 
 On an APA Jail HDD with HOSDMenu installed, choose **Install app from PSU...**
 in HDD Manager Options, or **Install app to HDD...** on a PSU in File Browser.
+The HDD Manager entry is shown only when PSBBN DP's
+`hdd0:__system:pfs:/p2lboot/osdboot.elf` exists.
 The installer announces the required Internet connection before reading the
 package. It snapshots the PSU and CA bundle before network preparation can
 reset the launch device (including UDPFS).
@@ -79,6 +86,7 @@ reset the launch device (including UDPFS).
 The PSU must contain a little-endian PS2 MIPS executable. `title.cfg` can
 provide its title and boot filename; multiple candidate ELFs require a choice.
 `APPINFO.PBT` is not interpreted and is copied as an ordinary package file.
+Dot-prefixed configuration files such as POPSLOADER's `.pldrs` are preserved.
 Memory-card `icon.sys`, `list.icn` and `del.icn` are not used as HDD header
 metadata/models. Matching HDD models come from DP's `icons/ico` directory or
 its HDD-OSD Icon Database source, falling back to DP's generic app models;
@@ -111,6 +119,13 @@ stalled IOP and retains staging for an explicit resume. A power loss before the
 PSU cache finishes requires the original PSU. Successful installation removes
 its private cache and old app backup. These journals do not replace a disk
 backup, and hardware testing of mixed mini layouts remains necessary.
+
+Fresh installs create their own app folder, launcher partition and ownership
+markers. If the initial journal was interrupted, staging containing only
+installer downloads/journals can be reused automatically. Unknown files or
+staged app/backup directories are retained when no valid journal survives.
+Failures identify the operation, error code and affected device/path instead
+of combining PSU validation, HDD detection and ownership into one message.
 
 ## Recovery volume
 
@@ -441,7 +456,12 @@ controller reconnection still require PS2 hardware testing.
 
 ### Resuming after restarting the console
 
-HDD Manager's Options menu has a **Resume installation...** action. It reads
+HDD Manager's Options menu shows **Resume installation...** only when the
+installation log exists and the newest valid checkpoint is unfinished and
+belongs to the staging owner. A completed log (including older successful
+session markers), a committed checkpoint, or missing/invalid checkpoints hides
+the action. Successful logs end with `Installation finished successfully.`;
+failed and cancelled sessions have explicit final status lines too. It reads
 the cache before showing a confirmation table with the saved layout, language,
 launcher and space choices. This action cannot format the drive. Cancellation
 and failed validation preserve the cache.
@@ -478,3 +498,48 @@ The cache alone does not reliably describe their original choices and layout.
 writes, corrupted/truncated records, ownership/capacity/serial mismatches and
 the actual UI's read-before-confirmation and no-format behavior. The language
 and boot-path tests exercise device startup and CA snapshot ordering.
+
+
+## Partition rename and HOSDMenu visibility
+
+HDD Manager renames use the complete 32-byte APA identifier, padding shorter
+names before driver lookup. A successful rename preserves the partition's
+location, size, subpartitions and contents. The target's PFS mount is released;
+other retained mounts stay open. A VMC pin or another active handle blocks the
+rename, and the error is reported. System partitions with the `__` prefix are
+protected. Existing destination names are refused rather than numbered or
+truncated automatically.
+
+When `hdd0:__system:pfs:/osdmenu/hosdmenu.elf` exists, a non-system PFS
+partition's Options menu offers **Hide in HOSDMenu HDD Browser**
+or **Show in HOSDMenu HDD Browser**. These append or remove the exact uppercase
+`.HIDDEN` suffix documented by [HOSDMenu](https://github.com/pcm720/OSDMenu/blob/main/patcher/README.md).
+Appending it requires an existing name of at most 25 characters; a longer name
+must be shortened explicitly first. Hidden partitions remain visible and
+manageable in Launchstation. Managed app updates recognize their hidden
+launcher partition and preserve its visibility and ownership markers.
+
+Visibility here controls HOSDMenu's HDD Browser. PSBBN DP uses separate app and
+shortcut entries: its [Game Installer](https://github.com/CosmicScale/PSBBN-Definitive-Project/blob/main/scripts/Game-Installer.sh)
+even creates a shortcut referring to `PP.HOSDMENU.HIDDEN`. This toggle does not
+rewrite PSBBN entries or other saved paths referring to the old partition ID.
+
+
+### PSBBN DP selections
+
+The PSBBN DP installer is labeled **Experimental** in its software choice,
+information, review and installer-log popups. Format/install choice lists use
+only the cursor to indicate focus; initial defaults do not receive check marks.
+
+Upstream DP's [Game Selector](https://github.com/CosmicScale/PSBBN-Definitive-Project/blob/main/scripts/helper/game-selector.py)
+writes `selected.list` and remembers deselected titles in the exFAT root's
+`exclude.list`. Its Game Installer removes the old `PP.*` launcher partitions,
+then creates 8 MiB launcher partitions only for selected titles. The original
+game/application payloads on exFAT remain available in the other launchers.
+This collection-selection mechanism is different from HOSDMenu's `.HIDDEN`
+suffix and is not implemented by Launchstation's Hide/Show partition action.
+
+The File Browser header displays HDD partition paths in launcher syntax, for
+example `hdd0:__common:pfs:/APPS/` or `hdd1:+APPS:pfs:/`. Device roots remain
+`hdd0:/` and `hdd1:/` until a partition is entered. This is display formatting;
+browsing and filesystem operations keep using their original paths.

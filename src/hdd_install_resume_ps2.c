@@ -97,6 +97,62 @@ static int verifyDisk(HddInstall *in, const HddFormatPlan *plan)
     }
     return 0;
 }
+static int incompleteLog(const char *stage)
+{
+    char path[MAX_PATH], tail[512];
+    snprintf(path, sizeof(path), "%s/INSTALLER.LOG", stage);
+    int fd = genOpen(path, FIO_O_RDONLY);
+    if (fd < 0) return fd == -ENOENT ? 0 : fd;
+    s64 size = genLseek(fd, 0, SEEK_END);
+    unsigned count = size > (s64)sizeof(tail) ? sizeof(tail) : size > 0 ? (unsigned)size : 0;
+    int ret = size < 0 ? (int)size : 0;
+    if (ret >= 0 && genLseek(fd, size - count, SEEK_SET) < 0) ret = -EIO;
+    for (unsigned done = 0; ret >= 0 && done < count;) {
+        int n = genRead(fd, tail + done, count - done);
+        if (n <= 0 || (unsigned)n > count - done) ret = n < 0 ? n : -EIO;
+        else done += n;
+    }
+    if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+    int closed = genClose(fd);
+    if (ret < 0 || closed < 0) return ret < 0 ? ret : closed;
+    return !hddInstallLogComplete(tail, count);
+}
+int hddInstallResumeAvailable(int jail)
+{
+    char stage[64];
+    if (jail) {
+#ifdef EXFAT
+        snprintf(stage, sizeof(stage), "ata0:/PSBBN_DP_TEMP");
+#else
+        return 0;
+#endif
+    } else {
+        /* Use the shared mount policy; never steal a fixed slot from a VMC. */
+        int slot = mountParty("hdd0:__common");
+        if (slot < 0) return slot;
+        snprintf(stage, sizeof(stage), "pfs%d:/PSBBN_DP_TEMP", slot);
+    }
+    int ret = incompleteLog(stage);
+    if (ret <= 0) return ret;
+    HddInstall *candidate = calloc(1, sizeof(*candidate));
+    if (!candidate) return -ENOMEM;
+    unsigned latest = 0;
+    int available = 0;
+    for (unsigned slot = 0; slot < 2; slot++) {
+        HddFormatPlan plan; unsigned sequence;
+        memset(candidate, 0, sizeof(*candidate));
+        ret = readJournal(candidate, &plan, &sequence, stage, slot);
+        if (ret >= 0 && candidate->jail == !!jail && sequence > latest) {
+            latest = sequence;
+            candidate->owned = 1; snprintf(candidate->stage, sizeof(candidate->stage), "%s", stage);
+            available = !candidate->committed && hddInstallFindStage(candidate) >= 0;
+        }
+        hddInstallRelease(candidate);
+        if (hddInstallRecoveryFault()) { available = HDD_INSTALL_ATA_TIMEOUT; break; }
+    }
+    free(candidate);
+    return available;
+}
 int hddInstallResumeLoad(HddInstall *in, HddFormatPlan *plan, unsigned *sequence)
 {
     HddInstall *candidate = calloc(1, sizeof(*candidate));

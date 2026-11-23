@@ -4,6 +4,24 @@
 #include <string.h>
 #include <zlib.h>
 
+int hddInstallLogComplete(const char *tail, unsigned size)
+{
+    /* Inspect only the final nonempty line, never an earlier successful
+     * session followed by an interrupted/failed resume attempt. */
+    while (size && (tail[size - 1] == '\r' || tail[size - 1] == '\n')) size--;
+    unsigned start = size;
+    while (start && tail[start - 1] != '\n') start--;
+    if (start < size && tail[start] == '[') {
+        while (start < size && tail[start] != ']') start++;
+        if (start < size) start++;
+        if (start < size && tail[start] == ' ') start++;
+    }
+    static const char *const complete[] = {HDD_INSTALL_LOG_COMPLETE, "SESSION COMPLETE: result=0"};
+    for (unsigned i = 0; i < sizeof(complete) / sizeof(complete[0]); i++)
+        if (size - start == strlen(complete[i]) && !memcmp(tail + start, complete[i], size - start)) return 1;
+    return 0;
+}
+
 typedef struct { unsigned char *data; unsigned offset, size; int error; } Wire;
 static void put(Wire *w, const void *data, unsigned n)
 {

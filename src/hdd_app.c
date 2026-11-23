@@ -9,7 +9,9 @@
 int hddAppLeaf(const char *name)
 {
     size_t n = name ? strlen(name) : 0;
-    if (!n || n > 32 || name[0] == '.' || name[n - 1] == '.' || name[n - 1] == ' ') return 0;
+    /* Dot-prefixed configuration files (for example POPSLOADER's .pldrs)
+     * are ordinary files. The trailing-dot rule also rejects "." and "..". */
+    if (!n || n > 32 || name[n - 1] == '.' || name[n - 1] == ' ') return 0;
     for (unsigned i = 0; i < n; i++) {
         unsigned char c = name[i];
         if (c < 32 || c > 126 || strchr("\\/:*?\"<>|,", c)) return 0;
@@ -82,7 +84,7 @@ int hddAppInspect(const SaveArchive *save, HddApp *app)
     }
     if (!strcmp(app->asset, "APP_WLE-R3Z")) strcpy(app->asset, "APP_WLER3Z");
     if (!strcmp(app->asset, "SYS_R3CONFIGURATOR")) strcpy(app->asset, "SYS_R3CONFIG");
-    /* The OSD driver's rename publishes at most 31 ID bytes. */
+    /* Keep generated IDs compatible with older drivers limited to 31 bytes. */
     if (strlen(app->folder) <= 28) snprintf(app->partition, sizeof(app->partition), "PP.%.28s", app->folder);
     else {
         char folded[33];
