@@ -105,7 +105,7 @@ static void dashGfxPresent(void) { presents++; }
 static int dashLoadingActive(void) { return loading_active; }
 static void dashLoadingBegin(const char *title) { assert(!strcmp(title,"Saving file"));begins++;loading_active=1; }
 static void dashLoadingSetCancel(int enabled) { assert(enabled==0 || enabled==1); }
-static void readStatus(char *out,int n,int *done,int *total) {
+static void dashWorkerGetStatus(char *out,int n,int *done,int *total) {
     status_reads++;snprintf(out,n,"Waiting for memory card status");*done=*total=0;
 }
 static void dashLoadingFrame(const char *status,int done,int total) {

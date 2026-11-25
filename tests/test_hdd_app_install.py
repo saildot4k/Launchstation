@@ -65,6 +65,10 @@ static int capacity_error, allocation_error;
 static int create_error, mount_error, header_error;
 static int recovery_fault, recovery_case, worker_complete, resets, core_reloads, hdd_reloads, ata_reloads;
 static int latestMount, Party_vmcIndex[MOUNT_LIMIT];
+static int loading;
+static void dashLoadingBegin(const char*t){assert(t);loading=1;}
+static void dashLoadingFrame(const char*t,int d,int n){assert(loading&&t&&d>=0&&n>=0);}
+static void dashLoadingEnd(void){loading=0;}
 static void crashpoint(void) { if(++operation==fault_at)longjmp(crashed,1); }
 static int result(int value){return value<0?-errno:value;}
 static int genOpen(const char*p,int mode){return result(open(p,mode,0600));}
@@ -85,11 +89,11 @@ static int reloadInstallerCoreAfterReset(void){assert(resets);core_reloads++;ret
 static int loadHddModules(void){assert(core_reloads);hdd_reloads++;return 1;}
 static int loadAtaModules(void){assert(hdd_reloads);ata_reloads++;return 1;}
 void dashHddInstallRecoveryFailed(void){abort();}
-static int dashWorkerSubmit(const char*t,int flags,void(*work)(void*),void(*done)(void*),void*arg){assert(t&&!flags&&!done);worker_complete=0;work(arg);worker_complete=1;return 1;}
+static int dashWorkerSubmit(const char*t,int flags,void(*work)(void*),void(*done)(void*),void*arg){assert(t&&!flags&&!done&&loading);worker_complete=0;work(arg);worker_complete=1;return 1;}
 int dashHddInstallAwait(int id,const char*t){assert(id==1&&t&&worker_complete);return 1;}
 static int isFtpServerRunning(void){return 0;}
 static void unmountParty(int i){assert(i>=0&&i<4);mountedParty[i][0]=0;}
-static void dashWorkerStatus(const char*t,int d,int n){assert(t&&d>=0&&n>=0);}
+static void dashWorkerStatus(const char*t,int d,int n){(void)t;assert(d>=0&&n>=0);}
 static int fileXioDevctl(const char*p,int cmd,void*a,int b,void*c,int d){(void)a;(void)b;(void)c;(void)d;assert(!strcmp(p,"hdd0:"));if(cmd==HDIOC_STATUS)return 0;if(cmd==HDIOC_TOTALSECTOR)return 1024*1024*1024;assert(cmd==HDIOC_FLUSH);crashpoint();return 0;}
 static int fileXioDopen(const char*p){for(int i=0;i<32;i++)if(!directories[i]){directories[i]=opendir(p);return directories[i]?i:-errno;}return -EMFILE;}
 static int fileXioDread(int fd,iox_dirent_t*e){struct dirent*d=readdir(directories[fd]);if(!d)return 0;strcpy(e->name,d->d_name);struct stat s;if(fstatat(dirfd(directories[fd]),d->d_name,&s,0)<0)return -errno;memset(&e->stat,0,sizeof(e->stat));e->stat.mode=s.st_mode;return 1;}
@@ -120,8 +124,13 @@ int httpsDownloadFd(const char*url,int fd,const char*ca,int max,int*size,unsigne
     if(strstr(url,"Game-Installer.sh")){
         data=asset_case==4?"create_icon_sys() {\ncat <<EOL\nPS2X\ntitle0=$(evil)\nEOL\n}\n":
           "create_icon_sys() {\ncat > \"$icon_sys_filename\" <<EOL\nPS2X\ntitle0=$title\ntitle1=$publisher\nEOL\n}\n";n=strlen(data);
-    }else if(strstr(url,"/icons/art/")){
-        if(asset_case==1&&strstr(url,"APP_TEST"))return -ENOENT;
+    }else if(strstr(url,".png")){
+        if(strstr(url,"APP_TEST")){
+            if(asset_case==1)return -ENOENT;
+            if(asset_case>=6&&strstr(url,"/icons/art/"))return -ENOENT;
+            if(asset_case==7)return -EIO;
+            if(asset_case==8)return -EPERM;
+        }
         data=asset_case==5?"not a PNG at all...........":"\211PNG\r\n\032\n................";n=strlen(data);
     }else {
         assert(strstr(url,"_LST.ico")||strstr(url,"_DEL.ico"));
@@ -143,7 +152,7 @@ for signature in ("static void context(", "static int join(", "static int flush(
                   "static int existingPartition(", "static int validateTarget(", "static int stageRestartable(", "static void snapshot(",
                   "static int apiCommit(", "static void progress(", "static int download(", "static int assets(", "static int copyFile(",
                   "static void prepare(", "static int copyTree(", "static int removeTree(", "static int renameAbsent(",
-                  "static int pendingPartition(", "static int installHeader(", "static void apply(", "static int run("):
+                  "static int pendingPartition(", "static int installHeader(", "static void apply(", "static void appLoading(", "static int run("):
     code += function(signature)
 code += r'''
 static const unsigned char payload[52]={0x7f,'E','L','F',1,1,1,[16]=2,[18]=8};
@@ -272,7 +281,13 @@ int main(int argc,char**argv){
         if(asset_case==2||asset_case==3)assert(ret<0&&downloads==2&&metadata_requests==1);
         else if(asset_case==4)assert(ret<0&&downloads==1);
         else if(asset_case==5)assert(ret<0&&downloads==4);
-        else {assert(ret==0&&!strncmp(in->settings,"PS2X\n",5));assert(downloads==(asset_case==1?9u:4u));assert(metadata_requests==(asset_case==1?2u:1u));}
+        else if(asset_case==7||asset_case==8)assert(ret==(asset_case==7?-EIO:-EPERM)&&downloads==5&&metadata_requests==2);
+        else {
+            assert(ret==0&&!strncmp(in->settings,"PS2X\n",5));
+            assert(downloads==(asset_case==1?10u:asset_case==6?5u:4u));
+            assert(metadata_requests==(asset_case==1?3u:asset_case==6?2u:1u));
+            assert(!strcmp(in->art_source,asset_case==1?"DP generic artwork":"APP_TEST"));
+        }
         assert(!create_count&&!format_count&&!header_count);free(in);return 0;
     }
     AppInstall *in=calloc(1,sizeof(*in));setup(in,update);
@@ -310,7 +325,7 @@ with tempfile.TemporaryDirectory(prefix="hdd-app-install-") as tmp:
         for crash in range(1,operations+1):
             with tempfile.TemporaryDirectory(dir=tmp) as work:
                 subprocess.run([str(tmp/"test"),str(mode),str(crash)],cwd=work,check=True,stdout=subprocess.DEVNULL)
-    for case in range(6):
+    for case in range(9):
         with tempfile.TemporaryDirectory(dir=tmp) as work:
             subprocess.run([str(tmp / "test"), "2", str(case)], cwd=work, check=True)
     with tempfile.TemporaryDirectory(dir=tmp) as work:

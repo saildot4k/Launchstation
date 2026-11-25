@@ -75,8 +75,16 @@ must also support mini APA layouts before managing these disks.
 
 ## Install an app PSU
 
-On an APA Jail HDD with HOSDMenu installed, choose **Install app from PSU...**
+On an APA Jail HDD with HOSDMenu installed, choose **Install apps from PSU...**
 in HDD Manager Options, or **Install app to HDD...** on a PSU in File Browser.
+HDD Manager's **Install apps from PSU...** picker accepts several PSUs: Square
+or Confirm toggles a file, and Start begins the selected queue (or the focused
+file if none are selected). Selections survive folder/device navigation.
+Apps are read and installed one at a time, with their own boot choice and
+review table. An error or cancellation stops the queue and reports how many
+apps completed; completed installs remain in place. Progress opens before
+starting the source device and shows the app number, current task and transfer
+progress throughout preparation, downloads and installation.
 The HDD Manager entry is shown only when PSBBN DP's
 `hdd0:__system:pfs:/p2lboot/osdboot.elf` exists.
 The installer announces the required Internet connection before reading the
@@ -89,8 +97,10 @@ provide its title and boot filename; multiple candidate ELFs require a choice.
 Dot-prefixed configuration files such as POPSLOADER's `.pldrs` are preserved.
 Memory-card `icon.sys`, `list.icn` and `del.icn` are not used as HDD header
 metadata/models. Matching HDD models come from DP's `icons/ico` directory or
-its HDD-OSD Icon Database source, falling back to DP's generic app models;
-artwork comes from DP's `icons/art` directory with its generic app fallback.
+its HDD-OSD Icon Database source, falling back to DP's generic app models.
+Artwork is checked in DP's `icons/art` directory, then in
+`CosmicScale/psbbn-art-database/apps`, before using DP's generic `APP.png`.
+Each repository is pinned to a commit for that app's asset downloads.
 The PS2X header settings are extracted from DP's pinned `Game-Installer.sh`
 template as text. Downloaded scripts are never executed. Only HTTP 404 permits
 an asset fallback; network/TLS errors stop the operation.
@@ -543,8 +553,21 @@ rewrite PSBBN entries or other saved paths referring to the old partition ID.
 ### PSBBN DP selections
 
 The PSBBN DP installer is labeled **Experimental** in its software choice,
-information, review and installer-log popups. Format/install choice lists use
+review and installer-log popups. Format/install choice lists use
 only the cursor to indicate focus; initial defaults do not receive check marks.
+The APA Jail software menu offers **No software, format only** and
+**PSBBN DP, HOSDMenu**, with **EXPERIMENTAL** in the second row's detail column.
+Selecting PSBBN immediately shows the Sony Network Adapter / GameStar warning,
+then defaults the game launcher to **Neutrino (NHDDL)**, listed before OPL.
+Its nine numbered dialogs cover the compatibility notice, game launcher,
+Music size, Contents size, standalone PS2 Linux, future APA reserve, language,
+format review and final erase confirmation. Linux Off and its enabled home
+sizes share one dialog, so the total stays accurate with either choice.
+The allocation-information popup is omitted; the final table starts with
+Format, Drive Capacity and APA total space. HDD Manager maintains audio in its
+own navigation loop, and language preparation queues audio recovery after an
+IOP/network reset so cancelling the installer does not require leaving the
+manager to restore navigation sounds.
 
 Upstream DP's [Game Selector](https://github.com/CosmicScale/PSBBN-Definitive-Project/blob/main/scripts/helper/game-selector.py)
 writes `selected.list` and remembers deselected titles in the exFAT root's

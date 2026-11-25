@@ -61,6 +61,7 @@ enum DashIcon {
 	DI_UPDATE,  /* package surrounded by circular arrows */
 	DI_ARCHIVE_CREATE, /* closed package: create save archive */
 	DI_ARCHIVE_EXTRACT, /* open package: extract/install archive */
+	DI_SHOW,    /* open eye for showing hidden items */
 	DI_CUT,     /* first small icon in the atlas margin, after the grid icons */
 	DI_COPY,
 	DI_PASTE_RENAME, /* pencil with a small upper-right plus */

@@ -106,6 +106,7 @@ jobs:
           python3 tests/test_gage_alignment.py
           python3 tests/test_modal_animation.py
           python3 tests/test_modal_confirm_table.py
+          python3 tests/test_modal_spacing.py
           python3 tests/test_browser_startup_status.py
           python3 tests/test_nested_scissor.py
           python3 tests/test_hdd_manager_browse.py
@@ -117,6 +118,8 @@ jobs:
           python3 tests/test_hdd_mini.py
           python3 tests/test_hdd_app.py
           python3 tests/test_hdd_app_install.py
+          python3 tests/test_hdd_app_queue.py
+          python3 tests/test_picker_multiselect.py
           python3 tests/test_hdd_format_ui.py
           python3 tests/test_hdd_installer.py
           python3 tests/test_hdd_installer_finish.py

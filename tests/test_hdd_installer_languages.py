@@ -77,6 +77,7 @@ static int ready=1,worker_error,worker_runs,cancel_choice,releases,modal_errors;
 static int dashWorkerAwaitAll(const char *s){assert(s);return 1;}
 static char LaunchElfBootDir[128]="udpfs:/apps/Launchstation/",LaunchElfDir[128]="mc0:/SYS-CONF/";
 static int source_ready,source_reads,snapshot_ready;
+static void dashSoundMaintain(void){assert(!source_ready&&snapshot_ready);}
 static int ensurePathDeviceStackReady(const char *p){assert(strstr(p,"udpfs:")||strstr(p,"mc0:"));source_ready=1;return 1;}
 static int wleExists(const char *p){assert(source_ready&&strstr(p,"WLE-UPDATE-CA.PEM"));return 1;}
 static int dashStoreBuildPath(char *p,int size,const char *name){return snprintf(p,size,"mc0:/SYS-CONF/%s",name)>=size?-1:0;}
@@ -95,13 +96,14 @@ static int dashWorkerSubmit(const char *s,int flags,void(*run)(void*),void(*done
 }
 int dashHddInstallAwait(int id,const char *title){assert(id==1&&title);return 1;}
 static int dashModalSelect(const char *title,const char *const *items,int count,int initial){
- assert(!strcmp(title,"PSBBN language")&&count==4&&initial==0&&!strcmp(items[0],"English")&&!strcmp(items[3],"New language"));
+ assert(!strcmp(title,"Choice 7 of 9: PSBBN language")&&count==4&&initial==0&&!strcmp(items[0],"English")&&!strcmp(items[3],"New language"));
  return cancel_choice?-1:3;
 }
 void hddInstallOverall(uint64_t a,uint64_t b){assert(a==1&&b==1);}
 '''
 a = ui.index('typedef struct {\n    HddInstall *install;')
 code += ui[a:ui.index('#endif', a)]
+code += function(ui, 'const char *dashHddInstallChoiceTitle(')
 code += function(ui, 'int dashHddInstallPrepare(')
 code += r'''
 int main(void){
