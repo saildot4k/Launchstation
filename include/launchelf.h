@@ -513,6 +513,8 @@ extern int semRunning,semFinish;
 extern int isRunning;
 #endif
 int setupPad(void);
+void padSuspendForRecovery(void);
+void padForgetAfterRecovery(void);
 int reopenPadPorts(void);
 int readpad(void);
 int readpad_no_KB(void);
@@ -590,6 +592,8 @@ void filerLaunchElfFolder(char *out, int size);
 /* Presentation only: root descriptions and numbered USB paths. */
 const char *filerRootDeviceDescription(const char *name);
 int filerFormatUsbPathForDisplay(const char *path, char *out, int size);
+/* Canonical partition paths, including :pfs:, for browser headers. */
+void filerFormatBrowserPathForDisplay(const char *path, char *out, int size);
 /* dashboard replacements for the three dialogs above (NULL = classic) */
 extern int (*ynDialogOverride)(const char *message);
 extern void (*nonDialogOverride)(const char *message);

@@ -921,7 +921,7 @@ static int modalMenu(const char *title, const char *subtitle, const DashMenuItem
 			dashGfxPushOffset(0, 18.0f * (1.0f - oe));
 			modalPanel(x, y, w, h, oe);
 		}
-		dashTextS(x + 24, y + 18, title, DASH_FS_LABEL, DASH_C_TEXT);
+		dashTextFit(x + 24, y + 18, w - 48, title, DASH_FS_LABEL, DASH_C_TEXT);
 		{
 			float ly = y + list_y;
 			if (subtitle)
@@ -1014,7 +1014,7 @@ int DashSaveConflictChoice(const char *name)
 	return choice == 0 ? 1 : choice == 1 ? 0 : -1;
 }
 
-int dashModalChoice(const char *title, const char *const *options, int n, int current)
+static int modalChoice(const char *title, const char *const *options, int n, int current, int initial)
 {
 	DashMenuItem items[24];
 	int i;
@@ -1029,32 +1029,48 @@ int dashModalChoice(const char *title, const char *const *options, int n, int cu
 		items[i].detail = NULL;
 		items[i].disabled = 0;
 	}
-	return dashModalMenu(title, NULL, items, n, current);
+	return dashModalMenu(title, NULL, items, n, initial);
+}
+
+int dashModalChoice(const char *title, const char *const *options, int n, int current)
+{
+	return modalChoice(title, options, n, current, current);
+}
+
+/* One-time choices have a starting cursor, but no previously applied value. */
+int dashModalSelect(const char *title, const char *const *options, int n, int initial)
+{
+	return modalChoice(title, options, n, -1, initial);
 }
 
 static int modalButtons(const char *title, const char *body, const char *detail, int icon, DashColor icon_col,
-                        const char *ok_label, const char *cancel_label, u64 deadline)
+                        const char *ok_label, const char *cancel_label, u64 deadline,
+                        const DashTableRow *table, int table_count)
 {
 	float open = 0.0f, title_age = 0.0f;
-	float w = 440.0f, h;
+	float w = table ? 520.0f : 440.0f, h;
+	float scroll = 0, target = 0, table_h = 0;
 	const float button_h = 28.0f;
 	float x = (DASH_VW - w) * 0.5f, y;
-	int body_lines;
+	int body_lines, body_limit;
 	char countdown[64];
 	DashInput in;
 
-	body_lines = 1;
-	if (body) {
-		const char *p;
-		float tw = dashTextWidth(body, DASH_FS_SMALL);
-		body_lines = (int)(tw / (w - 60)) + 1;
-		for (p = body; *p; p++)
-			if (*p == '\n')
-				body_lines++;
-		if (body_lines > 6)
-			body_lines = 6;
+	/* Word boundaries can require more rows than total text width predicts.
+	 * Measure the actual wrapper and reserve a clear gap before the footer. */
+	body_limit = (int)((DASH_VH - 40.0f - 160.0f - (detail ? 30.0f : 0.0f)) / DASH_LIST_ROW_H);
+	if (body_limit < 1) body_limit = 1;
+	if (body_limit > 6) body_limit = 6;
+	body_lines = body ? dashTextWrapLines(w - 60, body_limit, body, DASH_FS_SMALL) : 1;
+	if (body_lines < 1) body_lines = 1;
+	h = 160.0f + body_lines * DASH_LIST_ROW_H + (detail ? 30.0f : 0.0f);
+	if (table) {
+		int visible = (int)((DASH_VH - 40.0f - 150.0f) / DASH_LIST_ROW_H);
+		if (visible < 1) visible = 1;
+		if (visible > table_count) visible = table_count;
+		table_h = visible * DASH_LIST_ROW_H;
+		h = 150.0f + table_h;
 	}
-	h = 92.0f + body_lines * DASH_LIST_ROW_H + (detail ? DASH_LIST_ROW_H : 0.0f) + 44.0f;
 	y = (DASH_VH - h) * 0.5f;
 	dashInputFlush();
 
@@ -1083,7 +1099,15 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 			dashInputFlush();
 			return (cancel_label == NULL) ? 1 : 0;
 		}
+		if (table) {
+			if (in.pressed & DASH_IN_DOWN) target += DASH_LIST_ROW_H;
+			if (in.pressed & DASH_IN_UP) target -= DASH_LIST_ROW_H;
+			if (in.pressed & DASH_IN_RIGHT) target += table_h;
+			if (in.pressed & DASH_IN_LEFT) target -= table_h;
+			target = dashClampf(target, 0, table_count * DASH_LIST_ROW_H - table_h);
+		}
 		float dt = dashVisualUpdate();
+		scroll = dashApproach(scroll, target, 18.0f * dashAnimSpeed(), dt);
 		title_age += dt;
 		open = dashApproach(open, 1.0f, 16.0f * dashAnimSpeed(), dt);
 		{
@@ -1102,8 +1126,26 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 		}
 		dashIcon(icon, x + 26, y + 24, 36, icon_col);
 		dashTextScrollTimed(x + 76, y + 28, w - 106, title, DASH_FS_LABEL, DASH_C_TEXT, title_age);
+		if (table) {
+			const float column = x + 204, row_y = y + 100;
+			float shift = 2.0f * floorf(scroll * 0.5f + 0.5f);
+			dashText(x + 30, y + 76, "Setting", DASH_FS_SMALL, DASH_C_ACCENT);
+			dashText(column, y + 76, "Selection", DASH_FS_SMALL, DASH_C_ACCENT);
+			dashGfxScissor(x + 24, row_y, w - 48, table_h);
+			for (int i = 0; i < table_count; i++) {
+				float ry = row_y + i * DASH_LIST_ROW_H - shift;
+				if (ry + DASH_LIST_ROW_H <= row_y || ry >= row_y + table_h) continue;
+				dashTextFit(x + 30, ry, column - x - 46, table[i].label, DASH_FS_SMALL, DASH_C_TEXT2);
+				dashTextFit(column, ry, x + w - 42 - column, table[i].value, DASH_FS_SMALL, DASH_C_TEXT);
+			}
+			dashGfxScissorReset();
+			if (table_count * DASH_LIST_ROW_H > table_h) {
+				dashDrawScrollbar(x + w - 20, row_y, table_h, scroll, (int)table_h, (int)(table_count * DASH_LIST_ROW_H));
+				drawButton(x + w - 34, y + 24, DI_DPAD_UD, NULL);
+			}
+		}
 		if (body)
-			dashTextWrap(x + 30, y + 78, w - 60, 6, body, DASH_FS_SMALL, DASH_C_TEXT2, DASH_LIST_ROW_H);
+			dashTextWrap(x + 30, y + 78, w - 60, body_limit, body, DASH_FS_SMALL, DASH_C_TEXT2, DASH_LIST_ROW_H);
 		if (detail) {
 			float dy = y + 84 + body_lines * DASH_LIST_ROW_H;
 			dashTextScrollTimed(x + 30, dy, w - 60, detail, DASH_FS_CAPTION, DASH_C_TEXT3, title_age);
@@ -1136,20 +1178,27 @@ static int modalButtons(const char *title, const char *body, const char *detail,
 int dashModalConfirm(const char *title, const char *body, const char *ok_label, int danger)
 {
 	return modalButtons(title, body, NULL, danger ? DI_WARNING : DI_INFO,
-	                    danger ? DASH_C_WARM : DASH_C_ACCENT, ok_label ? ok_label : "OK", "Cancel", 0);
+	                    danger ? DASH_C_WARM : DASH_C_ACCENT, ok_label ? ok_label : "OK", "Cancel", 0, NULL, 0);
+}
+
+int dashModalConfirmTable(const char *title, const DashTableRow *rows, int count, const char *ok_label, int danger)
+{
+	if (!rows || count < 1) return 0;
+	return modalButtons(title, NULL, NULL, danger ? DI_WARNING : DI_INFO,
+	                    danger ? DASH_C_WARM : DASH_C_ACCENT, ok_label ? ok_label : "OK", "Cancel", 0, rows, count);
 }
 
 int dashModalKeepVideo(void)
 {
 	/* Confirm keeps and Back reverts, without selecting an action first. */
 	return modalButtons("Keep this video mode?", "Confirm only if the picture is visible and stable.",
-	                    "", DI_INFO, DASH_C_ACCENT, "Keep", "Revert", Timer() + 10000);
+	                    "", DI_INFO, DASH_C_ACCENT, "Keep", "Revert", Timer() + 10000, NULL, 0);
 }
 
 void dashModalMessage(int icon, const char *title, const char *body, const char *detail)
 {
 	DashColor c = (icon == DI_WARNING) ? DASH_C_WARM : DASH_C_ACCENT;
-	modalButtons(title, body, detail, icon, c, "OK", NULL, 0);
+	modalButtons(title, body, detail, icon, c, "OK", NULL, 0, NULL, 0);
 }
 
 //--------------------------------------------------------------

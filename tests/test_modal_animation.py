@@ -41,6 +41,7 @@ orbs = read("src/dash_bg_ps2.c")
 widgets = read("src/dash_widgets.c")
 menu = (function(ui, "static int modalMenu(") + function(ui, "int dashModalMenu(")
         + function(ui, "int dashModalMenuEdit("))
+code_wrap_stub = "#define dashTextWrapLines(...) 1\n"
 buttons = (function(ui, "static int modalButtons(") + function(ui, "int dashModalKeepVideo(")
            + function(ui, "int dashModalConfirm(") + function(ui, "void dashModalMessage("))
 button_icons = function(ui, "int dashOkIcon(") + function(ui, "int dashBackIcon(")
@@ -123,6 +124,7 @@ static void dashIconForward(float x,float y,float size,DashColor c) {
     (void)x;(void)y;(void)c;assert(size==12);forward_icons++;
 }
 """
+code += code_wrap_stub
 code += button_icons
 input_start = header.rfind("enum {", 0, header.index("DASH_IN_UP"))
 code += header[input_start:header.index("};", input_start) + 2] + "\n"
@@ -429,6 +431,11 @@ int main(void) {
     puts("PASS: direct Confirm/Cancel and classic overrides, both button icon mappings, video timeout, ordinary/preview/nested menus, measured timing, RTC interpolation, motion off and stalls");
 }
 """
+if "const DashTableRow *table" in buttons:
+    code = 'typedef struct { const char *label,*value; } DashTableRow;\n#define dashText(...) ((void)0)\n' + code
+    code = code.replace("const char *,const char *,u64);", "const char *,const char *,u64,const DashTableRow *,int);")
+    for arguments in ('"OK","Cancel",0', '"Keep","Revert",7000', '"Keep","Revert",1032'):
+        code = code.replace(arguments + ")", arguments + ",NULL,0)")
 compiler = shutil.which("gcc") or shutil.which("clang")
 if not compiler:
     raise SystemExit("Host gcc or clang required")

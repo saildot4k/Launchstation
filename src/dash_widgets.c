@@ -826,6 +826,8 @@ typedef struct
 static struct
 {
 	int active;
+	char **selected;
+	int selected_count;
 	int gen;         /* bumped on every navigation; stale listings are dropped */
 	int loading;
 	char dir[MAX_PATH]; /* "" = device list */
@@ -1031,7 +1033,32 @@ static void pickParent(char *dir, int size)
 	(void)size;
 }
 
-int dashPickPath(const char *title, const char *start_dir, int mode, const char *ext, char *out, int out_size)
+static int pickSelectionIndex(const char *path)
+{
+	for (int i = 0; i < pk.selected_count; i++)
+		if (!strcmp(pk.selected[i], path)) return i;
+	return -1;
+}
+static int pickToggle(const char *path)
+{
+	int index = pickSelectionIndex(path);
+	if (index >= 0) {
+		free(pk.selected[index]);
+		memmove(pk.selected + index, pk.selected + index + 1,
+		        (--pk.selected_count - index) * sizeof(*pk.selected));
+		return 1;
+	}
+	if (pk.selected_count >= PICK_MAX) return 0;
+	char *copy = malloc(strlen(path) + 1);
+	if (!copy) return 0;
+	char **paths = realloc(pk.selected, (pk.selected_count + 1) * sizeof(*paths));
+	if (!paths) { free(copy); return 0; }
+	pk.selected = paths;
+	strcpy(copy, path);
+	pk.selected[pk.selected_count++] = copy;
+	return 1;
+}
+static int pickPath(const char *title, const char *start_dir, int mode, const char *ext, char *out, int out_size, char ***multiple)
 {
 	int sel = 0, top = 0, result = 0;
 	const int rows = 10;
@@ -1041,6 +1068,7 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 	float x = (DASH_VW - w) * 0.5f, y = (DASH_VH - h) * 0.5f;
 	DashInput in;
 
+	if (multiple) *multiple = NULL;
 	if (pk.active)
 		return 0; /* not re-entrant */
 	memset(&pk, 0, sizeof(pk));
@@ -1130,12 +1158,27 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 				sel = 0;
 			}
 		}
+		if (multiple && (in.pressed & (DASH_IN_FAV | DASH_IN_START))) {
+			int ent = (pk.dir[0] && !pk.loading && !pk.starting) ? sel - first_entry : -1;
+			if ((in.pressed & DASH_IN_FAV) || !pk.selected_count) {
+				if (ent >= 0 && ent < pk.n && !pk.entries[ent].dir) {
+					char path[MAX_PATH];
+					if (snprintf(path, sizeof(path), "%s%s", pk.dir, pk.entries[ent].name) >= (int)sizeof(path))
+						dashToast(DASH_TOAST_WARN, "Path too long");
+					else if (!pickToggle(path)) dashToast(DASH_TOAST_ERROR, "Selection is full or out of memory");
+				}
+			}
+			if (in.pressed & DASH_IN_START) {
+				if (pk.selected_count) { result = pk.selected_count; break; }
+				dashToast(DASH_TOAST_INFO, "Select one or more files");
+			}
+		}
 		/* R3, as in the classic browser: a file is chosen relative to
 		 * wLaunchELF's own folder ("uLE:/NAME", follows wLaunchELF when it
 		 * moves); elsewhere it jumps to that folder */
 		if ((in.pressed & DASH_IN_R3) && !pk.starting) {
 			int ent = (pk.dir[0] && !pk.loading) ? sel - first_entry : -1;
-			if (mode != DASH_PICK_FOLDER && ent >= 0 && ent < pk.n && !pk.entries[ent].dir && !pickIsMisc(pk.dir)) {
+			if (!multiple && mode != DASH_PICK_FOLDER && ent >= 0 && ent < pk.n && !pk.entries[ent].dir && !pickIsMisc(pk.dir)) {
 				dashSoundPlay(DASH_SND_CONFIRM);
 				snprintf(out, out_size, "uLE:/%s", pk.entries[ent].name);
 				result = 1;
@@ -1190,6 +1233,8 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 				} else if (e->dir) {
 					pickOpen(next);
 					sel = 0;
+				} else if (multiple) {
+					if (!pickToggle(next)) dashToast(DASH_TOAST_ERROR, "Selection is full or out of memory");
 				} else {
 					dashStrCopy(out, next, out_size);
 					result = 1;
@@ -1218,7 +1263,12 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 			dashGfxPushOffset(0, 18.0f * (1.0f - oe));
 			dashModalPanel(x, y, w, h, oe);
 			dashIcon(mode == DASH_PICK_FOLDER ? DI_FOLDER : mode == DASH_PICK_LAUNCH ? DI_APP : DI_FILE, x + 24, y + 18, 22, DASH_C_ACCENT);
-			dashTextS(x + 56, y + 18, title, DASH_FS_LABEL, DASH_C_TEXT);
+			dashTextFit(x + 56, y + 18, w - (multiple ? 170 : 80), title, DASH_FS_LABEL, DASH_C_TEXT);
+			if (multiple) {
+				char count[32];
+				snprintf(count, sizeof(count), "%d selected", pk.selected_count);
+				dashTextRight(x + w - 24, y + 22, count, DASH_FS_CAPTION, DASH_C_TEXT2);
+			}
 			if (!filerFormatUsbPathForDisplay(pk.dir, display_path, sizeof(display_path)))
 				dashStrCopy(display_path, pk.dir, sizeof(display_path));
 			dashTextFit(x + 24, y + 50, w - 48, pk.dir[0] ? display_path : "Choose a device", DASH_FS_CAPTION, DASH_C_TEXT3);
@@ -1245,6 +1295,13 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 					PickEntry *e = &pk.entries[i - first_entry];
 					icon = e->dir ? DI_FOLDER : pickIsMisc(pk.dir) ? DI_TOOLS : (genCmpFileExt(e->name, "PNG") || genCmpFileExt(e->name, "JPG") || genCmpFileExt(e->name, "JPEG")) ? DI_IMAGE : genCmpFileExt(e->name, "ELF") ? DI_APP : DI_FILE;
 					label = getMiscEntryDisplayName(pk.dir, e->name);
+					if (multiple && !e->dir) {
+						char path[MAX_PATH];
+						if (snprintf(path, sizeof(path), "%s%s", pk.dir, e->name) < (int)sizeof(path) && pickSelectionIndex(path) >= 0) {
+							icon = DI_CHECK;
+							c = DASH_C_OK;
+						}
+					}
 				}
 				dashIcon(icon, lx + 10, ry + 2, 16, c);
 				dashTextFit(lx + 36, ry + 0.0f, lw - 60, label, DASH_FS_SMALL, c);
@@ -1263,10 +1320,15 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 			{
 				float hx = x + 24, hy = y + h - 36;
 				hx += dashDrawButton(hx, hy, dashOkIcon(), NULL) + 4;
-				hx = dashTextS(hx, dashButtonTextY(hy, DASH_FS_SMALL), "Open", DASH_FS_SMALL, DASH_C_TEXT2) + 14;
+				hx = dashTextS(hx, dashButtonTextY(hy, DASH_FS_SMALL), multiple && pk.dir[0] && sel >= first_entry && !pk.loading && !pk.entries[sel - first_entry].dir ? "Select" : "Open", DASH_FS_SMALL, DASH_C_TEXT2) + 14;
 				hx += dashDrawButton(hx, hy, dashBackIcon(), NULL) + 4;
 				hx = dashTextS(hx, dashButtonTextY(hy, DASH_FS_SMALL), pk.dir[0] ? "Up" : "Cancel", DASH_FS_SMALL, DASH_C_TEXT2) + 14;
-				if (mode == DASH_PICK_FOLDER && pk.dir[0]) {
+				if (multiple) {
+					hx += dashDrawButton(hx, hy, DI_BTN_SQUARE, NULL) + 4;
+					hx = dashTextS(hx, dashButtonTextY(hy, DASH_FS_SMALL), "Select", DASH_FS_SMALL, DASH_C_TEXT2) + 14;
+					hx += dashDrawButton(hx, hy, DI_BTN_START, NULL) + 4;
+					hx = dashTextS(hx, dashButtonTextY(hy, DASH_FS_SMALL), "Install", DASH_FS_SMALL, DASH_C_TEXT2) + 14;
+				} else if (mode == DASH_PICK_FOLDER && pk.dir[0]) {
 					hx += dashDrawButton(hx, hy, -1, "SELECT") + 4;
 					hx = dashTextS(hx, dashButtonTextY(hy, DASH_FS_SMALL), "Use this folder", DASH_FS_SMALL, DASH_C_TEXT2) + 14;
 				} else if (mode != DASH_PICK_FOLDER) {
@@ -1286,8 +1348,23 @@ int dashPickPath(const char *title, const char *start_dir, int mode, const char 
 	pk.gen++;
 	free(pk.entries);
 	pk.entries = NULL;
+	if (multiple && result) *multiple = pk.selected;
+	else {
+		for (int i = 0; i < pk.selected_count; i++) free(pk.selected[i]);
+		free(pk.selected);
+	}
+	pk.selected = NULL;
+	pk.selected_count = 0;
 	dashInputFlush();
 	return result;
+}
+int dashPickPath(const char *title, const char *start_dir, int mode, const char *ext, char *out, int out_size)
+{
+	return pickPath(title, start_dir, mode, ext, out, out_size, NULL);
+}
+int dashPickFiles(const char *title, const char *start_dir, const char *ext, char ***paths)
+{
+	return pickPath(title, start_dir, DASH_PICK_FILE, ext, NULL, 0, paths);
 }
 //--------------------------------------------------------------
 //End of file: dash_widgets.c

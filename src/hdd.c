@@ -2,6 +2,8 @@
 //File name:    hdd.c
 //--------------------------------------------------------------
 #include "launchelf.h"
+#include "hdd_format.h"
+#include "hdd_partition_size.h"
 #include "hdd_header_injector.h"
 
 #define MAX_PARTGB 128                  //Partition MAX in GB
@@ -71,6 +73,15 @@ static int numParty;
 static u32 hddSize, hddFree, hddFreeSpace, hddUsed;
 static int hddConnected, hddFormated, hddRealStatus;
 static HddHeaderSourcePartition hdd_header_source_partitions[MAX_PARTITIONS];
+
+static void refreshApaFree(void)
+{
+	uint32_t capacity = 0;
+	if (hddGetApaCapacity(&capacity) < 0) capacity = 0;
+	capacity /= SECTORS_PER_MB;
+	hddFreeSpace = capacity > hddUsed ? (capacity - hddUsed) & 0x7FFFFFF8 : 0;
+	hddFree = hddSize ? hddFreeSpace * 100 / hddSize : 0;
+}
 
 static int getCenteredListTop(int selected, int count, int rows)
 {
@@ -421,8 +432,7 @@ void GetHddInfo(void)
 		}  //Ends clause for finding brand new name for PartyInfo[numParty]
 	}      //ends main while loop
 	fileXioDclose(hddFd);
-	hddFreeSpace = (hddSize - hddUsed) & 0x7FFFFF80;  //free space rounded to useful area
-	hddFree = (hddFreeSpace * 100) / hddSize;         //free space percentage
+	refreshApaFree();
 
 end:
 	drawMsg(tooManyPartitions ? LNG(HDD_Information_Read_Overflow) : LNG(HDD_Information_Read));
@@ -447,43 +457,32 @@ int sizeSelector(int size)
 	int mSprite_X2 = SCREEN_WIDTH / 2 + 12 * FONT_WIDTH;   //Right edge of sprite
 	int mSprite_Y2 = SCREEN_HEIGHT / 2 + 3 * FONT_HEIGHT;  //Bottom edge of sprite
 
+	size = hddPartitionSizeStep(size, 0, saveSize, MAX_PARTMB);
+	if (size < 0) return -1;
+
 	event = 1;  //event = initial entry
 	while (1) {
 		//Pad response section
 		waitPadReady(0, 0);
 		if (readpad()) {
 			if (new_pad & PAD_RIGHT) {
-				event |= 2;  //event |= valid pad command
-				if ((size += 128) > MAX_PARTMB)
-					size = MAX_PARTMB;
+				event |= 2;
+				size = hddPartitionSizeStep(size, 128, saveSize, MAX_PARTMB);
 			} else if (new_pad & PAD_LEFT) {
-				event |= 2;  //event |= valid pad command
-				if ((size -= 128) < saveSize)
-					size = saveSize;
+				event |= 2;
+				size = hddPartitionSizeStep(size, -128, saveSize, MAX_PARTMB);
 			} else if (new_pad & PAD_R1) {
-				event |= 2;  //event |= valid pad command
-				if (size < 1024)
-					size = 1024;
-				else {
-					if ((size += 1024) > MAX_PARTMB)
-						size = MAX_PARTMB;
-				}
+				event |= 2;
+				size = hddPartitionSizeStep(size, 1024, saveSize, MAX_PARTMB);
 			} else if (new_pad & PAD_L1) {
-				event |= 2;  //event |= valid pad command
-				if ((size -= 1024) < saveSize)
-					size = saveSize;
+				event |= 2;
+				size = hddPartitionSizeStep(size, -1024, saveSize, MAX_PARTMB);
 			} else if (new_pad & PAD_R2) {
-				event |= 2;  //event |= valid pad command
-				if (size < 10240)
-					size = 10240;
-				else {
-					if ((size += 10240) > MAX_PARTMB)
-						size = MAX_PARTMB;
-				}
+				event |= 2;
+				size = hddPartitionSizeStep(size, 10240, saveSize, MAX_PARTMB);
 			} else if (new_pad & PAD_L2) {
-				event |= 2;  //event |= valid pad command
-				if ((size -= 10240) < saveSize)
-					size = saveSize;
+				event |= 2;
+				size = hddPartitionSizeStep(size, -10240, saveSize, MAX_PARTMB);
 			} else if ((new_pad & PAD_TRIANGLE) || (!swapKeys && new_pad & PAD_CROSS) || (swapKeys && new_pad & PAD_CIRCLE)) {
 				return -1;
 			} else if ((swapKeys && new_pad & PAD_CROSS) || (!swapKeys && new_pad & PAD_CIRCLE)) {
@@ -507,7 +506,7 @@ int sizeSelector(int size)
 			          mSprite_X2 - 7 * FONT_WIDTH, mSprite_Y1 + FONT_HEIGHT * 2 + FONT_HEIGHT / 2, setting->color[COLOR_FRAME]);
 
 			//RA NB: Next line assumes a scrollbar 19 characters wide (see below)
-			sprintf(c, "128%s            %3d%s", LNG(MB), MAX_PARTGB, LNG(GB));
+			sprintf(c, "8%s              %3d%s", LNG(MB), MAX_PARTGB, LNG(GB));
 			printXY(c, mSprite_X1 + FONT_WIDTH, mSprite_Y1 + FONT_HEIGHT * 3, setting->color[COLOR_TEXT], TRUE, 0);
 
 			drawOpSprite(setting->color[COLOR_FRAME],
@@ -516,7 +515,7 @@ int sizeSelector(int size)
 
 
 			//RA NB: Next line sets scroll position on a bar 19 chars wide (see above)
-			scrollBar = (size * (19 * FONT_WIDTH) / (MAX_PARTMB - 128));
+			scrollBar = (size * (19 * FONT_WIDTH) / (MAX_PARTMB - 8));
 
 			drawOpSprite(setting->color[COLOR_FRAME],
 			             mSprite_X1 + 2 * FONT_WIDTH + FONT_WIDTH / 2 + (int)scrollBar - LINE_THICKNESS + 1,
@@ -1025,8 +1024,7 @@ int RemoveParty(PARTYINFO Info)
 
 	if (ret == 0) {
 		hddUsed -= Info.TotalSize;
-		hddFreeSpace = (hddSize - hddUsed) & 0x7FFFFF80;  //free space rounded to useful area
-		hddFree = (hddFreeSpace * 100) / hddSize;         //free space percentage
+		refreshApaFree();
 		numParty--;
 		if (Info.Count == numParty) {
 			memset(&PartyInfo[numParty], 0, sizeof(PARTYINFO));
@@ -1054,7 +1052,7 @@ int RemoveParty(PARTYINFO Info)
 //--------------------------------------------------------------
 int RenameParty(PARTYINFO Info, char *newName)
 {
-	int i, num = 1, ret = 0;
+	int i, ret = 0;
 	char in[MAX_ENTRY], out[MAX_ENTRY], tmpName[MAX_ENTRY];
 
 	drawMsg(LNG(Renaming_Partition));
@@ -1065,15 +1063,15 @@ int RenameParty(PARTYINFO Info, char *newName)
 	sprintf(tmpName, "%s", newName);
 	if (!strcmp(Info.Name, tmpName)) //Exactly the same name entered.
 		goto end;
-	//If other partitions exist with the same name, append a number to keep the name unique.
+	// Keep the requested ID exact, including a possible .HIDDEN suffix.
 	for (i = 0; i < numParty; i++) {
 		if (!strcmp(PartyInfo[i].Name, tmpName)) {
-			sprintf(tmpName, "%s%d", newName, num);
-			num++;
+			ret = -EEXIST;
+			goto end2;
 		}
 	}
 	strcpy(newName, tmpName);
-	if (strlen(newName) >= MAX_PART_NAME) {
+	if (strlen(newName) > MAX_PART_NAME) {
 		ret = -ENAMETOOLONG;
 		goto end2;  //For this case HDL renaming can't be done
 	}
@@ -1122,7 +1120,7 @@ int RenameGame(PARTYINFO Info, char *newName)
 		}
 	}
 	strcpy(newName, tmpName);
-	if (strlen(newName) >= MAX_PART_NAME) {
+	if (strlen(newName) > MAX_PART_NAME) {
 		ret = -ENAMETOOLONG;
 		goto end2;  //For this case HDL renaming can't be done
 	}
@@ -1183,8 +1181,7 @@ int ExpandParty(PARTYINFO Info, int size)
 
 	if (ret > 0) {
 		hddUsed += size;
-		hddFreeSpace = (hddSize - hddUsed) & 0x7FFFFF80;  //free space rounded to useful area
-		hddFree = (hddFreeSpace * 100) / hddSize;         //free space percentage
+		refreshApaFree();
 
 		PartyInfo[Info.Count].TotalSize += size;
 		PartyInfo[Info.Count].FreeSize += size;
@@ -1482,7 +1479,7 @@ static void InjectMatchingHeadersFromSource(const char *source_device, int creat
 
 		drawMsg(LNG(Select_New_Partition_Size_In_MB));
 		drawMsg(LNG(Select_New_Partition_Size_In_MB));
-		party_size = sizeSelector(128);
+		party_size = sizeSelector(8);
 		if (party_size <= 0) {
 			stats.Stopped = 1;
 			break;
@@ -1574,7 +1571,7 @@ void hddManager(void)
 					drawMsg(LNG(Enter_New_Partition_Name));
 					drawMsg(LNG(Enter_New_Partition_Name));
 					if (keyboard(tmp, MAX_PART_NAME) > 0) {
-						partySize = 128;
+						partySize = 8;
 						drawMsg(LNG(Select_New_Partition_Size_In_MB));
 						drawMsg(LNG(Select_New_Partition_Size_In_MB));
 						if ((ret = sizeSelector(partySize)) > 0) {

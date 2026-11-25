@@ -422,6 +422,8 @@ void dashTextScrollProgress(float x, float y, float maxw, const char *s, float s
 void dashTextScrollTimed(float x, float y, float maxw, const char *s, float scale, DashColor c, float age);
 void dashTextScrollCenter(float cx, float y, float maxw, const char *s, float scale, DashColor c);
 int dashTextWrap(float x, float y, float w, int max_lines, const char *s, float scale, DashColor c, float line_h);
+/* Measure with the same word/glyph wrapping used when drawing. */
+int dashTextWrapLines(float w, int max_lines, const char *s, float scale);
 /* Wrapped text scrolls upward at 8 px/s, holds the end for 2s, then restarts. */
 void dashTextWrapScrollTimed(float x, float y, float w, float h, const char *s,
                              float scale, DashColor c, float line_h, float age);
@@ -855,13 +857,20 @@ enum {
 	DASH_PICK_FOLDER,
 	DASH_PICK_LAUNCH /* ELF files plus the built-in MISC commands */
 };
+int dashHttpsCaPath(char *path, int path_size);
 int dashPickPath(const char *title, const char *start_dir, int mode, const char *ext, char *out, int out_size);
+/* Returns the count; caller frees each selected path and the array. */
+int dashPickFiles(const char *title, const char *start_dir, const char *ext, char ***paths);
 void dashModalSetPreview(void (*fn)(int index)); /* applies to the next dashModalMenu() */
 int dashModalKeepVideo(void);
 /* Direct Confirm/Back actions; D-pad input never selects a button. */
 int dashModalConfirm(const char *title, const char *body, const char *ok_label, int danger);
+typedef struct { const char *label, *value; } DashTableRow;
+int dashModalConfirmTable(const char *title, const DashTableRow *rows, int count, const char *ok_label, int danger);
 void dashModalMessage(int icon, const char *title, const char *body, const char *detail);
 int dashModalChoice(const char *title, const char *const *options, int n, int current);
+/* Initial cursor only; no current-value check mark. */
+int dashModalSelect(const char *title, const char *const *options, int n, int initial);
 
 /* Synchronous work feedback: draws a full frame immediately.
  * A scoped alternate view receives the operation title, draws/presents its own
@@ -909,6 +918,7 @@ int dashWorkerAwait(int id, const char *title, int cancelable);
 int dashWorkerAwaitAll(const char *title);                       /* 0 = cancelled */
 int dashWorkerOnThread(void);
 void dashWorkerStatus(const char *text, int done, int total);   /* worker side */
+void dashWorkerGetStatus(char *out, int size, int *done, int *total); /* UI snapshot */
 void dashDrawActivity(float y); /* positioned by dashDrawNotifications */
 /* A background job rebooting the IOP parks the UI thread at its next
  * dashWorkerParkPoint(): no pad reads, no sound, until the IOP is back. */

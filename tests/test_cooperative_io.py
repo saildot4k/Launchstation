@@ -47,6 +47,7 @@ int DashIoBusy(void);
 int dashIoBusy(void);
 int dashGfxCanYield(void);
 int dashWorkerIoBusy(void);
+int dashWorkerOnThread(void);
 int dashIopParked(void);
 int dashWorkerBusy(void);
 void dashWorkerPump(void);
@@ -65,6 +66,7 @@ int __wrap_SifIopSync(void);
 s32 __wrap_DelayThread(s32);
 '''
 code = r'''
+int dashWorkerOnThread(void) { return 0; }
 #include "dash_internal.h"
 #include "save_archive.h"
 #include <assert.h>
@@ -283,5 +285,5 @@ with tempfile.TemporaryDirectory(prefix="wle-cooperative-io-") as temp:
         flags += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
     exe = tmp / "test"
     subprocess.run([compiler, *flags, "-I" + str(tmp), "-I" + str(root / "include"),
-                    os.getenv("COOPERATIVE_IO_SOURCE", str(root / "src/dash_io.c")), str(tmp / "test.c"), "-o", str(exe)], check=True)
+                    os.getenv("COOPERATIVE_IO_SOURCE", str(root / "src/dash_io.c")), str(tmp / "test.c"), str(root / "src/hdd_install_recovery.c"), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True, timeout=15)

@@ -10,6 +10,8 @@
  */
 #include "dash_internal.h"
 #include "save_archive.h"
+#include "hdd_install_recovery.h"
+#include <string.h>
 
 static int io_owner = -1;
 static int io_waiting;
@@ -74,11 +76,42 @@ static void rpcComplete(void *unused)
 	(void)unused;
 }
 
+static int installerRpcWait(SifRpcClientData_t *cd, u64 started)
+{
+	for (;;) {
+		if (Timer() - started >= HDD_INSTALL_RPC_TIMEOUT_MS) {
+			hddInstallRecoveryRequestReset();
+			while (!hddInstallRecoveryWasReset()) __real_DelayThread(1000);
+			return HDD_INSTALL_ATA_TIMEOUT;
+		}
+		if (!SifCheckStatRpc(cd)) return 0;
+		__real_DelayThread(1000);
+	}
+}
+
 int __wrap_sceSifCallRpc(SifRpcClientData_t *cd, int number, int mode,
                        void *send, int send_size, void *receive, int receive_size,
                        SifRpcEndFunc_t complete, void *arg)
 {
 	int result;
+	/* Only installer jobs get a watchdog. The UI owns the physical reset;
+	 * this stack, client and DMA buffers remain live until it acknowledges. */
+	if (dashWorkerOnThread() && hddInstallRecoveryActive()) {
+		u64 started = Timer();
+		if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+		result = __real_sceSifCallRpc(cd, number, mode | SIF_RPC_M_NOWAIT,
+		                            send, send_size, receive, receive_size,
+		                            complete ? complete : rpcComplete, arg);
+		if (result >= 0) {
+			result = installerRpcWait(cd, started);
+			if (result >= 0 && receive && receive_size >= 4) {
+				int status; memcpy(&status, receive, sizeof(status));
+				hddInstallRecoveryObserve(status);
+			}
+		}
+		hddInstallRecoveryObserve(result);
+		return result;
+	}
 	if ((mode & SIF_RPC_M_NOWAIT) || !canCooperate())
 		return __real_sceSifCallRpc(cd, number, mode, send, send_size,
 		                          receive, receive_size, complete, arg);
@@ -97,6 +130,16 @@ int __wrap_sceSifCallRpc(SifRpcClientData_t *cd, int number, int mode,
 int __wrap_sceSifBindRpc(SifRpcClientData_t *cd, int server, int mode)
 {
 	int result;
+	if (dashWorkerOnThread() && hddInstallRecoveryActive()) {
+		u64 started = Timer();
+		if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+		do {
+			result = __real_sceSifBindRpc(cd, server, mode | SIF_RPC_M_NOWAIT);
+			if (result >= 0) result = installerRpcWait(cd, started);
+			if (result < 0 || cd->server) return result;
+			__real_DelayThread(1000);
+		} while (1);
+	}
 	if ((mode & SIF_RPC_M_NOWAIT) || !canCooperate())
 		return __real_sceSifBindRpc(cd, server, mode);
 	io_waiting++;

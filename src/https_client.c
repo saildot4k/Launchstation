@@ -4,8 +4,10 @@
 //--------------------------------------------------------------
 #include "launchelf.h"
 #include "https_client.h"
+#include <stdarg.h>
 
 #include <ctype.h>
+#include <errno.h>
 #include <limits.h>
 #include <malloc.h>
 #include <stdlib.h>
@@ -77,10 +79,24 @@ typedef struct {
     mbedtls_x509_crt ca;
     mbedtls_ctr_drbg_context ctr;
     mbedtls_entropy_context entropy;
+    u64 wait_started;
+    int waiting;
 } HttpsTls;
 
 static HttpsStatusCallback https_status_callback;
 static void *https_status_arg;
+static HttpsStatusCallback https_trace_callback;
+static void *https_trace_arg;
+void httpsSetTraceCallback(HttpsStatusCallback callback, void *arg)
+{ https_trace_callback = callback; https_trace_arg = arg; }
+static void httpsTrace(const char *format, ...)
+{
+    char text[512];
+    va_list args;
+    if (!https_trace_callback) return;
+    va_start(args, format); vsnprintf(text, sizeof(text), format, args); va_end(args);
+    https_trace_callback(text, https_trace_arg);
+}
 
 void httpsSetStatusCallback(HttpsStatusCallback callback, void *arg)
 {
@@ -170,23 +186,27 @@ int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t 
 
 static int ps2_tls_send(void *ctx, const unsigned char *buf, size_t len)
 {
-    int sock = *(int *)ctx;
+    HttpsTls *tls = ctx;
+    int sock = tls->sock;
     int r;
 
     if (len > INT_MAX)
         len = INT_MAX;
     r = ps2ipc_send(sock, buf, (int)len, 0);
+    if (r > 0) tls->waiting = 0;
     return r < 0 ? MBEDTLS_ERR_SSL_WANT_WRITE : r;
 }
 
 static int ps2_tls_recv(void *ctx, unsigned char *buf, size_t len)
 {
-    int sock = *(int *)ctx;
+    HttpsTls *tls = ctx;
+    int sock = tls->sock;
     int r;
 
     if (len > INT_MAX)
         len = INT_MAX;
     r = ps2ipc_recv(sock, buf, (int)len, 0);
+    if (r > 0) tls->waiting = 0;
     return r < 0 ? MBEDTLS_ERR_SSL_WANT_READ : r;
 }
 
@@ -221,7 +241,14 @@ static int socket_wait(int sock, int want_write, int timeout_ms)
 static int wait_tls_io(HttpsTls *tls, int result)
 {
     int want_write = result == MBEDTLS_ERR_SSL_WANT_WRITE;
-    return socket_wait(tls->sock, want_write, HTTPS_IO_TIMEOUT_MS) > 0 ? 0 : -1;
+    u64 now = Timer(), elapsed;
+    if (!tls->waiting) { tls->wait_started = now; tls->waiting = 1; }
+    elapsed = now - tls->wait_started;
+    /* Some socket failures keep select() ready while recv/send still fail.
+     * Bound the whole no-progress retry sequence, not each select() alone.
+     * BIO callbacks reset the budget only when actual bytes move. */
+    if (elapsed >= HTTPS_IO_TIMEOUT_MS) return -1;
+    return socket_wait(tls->sock, want_write, HTTPS_IO_TIMEOUT_MS - (int)elapsed) > 0 ? 0 : -1;
 }
 
 static int ps2_tcp_connect(int *sock, const char *host)
@@ -234,12 +261,17 @@ static int ps2_tcp_connect(int *sock, const char *host)
 
     if (sock == NULL || host == NULL)
         return -1;
+    httpsTrace("DNS begin host=%s", host);
     httpsStatus("Resolving server address");
     entry = (HttpsHostEnt *)(void *)ps2ipc_gethostbyname(host);
-    if (entry == NULL || entry->h_addr_list == NULL || entry->h_addr_list[0] == NULL)
-        return -1;
+    if (entry == NULL || entry->h_addr_list == NULL || entry->h_addr_list[0] == NULL) {
+        httpsTrace("DNS FAILED host=%s", host); return -1;
+    }
+    { const unsigned char *ip = (const unsigned char *)entry->h_addr_list[0];
+      httpsTrace("DNS result %s -> %u.%u.%u.%u", host, ip[0], ip[1], ip[2], ip[3]); }
 
     *sock = ps2ipc_socket(AF_INET, SOCK_STREAM, HTTPS_IPPROTO_TCP);
+    httpsTrace("TCP socket result=%d", *sock);
     if (*sock < 0)
         return -1;
     if (ps2ipc_ioctl(*sock, HTTPS_FIONBIO, &nonblock) < 0) {
@@ -255,16 +287,22 @@ static int ps2_tcp_connect(int *sock, const char *host)
     memcpy(&addr.sin_addr, entry->h_addr_list[0], sizeof(addr.sin_addr));
 
     httpsStatus("Connecting to server");
+    httpsTrace("TCP connect host=%s port=443 socket=%d", host, *sock);
     r = ps2ipc_connect(*sock, (struct sockaddr *)&addr, sizeof(addr));
+    httpsTrace("TCP connect returned %d", r);
     if (r < 0) {
-        if (socket_wait(*sock, 1, HTTPS_IO_TIMEOUT_MS) <= 0) {
+        r = socket_wait(*sock, 1, HTTPS_IO_TIMEOUT_MS);
+        httpsTrace("TCP ready wait returned %d (timeout=%d ms)", r, HTTPS_IO_TIMEOUT_MS);
+        if (r <= 0) {
             ps2ipc_disconnect(*sock);
             *sock = -1;
             return -1;
         }
         memset(&peer, 0, sizeof(peer));
         peer_len = sizeof(peer);
-        if (ps2ipc_getpeername(*sock, (struct sockaddr *)&peer, &peer_len) < 0) {
+        r = ps2ipc_getpeername(*sock, (struct sockaddr *)&peer, &peer_len);
+        httpsTrace("TCP getpeername rc=%d", r);
+        if (r < 0) {
             ps2ipc_disconnect(*sock);
             *sock = -1;
             return -1;
@@ -378,6 +416,13 @@ static void tls_verify_error(HttpsTls *tls, const char *host,
     set_error(error, error_size, "TLS certificate verification failed", result);
 }
 
+static const unsigned char *https_ca_bundle;
+static unsigned https_ca_size;
+void httpsSetCaBundle(const unsigned char *data, unsigned size)
+{
+    https_ca_bundle = data;
+    https_ca_size = size;
+}
 static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
                     char *error, int error_size)
 {
@@ -399,13 +444,20 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
         set_error(error, error_size, "HTTPS CA bundle is required", 0);
         goto fail;
     }
+    httpsTrace("TLS begin host=%s CA=%s", host, ca_path);
     httpsStatus("Loading trusted certificates");
-    ca_data = read_file(ca_path, &ca_len);
+    if (https_ca_bundle && https_ca_size && https_ca_size <= 256 * 1024) {
+        ca_len = https_ca_size;
+        ca_data = malloc(ca_len + 1);
+        if (ca_data) { memcpy(ca_data, https_ca_bundle, ca_len); ca_data[ca_len] = 0; }
+    } else ca_data = read_file(ca_path, &ca_len);
     if (ca_data == NULL) {
         set_error(error, error_size, "Could not read HTTPS CA bundle", 0);
         goto fail;
     }
+    httpsTrace("CA loaded: %d bytes", ca_len);
     r = mbedtls_x509_crt_parse(&tls->ca, ca_data, (size_t)ca_len + 1);
+    httpsTrace("CA parse rc=%d", r);
     free(ca_data);
     ca_data = NULL;
     if (r < 0) {
@@ -423,6 +475,7 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
         set_error(error, error_size, "TCP connection", 0);
         goto fail;
     }
+    httpsTrace("TCP connected; seeding TLS entropy");
     httpsStatus("Preparing secure connection");
     r = mbedtls_ctr_drbg_seed(&tls->ctr, mbedtls_entropy_func, &tls->entropy,
                               personal, sizeof(personal) - 1);
@@ -450,13 +503,15 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
         set_error(error, error_size, "TLS hostname", r);
         goto fail;
     }
-    mbedtls_ssl_set_bio(&tls->ssl, &tls->sock, ps2_tls_send, ps2_tls_recv, NULL);
+    mbedtls_ssl_set_bio(&tls->ssl, tls, ps2_tls_send, ps2_tls_recv, NULL);
 
+    httpsTrace("TLS handshake start host=%s", host);
     httpsStatus("Verifying secure connection");
     while ((r = mbedtls_ssl_handshake(&tls->ssl)) != 0) {
         if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {
             if (wait_tls_io(tls, r) == 0)
                 continue;
+            httpsTrace("TLS handshake idle timeout host=%s", host);
             set_error(error, error_size, "TLS handshake timed out", 0);
             goto fail;
         }
@@ -468,13 +523,16 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
             set_error(error, error_size, "TLS handshake", r);
         goto fail;
     }
-    if (mbedtls_ssl_get_verify_result(&tls->ssl) != 0) {
+    u32 verified = mbedtls_ssl_get_verify_result(&tls->ssl);
+    httpsTrace("TLS handshake complete; verification flags=0x%08x", (unsigned)verified);
+    if (verified != 0) {
         tls_verify_error(tls, host, error, error_size, 0);
         goto fail;
     }
     return 0;
 
 fail:
+    httpsTrace("TLS FAILED host=%s: %s", host, error && error_size > 0 ? error : "no error text");
     free(ca_data);
     tls_free(tls);
     return -1;
@@ -782,11 +840,44 @@ static int split_https_url(const char *url, char *host, int host_size,
 typedef struct {
     char line[40];
     int line_len;
-    int state; /* 0=size, 1=data, 2=CR, 3=LF, 4=done */
+    int state; /* 0=size, 1=data, 2=CR, 3=LF, 4=done, 5=trailers */
+    int trailer_bytes, trailer_cr;
     unsigned long left;
 } HttpsChunkDecoder;
 
-static int download_write(int fd, const unsigned char *data, int len,
+typedef struct {
+    unsigned char *data;
+    int used, offset;
+} HttpsDownloadBuffer;
+
+/* TLS records and HTTP chunks have arbitrary lengths and source alignment.
+ * fileXio splits unaligned EE buffers before FatFs, whose direct whole-sector
+ * writes can then pass an unaligned IOP pointer to ATA DMA. Accumulate aligned
+ * batches so both the file offset and IOP source stay aligned for those writes.
+ * A partial final sector goes through the filesystem's own sector buffer. */
+static int download_flush(int fd, HttpsDownloadBuffer *buffer,
+                          char *error, int error_size)
+{
+    while (buffer->used) {
+        int take = buffer->used, r;
+        /* A short write can end inside a sector. Finish just that sector
+         * before submitting another direct whole-sector transfer. */
+        if ((buffer->offset & 511) && take > 512 - (buffer->offset & 511))
+            take = 512 - (buffer->offset & 511);
+        r = genWrite(fd, buffer->data, take);
+        if (r <= 0 || r > take) {
+            set_error(error, error_size, "Could not write downloaded update", 0);
+            return -1;
+        }
+        buffer->offset += r;
+        buffer->used -= r;
+        if (buffer->used) memmove(buffer->data, buffer->data + r, buffer->used);
+    }
+    return 0;
+}
+
+static int download_write(int fd, HttpsDownloadBuffer *buffer,
+                          const unsigned char *data, int len,
                           int max_bytes, int *written,
                           mbedtls_sha256_context *sha,
                           char *error, int error_size)
@@ -798,14 +889,15 @@ static int download_write(int fd, const unsigned char *data, int len,
         return -1;
     }
     while (done < len) {
-        int r = genWrite(fd, (void *)(data + done), len - done);
-        if (r <= 0) {
-            set_error(error, error_size, "Could not write downloaded update", 0);
+        int take = HTTPS_IO - buffer->used;
+        if (take > len - done) take = len - done;
+        memcpy(buffer->data + buffer->used, data + done, take);
+        buffer->used += take;
+        done += take;
+        if (buffer->used == HTTPS_IO && download_flush(fd, buffer, error, error_size) < 0)
             return -1;
-        }
-        done += r;
     }
-    if (mbedtls_sha256_update(sha, data, (size_t)len) != 0) {
+    if (sha && mbedtls_sha256_update(sha, data, (size_t)len) != 0) {
         set_error(error, error_size, "Could not hash downloaded update", 0);
         return -1;
     }
@@ -815,7 +907,8 @@ static int download_write(int fd, const unsigned char *data, int len,
 
 static int download_chunked_consume(HttpsChunkDecoder *dec,
                                     const unsigned char *data, int len,
-                                    int fd, int max_bytes, int *written,
+                                    int fd, HttpsDownloadBuffer *buffer,
+                                    int max_bytes, int *written,
                                     mbedtls_sha256_context *sha,
                                     char *error, int error_size)
 {
@@ -841,7 +934,7 @@ static int download_chunked_consume(HttpsChunkDecoder *dec,
                 }
                 dec->line_len = 0;
                 dec->left = size;
-                dec->state = size == 0 ? 4 : 1;
+                dec->state = size == 0 ? 5 : 1;
             } else {
                 if (dec->line_len >= (int)sizeof(dec->line) - 1) {
                     set_error(error, error_size, "Chunk header is too large", 0);
@@ -854,7 +947,7 @@ static int download_chunked_consume(HttpsChunkDecoder *dec,
             if ((unsigned long)take > dec->left)
                 take = (int)dec->left;
             if (take > 0 &&
-                download_write(fd, data + at, take, max_bytes, written,
+                download_write(fd, buffer, data + at, take, max_bytes, written,
                                sha, error, error_size) < 0)
                 return -1;
             at += take;
@@ -873,19 +966,99 @@ static int download_chunked_consume(HttpsChunkDecoder *dec,
                 return -1;
             }
             dec->state = 0;
+        } else if (dec->state == 5) {
+            unsigned char ch = data[at++];
+            if (++dec->trailer_bytes > HTTPS_HEADER_MAX) {
+                set_error(error, error_size, "HTTPS trailers are too large", 0); return -1;
+            }
+            if (ch == '\n' && dec->trailer_cr) {
+                dec->trailer_cr = 0;
+                if (!dec->line_len) dec->state = 4;
+                dec->line_len = 0;
+            } else if (ch == '\r' && !dec->trailer_cr) dec->trailer_cr = 1;
+            else if (dec->trailer_cr || (ch < 32 && ch != '\t')) {
+                set_error(error, error_size, "Malformed HTTPS trailers", 0); return -1;
+            } else dec->line_len++;
         }
+    }
+    if (at != len) {
+        set_error(error, error_size, "Unexpected bytes after HTTPS body", 0); return -1;
     }
     return dec->state == 4 ? 1 : 0;
 }
 
-int httpsDownloadFd(const char *url, int fd, const char *ca_path,
+/* Only a scoped download batch retains connections. Metadata requests and
+ * updater calls outside the installer retain their existing close behavior.
+ * TLS contexts stay at one heap address: Mbed TLS keeps pointers into them. */
+static HttpsTls *download_cached;
+static int download_batch;
+static char download_host[256], download_ca[1025];
+static const unsigned char *download_ca_memory;
+static unsigned download_ca_bytes;
+static void downloadDrop(HttpsTls *tls)
+{
+    if (tls) { tls_free(tls); free(tls); }
+}
+void httpsDownloadBatchEnd(void)
+{
+    downloadDrop(download_cached); download_cached = NULL; download_batch = 0;
+}
+void httpsDownloadBatchBegin(void)
+{
+    httpsDownloadBatchEnd(); download_batch = 1;
+}
+static HttpsTls *downloadOpen(const char *host, const char *ca, int *reused, char *error, int error_size)
+{
+    HttpsTls *tls;
+    *reused = 0;
+    if (download_cached && !strcmp(host, download_host) && !strcmp(ca, download_ca) &&
+        download_ca_memory == https_ca_bundle && download_ca_bytes == https_ca_size) {
+        tls = download_cached; download_cached = NULL; *reused = 1;
+        tls->waiting = 0;
+        httpsStatus("Reusing secure connection"); return tls;
+    }
+    downloadDrop(download_cached); download_cached = NULL;
+    if (strlen(host) >= sizeof(download_host) || strlen(ca) >= sizeof(download_ca)) {
+        set_error(error, error_size, "HTTPS host or CA path is too long", 0); return NULL;
+    }
+    tls = malloc(sizeof(*tls));
+    if (!tls) { set_error(error, error_size, "Out of memory creating HTTPS session", 0); return NULL; }
+    if (tls_open(tls, host, ca, error, error_size) < 0) { free(tls); return NULL; }
+    strcpy(download_host, host); strcpy(download_ca, ca);
+    download_ca_memory = https_ca_bundle; download_ca_bytes = https_ca_size;
+    return tls;
+}
+static void downloadRelease(HttpsTls *tls, int persistent)
+{
+    if (download_batch && persistent) download_cached = tls;
+    else downloadDrop(tls);
+}
+static int downloadPersistent(const char *headers)
+{
+    char value[256];
+    if (strncmp(headers, "HTTP/1.1 ", 9)) return 0;
+    if (header_value(headers, "Connection", value, sizeof(value))) {
+        const char *p = value;
+        while (*p) {
+            while (*p == ',' || *p == ' ' || *p == '\t') p++;
+            const char *end = p; while (*end && *end != ',') end++;
+            const char *trim = end; while (trim > p && (trim[-1] == ' ' || trim[-1] == '\t')) trim--;
+            if (trim - p == 5 && !strncasecmp(p, "close", 5)) return 0;
+            p = end;
+        }
+    }
+    return download_batch;
+}
+
+static int downloadOnce(const char *url, int fd, const char *ca_path,
                     int max_bytes, int *out_size,
                     unsigned char digest[32],
                     HttpsProgressCallback progress, void *progress_arg,
-                    char *error, int error_size)
+                    char *error, int error_size, int *retry)
 {
     char current[HTTPS_LOCATION_MAX];
     int redirect;
+    *retry = 0;
 
     if (url == NULL || fd < 0 || ca_path == NULL || max_bytes <= 0)
         return -1;
@@ -900,30 +1073,36 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
         memset(digest, 0, 32);
 
     for (redirect = 0; redirect < 6; redirect++) {
-        HttpsTls tls;
+        HttpsTls *tls;
+        int reused = 0, persistent = 0;
         char host[256], path[2048], request[4096];
         char *raw, *header_end, value[64], location[HTTPS_LOCATION_MAX];
         unsigned char *io_buf;
         int used = 0, header_len, body_len, status, chunked = 0;
         int content_length = -1, written = 0, complete = 0, r;
         mbedtls_sha256_context sha;
+        mbedtls_sha256_context *checksum = digest ? &sha : NULL;
         HttpsChunkDecoder decoder;
+        HttpsDownloadBuffer buffer;
 
         raw = malloc(HTTPS_HEADER_MAX + HTTPS_IO + 1);
-        io_buf = memalign(64, HTTPS_IO);
+        /* Keep TLS input and the aligned file-output batch separate. */
+        io_buf = memalign(64, HTTPS_IO * 2);
         if (raw == NULL || io_buf == NULL) {
             free(raw);
             free(io_buf);
             set_error(error, error_size, "Out of memory preparing HTTPS download", 0);
             return -1;
         }
+        buffer.data = io_buf + HTTPS_IO;
+        buffer.used = buffer.offset = 0;
         if (split_https_url(current, host, sizeof(host), path, sizeof(path)) < 0) {
             free(raw);
             free(io_buf);
             set_error(error, error_size, "Invalid HTTPS download URL", 0);
             return -1;
         }
-        if (tls_open(&tls, host, ca_path, error, error_size) < 0) {
+        if ((tls = downloadOpen(host, ca_path, &reused, error, error_size)) == NULL) {
             free(raw);
             free(io_buf);
             return -1;
@@ -934,31 +1113,35 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
                      "Host: %s\r\n"
                      "User-Agent: Launchstation/Updater\r\n"
                      "Accept: application/octet-stream\r\n"
-                     "Connection: close\r\n\r\n",
-                     path, host);
+                     "Connection: %s\r\n\r\n",
+                     path, host, download_batch ? "keep-alive" : "close");
         if (r <= 0 || r >= (int)sizeof(request) ||
-            ssl_write_all(&tls, request, r, error, error_size) < 0) {
-            tls_free(&tls);
+            ssl_write_all(tls, request, r, error, error_size) < 0) {
+            *retry = reused; /* A stale cached connection has not written a file body. */
+            downloadDrop(tls);
             free(raw);
             free(io_buf);
             return -1;
         }
 
+        httpsStatus("Receiving download headers");
         header_end = NULL;
         while (used < HTTPS_HEADER_MAX + HTTPS_IO && header_end == NULL) {
-            r = mbedtls_ssl_read(&tls.ssl, (unsigned char *)raw + used,
+            r = mbedtls_ssl_read(&tls->ssl, (unsigned char *)raw + used,
                                  HTTPS_HEADER_MAX + HTTPS_IO - used);
             if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {
-                if (wait_tls_io(&tls, r) == 0)
+                if (wait_tls_io(tls, r) == 0)
                     continue;
-                tls_free(&tls);
+                *retry = reused;
+                downloadDrop(tls);
                 free(raw);
                 free(io_buf);
                 set_error(error, error_size, "HTTPS download timed out", 0);
                 return -1;
             }
             if (r <= 0) {
-                tls_free(&tls);
+                *retry = reused;
+                downloadDrop(tls);
                 free(raw);
                 free(io_buf);
                 set_error(error, error_size, "Truncated HTTPS download headers", 0);
@@ -969,7 +1152,7 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
             header_end = strstr(raw, "\r\n\r\n");
         }
         if (header_end == NULL) {
-            tls_free(&tls);
+            downloadDrop(tls);
             free(raw);
             free(io_buf);
             set_error(error, error_size, "HTTPS download headers are too large", 0);
@@ -979,19 +1162,25 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
         header_len = (int)(header_end + 4 - raw);
         body_len = used - header_len;
         *header_end = 0;
+        if (header_len > HTTPS_HEADER_MAX) {
+            downloadDrop(tls); free(raw); free(io_buf);
+            set_error(error, error_size, "HTTPS download headers are too large", 0); return -1;
+        }
         if (sscanf(raw, "HTTP/%*d.%*d %d", &status) != 1) {
-            tls_free(&tls);
+            downloadDrop(tls);
             free(raw);
             free(io_buf);
             set_error(error, error_size, "Missing HTTPS download status", 0);
             return -1;
         }
+        httpsTrace("HTTP response host=%s status=%d", host, status);
         location[0] = 0;
         header_value(raw, "Location", location, sizeof(location));
 
+        if (location[0]) httpsTrace("HTTP Location: %s", location);
         if (status == 301 || status == 302 || status == 303 ||
             status == 307 || status == 308) {
-            tls_free(&tls);
+            downloadDrop(tls);
             free(raw);
             free(io_buf);
             if (location[0] == 0) {
@@ -1018,46 +1207,57 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
         }
 
         if (status != 200) {
-            tls_free(&tls);
+            downloadDrop(tls);
             free(raw);
             free(io_buf);
             if (error != NULL && error_size > 0)
                 snprintf(error, error_size, "HTTPS download returned HTTP %d", status);
-            return -1;
+            return status == 404 ? -ENOENT : -1;
         }
 
         if (header_value(raw, "Content-Length", value, sizeof(value))) {
-            content_length = atoi(value);
-            if (content_length < 0) {
-                tls_free(&tls);
+            char *end;
+            unsigned long length = strtoul(value, &end, 10);
+            while (*end == ' ' || *end == '\t') end++;
+            if (!isdigit((unsigned char)value[0]) || *end || length > INT_MAX) {
+                downloadDrop(tls);
                 free(raw);
                 free(io_buf);
                 set_error(error, error_size, "Invalid HTTPS Content-Length", 0);
                 return -1;
             }
+            content_length = length;
         }
         if (content_length > max_bytes) {
-            tls_free(&tls);
+            downloadDrop(tls);
             free(raw);
             free(io_buf);
             set_error(error, error_size, "HTTPS download exceeds the size limit", 0);
             return -1;
         }
-        if (header_value(raw, "Transfer-Encoding", value, sizeof(value)) &&
-            strstr(value, "chunked") != NULL)
+        if (header_value(raw, "Transfer-Encoding", value, sizeof(value))) {
+            size_t length = strlen(value);
+            while (length && (value[length - 1] == ' ' || value[length - 1] == '\t')) value[--length] = 0;
+            if (strcasecmp(value, "chunked")) {
+                downloadDrop(tls); free(raw); free(io_buf);
+                set_error(error, error_size, "Unsupported HTTPS transfer encoding", 0); return -1;
+            }
             chunked = 1;
+        }
 
+        persistent = (chunked || content_length >= 0) && downloadPersistent(raw);
+        complete = !chunked && content_length == 0;
         if (genLseek(fd, 0, SEEK_SET) != 0) {
-            tls_free(&tls);
+            downloadDrop(tls);
             free(raw);
             free(io_buf);
             set_error(error, error_size, "Could not rewind update file", 0);
             return -1;
         }
         mbedtls_sha256_init(&sha);
-        if (mbedtls_sha256_starts(&sha, 0) != 0) {
+        if (checksum && mbedtls_sha256_starts(checksum, 0) != 0) {
             mbedtls_sha256_free(&sha);
-            tls_free(&tls);
+            downloadDrop(tls);
             free(raw);
             free(io_buf);
             set_error(error, error_size, "Could not start update checksum", 0);
@@ -1070,19 +1270,20 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
             if (chunked)
                 r = download_chunked_consume(&decoder,
                                              (unsigned char *)raw + header_len,
-                                             body_len, fd, max_bytes, &written,
-                                             &sha, error, error_size);
+                                             body_len, fd, &buffer, max_bytes, &written,
+                                             checksum, error, error_size);
             else {
                 int take = body_len;
-                if (content_length >= 0 && take > content_length)
-                    take = content_length;
-                r = download_write(fd, (unsigned char *)raw + header_len,
+                if (content_length >= 0 && take > content_length) {
+                    persistent = 0; take = content_length;
+                }
+                r = download_write(fd, &buffer, (unsigned char *)raw + header_len,
                                    take, max_bytes, &written,
-                                   &sha, error, error_size);
+                                   checksum, error, error_size);
             }
             if (r < 0) {
                 mbedtls_sha256_free(&sha);
-                tls_free(&tls);
+                downloadDrop(tls);
                 free(raw);
                 free(io_buf);
                 return -1;
@@ -1094,15 +1295,15 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
         }
         free(raw);
         raw = NULL;
-        if (progress) progress(written, chunked || content_length < 0 ? 0 : content_length, progress_arg);
+        if (progress) progress(buffer.offset, chunked || content_length < 0 ? 0 : content_length, progress_arg);
 
         while (!complete) {
-            r = mbedtls_ssl_read(&tls.ssl, io_buf, HTTPS_IO);
+            r = mbedtls_ssl_read(&tls->ssl, io_buf, HTTPS_IO);
             if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {
-                if (wait_tls_io(&tls, r) == 0)
+                if (wait_tls_io(tls, r) == 0)
                     continue;
                 mbedtls_sha256_free(&sha);
-                tls_free(&tls);
+                downloadDrop(tls);
                 free(io_buf);
                 set_error(error, error_size, "HTTPS download timed out", 0);
                 return -1;
@@ -1110,14 +1311,14 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
             if (r == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY || r == 0) {
                 if (chunked && decoder.state != 4) {
                     mbedtls_sha256_free(&sha);
-                    tls_free(&tls);
+                    downloadDrop(tls);
                     free(io_buf);
                     set_error(error, error_size, "Truncated chunked HTTPS download", 0);
                     return -1;
                 }
                 if (!chunked && content_length >= 0 && written != content_length) {
                     mbedtls_sha256_free(&sha);
-                    tls_free(&tls);
+                    downloadDrop(tls);
                     free(io_buf);
                     set_error(error, error_size, "Truncated HTTPS download", 0);
                     return -1;
@@ -1127,7 +1328,7 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
             }
             if (r < 0) {
                 mbedtls_sha256_free(&sha);
-                tls_free(&tls);
+                downloadDrop(tls);
                 free(io_buf);
                 set_error(error, error_size, "HTTPS download read failed", r);
                 return -1;
@@ -1135,11 +1336,11 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
 
             if (chunked) {
                 int cr = download_chunked_consume(&decoder, io_buf, r, fd,
-                                                  max_bytes, &written, &sha,
+                                                  &buffer, max_bytes, &written, checksum,
                                                   error, error_size);
                 if (cr < 0) {
                     mbedtls_sha256_free(&sha);
-                    tls_free(&tls);
+                    downloadDrop(tls);
                     free(io_buf);
                     return -1;
                 }
@@ -1147,31 +1348,38 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
                     complete = 1;
             } else {
                 int take = r;
-                if (content_length >= 0 && written + take > content_length)
-                    take = content_length - written;
+                if (content_length >= 0 && take > content_length - written) {
+                    persistent = 0; take = content_length - written;
+                }
                 if (take > 0 &&
-                    download_write(fd, io_buf, take, max_bytes, &written,
-                                   &sha, error, error_size) < 0) {
+                    download_write(fd, &buffer, io_buf, take, max_bytes, &written,
+                                   checksum, error, error_size) < 0) {
                     mbedtls_sha256_free(&sha);
-                    tls_free(&tls);
+                    downloadDrop(tls);
                     free(io_buf);
                     return -1;
                 }
                 if (content_length >= 0 && written == content_length)
                     complete = 1;
             }
-            if (progress) progress(written, chunked || content_length < 0 ? 0 : content_length, progress_arg);
+            if (progress) progress(buffer.offset, chunked || content_length < 0 ? 0 : content_length, progress_arg);
         }
 
-        if (mbedtls_sha256_finish(&sha, digest != NULL ? digest : (unsigned char [32]){0}) != 0) {
+        if (download_flush(fd, &buffer, error, error_size) < 0) {
             mbedtls_sha256_free(&sha);
-            tls_free(&tls);
+            downloadDrop(tls);
+            free(io_buf);
+            return -1;
+        }
+        if (checksum && mbedtls_sha256_finish(checksum, digest) != 0) {
+            mbedtls_sha256_free(&sha);
+            downloadDrop(tls);
             free(io_buf);
             set_error(error, error_size, "Could not finish update checksum", 0);
             return -1;
         }
         mbedtls_sha256_free(&sha);
-        tls_free(&tls);
+        downloadRelease(tls, persistent);
         free(io_buf);
         if (out_size)
             *out_size = written;
@@ -1181,4 +1389,20 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
 
     set_error(error, error_size, "Too many HTTPS redirects", 0);
     return -1;
+}
+
+int httpsDownloadFd(const char *url, int fd, const char *ca_path,
+                    int max_bytes, int *out_size, unsigned char digest[32],
+                    HttpsProgressCallback progress, void *progress_arg,
+                    char *error, int error_size)
+{
+    int retry, ret = downloadOnce(url, fd, ca_path, max_bytes, out_size, digest,
+                                  progress, progress_arg, error, error_size, &retry);
+    /* Retry once only when a reused session failed before any file payload.
+     * Partial body failures are returned to the caller; never append a retry. */
+    if (ret < 0 && retry)
+        ret = downloadOnce(url, fd, ca_path, max_bytes, out_size, digest,
+                            progress, progress_arg, error, error_size, &retry);
+    if (ret >= 0 && error && error_size > 0) error[0] = 0;
+    return ret;
 }

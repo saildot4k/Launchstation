@@ -922,3 +922,9 @@ $(ISO_BIN_DIR)system.cnf: $(ISO_BIN_DIR)
 	echo "BOOT2 = cdrom0:\$(ISO_BIN_ELF);1" >"$@"
 	echo VER = $(SYSTEMCNF_VERSION)>>"$@"
 	echo VMODE = $(SYSTEMCNF_VMODE)>>"$@"
+
+iop/hdd_format/hdd_format-$(EXFAT).irx: $(wildcard iop/hdd_format/*.[ch]) iop/hdd_format/imports.lst iop/hdd_format/Makefile include/hdd_format_rpc.h
+	$(MAKE) -C iop/hdd_format EXFAT=$(EXFAT)
+
+$(EE_ASM_DIR)hdd_format_irx.s: iop/hdd_format/hdd_format-$(EXFAT).irx | $(EE_ASM_DIR)
+	$(BIN2S) $< $@ hdd_format_irx
