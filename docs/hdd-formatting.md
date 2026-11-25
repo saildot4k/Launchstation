@@ -120,6 +120,21 @@ PSU cache finishes requires the original PSU. Successful installation removes
 its private cache and old app backup. These journals do not replace a disk
 backup, and hardware testing of mixed mini layouts remains necessary.
 
+APA metadata writes now propagate failures, retain failed dirty cache entries
+and preserve the on-disk journal until all headers have been written. Failed
+journal replay also preserves the recovery record. The app installer reloads
+the IOP and storage drivers after a create/format I/O error so the HDD driver
+can replay that record before an explicit retry. If an older false-success
+checkpoint outlived its missing launcher, resume validates the complete APA
+chain and the package ownership of staged or published app files before
+recreating only that new install's 8 MiB launcher. Existing managed updates
+never recreate or reformat their published partition. Temporary `+LSAPP.*`
+names still keep incomplete launchers hidden until their headers are ready.
+`tests/test_hdd_metadata.py` exercises the production cache, journal and
+allocator with 223 partitions and injected link/journal I/O failures;
+`tests/test_hdd_app_install.py` covers interrupted missing-launcher recovery
+and refusal of foreign app files or an invalid chain.
+
 Fresh installs create their own app folder, launcher partition and ownership
 markers. If the initial journal was interrupted, staging containing only
 installer downloads/journals can be reused automatically. Unknown files or

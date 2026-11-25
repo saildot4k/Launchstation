@@ -113,6 +113,7 @@ jobs:
           python3 tests/test_hdd_manager_mounts.py
           python3 tests/test_hdd_filesystem.py
           python3 tests/test_hdd_format.py
+          python3 tests/test_hdd_metadata.py
           python3 tests/test_hdd_mini.py
           python3 tests/test_hdd_app.py
           python3 tests/test_hdd_app_install.py

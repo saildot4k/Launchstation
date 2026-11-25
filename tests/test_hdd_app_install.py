@@ -63,6 +63,8 @@ static unsigned create_count,format_count,header_count,allocation_checks;
 static unsigned downloads,metadata_requests;static int asset_case;
 static int capacity_error, allocation_error;
 static int create_error, mount_error, header_error;
+static int recovery_fault, recovery_case, worker_complete, resets, core_reloads, hdd_reloads, ata_reloads;
+static int latestMount, Party_vmcIndex[MOUNT_LIMIT];
 static void crashpoint(void) { if(++operation==fault_at)longjmp(crashed,1); }
 static int result(int value){return value<0?-errno:value;}
 static int genOpen(const char*p,int mode){return result(open(p,mode,0600));}
@@ -74,7 +76,17 @@ static int genMkdir(const char*p,int mode){int r=result(mkdir(p,mode));crashpoin
 static int genRemove(char*p){return result(unlink(p));}
 static int genRmdir(char*p){return result(rmdir(p));}
 static int genGetStat(const char*p,iox_stat_t*s){struct stat st;if(stat(p,&st)<0)return -errno;memset(s,0,sizeof(*s));s->mode=st.st_mode;s->size=st.st_size;return 0;}
-int hddInstallRecoveryFault(void){return 0;}
+int hddInstallRecoveryFault(void){return recovery_fault;}
+void hddInstallRecoveryBegin(void){recovery_fault=0;}
+void hddInstallRecoveryEnd(void){}
+int hddInstallRecoveryWasReset(void){return 0;}
+static int resetInstallerIopTransport(void){assert(worker_complete);resets++;return 1;}
+static int reloadInstallerCoreAfterReset(void){assert(resets);core_reloads++;return 1;}
+static int loadHddModules(void){assert(core_reloads);hdd_reloads++;return 1;}
+static int loadAtaModules(void){assert(hdd_reloads);ata_reloads++;return 1;}
+void dashHddInstallRecoveryFailed(void){abort();}
+static int dashWorkerSubmit(const char*t,int flags,void(*work)(void*),void(*done)(void*),void*arg){assert(t&&!flags&&!done);worker_complete=0;work(arg);worker_complete=1;return 1;}
+int dashHddInstallAwait(int id,const char*t){assert(id==1&&t&&worker_complete);return 1;}
 static int isFtpServerRunning(void){return 0;}
 static void unmountParty(int i){assert(i>=0&&i<4);mountedParty[i][0]=0;}
 static void dashWorkerStatus(const char*t,int d,int n){assert(t&&d>=0&&n>=0);}
@@ -131,7 +143,7 @@ for signature in ("static void context(", "static int join(", "static int flush(
                   "static int existingPartition(", "static int validateTarget(", "static int stageRestartable(", "static void snapshot(",
                   "static int apiCommit(", "static void progress(", "static int download(", "static int assets(", "static int copyFile(",
                   "static void prepare(", "static int copyTree(", "static int removeTree(", "static int renameAbsent(",
-                  "static int pendingPartition(", "static int installHeader(", "static void apply("):
+                  "static int pendingPartition(", "static int installHeader(", "static void apply(", "static int run("):
     code += function(signature)
 code += r'''
 static const unsigned char payload[52]={0x7f,'E','L','F',1,1,1,[16]=2,[18]=8};
@@ -162,8 +174,42 @@ static void verify(AppInstall*in,int update){
     assert(!access(update==4?"part/PP.APP_TEST.HIDDEN/res/LSAPP.ID":"part/PP.APP_TEST/res/LSAPP.ID",F_OK)&&access("part/+LSAPP.12345678",F_OK)<0);
     assert(header_count>=1);
 }
+static void ioErrorWork(void*arg){AppInstall*in=arg;in->result=-EIO;in->metadata_error=recovery_case==0;recovery_fault=recovery_case==1;}
 int main(int argc,char**argv){
     assert(argc==3);int update=atoi(argv[1]),crash=atoi(argv[2]);
+    if(update==8){
+        AppInstall*in=calloc(1,sizeof(*in));recovery_case=crash;
+        assert(!run(in,"Recovery test",ioErrorWork));
+        assert(in->result==(crash==1?HDD_INSTALL_ATA_TIMEOUT:-EIO));
+        assert(resets==(crash<2)&&core_reloads==resets&&hdd_reloads==resets&&ata_reloads==resets);
+        assert(!in->metadata_error);free(in);return 0;
+    }
+    if(update==7||update==9||update==10){
+        AppInstall*in=calloc(1,sizeof(*in));setup(in,0);header_error=-EINVAL;apply(in);
+        assert(in->result==-EINVAL&&in->journal.phase==HA_HEADER&&!in->committed);
+        rawFile("ata0:/APPS/APP_TEST/USER.CFG","keep",4);
+        char path[MAX_PATH];snprintf(path,sizeof(path),"part/%s",in->pending);assert(!removeTree(path,0));
+        if(update==9){assert(!rename(in->target,"ata0:/stage/NEW"));assert(!checkpoint(in,HA_PARTITION));}
+        header_error=0;create_count=format_count=operation=0;
+        if(update==10){
+            if(crash==0)rawFile("ata0:/APPS/APP_TEST/LSAPP.ID","foreign",7);
+            else allocation_error=crash==1?-ENOSPC:-EIO;
+            unsigned seq=in->journal.sequence;apply(in);
+            assert(in->result==(crash==0?-EEXIST:allocation_error)&&in->journal.sequence==seq&&!create_count&&!format_count&&!in->committed);
+            assert(!access("ata0:/APPS/APP_TEST/USER.CFG",F_OK));free(in);return 0;
+        }
+        fault_at=crash;
+        if(!setjmp(crashed))apply(in);
+        else {
+            fault_at=0;
+            for(int i=0;i<32;i++)if(directories[i]){closedir(directories[i]);directories[i]=NULL;}
+            for(int fd=3;fd<256;fd++)close(fd);
+            unlink("pfs3:");in->mounted=0;in->installed_partition[0]=0;memset(&in->journal,0,sizeof(in->journal));
+            assert(!readJournal(in));apply(in);
+        }
+        verify(in,0);assert(in->committed&&!access("ata0:/APPS/APP_TEST/USER.CFG",F_OK));
+        printf("PASS repair_operations=%d\n",operation);free(in);return 0;
+    }
     if(update==6){
         AppInstall*in=calloc(1,sizeof(*in));setup(in,0);
         if(crash==0)create_error=-EINVAL;
@@ -254,6 +300,16 @@ with tempfile.TemporaryDirectory(prefix="hdd-app-install-") as tmp:
             subprocess.run([str(tmp / "test"), "5", str(case)], cwd=work, check=True)
         with tempfile.TemporaryDirectory(dir=tmp) as work:
             subprocess.run([str(tmp / "test"), "6", str(case)], cwd=work, check=True)
+        for mode in (8,10):
+            with tempfile.TemporaryDirectory(dir=tmp) as work:
+                subprocess.run([str(tmp / "test"), str(mode), str(case)], cwd=work, check=True)
+    for mode in (7,9):
+        with tempfile.TemporaryDirectory(dir=tmp) as work:
+            output=subprocess.check_output([str(tmp/"test"),str(mode),"0"],cwd=work,text=True)
+        operations=int(re.search(r"repair_operations=(\d+)",output)[1])
+        for crash in range(1,operations+1):
+            with tempfile.TemporaryDirectory(dir=tmp) as work:
+                subprocess.run([str(tmp/"test"),str(mode),str(crash)],cwd=work,check=True,stdout=subprocess.DEVNULL)
     for case in range(6):
         with tempfile.TemporaryDirectory(dir=tmp) as work:
             subprocess.run([str(tmp / "test"), "2", str(case)], cwd=work, check=True)
@@ -266,4 +322,4 @@ with tempfile.TemporaryDirectory(prefix="hdd-app-install-") as tmp:
         for crash in range(1, operations + 1):
             with tempfile.TemporaryDirectory(dir=tmp) as work:
                 subprocess.run([str(tmp / "test"), str(update), str(crash)], cwd=work, check=True, stdout=subprocess.DEVNULL)
-    print("PASS: pinned DP/HDD icon lookup, 404-only fallback, unsafe template/invalid artwork refusal; every app transaction step resumes; user configs and partition sizes survive updates")
+    print("PASS: pinned DP/HDD assets; crash-safe app publication and missing-launcher recovery; user config/partition preservation, foreign owner/invalid chain refusal, metadata error and timeout IOP recovery")
