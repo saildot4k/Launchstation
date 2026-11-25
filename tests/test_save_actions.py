@@ -47,6 +47,8 @@ code=r'''
 #define DIR_CNF 1
 #define DI_WARNING 1
 #define DI_MC 2
+#define DI_ARCHIVE_CREATE 3
+#define DI_ARCHIVE_EXTRACT 4
 enum { FILER_SAVE_NONE,FILER_SAVE_PS1,FILER_SAVE_PS2,FILER_ARCHIVE_PS1,FILER_ARCHIVE_PS2,FILER_CARD_PS1,FILER_SAVE_MIXED };
 typedef struct {char name[256];struct {unsigned AttrFile;}stats;} FILEINFO;
 typedef struct {int icon;const char *label,*detail;int disabled;} DashMenuItem;
@@ -96,7 +98,7 @@ static int dashModalMenu(const char *title,const char *subtitle,const DashMenuIt
  }
  const char *labels[3];assert(!strcmp(title,"Create archive")&&subtitle&&!strcmp(subtitle,nclipFiles>1?"2 saves - one archive per save":clipFiles[0].name));
  for(int i=0;i<count;i++) {
-  assert(items[i].icon==DI_MC&&!items[i].disabled);labels[i]=items[i].label;
+  assert(items[i].icon==DI_ARCHIVE_CREATE&&!items[i].disabled);labels[i]=items[i].label;
   if(kind==FILER_SAVE_MIXED)assert(items[i].detail&&!strcmp(items[i].detail,"PS1 and PS2 saves"));
   else assert(!items[i].detail);
  }

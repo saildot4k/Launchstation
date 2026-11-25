@@ -149,7 +149,7 @@ code += function(home, "static float homeChipScrollTarget(") + "\n"
 code += function(home, "static void snapHomeColumn(") + "\n"
 
 code += "static void browserMove(const DashInput *in, int total) {\n" + browser_move + "\nrevealSelection();}\n"
-pick_start = widgets.index("\t\tif ((in.pressed & DASH_IN_UP)", widgets.index("int dashPickPath("))
+pick_start = widgets.index("\t\tif ((in.pressed & DASH_IN_UP)", widgets.index("static int pickPath("))
 pick_end = widgets.index("\n\t\tif (in.pressed & DASH_IN_MENU)", pick_start)
 code += "#define DASH_SND_CURSOR 0\nstatic void dashSoundPlay(int s) { (void)s; }\n"
 code += "static float picker_anim;\n"

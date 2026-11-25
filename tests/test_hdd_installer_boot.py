@@ -59,6 +59,7 @@ int sceCdCloseConfig(u32 *status) {
     return ret;
 }
 int DelayThread(int usec) { assert(usec == 10000); delays++; return 0; }
+int hddInstallResumeSave(HddInstall *in){assert(in);return 0;}
 void hddInstallLog(const char *format, ...) { assert(format); }
 void hddInstallStatus(const char *text, int done, int total) { assert(text && done <= total); }
 static void reset(HddInstall *in, unsigned byte) {
@@ -119,6 +120,7 @@ job_code = r'''
 #define HOP_INSTALL_SOFTWARE 1
 typedef struct { HddInstall *installer; HddFormatPlan format_plan; int ret, format_started; } HddJob;
 static int apply_error, mount_error, finish_error, boot_error, applied, mounted, finished, enabled, cleaned, unmounted;
+int hddInstallResumeSave(HddInstall *in){assert(in);return 0;}
 void hddInstallLog(const char *fmt, ...) { (void)fmt; }
 void hddInstallLogFlush(HddInstall *in) { (void)in; }
 static void filerSizeCacheInvalidate(const char *s) { assert(s); }

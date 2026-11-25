@@ -280,14 +280,17 @@ int filerFormatUsbPathForDisplay(const char *path, char *out, int size)
 	return 1;
 }
 
-static void formatBrowserPathForDisplay(const char *path, char *display_path)
+void filerFormatBrowserPathForDisplay(const char *path, char *display_path, int size)
 {
 	const char *partition;
 	const char *subpath;
 	const char *sep;
 	int part_len;
 
-	if (filerFormatUsbPathForDisplay(path, display_path, MAX_PATH))
+	if (display_path == NULL || size <= 0) return;
+	if (path == NULL) path = "";
+
+	if (filerFormatUsbPathForDisplay(path, display_path, size))
 		return;
 
 	if (isHddBrowserPath(path)) {
@@ -297,7 +300,7 @@ static void formatBrowserPathForDisplay(const char *path, char *display_path)
 		hdd_device[5] = '\0';
 		partition = path + 6; // after "hdd0:/"
 		if (partition[0] == '\0') {
-			snprintf(display_path, MAX_PATH, "%s", path);
+			snprintf(display_path, size, "%s", path);
 			return;
 		}
 
@@ -311,7 +314,7 @@ static void formatBrowserPathForDisplay(const char *path, char *display_path)
 		}
 
 		if (part_len > 0) {
-			snprintf(display_path, MAX_PATH, "%s%.*s:pfs:%s", hdd_device, part_len, partition, subpath);
+			snprintf(display_path, size, "%s%.*s:pfs:%s", hdd_device, part_len, partition, subpath);
 			return;
 		}
 	}
@@ -320,7 +323,7 @@ static void formatBrowserPathForDisplay(const char *path, char *display_path)
 	if (!strncmp(path, "dvr_hdd0:/", 10)) {
 		partition = path + 10; // after "dvr_hdd0:/"
 		if (partition[0] == '\0') {
-			snprintf(display_path, MAX_PATH, "%s", path);
+			snprintf(display_path, size, "%s", path);
 			return;
 		}
 
@@ -334,13 +337,13 @@ static void formatBrowserPathForDisplay(const char *path, char *display_path)
 		}
 
 		if (part_len > 0) {
-			snprintf(display_path, MAX_PATH, "dvr_hdd0:%.*s:pfs:%s", part_len, partition, subpath);
+			snprintf(display_path, size, "dvr_hdd0:%.*s:pfs:%s", part_len, partition, subpath);
 			return;
 		}
 	}
 #endif
 
-	snprintf(display_path, MAX_PATH, "%s", path);
+	snprintf(display_path, size, "%s", path);
 }
 
 enum {
@@ -1903,7 +1906,7 @@ int getFilePath(char *out, int cnfmode)
 				if (browser_pushed) {
 					char display_path[MAX_PATH];
 
-					formatBrowserPathForDisplay(path, display_path);
+					filerFormatBrowserPathForDisplay(path, display_path, sizeof(display_path));
 					snprintf(msg0, sizeof(msg0), "%s", display_path);
 				}
 

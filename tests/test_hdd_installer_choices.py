@@ -13,7 +13,7 @@ class Install(c.Structure):
     _fields_=[('flags',c.c_uint),('jail',c.c_int),('commit',c.c_char*41),('stage',c.c_char*1024),('ca_path',c.c_char*1024),('error',c.c_char*256),
               ('sizes',c.c_uint32*15),('hashes',(c.c_char*41)*15),('archives',(c.c_char*128)*2),('linux',Extent*10),
               ('owner',c.c_ubyte*20),('owned',c.c_uint),('ready',c.c_uint),('ca_data',c.c_void_p),('ca_size',c.c_uint),
-              ('music_mb',c.c_uint),('contents_mb',c.c_uint),('linux_home_mb',c.c_uint),('reserved_mb',c.c_uint), ('game_launcher', c.c_uint), ('launcher_files', c.c_void_p), ('launcher_count', c.c_uint), ('language', c.c_char * 52), ('archive_item', c.c_char * 96), ('channels', c.c_char * 128)] + [(name, c.c_uint) for name in ('recovery_attempts','stage_ready','manifest_ready','downloaded_assets','downloaded_launchers','applied','populated','committed','apa_sectors')]
+              ('music_mb',c.c_uint),('contents_mb',c.c_uint),('linux_home_mb',c.c_uint),('reserved_mb',c.c_uint), ('game_launcher', c.c_uint), ('launcher_files', c.c_void_p), ('launcher_count', c.c_uint), ('language', c.c_char * 52), ('archive_item', c.c_char * 96), ('channels', c.c_char * 128)] + [(name, c.c_uint) for name in ('recovery_attempts','stage_ready','manifest_ready','downloaded_assets','downloaded_launchers','applied','populated','committed','apa_sectors','resumed')]
 def function(source,signature):
     start=source.index(signature);depth=0
     for token in re.finditer(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|/\*.*?\*/|//[^\n]*|[{}]',source[start:],re.S):
@@ -81,31 +81,56 @@ with tempfile.TemporaryDirectory(prefix='hdd-install-choices-') as directory:
 #define WLE_NATIVE_HTTPS
 #define EXFAT
 #define DI_INFO 1
+#define DI_CHECK 2
+typedef struct {int icon;const char *label,*detail;int disabled;} DashMenuItem;
+static int expected_check=-1,expected_focus;
 static int answers[4],asked,messages,cancel=-1;
-static int dashModalChoice(const char *title,const char *const *items,int count,int initial){
-    assert(title&&count>0&&count<=6&&!initial&&items[0]);
+static int dashModalMenu(const char *title,const char *subtitle,const DashMenuItem *items,int count,int initial){
+    assert(title&&count>0&&count<=7&&initial==expected_focus&&items[0].label);
+    int software=!strcmp(title,"Software after formatting")&&count==2;
+    for(int j=0;j<count;j++)assert(items[j].icon==(j==expected_check?DI_CHECK:-1)&&(!items[j].detail||(software&&j==1))&&!items[j].disabled);
+    if(software){assert(!strcmp(items[0].label,"No software, format only"));assert(!strcmp(items[1].label,"PSBBN DP, HOSDMenu")&&!strcmp(items[1].detail,"EXPERIMENTAL"));}
+    if(strstr(title,"Default game launcher")){assert(!strcmp(title,"Choice 1 of 6: Default game launcher")&&messages==1);assert(!strcmp(items[0].label,"Neutrino (NHDDL)")&&!strcmp(items[1].label,"Open PS2 Loader (OPL)"));}
+    if(strstr(title,"Music partition"))assert(!strcmp(title,"Choice 2 of 6: Music partition size"));
+    if(strstr(title,"Contents partition"))assert(!strcmp(title,"Choice 3 of 6: Contents partition size"));
+    if(strstr(title,"Standalone PS2 Linux")){
+        const char *linux_choices[]={"Do not install PS2 Linux","1 GiB","2 GiB","4 GiB","8 GiB"};
+        assert(!strcmp(title,"Choice 4 of 6: Standalone PS2 Linux")&&subtitle&&strstr(subtitle,"2 GiB system")&&count==5);
+        for(int j=0;j<count;j++)assert(!strcmp(items[j].label,linux_choices[j]));
+    }
+    else assert(!subtitle);
     int i=asked++;if(i==cancel)return -1;
     assert(answers[i]<count);return answers[i];
 }
-static void dashModalMessage(int icon,const char *title,const char *body,const char *detail){assert(icon==DI_INFO&&title&&body&&!detail);messages++;}
+static void dashModalMessage(int icon,const char *title,const char *body,const char *detail){assert(icon==DI_INFO&&title&&body&&!detail);assert(!strcmp(title,"PSBBN DP installation")&&asked==1&&strstr(body,"Sony Network Adapter")&&strstr(body,"GameStar")&&strstr(body,"HOSDMenu, is installed as well"));messages++;}
 '''
-    code+=function(source,'int dashHddInstallChoose(')+function(source,'static int installSize(')+function(source,'int dashHddInstallConfigure(')
+    choice_source=(root/'src/dash_ui.c').read_text()
+    for signature in ('static int modalChoice(', 'int dashModalChoice(', 'int dashModalSelect('):
+        code+=function(choice_source,signature)
+    code+=function(source,'const char *dashHddInstallChoiceTitle(')+function(source,'int dashHddInstallChoose(')+function(source,'static int installSize(')+function(source,'int dashHddInstallConfigure(')
     code+=r'''
 int main(void){HddInstall in={.flags=7,.jail=1};
+ const char *options[]={"First","Second"};
+ assert(dashModalSelect("empty",NULL,0,0)==-1);
+ expected_check=expected_focus=1;answers[0]=1;assert(dashModalChoice("Existing setting",options,2,1)==1);
+ expected_check=-1;expected_focus=0;asked=0;answers[0]=0;assert(dashModalSelect("New choice",options,2,0)==0);
+ asked=0;
  for(int launcher=0;launcher<2;launcher++){
   answers[0]=1;answers[1]=launcher;asked=messages=0;
-  assert(dashHddInstallChoose(&in,1)&&in.flags==7&&in.game_launcher==(unsigned)launcher&&asked==2&&messages==1);
+  assert(dashHddInstallChoose(&in,1)&&in.flags==7&&in.game_launcher==(launcher?HDD_GAME_OPL:HDD_GAME_NEUTRINO)&&asked==2&&messages==1);
  }
- asked=0;cancel=1;assert(!dashHddInstallChoose(&in,1)&&asked==2);cancel=-1;
+ asked=messages=0;cancel=1;assert(!dashHddInstallChoose(&in,1)&&asked==2&&messages==1);cancel=-1;
  for(int profile=0;profile<4;profile++){
   const unsigned expected[]={0,2,1,3};answers[0]=profile;asked=messages=0;
   assert(dashHddInstallChoose(&in,0)&&in.flags==expected[profile]&&!in.game_launcher&&asked==1);
  }
  memset(answers,0,sizeof(answers));asked=messages=0;in.flags=7;in.jail=1;
  assert(dashHddInstallConfigure(&in,8192)&&asked==3&&!messages&&in.flags==7&&in.music_mb==1024&&in.contents_mb==1024&&!in.linux_home_mb);
- asked=messages=0;answers[0]=1;answers[1]=2;answers[2]=1;answers[3]=3;
- assert(dashHddInstallConfigure(&in,8192)&&asked==4&&messages==1&&in.flags==15&&in.music_mb==2048&&in.contents_mb==4096&&in.linux_home_mb==8192);
- for(cancel=0;cancel<4;cancel++){asked=0;assert(!dashHddInstallConfigure(&in,8192)&&asked==cancel+1);}
+ asked=messages=0;answers[0]=1;answers[1]=2;answers[2]=4;
+ assert(dashHddInstallConfigure(&in,8192)&&asked==3&&!messages&&in.flags==15&&in.music_mb==2048&&in.contents_mb==4096&&in.linux_home_mb==8192);
+ asked=messages=0;assert(dashHddInstallConfigure(&in,32768)&&asked==3&&in.linux_home_mb==8192);
+ for(cancel=0;cancel<3;cancel++){asked=0;assert(!dashHddInstallConfigure(&in,8192)&&asked==cancel+1);}
+ for(unsigned step=1;step<=HDD_CHOICE_LANGUAGE;step++){char title[100],expected[100];snprintf(expected,sizeof(expected),"Choice %u of 6: Question",step);assert(!strcmp(dashHddInstallChoiceTitle(&in,step,"Question",title,sizeof(title)),expected));}
  puts("PASS: installer choice defaults/cancellation, single-extent sizes, APA allocation/reserve bounds, optional Linux metadata/assets and Circle boot config");}
 '''
     (d/'ui.c').write_text(code)

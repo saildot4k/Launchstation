@@ -65,6 +65,7 @@ assert not (root / 'src/qrcodegen.c').exists()
 
 c = r'''
 #include <assert.h>
+#include <errno.h>
 #include <stdarg.h>
 #include <ctype.h>
 #include <limits.h>
@@ -361,7 +362,7 @@ int main(void) {
     assert(strstr(error,"Could not write downloaded update"));
 
     reset();replies[0]="HTTP/1.1 404 Missing\r\n\r\n";
-    assert(download(100,&size,hash,error)<0 && strstr(error,"HTTP 404"));
+    assert(download(100,&size,hash,error)==-ENOENT && strstr(error,"HTTP 404"));
     reset();replies[0]="HTTP/1.1 302 Found\r\nLocation: http://example.com/insecure\r\n\r\n";
     assert(download(100,&size,hash,error)<0 && connections==1);
     assert(strstr(error,"Unsupported HTTPS redirect"));

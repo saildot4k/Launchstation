@@ -55,12 +55,13 @@ for sig in ("static int parseUsbMassPathUnit(", "static int isHddPartyPath(",
     code += function(sig)
 browser = component_source('src/filer_browser.c')
 code += function("int filerFormatUsbPathForDisplay(", browser)
-code += function("static void formatBrowserPathForDisplay(", browser)
+code += "#define DVRP\n"
+code += function("void filerFormatBrowserPathForDisplay(", browser)
 native = (root / "src/dash_browser.c").read_text()
-start = native.index("\tif (!filerFormatUsbPathForDisplay(", native.index("static void browserDrawBody("))
+start = native.index("\tfilerFormatBrowserPathForDisplay(", native.index("static void browserDrawBody("))
 end = native.index("\n\n", start)
 code += "static void dashStrCopy(char *out,const char *in,int cap) { snprintf(out,cap,\"%s\",in); }\n"
-code += "static void nativeDisplay(const char *path,char *out) { struct { const char *dir; } fb={path};char display_path[MAX_PATH+2];\n"
+code += "static void nativeDisplay(const char *path,char *out) { struct { const char *dir; } fb={path};char display_path[MAX_PATH+6];\n"
 code += native[start:end] + "\ndashStrCopy(out,display_path,MAX_PATH); }\n"
 code += r"""
 static void expect(const char *selected,const char *wanted) {
@@ -79,7 +80,7 @@ int main(void) {
  for(unsigned i=0;i<sizeof(aliases)/sizeof(aliases[0]);i++) {
   char original[MAX_PATH];snprintf(original,sizeof(original),"%s",aliases[i]);
   nativeDisplay(original,display);assert(!strcmp(display,"usb0:/") && !strcmp(original,aliases[i]));
-  formatBrowserPathForDisplay(original,display);assert(!strcmp(display,"usb0:/"));
+  filerFormatBrowserPathForDisplay(original,display,sizeof(display));assert(!strcmp(display,"usb0:/"));
  }
  for(int unit=0;unit<10;unit++) for(int slash=0;slash<2;slash++) {
   char expected[MAX_PATH],path[MAX_PATH],original[MAX_PATH];
@@ -88,19 +89,41 @@ int main(void) {
    snprintf(path,sizeof(path),"%s%d:%sFolder name/APP.ELF",mass?"mass":"usb",unit,slash?"/":"");
    strcpy(original,path);nativeDisplay(path,display);
    assert(!strcmp(display,expected) && !strcmp(path,original));
-   formatBrowserPathForDisplay(path,display);assert(!strcmp(display,expected));
+   filerFormatBrowserPathForDisplay(path,display,sizeof(display));assert(!strcmp(display,expected));
   }
  }
  const char *others[]={"", "ata0:/GAMES/", "ata1:/", "mx4sio:/APPS/", "mmce0:/", "mc1:/BOOT/", "massBackup:/", "usb10:/"};
  for(unsigned i=0;i<sizeof(others)/sizeof(others[0]);i++) {
   nativeDisplay(others[i],display);assert(!strcmp(display,others[i]));
  }
+ const struct {const char *path,*wanted;} partitions[]={
+  {"hdd0:/","hdd0:/"},{"hdd1:/","hdd1:/"},
+  {"hdd0:/__common","hdd0:__common:pfs:/"},
+  {"hdd1:/+APPS/","hdd1:+APPS:pfs:/"},
+  {"hdd0:/__system/osdmenu/","hdd0:__system:pfs:/osdmenu/"},
+  {"hdd1:/+My Apps/APP.ELF","hdd1:+My Apps:pfs:/APP.ELF"},
+  {"hdd0:__common:pfs:/APPS/","hdd0:__common:pfs:/APPS/"},
+  {"dvr_hdd0:/__xcontents/Folder/","dvr_hdd0:__xcontents:pfs:/Folder/"},
+  {"dvr_hdd0:/","dvr_hdd0:/"}
+ };
+ for(unsigned i=0;i<sizeof(partitions)/sizeof(partitions[0]);i++) {
+  char original[MAX_PATH];strcpy(original,partitions[i].path);
+  nativeDisplay(original,display);assert(!strcmp(display,partitions[i].wanted)&&!strcmp(original,partitions[i].path));
+  filerFormatBrowserPathForDisplay(original,display,sizeof(display));assert(!strcmp(display,partitions[i].wanted));
+ }
+ char long_path[MAX_PATH],full_display[MAX_PATH+6];memset(long_path,'a',sizeof(long_path)-1);long_path[sizeof(long_path)-1]=0;
+ memcpy(long_path,"hdd1:/+APPS/",strlen("hdd1:/+APPS/"));
+ filerFormatBrowserPathForDisplay(long_path,full_display,sizeof(full_display));
+ assert(strlen(full_display)==strlen(long_path)+4&&!strncmp(full_display,"hdd1:+APPS:pfs:/",15));
+ char bounded[5]={'x','x','x','x','z'};
+ filerFormatBrowserPathForDisplay("hdd0:/__common/",bounded,4);assert(!strcmp(bounded,"hdd")&&bounded[4]=='z');
+ filerFormatBrowserPathForDisplay(NULL,display,sizeof(display));assert(!display[0]);
  char short_display[4];
  assert(filerFormatUsbPathForDisplay("mass9:/APPS/",short_display,sizeof(short_display)) && !strcmp(short_display,"usb"));
- formatBrowserPathForDisplay("usb1:/APPS/APP.ELF",display);assert(!strcmp(display,"usb1:/APPS/APP.ELF"));
- formatBrowserPathForDisplay("mass:/APPS/APP.ELF",display);assert(!strcmp(display,"usb0:/APPS/APP.ELF"));
- formatBrowserPathForDisplay("mass3:/APPS/APP.ELF",display);assert(!strcmp(display,"usb3:/APPS/APP.ELF"));
- formatBrowserPathForDisplay("ata1:/APP.ELF",display);assert(!strcmp(display,"ata1:/APP.ELF"));
+ filerFormatBrowserPathForDisplay("usb1:/APPS/APP.ELF",display,sizeof(display));assert(!strcmp(display,"usb1:/APPS/APP.ELF"));
+ filerFormatBrowserPathForDisplay("mass:/APPS/APP.ELF",display,sizeof(display));assert(!strcmp(display,"usb0:/APPS/APP.ELF"));
+ filerFormatBrowserPathForDisplay("mass3:/APPS/APP.ELF",display,sizeof(display));assert(!strcmp(display,"usb3:/APPS/APP.ELF"));
+ filerFormatBrowserPathForDisplay("ata1:/APP.ELF",display,sizeof(display));assert(!strcmp(display,"ata1:/APP.ELF"));
  expect("usb:/APP.ELF","mass0:/APP.ELF");
  expect("usb0:APP.ELF","mass0:/APP.ELF");
  expect("usb1:/APP.ELF","mass1:/APP.ELF");

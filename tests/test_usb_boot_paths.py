@@ -56,7 +56,10 @@ static void loadHddModules(void) {}
 #ifdef EXFAT
 static void loadAtaModules(void) {}
 #endif
+static char ready_path[MAX_PATH];
+static int ensurePathDeviceStackReady(const char *path){snprintf(ready_path,sizeof(ready_path),"%s",path);return 1;}
 static int wleExists(const char *path) {
+    assert(!strcmp(path,ready_path));
     assert(exists_checks < 2);
     strcpy(checked_ca[exists_checks++], path);
     return present_ca && !strcmp(path, present_ca);
@@ -104,7 +107,10 @@ static void usbBoot(const char *input, const char *expected, const char *directo
     assert(!strcmp(checked_ca[1], present_ca));
 }
 int main(void) {
-    char input[MAX_PATH], expected[MAX_PATH], directory[32];
+    char input[MAX_PATH], expected[MAX_PATH], directory[32], ca[MAX_PATH];
+    strcpy(LaunchElfBootDir,"udpfs:/apps/Launchstation/");
+    present_ca="udpfs:/apps/Launchstation/WLE-UPDATE-CA.PEM";exists_checks=0;ready_path[0]=0;
+    assert(launchstationUpdateCaPath(ca,sizeof(ca))&&!strcmp(ca,present_ca)&&exists_checks==1);
     normalized("usb0:APPS\\L.ELF", "usb0:/APPS/L.ELF");
     normalized("ata:APPS/L.ELF", "ata0:/APPS/L.ELF");
     normalized("mc0:APPS/L.ELF", "mc0:/APPS/L.ELF");

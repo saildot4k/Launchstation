@@ -26,7 +26,7 @@ code = r'''
 #include "hdd_install.h"
 #define DASH_JOB_VISIBLE 1
 #define DASH_TOAST_WARN 2
-enum { HOP_DOWNLOAD_INSTALLER=1,HOP_INSTALL_SOFTWARE=2 };
+enum { HOP_DOWNLOAD_INSTALLER=1,HOP_INSTALL_SOFTWARE=2,HOP_RESUME_LOOKUP=3,HOP_RESUME_AVAILABLE=4 };
 typedef struct {int op,ret,format_started,abandoned;HddInstall *installer;HddFormatPlan format_plan;} HddJob;
 static int scenario,submits,applies,populates,finishes,boots,cleanups,downloads,creates,finds,physical,core,prepared,rawloads,freed;
 static jmp_buf fatal;
@@ -34,6 +34,7 @@ static int loading;
 static int dashLoadingActive(void){return loading;}
 static void dashLoadingBegin(const char *s){assert(s&&!loading);loading=1;}
 static void dashLoadingEnd(void){assert(loading&&!hddInstallRecoveryFault());loading=0;}
+int hddInstallResumeSave(HddInstall *in){assert(in);return 0;}
 void hddInstallLog(const char *s,...){assert(s);}
 void hddInstallLogFlush(HddInstall *in){assert(in);}
 void hddInstallProgress(const char *s,int a,int b){assert(s&&a<=b);}

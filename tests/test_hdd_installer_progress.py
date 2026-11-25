@@ -51,6 +51,7 @@ static int genWrite(int fd,void *data,unsigned size){assert(fd==9&&data);if(writ
 static int genClose(int fd){assert(fd==9||fd>=100);closed++;return close_error;}
 int installExt2Data(InstallExt2 *fs,const void *data,unsigned size){assert(fs&&data&&size);return ext2_error;}
 int installExt2End(InstallExt2 *fs){assert(fs);return ext2_error;}
+int hddInstallResumeSave(HddInstall *in){assert(in);return 0;}
 void hddInstallLog(const char *s,...){assert(s);}
 void hddInstallLogFlush(HddInstall *in){assert(in);}
 void hddInstallStatus(const char *s,int done,int total){assert(s&&done>=0&&done<=total);}

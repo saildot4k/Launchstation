@@ -26,7 +26,8 @@ PSX/DESR internal-drive formatting remains unavailable.
 
 ## Driver lifetime
 
-The HDD and ATA driver sources and ABIs are unchanged. The small, separately
+Formatting preserves the HDD and ATA driver ABIs. The HDD driver also enables
+its existing 8 MiB allocation mode while retaining the OSD access policy. The small, separately
 loaded `iop/hdd_format` service provides checked raw transfers in 32 KiB chunks.
 Before writing, Launchstation stops audio, checks VMC/PFS unmount results,
 refuses an active FTP server, and detaches the ATA0 BDM root and its mounted
@@ -45,7 +46,7 @@ they never produce a success notification.
 
 `src/hdd_apa_boundary.c` reads and validates the root APA header and MBR ranges.
 The shared EE HDD library checks each main/subpartition allocation against the
-APA boundary before asking the unmodified driver to allocate it. It follows
+APA boundary before asking the HDD driver to allocate it. It follows
 the driver's first eligible free-size slot, then its aligned append policy.
 Both build systems use that library. Reported APA free space excludes recovery
 and exFAT space. Unknown or damaged hybrid maps disable allocations rather
@@ -57,12 +58,99 @@ drivers can still allocate beyond the reserved APA area. The
 describes the same risk of overwriting exFAT when APA allocations exceed their
 reserved space.
 
-New partitions retain the **128 MiB minimum**. The boundary reader can inspect
-existing 8 MiB partitions; it does not enable their creation. An append after
-a tail that is not aligned to 128 MiB is refused because the stock allocator
-cannot safely pad it. A suitably aligned existing free block can still be
-reused. Supporting new mini partitions would also need a review of the
-allocator, PFS overhead and compatibility with other PS2 software.
+New PFS partitions can be as small as **8 MiB**. Each physical APA extent is a
+power of two and aligned to its own size; mixed 8/16/32/64/128 MiB extents do
+not require groups of sixteen mini partitions. Appending a larger extent
+creates appropriately sized free alignment blocks. Allocation first reuses
+an eligible free extent, splitting it as necessary. Occupied PFS partitions
+are never split based on their filesystem free space. The size picker offers
+8 MiB, then 128/256/384 MiB and larger in 128 MiB steps. Its 1/10 GiB jump
+buttons use the same choices; a non-aligned free-space limit is rounded down
+to a selectable size. Existing volumes retain their original size as the
+minimum when expanding them. Internal create/grow requests still support
+8 MiB increments so allocation can split/reuse smaller free extents without
+exposing those details in the picker. The APA Jail outer reservation and
+system partition layout retain their existing 128 MiB alignment. Other apps
+must also support mini APA layouts before managing these disks.
+
+## Install an app PSU
+
+On an APA Jail HDD with HOSDMenu installed, choose **Install apps from PSU...**
+in HDD Manager Options, or **Install app to HDD...** on a PSU in File Browser.
+HDD Manager's **Install apps from PSU...** picker accepts several PSUs: Square
+or Confirm toggles a file, and Start begins the selected queue (or the focused
+file if none are selected). Selections survive folder/device navigation.
+Apps are read and installed one at a time, with their own boot choice and
+review table. An error or cancellation stops the queue and reports how many
+apps completed; completed installs remain in place. Progress opens before
+starting the source device and shows the app number, current task and transfer
+progress throughout preparation, downloads and installation.
+The HDD Manager entry is shown only when PSBBN DP's
+`hdd0:__system:pfs:/p2lboot/osdboot.elf` exists.
+The installer announces the required Internet connection before reading the
+package. It snapshots the PSU and CA bundle before network preparation can
+reset the launch device (including UDPFS).
+
+The PSU must contain a little-endian PS2 MIPS executable. `title.cfg` can
+provide its title and boot filename; multiple candidate ELFs require a choice.
+`APPINFO.PBT` is not interpreted and is copied as an ordinary package file.
+Dot-prefixed configuration files such as POPSLOADER's `.pldrs` are preserved.
+Memory-card `icon.sys`, `list.icn` and `del.icn` are not used as HDD header
+metadata/models. Matching HDD models come from DP's `icons/ico` directory or
+its HDD-OSD Icon Database source, falling back to DP's generic app models.
+Artwork is checked in DP's `icons/art` directory, then in
+`CosmicScale/psbbn-art-database/apps`, before using DP's generic `APP.png`.
+Each repository is pinned to a commit for that app's asset downloads.
+The PS2X header settings are extracted from DP's pinned `Game-Installer.sh`
+template as text. Downloaded scripts are never executed. Only HTTP 404 permits
+an asset fallback; network/TLS errors stop the operation.
+
+All assets are downloaded to `ata0:/LAUNCHSTATION_APP_TEMP/<identity>-<PSU-CRC>`
+before the review table and installation confirmation. New app files are
+staged privately and then published under `ata0:/APPS/<PSU-folder>`; a hidden
+8 MiB PFS launcher partition is published as `PP.<folder>` after installing
+its PATINFO `SYSTEM.CNF`, separate list/delete HDD models, `/res/info.sys`
+and `/res/jkt_001.png`. The header points directly to the ATA ELF, following
+HOSDMenu's PATINFO path handling. No per-app OSDMenu ELF is necessary.
+
+Managed updates require ownership markers in both the ATA folder and PFS
+partition. They retain the partition size and preserve user files absent
+from the replacement PSU. The previous app folder remains in the private
+staging area until the new folder and launcher are committed. Unrelated
+folders/partitions with matching names are refused. Active VMCs or FTP also
+prevent installation.
+
+Two alternating CRC-protected journals record publication intents and completed
+steps. If interrupted, select the same original PSU, or navigate to its staged
+`PACKAGE.PSU`, to resume. A failed download is downloaded again; an unpublished
+owned partition can be reformatted after an interrupted create, but a published
+partition is never reformatted. The existing ATA timeout watchdog resets a
+stalled IOP and retains staging for an explicit resume. A power loss before the
+PSU cache finishes requires the original PSU. Successful installation removes
+its private cache and old app backup. These journals do not replace a disk
+backup, and hardware testing of mixed mini layouts remains necessary.
+
+APA metadata writes now propagate failures, retain failed dirty cache entries
+and preserve the on-disk journal until all headers have been written. Failed
+journal replay also preserves the recovery record. The app installer reloads
+the IOP and storage drivers after a create/format I/O error so the HDD driver
+can replay that record before an explicit retry. If an older false-success
+checkpoint outlived its missing launcher, resume validates the complete APA
+chain and the package ownership of staged or published app files before
+recreating only that new install's 8 MiB launcher. Existing managed updates
+never recreate or reformat their published partition. Temporary `+LSAPP.*`
+names still keep incomplete launchers hidden until their headers are ready.
+`tests/test_hdd_metadata.py` exercises the production cache, journal and
+allocator with 223 partitions and injected link/journal I/O failures;
+`tests/test_hdd_app_install.py` covers interrupted missing-launcher recovery
+and refusal of foreign app files or an invalid chain.
+
+Fresh installs create their own app folder, launcher partition and ownership
+markers. If the initial journal was interrupted, staging containing only
+installer downloads/journals can be reused automatically. Unknown files or
+staged app/backup directories are retained when no valid journal survives.
+Failures identify the operation, error code and affected device/path instead
+of combining PSU validation, HDD detection and ownership into one message.
 
 ## Recovery volume
 
@@ -371,11 +459,17 @@ and disk logging resumes once storage is available again.
 
 If timeouts persist, a final reset restores the controller and reports the
 incomplete installation, preserving cached downloads. If the IOP cannot
-acknowledge the reset within 15 seconds, or core/controller initialization
-fails, the GUI displays a restart-console message. It does not release buffers
+queue the reset request within 15 seconds, acknowledge its boot within a further
+15 seconds, or complete core/controller initialization, the GUI displays a
+restart-console message naming the failed stage. RAM diagnostics include SIF
+status flags and the command-buffer address before reset, after queuing, and
+on boot acknowledgment or timeout. The fault path stops EE RPC reception before
+queuing reset, matching the SDK's full reboot preparation, while retaining old
+client/DMA storage until boot is acknowledged. It does not release buffers
 that the old IOP might still reference or enter an unlimited reset loop.
-Checkpoints are held in EE memory for the current installer session; they do
-not provide resume after restarting the console or Launchstation.
+IOP retries keep their checkpoints in EE memory. Starting with this version,
+durable checkpoints also permit resuming after restarting Launchstation or the
+console, as described below.
 
 `tests/test_hdd_installer_recovery.py` exercises returned faults, stalled calls
 and bindings, the UI/reset handshake, client reconstruction order and failed
@@ -384,3 +478,109 @@ download/app/population/boot checkpoints. The staging, launcher, app and
 partition tests also cover partial-file replacement, completed-download reuse,
 ownership mismatches and invalid partition geometry. Real timeout recovery and
 controller reconnection still require PS2 hardware testing.
+
+### Resuming after restarting the console
+
+HDD Manager's Options menu shows **Resume installation...** only when the
+installation log exists and the newest valid checkpoint is unfinished and
+belongs to the staging owner. A completed log (including older successful
+session markers), a committed checkpoint, or missing/invalid checkpoints hides
+the action. Successful logs end with `Installation finished successfully.`;
+failed and cancelled sessions have explicit final status lines too. It reads
+the cache before showing a confirmation table with the saved layout, language,
+launcher and space choices. This action cannot format the drive. Cancellation
+and failed validation preserve the cache.
+
+Two alternating `RESUME0.BIN` / `RESUME1.BIN` files live in the owned
+`PSBBN_DP_TEMP` folder, on `ata0:` for APA Jail or `__common` for pure APA.
+They contain a versioned little-endian record of the layout, owner, pinned
+repository revision, selected software, metadata and completed operations.
+Records are bounded to 64 KiB and checked with CRC32. If a checkpoint write is
+interrupted, the previous valid record remains available. Completed payloads
+are flushed before publishing their checkpoint, and the checkpoint itself is
+closed and flushed before advancing its sequence number. Journals are removed
+after successful cleanup. The CRC checks the checkpoint, not downloaded files;
+payload content hashing remains disabled.
+
+Resume verifies the staging owner, actual drive capacity and APA boundary.
+APA Jail also verifies the exFAT offset, size and volume serial. If software
+setup completed, PSBBN partition types, extents and sizes must still match.
+Paths in saved launcher metadata must remain inside the permitted repository
+trees. Valid closed downloads are retained; interrupted files are downloaded
+again. Interrupted filesystem population is rebuilt from cached archives,
+while completed population and boot stages can be skipped. Normal HTTPS trust,
+archive CRC/bounds and final MBR/NVRAM checks remain enabled.
+
+The saved certificate is read before changing network stacks. Fresh installer
+preparation also starts the ELF's source device before looking for its CA,
+then tries the settings device as a fallback. This lets UDPFS-launched installs
+read their certificate after an IOP reset, snapshot it in EE memory, and switch
+to Internet networking without needing UDPFS to remain loaded.
+
+Older installations without journal files cannot be resumed by this action.
+The cache alone does not reliably describe their original choices and layout.
+`tests/test_hdd_installer_resume.py` covers journal serialization, interrupted
+writes, corrupted/truncated records, ownership/capacity/serial mismatches and
+the actual UI's read-before-confirmation and no-format behavior. The language
+and boot-path tests exercise device startup and CA snapshot ordering.
+
+
+## Partition rename and HOSDMenu visibility
+
+HDD Manager renames use the complete 32-byte APA identifier, padding shorter
+names before driver lookup. A successful rename preserves the partition's
+location, size, subpartitions and contents. The target's PFS mount is released;
+other retained mounts stay open. A VMC pin or another active handle blocks the
+rename, and the error is reported. System partitions with the `__` prefix are
+protected. Existing destination names are refused rather than numbered or
+truncated automatically.
+
+When `hdd0:__system:pfs:/osdmenu/hosdmenu.elf` exists, a non-system PFS
+partition's Options menu offers **Hide in HOSDMenu HDD Browser**
+or **Show in HOSDMenu HDD Browser**. These append or remove the exact uppercase
+`.HIDDEN` suffix documented by [HOSDMenu](https://github.com/pcm720/OSDMenu/blob/main/patcher/README.md).
+Appending it requires an existing name of at most 25 characters; a longer name
+must be shortened explicitly first. Hidden partitions remain visible and
+manageable in Launchstation. Managed app updates recognize their hidden
+launcher partition and preserve its visibility and ownership markers.
+
+Visibility here controls HOSDMenu's HDD Browser. PSBBN DP uses separate app and
+shortcut entries: its [Game Installer](https://github.com/CosmicScale/PSBBN-Definitive-Project/blob/main/scripts/Game-Installer.sh)
+even creates a shortcut referring to `PP.HOSDMENU.HIDDEN`. This toggle does not
+rewrite PSBBN entries or other saved paths referring to the old partition ID.
+
+
+### PSBBN DP selections
+
+The PSBBN DP installer is labeled **Experimental** in its software choice,
+review and installer-log popups. Format/install choice lists use
+only the cursor to indicate focus; initial defaults do not receive check marks.
+The APA Jail software menu offers **No software, format only** and
+**PSBBN DP, HOSDMenu**, with **EXPERIMENTAL** in the second row's detail column.
+Selecting PSBBN immediately shows the Sony Network Adapter / GameStar warning,
+then defaults the game launcher to **Neutrino (NHDDL)**, listed before OPL.
+After the unnumbered compatibility notice, its six numbered dialogs cover
+the game launcher, Music size, Contents size, standalone PS2 Linux, future APA
+reserve and language. The format review and final erase confirmation are
+unnumbered. The Linux dialog
+lists **Do not install PS2 Linux**, then **1 GiB**, **2 GiB**, **4 GiB** and
+**8 GiB** home sizes, subject to the driver's extent limit. These share one
+dialog, so the total stays accurate with either choice.
+The allocation-information popup is omitted; the final table starts with
+Format, Drive Capacity and APA total space. HDD Manager maintains audio in its
+own navigation loop, and language preparation queues audio recovery after an
+IOP/network reset so cancelling the installer does not require leaving the
+manager to restore navigation sounds.
+
+Upstream DP's [Game Selector](https://github.com/CosmicScale/PSBBN-Definitive-Project/blob/main/scripts/helper/game-selector.py)
+writes `selected.list` and remembers deselected titles in the exFAT root's
+`exclude.list`. Its Game Installer removes the old `PP.*` launcher partitions,
+then creates 8 MiB launcher partitions only for selected titles. The original
+game/application payloads on exFAT remain available in the other launchers.
+This collection-selection mechanism is different from HOSDMenu's `.HIDDEN`
+suffix and is not implemented by Launchstation's Hide/Show partition action.
+
+The File Browser header displays HDD partition paths in launcher syntax, for
+example `hdd0:__common:pfs:/APPS/` or `hdd1:+APPS:pfs:/`. Device roots remain
+`hdd0:/` and `hdd1:/` until a partition is entered. This is display formatting;
+browsing and filesystem operations keep using their original paths.
