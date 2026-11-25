@@ -57,6 +57,7 @@ int installExt2Finish(InstallExt2 *fs){assert(fs);finished++;return 0;}
 void installExt2Free(InstallExt2 *fs){free(fs);}
 int installPsbbnSwap(const HddFormatIo *io,uint32_t a,uint32_t b){(void)io;(void)a;(void)b;return 0;}
 int installPsbbnMusic(const HddFormatIo *io,uint32_t a,uint32_t b,uint32_t c){(void)io;(void)a;(void)b;(void)c;return 0;}
+int hddInstallResumeSave(HddInstall *in){assert(in);return 0;}
 void hddInstallLog(const char *s,...){assert(s);}
 void hddInstallLogFlush(HddInstall *in){assert(in);}
 void hddInstallStatus(const char *s,int a,int b){assert(s&&a>=0&&b>=a);}

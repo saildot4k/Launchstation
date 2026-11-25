@@ -14,6 +14,7 @@
 //  follows the classic rules (filerMenuEnables).
 //--------------------------------------------------------------
 #include "dash_internal.h"
+#include "hdd_app.h"
 #include "filer_size_cache.h"
 #include "dash_sound.h"
 #include "filer_shared.h"
@@ -957,7 +958,7 @@ static void opImportSaves(void)
 	dashLoadingBegin("Extracting saves");
 	result = filerImportClipboard(fb.dir, fb.msg, sizeof(fb.msg));
 	opDone();
-	dashModalMessage(result <= 0 ? DI_WARNING : DI_MC, result < 0 ? "Extraction stopped" : "Saves extracted", fb.msg, NULL);
+	dashModalMessage(result <= 0 ? DI_WARNING : DI_ARCHIVE_EXTRACT, result < 0 ? "Extraction stopped" : "Saves extracted", fb.msg, NULL);
 	refresh();
 }
 
@@ -987,7 +988,7 @@ static void opCreateArchive(int kind)
 	labels = kind == FILER_SAVE_PS1 ? ps1_formats : kind == FILER_SAVE_PS2 ? ps2_formats : mixed_formats;
 	count = kind == FILER_SAVE_PS1 ? 3 : kind == FILER_SAVE_PS2 ? 2 : 1;
 	for (int i = 0; i < count; i++) {
-		formats[i].icon = DI_MC;
+		formats[i].icon = DI_ARCHIVE_CREATE;
 		formats[i].label = labels[i];
 		formats[i].detail = kind == FILER_SAVE_MIXED ? "PS1 and PS2 saves" : NULL;
 		formats[i].disabled = 0;
@@ -1002,7 +1003,7 @@ static void opCreateArchive(int kind)
 	dashLoadingBegin(total > 1 ? "Creating archives" : "Creating archive");
 	result = filerCreateClipboardArchives(fb.dir, format, fb.msg, sizeof(fb.msg));
 	opDone();
-	dashModalMessage(result <= 0 ? DI_WARNING : DI_MC,
+	dashModalMessage(result <= 0 ? DI_WARNING : DI_ARCHIVE_CREATE,
 	                 result < 0 ? "Archive creation stopped" : total > 1 || !result ? "Archive results" : "Archive created", fb.msg, NULL);
 	refresh();
 }
@@ -1513,7 +1514,8 @@ static void actionsMenu(void)
 		F_SORT,
 		F_BOOKMARK,
 		F_HOME,
-		F_REFRESH
+		F_REFRESH,
+		F_HDD_APP
 	};
 	static const char *const show_names[] = {"File names", "Names and details", "Game titles and details", "Game titles"};
 	static const char *const sort_names[FB_SORT_COUNT] = {"Type", "Name", "Game title", "Size", "Date-Time", "Extension", "As stored"};
@@ -1545,9 +1547,9 @@ static void actionsMenu(void)
 		if (en[PASTE])
 			ADD(DI_PASTE_RENAME, "Paste with new names...", NULL, 0, F_PASTE_RENAME);
 		if (filerMenuVisible(CREATE_ARCHIVE, en, FILER_MENU_NATIVE))
-			ADD(DI_MC, "Create archive...", nclipFiles > 1 ? "One archive per copied save" : "Save from clipboard", 0, F_CREATE);
+			ADD(DI_ARCHIVE_CREATE, "Create archive...", nclipFiles > 1 ? "One archive per copied save" : "Save from clipboard", 0, F_CREATE);
 		if (filerMenuVisible(IMPORT_SAVE, en, FILER_MENU_NATIVE))
-			ADD(DI_MC, extract_label, browser_cut ? "Move saves from clipboard into this folder" : "Extract clipboard into this folder", 0, F_IMPORT);
+			ADD(DI_ARCHIVE_EXTRACT, extract_label, browser_cut ? "Move saves from clipboard into this folder" : "Extract clipboard into this folder", 0, F_IMPORT);
 		if ((ps1_card && en[EXPORT_PS1]) || (en[COPY] && save_kind == FILER_CARD_PS1))
 			ADD(DI_MC, "Save card as...", "Whole PS1 card", 0, F_EXPORT_PS1);
 		ADD(DI_WARNING, "Delete...", fb.nmarked ? marked : NULL, !has_target || !en[DELETE], F_DELETE);
@@ -1559,6 +1561,10 @@ static void actionsMenu(void)
 		ADD(DI_INFO, "Size", NULL, !has_target || !en[GETSIZE], F_SIZE);
 		if (f != NULL && !isDir(f) && filerMenuVisible(OPEN_TEXTEDITOR, en, FILER_MENU_NATIVE))
 			ADD(DI_TEXT, "Open in Text Editor", NULL, 0, F_EDIT);
+#if defined(ETH) && defined(WLE_NATIVE_HTTPS) && defined(EXFAT)
+		if (f && !isDir(f) && fb.nmarked <= 1 && fullPath(f, path, sizeof(path)) && genCmpFileExt(path, "PSU"))
+			ADD(DI_ARCHIVE_EXTRACT, "Install app to HDD...", "APA Jail; Internet required", 0, F_HDD_APP);
+#endif
 		if (is_elf && !ps1_card) {
 			int args_disabled = isPcCardCfPath(fb.dir) ? 1 : 0;
 			ADD(DI_LAUNCH_ARGS, "Start with arguments...", args_disabled ? "Direct launch unsupported" : NULL,
@@ -1705,6 +1711,10 @@ static void actionsMenu(void)
 				openDir(dir, NULL);
 			break;
 		}
+		case F_HDD_APP:
+			if (f && fullPath(f, path, sizeof(path))) dashHddInstallApp(path);
+			refresh();
+			break;
 		case F_REFRESH:
 			refresh();
 			break;
@@ -1791,11 +1801,10 @@ static void browserDrawBody(void)
 	const float status_y = DASH_PANE_B - 16.0f;
 	const float path_panel_y = fb_tab_active ? 68.0f : 52.0f;
 	const float path_center_y = path_panel_y + 12.0f;
-	char info[64], display_path[MAX_PATH + 2];
+	char info[64], display_path[MAX_PATH + 6];
 
-	/* Use numbered USB labels without changing the path used for I/O. */
-	if (!filerFormatUsbPathForDisplay(fb.dir, display_path, sizeof(display_path)))
-		dashStrCopy(display_path, fb.dir, sizeof(display_path));
+	/* Share canonical HDD/PFS paths and numbered USB display labels. */
+	filerFormatBrowserPathForDisplay(fb.dir, display_path, sizeof(display_path));
 
 	/* A dashboard tab must not overwrite the shared header or render its
 	 * background a second time; modal callers still get a complete scene. */

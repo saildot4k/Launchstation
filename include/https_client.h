@@ -40,7 +40,9 @@ int httpsRequest(const char *method, const char *host, const char *path,
 
 /* Stream an HTTPS response body directly to an already-open file descriptor.
  * Follows HTTPS redirects, enforces max_bytes and returns the SHA-256 of the
- * exact bytes written when digest is non-NULL. A NULL digest skips hashing. */
+ * exact bytes written when digest is non-NULL. A NULL digest skips hashing.
+ * HTTP 404 returns -ENOENT, allowing asset lookup to distinguish missing
+ * artwork from a transport/TLS failure. */
 int httpsDownloadFd(const char *url, int fd, const char *ca_path,
                     int max_bytes, int *out_size,
                     unsigned char digest[32],

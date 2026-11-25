@@ -7,6 +7,7 @@
 #include <stdarg.h>
 
 #include <ctype.h>
+#include <errno.h>
 #include <limits.h>
 #include <malloc.h>
 #include <stdlib.h>
@@ -1211,7 +1212,7 @@ static int downloadOnce(const char *url, int fd, const char *ca_path,
             free(io_buf);
             if (error != NULL && error_size > 0)
                 snprintf(error, error_size, "HTTPS download returned HTTP %d", status);
-            return -1;
+            return status == 404 ? -ENOENT : -1;
         }
 
         if (header_value(raw, "Content-Length", value, sizeof(value))) {

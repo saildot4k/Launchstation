@@ -54,6 +54,8 @@ static int fileXioUmount(const char*m){assert(!strcmp(m,"pfs2:")&&mounted);mount
 '''
 code += r'''
 
+int hddInstallResumeSave(HddInstall *in){assert(in);return 0;}
+int hddInstallResumeRemove(HddInstall *in){assert(in);return 0;}
 void hddInstallLog(const char *format, ...) { (void)format; }
 int hddInstallLogEnabled(void) { return 0; }
 void hddInstallLogFlush(HddInstall *in) { (void)in; }

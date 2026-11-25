@@ -7,7 +7,7 @@ import tempfile
 root = Path(__file__).resolve().parents[1]
 source = (root / "src/dash_hdd.c").read_text()
 start = source.index("static void actFormat(void)")
-end = source.index("\nstatic void actStatus(void)", start)
+end = source.index("\nstatic void actResume(void)", start)
 action = source[start:end]
 
 code = r'''
@@ -45,17 +45,19 @@ static int fileXioDevctl(const char *dev, int op, void *a, int alen, void *b, in
     assert(!strcmp(dev, "hdd0:") && (op == HDIOC_TOTALSECTOR || op == HDIOC_MAXSECTOR) && !a && !alen && !b && !blen);
     return op == HDIOC_TOTALSECTOR ? total : 2048 * 2048;
 }
-static int dashModalChoice(const char *title, const char *const *options, int count, int current) {
+static int dashModalSelect(const char *title, const char *const *options, int count, int current) {
     assert(!strcmp(title, "Format HDD") && count == 3 && current == 0);
     assert(!strcmp(options[0], "APA") && !strcmp(options[1], "exFAT") && strstr(options[2], "APA Jail"));
     return selected;
 }
 static int pickSize(const char *title, int min, int max, int initial) {
     assert((strstr(title, "Additional APA") || strstr(title, "Reserved APA")) && min == (install_flags & HDD_INSTALL_PSBBN ? 0 : install_flags & HDD_INSTALL_APPS ? 256 : 0) && max % 128 == 0 && initial <= max);
+    if(install_flags&HDD_INSTALL_PSBBN)assert(strstr(title,"Choice 5 of 6:"));
     return reserve;
 }
 static void dashModalMessage(int icon, const char *title, const char *body, const char *detail) {
     assert(title && body);
+    assert(strcmp(title,"APA space allocation"));
     if (icon == DI_INFO) return;
     assert(icon == DI_WARNING); if(detail) cache_kept++; messages++;
 }
@@ -63,6 +65,7 @@ static int dashModalConfirm(const char *title, const char *body, const char *but
     assert(title && body && button && danger == 1);
     confirms++;
     assert(confirms == 2 && strstr(body,"Every partition") && !strcmp(button,"Format"));
+    assert(!strcmp(title,"Are you sure?"));
     return confirms != cancel_confirm;
 }
 static const char *reviewValue(const DashTableRow *rows,int count,const char *label) {
@@ -70,7 +73,10 @@ static const char *reviewValue(const DashTableRow *rows,int count,const char *la
     assert(0);return NULL;
 }
 static int dashModalConfirmTable(const char *title,const DashTableRow *rows,int count,const char *button,int danger) {
-    assert(!strcmp(title,"Review HDD format") && count>2 && count<=18 && !strcmp(button,"Continue") && danger==1);
+    assert(strstr(title,"Review HDD format") && count>2 && count<=18 && !strcmp(button,"Continue") && danger==1);
+    assert(!strcmp(title,"Review HDD format"));
+    assert(!strcmp(rows[0].label,"Format")&&!strcmp(rows[1].label,"Drive Capacity"));
+    if(selected!=HDD_FORMAT_EXFAT)assert(!strcmp(rows[2].label,"APA total space"));
     assert(!confirms);confirms++;
     assert(!strcmp(reviewValue(rows,count,"Format"),selected==0?"APA":selected==1?"exFAT":"APA Jail (APA + exFAT)"));
     if(selected!=HDD_FORMAT_APA)assert(!strcmp(reviewValue(rows,count,"exFAT label / cluster"),"PS2 / 32 KiB"));
@@ -90,6 +96,8 @@ int dashHddInstallChoose(HddInstall *in, int jail) { in->jail = jail; in->flags 
 int dashHddInstallConfigure(HddInstall *in,unsigned max) { assert(max>=2048); in->music_mb=in->contents_mb=1024; return 1; }
 int dashHddInstallPrepare(HddInstall *in) { assert(!confirms && !jobs); strcpy(in->language.name,"French"); return 1; }
 int dashHddInstallPrepareStorage(HddInstall *in) { assert(confirms == 2 && reset == 1 && jobs == 1); strcpy(in->stage, in->jail ? "ata0:/PSBBN_DP_TEMP" : "pfs2:/PSBBN_DP_TEMP"); return 0; }
+void hddInstallResumeBegin(HddInstall *in,const HddFormatPlan *p,unsigned n){assert(in&&p&&!n);}
+void hddInstallResumeEnd(void){}
 void hddInstallRelease(HddInstall *in) { (void)in; }
 void hddInstallCleanup(HddInstall *in) { in->stage[0] = 0; }
 static HddJob *jobNew(int operation) { HddJob *j = calloc(1, sizeof(HddJob)); j->op = operation; return j; }
@@ -114,6 +122,8 @@ static void dashToast(int icon, const char *text) { assert(icon == DASH_TOAST_OK
 static void afterChange(void) { changed++; }
 int hddFormatRecovery(const HddFormatPlan *p, const HddFormatIo *io) { (void)p; (void)io; return 0; }
 '''
+titles = (root / 'src/dash_hdd_install.c').read_text()
+code += titles[titles.index('const char *dashHddInstallChoiceTitle('):titles.index('\nint dashHddInstallChoose(')]
 code += action
 code += r'''
 static void clear(void) {

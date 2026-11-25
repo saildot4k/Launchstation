@@ -44,6 +44,7 @@ typedef uint64_t u64;
 static const char *work, *failure;
 static unsigned requests, downloads, read_bytes;
 static uint64_t overall_bytes, overall_total;
+int hddInstallResumeSave(HddInstall *in){assert(in);return 0;}
 void hddInstallLog(const char *fmt, ...) { assert(fmt); }
 void hddInstallLogFlush(HddInstall *in) { assert(in); }
 void httpsSetCaBundle(const unsigned char *data,unsigned size) { (void)data;(void)size; }

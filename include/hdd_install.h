@@ -51,6 +51,7 @@ typedef struct {
     unsigned recovery_attempts, stage_ready, manifest_ready, downloaded_assets, downloaded_launchers;
     unsigned applied, populated, committed;
     unsigned apa_sectors;
+    unsigned resumed;
 } HddInstall;
 
 unsigned hddInstallPartitionMb(const HddInstall *install, unsigned index);
@@ -58,6 +59,9 @@ unsigned hddInstallPartitionMb(const HddInstall *install, unsigned index);
  * including allocator alignment, apps and explicitly reserved free space. */
 int hddInstallRequiredMb(const HddInstall *install, unsigned base_mb);
 int dashHddInstallConfigure(HddInstall *install, unsigned max_extent_mb);
+enum { HDD_CHOICE_LAUNCHER = 1, HDD_CHOICE_MUSIC, HDD_CHOICE_CONTENTS,
+       HDD_CHOICE_LINUX, HDD_CHOICE_RESERVE, HDD_CHOICE_LANGUAGE };
+const char *dashHddInstallChoiceTitle(const HddInstall *install, unsigned choice, const char *title, char *out, size_t size);
 
 const char *hddInstallAssetPath(unsigned asset);
 const char *hddInstallAssetName(unsigned asset);
@@ -115,6 +119,7 @@ enum {
 };
 #define HDD_INSTALL_LOG_ROWS 256
 #define HDD_INSTALL_LOG_COLS 80
+#define HDD_INSTALL_LOG_COMPLETE "Installation finished successfully."
 typedef struct {
     unsigned first, next;
     uint64_t elapsed, idle;
@@ -127,6 +132,7 @@ void hddInstallLogStart(void);
 void hddInstallLogStop(void);
 int hddInstallLogEnabled(void);
 void hddInstallLog(const char *format, ...) __attribute__((format(printf, 1, 2)));
+void hddInstallLogResult(int result);
 void hddInstallStatus(const char *text, int done, int total);
 /* Update live progress without adding a history entry. */
 void hddInstallProgress(const char *text, int done, int total);

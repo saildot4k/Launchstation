@@ -123,8 +123,8 @@ and capture stdout with ps2link or serial. It compares VU0 against the scalar
 reference over 120 camera positions and 165 towers, reports both kernel timings,
 then checks actual VU1 output for 1-, 32-, and 65-quad submissions, including
 automatic batch flushing. Its final record must read `[vu-probe] PASS failures=0`.
-It does not access settings or files. CI cross-builds the integration and probe
-and uploads the probe separately from the release artifacts.
+It does not access settings or files. CI cross-builds the integration; the
+standalone probe is built manually when needed.
 
 Local validation has cross-compiled the integration with the real EE compiler,
 assembled the microprogram, and linked/stripped the standalone probe. No PS2 or
