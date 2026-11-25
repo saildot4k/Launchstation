@@ -559,10 +559,13 @@ The APA Jail software menu offers **No software, format only** and
 **PSBBN DP, HOSDMenu**, with **EXPERIMENTAL** in the second row's detail column.
 Selecting PSBBN immediately shows the Sony Network Adapter / GameStar warning,
 then defaults the game launcher to **Neutrino (NHDDL)**, listed before OPL.
-Its nine numbered dialogs cover the compatibility notice, game launcher,
-Music size, Contents size, standalone PS2 Linux, future APA reserve, language,
-format review and final erase confirmation. Linux Off and its enabled home
-sizes share one dialog, so the total stays accurate with either choice.
+After the unnumbered compatibility notice, its six numbered dialogs cover
+the game launcher, Music size, Contents size, standalone PS2 Linux, future APA
+reserve and language. The format review and final erase confirmation are
+unnumbered. The Linux dialog
+lists **Do not install PS2 Linux**, then **1 GiB**, **2 GiB**, **4 GiB** and
+**8 GiB** home sizes, subject to the driver's extent limit. These share one
+dialog, so the total stays accurate with either choice.
 The allocation-information popup is omitted; the final table starts with
 Format, Drive Capacity and APA total space. HDD Manager maintains audio in its
 own navigation loop, and language preparation queues audio recovery after an

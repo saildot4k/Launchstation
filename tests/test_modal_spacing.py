@@ -132,7 +132,7 @@ int main(void){
         assert(rendered==1&&detail_bottom>body_bottom);
         for(int backing=0;backing<2;backing++){
             reserve_mode=1;dashCfg.icon_backing=backing;reset();
-            assert(pickSizeMenu("Choice 6 of 9: Reserved APA space for future use",0,65536,8192,0)==(cancelled?-1:8192));
+            assert(pickSizeMenu("Choice 5 of 6: Reserved APA space for future use",0,65536,8192,0)==(cancelled?-1:8192));
             assert(rendered==1&&buttons==8);
         }
     }
