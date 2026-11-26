@@ -911,7 +911,7 @@ static int installApps(HddInstall *in)
             ret = pathJoin(path, sizeof(path), folder, save.files[i].name);
             if (ret >= 0) ret = writeNew(in, path, save.files[i].data, save.files[i].size);
         }
-        if (ret >= 0 && in->jail) {
+        if (ret >= 0) {
             char elf[MAX_PATH];
             const SaveArchiveEntry *icon = NULL;
             for (unsigned i = 0; i < save.count; i++) if (!strcmp(save.files[i].name, "list.icn")) icon = &save.files[i];
@@ -919,8 +919,13 @@ static int installApps(HddInstall *in)
             hddInstallLogFlush(in);
             ret = hddInstallPfsPartition(in, HDD_INSTALL_APP_MB, app_partitions[index]);
             if (ret != HDD_INSTALL_APP_MB) ret = ret < 0 ? ret : -ENOSPC;
-            else if (!icon || pathJoin(elf, sizeof(elf), folder, app_boot[index]) < 0) ret = -EINVAL;
-            else ret = InjectHddAppLauncher(app_partitions[index], elf, app_names[index], icon->data, icon->size);
+            else if (!icon) ret = -EINVAL;
+            else {
+                const char *root = in->jail ? "ata0:/APPS" : "hdd0:__common:pfs:/APPS";
+                int n = snprintf(elf, sizeof(elf), "%s/%s/%s", root, save.folder.name, app_boot[index]);
+                ret = n < 0 || n >= (int)sizeof(elf) ? -ENAMETOOLONG :
+                      InjectHddAppLauncher(app_partitions[index], elf, app_names[index], icon->data, icon->size);
+            }
             if (ret >= 0 && (in->flags & HDD_INSTALL_PSBBN)) {
                 char partition[64], info[1024];
                 int n, closed;

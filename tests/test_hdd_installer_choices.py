@@ -29,6 +29,9 @@ with tempfile.TemporaryDirectory(prefix='hdd-install-choices-') as directory:
     lib.hddInstallNeedsAsset.argtypes=[c.c_uint,c.c_uint]
     lib.hddInstallLinuxMetadata.argtypes=[c.c_char_p,c.c_void_p,c.c_void_p]
     lib.hddInstallConfig.argtypes=[c.POINTER(Install),c.c_int,c.c_void_p,c.c_size_t]
+    in_=Install(flags=3,jail=0)
+    assert lib.hddInstallRequiredMb(c.byref(in_),2048)==16
+    in_.jail=1;assert lib.hddInstallRequiredMb(c.byref(in_),2048)==128
     in_=Install(flags=7,jail=1)
     assert lib.hddInstallRequiredMb(c.byref(in_),2048)==6272
     assert lib.hddInstallPartitionMb(c.byref(in_),7)==1024 and not lib.hddInstallPartitionMb(c.byref(in_),8)
@@ -105,9 +108,13 @@ static int expected_check=-1,expected_focus;
 static int answers[4],asked,messages,cancel=-1;
 static int dashModalMenu(const char *title,const char *subtitle,const DashMenuItem *items,int count,int initial){
     assert(title&&count>0&&count<=7&&initial==expected_focus&&items[0].label);
-    int software=!strcmp(title,"Software after formatting")&&count==2;
+    int software=!strcmp(title,"Software after formatting");
     for(int j=0;j<count;j++)assert(items[j].icon==(j==expected_check?DI_CHECK:-1)&&(!items[j].detail||(software&&j==1))&&!items[j].disabled);
-    if(software){assert(!strcmp(items[0].label,"No software, format only"));assert(!strcmp(items[1].label,"PSBBN DP, HOSDMenu")&&!strcmp(items[1].detail,"EXPERIMENTAL"));}
+    if(software){
+        assert(count==2&&!strcmp(items[0].label,"No software, format only"));
+        if(items[1].detail)assert(!strcmp(items[1].label,"PSBBN DP, HOSDMenu")&&!strcmp(items[1].detail,"EXPERIMENTAL"));
+        else assert(!strcmp(items[1].label,"Install HOSDMenu and supporting apps"));
+    }
     if(strstr(title,"Default PS2 game core"))assert(!strcmp(title,"Choice 1 of 6: Default PS2 game core")&&messages==1&&!strcmp(items[0].label,"Neutrino (RiptOPL)")&&!strcmp(items[1].label,"OPL (RiptOPL)"));
     if(strstr(title,"Music partition"))assert(!strcmp(title,"Choice 2 of 6: Music partition size"));
     if(strstr(title,"Contents partition"))assert(!strcmp(title,"Choice 3 of 6: Contents partition size"));
@@ -138,10 +145,11 @@ int main(void){HddInstall in={.flags=7,.jail=1};
   assert(dashHddInstallChoose(&in,1)&&in.flags==7&&in.game_launcher==(core?HDD_GAME_RIPTOPL:HDD_GAME_RIPTOPL_NEUTRINO)&&asked==2&&messages==1);
  }
  asked=messages=0;cancel=1;assert(!dashHddInstallChoose(&in,1)&&asked==2&&messages==1);cancel=-1;
- for(int profile=0;profile<4;profile++){
-  const unsigned expected[]={0,2,1,3};answers[0]=profile;asked=messages=0;
+ for(int profile=0;profile<2;profile++){
+  const unsigned expected[]={0,HDD_INSTALL_HOSD|HDD_INSTALL_APPS};answers[0]=profile;asked=messages=0;
   assert(dashHddInstallChoose(&in,0)&&in.flags==expected[profile]&&!in.game_launcher&&asked==1);
  }
+ asked=messages=0;cancel=0;assert(!dashHddInstallChoose(&in,0)&&asked==1&&!messages);cancel=-1;
  memset(answers,0,sizeof(answers));asked=messages=0;in.flags=7;in.jail=1;in.game_launcher=HDD_GAME_RIPTOPL;
  assert(dashHddInstallConfigure(&in,8192)&&asked==3&&!messages&&in.flags==7&&in.music_mb==1024&&in.contents_mb==1024&&!in.linux_home_mb);
  asked=messages=0;answers[0]=1;answers[1]=2;answers[2]=4;

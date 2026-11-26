@@ -298,6 +298,9 @@ int main(void){
  char large[600];memset(large,'a',599);large[599]=0;
  assert(InjectHddAppLauncherWithArg("PP.LAUNCHER",elf,"NHDDL","ICON",4,large)==-ENAMETOOLONG&&writes==2);
  write_error=-EIO;assert(InjectHddAppLauncher("PP.LAUNCHER",elf,"NHDDL","ICON",4)==-EIO&&writes==3&&flushes==2);
+ write_error=0;
+ expected="BOOT2 = PATINFO\nHDDUNITPOWER = NICHDD\npath = hdd0:__common:pfs:/APPS/APP_WLE-R3Z/WLE-R3Z.ELF\n";
+ assert(!InjectHddAppLauncher("PP.LAUNCHER","hdd0:__common:pfs:/APPS/APP_WLE-R3Z/WLE-R3Z.ELF","wLaunchELF-R3Z","ICON",4)&&writes==4&&flushes==3);
  puts("PASS: production PATINFO includes the NHDDL ATA argument, preserves icon metadata and rejects invalid/oversized arguments and raw-write failures");
 }
 '''

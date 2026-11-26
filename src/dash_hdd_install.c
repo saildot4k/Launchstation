@@ -22,17 +22,15 @@ int dashHddInstallChoose(HddInstall *in, int jail)
     {
         static const char *const profiles[] = {
             "No software, format only",
-            "Install WLE-R3Z and R3CONFIGURATOR",
-            "Install OSDMenu MBR and HOSDMenu",
-            "Install MBR, HOSDMenu and included apps"
+            "Install HOSDMenu and supporting apps"
         };
-        static const unsigned flags[] = {0, HDD_INSTALL_APPS, HDD_INSTALL_HOSD, HDD_INSTALL_HOSD | HDD_INSTALL_APPS};
+        static const unsigned flags[] = {0, HDD_INSTALL_HOSD | HDD_INSTALL_APPS};
         static const DashMenuItem jail_profiles[] = {
             {-1, "No software, format only", NULL, 0},
             {-1, "PSBBN DP, HOSDMenu", "EXPERIMENTAL", 0}
         };
         int selected = jail ? dashModalMenu("Software after formatting", NULL, jail_profiles, 2, 0) :
-                              dashModalSelect("Software after formatting", profiles, 4, 0);
+                              dashModalSelect("Software after formatting", profiles, 2, 0);
         if (selected < 0) return 0;
         in->flags = jail && selected ? HDD_INSTALL_PSBBN | HDD_INSTALL_HOSD | HDD_INSTALL_APPS : flags[selected];
         if (in->flags & HDD_INSTALL_PSBBN) {

@@ -220,10 +220,13 @@ the final partial sector. Short writes finish the current sector before continui
 This avoids the one-to-three-byte shifts caused by unaligned ATA DMA pointers.
 Progress counts bytes accepted by storage, including the final buffered flush.
 
-- **Pure APA:** format only, install WLE-R3Z/R3CONFIGURATOR, install OSDMenu MBR
-  and HOSDMenu, or install both. Apps share `__common/APPS`, with the HDD-OSD
-  visibility attribute `0xc4a7` on APPS and each application folder. No separate
-  app partitions or PSBBN/Linux partitions are created.
+- **Pure APA:** **No software, format only** or **Install HOSDMenu and supporting
+  apps**. The software option installs OSDMenu MBR, HOSDMenu, WLE-R3Z and
+  R3CONFIGURATOR. App files share `__common/APPS`, with the HDD-OSD
+  visibility attribute `0xc4a7` on APPS and each application folder. Each app
+  also gets an **8 MiB PFS launcher partition** with PATINFO and its HDD icon,
+  using persistent `hdd0:__common:pfs:/APPS/...` paths. The two launchers add
+  16 MiB of APA allocation. No PSBBN/Linux partitions are created.
 - **APA Jail:** format only, or install English PSBBN DP, OSDMenu MBR,
   HOSDMenu, WLE-R3Z, R3CONFIGURATOR, RiptOPL, Neutrino, and Ember. Apps live on exFAT under `ata0:/APPS`.
   WLE-R3Z, R3CONFIGURATOR and the game frontend each get an **8 MiB PFS

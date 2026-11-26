@@ -103,16 +103,17 @@ int hddInstallRequiredMb(const HddInstall *in, unsigned base)
     unsigned sizes[14], count = 0, free_count = 0, end = base;
     if (!in || !base || base > 131072 || base % 128 || in->reserved_mb % 128) return -EINVAL;
     if ((in->flags & HDD_INSTALL_PS2LINUX) && (!in->jail || !(in->flags & HDD_INSTALL_PSBBN))) return -EINVAL;
-    if (!(in->flags & HDD_INSTALL_PSBBN)) return in->flags & HDD_INSTALL_APPS ? 256 : 0;
-    if (!in->jail || ((in->flags & HDD_INSTALL_PS2LINUX) && in->linux_home_mb > HDD_INSTALL_HOME_MAX_MB)) return -EINVAL;
-    for (unsigned i = 0; i < HDD_INSTALL_LINUX_PARTITIONS; i++) {
-        unsigned size = hddInstallPartitionMb(in, i);
-        if (size) sizes[count++] = size;
+    if (in->flags & HDD_INSTALL_PSBBN) {
+        if (!in->jail || ((in->flags & HDD_INSTALL_PS2LINUX) && in->linux_home_mb > HDD_INSTALL_HOME_MAX_MB)) return -EINVAL;
+        for (unsigned i = 0; i < HDD_INSTALL_LINUX_PARTITIONS; i++) {
+            unsigned size = hddInstallPartitionMb(in, i);
+            if (size) sizes[count++] = size;
+        }
+        sizes[count++] = in->contents_mb ? in->contents_mb : 1024;
     }
-    sizes[count++] = in->contents_mb ? in->contents_mb : 1024;
     unsigned standard_count = count;
     if (in->flags & HDD_INSTALL_APPS) { sizes[count++] = HDD_INSTALL_APP_MB; sizes[count++] = HDD_INSTALL_APP_MB; }
-    sizes[count++] = HDD_INSTALL_APP_MB; /* PATINFO/resources only; ELF lives elsewhere. */
+    if (in->flags & HDD_INSTALL_PSBBN) sizes[count++] = HDD_INSTALL_APP_MB; /* Game frontend. */
     for (unsigned i = 0; i < count; i++) {
         unsigned size = sizes[i], best = free_count, start;
         if (size < (i < standard_count ? 128u : HDD_INSTALL_APP_MB) || size > 32768 || (size & (size - 1))) return -EINVAL;
@@ -141,7 +142,7 @@ int hddInstallRequiredMb(const HddInstall *in, unsigned base)
         }
     }
     /* The outer APA Jail reservation remains aligned to 128 MiB. */
-    end = (end + 127u) & ~127u;
+    if (in->jail) end = (end + 127u) & ~127u;
     if (end > 131072 || in->reserved_mb > 131072 - end) return -ENOSPC;
     return end - base + in->reserved_mb;
 }
