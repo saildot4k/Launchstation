@@ -75,9 +75,9 @@ int hddInstallLoadCa(HddInstall *in)
     return 0;
 }
 int hddInstallMountStage(HddInstall *in)
-{ return in->jail ? 0 : fileXioMount("pfs2:", "hdd0:__common", FIO_MT_RDWR); }
+{ (void)in; return fileXioMount("pfs2:", "hdd0:__common", FIO_MT_RDWR); }
 int hddInstallUnmountStage(HddInstall *in)
-{ return hddInstallRecoveryFault() ? HDD_INSTALL_ATA_TIMEOUT : in->jail ? 0 : fileXioUmount("pfs2:"); }
+{ (void)in; return hddInstallRecoveryFault() ? HDD_INSTALL_ATA_TIMEOUT : fileXioUmount("pfs2:"); }
 int hddInstallCreateStage(HddInstall *in)
 {
     char path[MAX_PATH];
@@ -245,6 +245,34 @@ static uint64_t downloadBytes(const HddInstall *in)
     for (unsigned i = 0; i < HDD_INSTALL_ASSETS; i++) if (hddInstallSelectedAsset(in, i)) total += in->sizes[i];
     for (unsigned i = 0; i < in->launcher_count; i++) total += in->launcher_files[i].size;
     return total;
+}
+/* Cached archives are streamed directly to their final filesystems. Only
+ * compressed downloads, runtimes, journals and diagnostics occupy __common. */
+static int stageSpace(HddInstall *in)
+{
+    int zones = fileXioDevctl("pfs2:", PDIOC_ZONEFREE, NULL, 0, NULL, 0);
+    if (zones < 0) return zones;
+    int zone_size = fileXioDevctl("pfs2:", PDIOC_ZONESZ, NULL, 0, NULL, 0);
+    if (zone_size <= 0) return zone_size < 0 ? zone_size : -EIO;
+    uint64_t needed = 4u * 1024 * 1024; /* Journal, log and inode headroom. */
+    for (unsigned i = 0; i < HDD_INSTALL_ASSETS; i++) {
+        if (!hddInstallSelectedAsset(in, i)) continue;
+        if ((in->downloaded_assets & (1u << i)) && checkFileSize(in, hddInstallAssetName(i), in->sizes[i]) == 0) continue;
+        if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+        needed += ((uint64_t)in->sizes[i] + zone_size - 1) / zone_size * zone_size;
+    }
+    for (unsigned i = 0; i < in->launcher_count; i++) {
+        char name[32]; launcherStageName(i, name);
+        if (i < in->downloaded_launchers && checkFileSize(in, name, in->launcher_files[i].size) == 0) continue;
+        if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+        needed += ((uint64_t)in->launcher_files[i].size + zone_size - 1) / zone_size * zone_size;
+    }
+    uint64_t available = (uint64_t)zones * zone_size;
+    hddInstallLog("PFS cache space: %llu bytes free; %llu bytes required", (unsigned long long)available, (unsigned long long)needed);
+    if (needed <= available) return 0;
+    snprintf(in->error, sizeof(in->error), "__common has %u MiB free; the remaining installer downloads need %u MiB. The HDD is formatted; installation is incomplete.",
+             (unsigned)(available / (1024 * 1024)), (unsigned)((needed + 1024 * 1024 - 1) / (1024 * 1024)));
+    return -ENOSPC;
 }
 static void transferProgress(int done, int total, void *context)
 {
@@ -487,6 +515,8 @@ static int downloadInstaller(HddInstall *in, const char **phase)
     }
     ret = hddInstallResumeSave(in); if (ret < 0) goto invalid;
     download_total = downloadBytes(in);
+    *phase = "Checking __common download space";
+    ret = stageSpace(in); if (ret < 0) goto invalid;
     for (unsigned asset = 0; asset < HDD_INSTALL_ASSETS; asset++) {
         if (!hddInstallSelectedAsset(in, asset)) continue;
         if (pathJoin(local, sizeof(local), in->stage, hddInstallAssetName(asset)) < 0) { ret = -ENAMETOOLONG; goto invalid; }
@@ -892,14 +922,15 @@ int hddInstallWriteConfigs(HddInstall *in)
 
 int hddInstallApply(HddInstall *in)
 {
-    int ret = -EINVAL, mounts = 0;
-    static const char *const partitions[] = {"hdd0:__system", "hdd0:__sysconf", "hdd0:__common"};
-    static const char *const pfs[] = {"pfs0:", "pfs1:", "pfs2:"};
+    int ret = -EINVAL, mounts = 0, stage_mounted = 0;
+    static const char *const partitions[] = {"hdd0:__system", "hdd0:__sysconf"};
+    static const char *const pfs[] = {"pfs0:", "pfs1:"};
     hddInstallPhase(HDD_INSTALL_PHASE_INSTALL);
     if (!in->ready || !in->flags || (in->jail ? (in->flags & ~HDD_INSTALL_PS2LINUX) != (HDD_INSTALL_HOSD | HDD_INSTALL_APPS | HDD_INSTALL_PSBBN) :
         !!(in->flags & ~(HDD_INSTALL_HOSD | HDD_INSTALL_APPS)))) goto failed;
     ret = hddInstallMountStage(in);
     if (ret < 0) goto failed;
+    stage_mounted = 1;
     ret = hddInstallFindStage(in);
     if (ret < 0) {
         hddInstallUnmountStage(in);
@@ -913,13 +944,13 @@ int hddInstallApply(HddInstall *in)
         if (ret < 0) break;
     }
     if (ret >= 0) ret = checkLaunchers(in);
-    { int closed = hddInstallUnmountStage(in); if (ret >= 0) ret = closed; }
     if (ret < 0) goto failed;
+    /* Keep common on pfs2 for staging and diagnostics during APA creation. */
     if (in->flags & HDD_INSTALL_PSBBN) {
         ret = hddInstallPsbbnPartitions(in);
         if (ret < 0) goto failed;
     }
-    for (unsigned i = 0; i < 3; i++) {
+    for (unsigned i = 0; i < 2; i++) {
         hddInstallLog("MOUNT %s -> %s", partitions[i], pfs[i]);
         ret = fileXioMount(pfs[i], partitions[i], FIO_MT_RDWR);
         hddInstallLog("MOUNT rc=%d", ret);
@@ -950,6 +981,10 @@ failed:
     while (mounts && !hddInstallRecoveryFault()) {
         int closed = fileXioUmount(pfs[--mounts]);
         if (ret >= 0 && closed < 0) ret = closed;
+    }
+    if (stage_mounted) {
+        int closed = hddInstallUnmountStage(in);
+        if (ret >= 0) ret = closed;
     }
     if (ret < 0) snprintf(in->error, sizeof(in->error), "Software installation failed (error %d). The HDD is formatted, but installation is incomplete.", ret);
     else hddInstallOverall(100, 1000);

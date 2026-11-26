@@ -94,9 +94,9 @@ static int fileXioFormat(const char *fs,const char *path,const char *args,int n)
     assert(replay&&!strcmp(fs,"pfs:")&&!strcmp(path,"hdd0:__contents")&&n==sizeof(int)&&*(const int*)args==8192);formatted++;contents++;return 0;
 }
 static int hddMakeFilesystem(int mb,char *name,int group){assert(opened==expected_count&&closed==expected_count&&stats==expected_count&&mb==(int)contents_mb&&group==FS_GROUP_APPLICATION&&!strcmp(name,"__contents"));contents++;return mb;}
-static int fileXioMount(const char *mount,const char *partition,int flags){assert(contents==1&&!mounted&&!strcmp(mount,"pfs0:")&&!strcmp(partition,"hdd0:__common")&&flags==FIO_MT_RDWR);mounted++;return 0;}
-static int genMkdir(const char *path,int mode){assert(mounted&&!strcmp(path,"pfs0:/Your Saves")&&mode==0777);mkdirs++;return 0;}
-static int fileXioUmount(const char *mount){assert(mounted&&!strcmp(mount,"pfs0:"));mounted--;return 0;}
+/* The caller retains its staging PFS mount throughout APA creation. */
+static int genMkdir(const char *path,int mode){assert(contents==1&&!strcmp(path,"pfs2:/Your Saves")&&mode==0777);mkdirs++;return 0;}
+static int fileXioSync(const char *mount,int flags){assert(!strcmp(mount,"pfs2:")&&!flags&&mkdirs);return 0;}
 static int fileXioDevctl(const char *dev,int command,void*a,int n,void*b,int m){assert(!strcmp(dev,"hdd0:")&&command==HDIOC_FLUSH&&!a&&!b&&!n&&!m&&!mounted);flushed++;return 0;}
 '''
 code+=source[source.index('static const char *const linux_names'):source.index('static const char *const pfs_names')]

@@ -95,7 +95,7 @@ void hddInstallPhase(unsigned phase) { assert(phase==HDD_INSTALL_PHASE_FORMAT||p
 int dashHddInstallChoose(HddInstall *in, int jail) { in->jail = jail; in->flags = install_flags; return 1; }
 int dashHddInstallConfigure(HddInstall *in,unsigned max) { assert(max>=2048); in->music_mb=in->contents_mb=1024; return 1; }
 int dashHddInstallPrepare(HddInstall *in) { assert(!confirms && !jobs); strcpy(in->language.name,"French"); return 1; }
-int dashHddInstallPrepareStorage(HddInstall *in) { assert(confirms == 2 && reset == 1 && jobs == 1); strcpy(in->stage, in->jail ? "ata0:/PSBBN_DP_TEMP" : "pfs2:/PSBBN_DP_TEMP"); return 0; }
+int dashHddInstallPrepareStorage(HddInstall *in) { assert(confirms == 2 && reset == 1 && jobs == 1); strcpy(in->stage, in->jail ? "pfs2:/tmp" : "pfs2:/PSBBN_DP_TEMP"); return 0; }
 void hddInstallResumeBegin(HddInstall *in,const HddFormatPlan *p,unsigned n){assert(in&&p&&!n);}
 void hddInstallResumeEnd(void){}
 void hddInstallRelease(HddInstall *in) { (void)in; }
@@ -106,7 +106,7 @@ int hddFormatLoad(void) { assert(confirms == 2); loaded++; return load_error; }
 static void dashSoundShutdown(void) { assert(loaded); stopped++; }
 static int runJob(HddJob *j, const char *title, int cancelable) {
     assert(title && cancelable == 0);
-    if (j->op == HOP_DOWNLOAD_INSTALLER) { assert(confirms == 2 && stopped && reset == 1 && jobs == 1); assert(strstr(j->installer->stage, "/PSBBN_DP_TEMP")); downloads++; j->ret = download_error; return 1; }
+    if (j->op == HOP_DOWNLOAD_INSTALLER) { assert(confirms == 2 && stopped && reset == 1 && jobs == 1); assert(!strcmp(j->installer->stage, j->installer->jail ? "pfs2:/tmp" : "pfs2:/PSBBN_DP_TEMP")); downloads++; j->ret = download_error; return 1; }
     if (j->op == HOP_INSTALL_SOFTWARE) { assert(reset && confirms == 2); installed++; j->ret = install_error; j->format_started = 1; return 1; }
     assert(stopped); jobs++;
     actual = j->format_plan;

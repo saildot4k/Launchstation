@@ -70,10 +70,10 @@ int main(int argc,char**argv) {
     snprintf(path,sizeof(path),"%s/ata/old-ca.pem",work);fd=open(path,O_CREAT|O_WRONLY,0600);assert(fd>=0);assert(write(fd,"CA fixture",10)==10);close(fd);
     strcpy(in.ca_path,"ata0:/old-ca.pem");assert(hddInstallLoadCa(&in)==0&&in.ca_size==10);
     assert(!unlink(path)); /* source disappears during formatting */
-    in.jail=1;strcpy(in.stage,"ata0:/PSBBN_DP_TEMP");
-    assert(hddInstallMountStage(&in)==0&&!mounted);
+    in.jail=1;strcpy(in.stage,"pfs2:/tmp");
+    assert(hddInstallMountStage(&in)==0&&mounted);
     assert(hddInstallCreateStage(&in)==0&&in.owned&&!in.ca_data);
-    assert(!strcmp(in.ca_path,"ata0:/PSBBN_DP_TEMP/INSTALL_CA.PEM"));
+    assert(!strcmp(in.ca_path,"pfs2:/tmp/INSTALL_CA.PEM"));
     fd=genOpen(in.ca_path,FIO_O_RDONLY);assert(fd>=0);assert(read(fd,ca,16)==10&&!strcmp(ca,"CA fixture"));close(fd);
     assert(hddInstallFindStage(&in)==0);
     /* Interrupted CA copy: keep the EE snapshot and replace only our file. */
@@ -83,20 +83,21 @@ int main(int argc,char**argv) {
     assert(hddInstallCreateStage(&in)==0&&in.stage_ready&&!in.ca_data);
     fd=genOpen(in.ca_path,FIO_O_RDONLY);assert(fd>=0);memset(ca,0,sizeof(ca));assert(read(fd,ca,16)==10&&!strcmp(ca,"CA fixture"));close(fd);
     in.launcher_files=calloc(1,sizeof(*in.launcher_files));assert(in.launcher_files);in.launcher_count=1;
-    fd=genOpen("ata0:/PSBBN_DP_TEMP/launcher-000.bin",FIO_O_CREAT|FIO_O_EXCL|FIO_O_WRONLY);assert(fd>=0);close(fd);
+    fd=genOpen("pfs2:/tmp/launcher-000.bin",FIO_O_CREAT|FIO_O_EXCL|FIO_O_WRONLY);assert(fd>=0);close(fd);
     other.jail=1;strcpy(other.stage,in.stage);other.ca_data=malloc(1);other.ca_data[0]=0;other.ca_size=1;
     assert(hddInstallCreateStage(&other)==-EEXIST&&!other.owned);
     other.owned=1;other.recovery_attempts=1;memset(other.owner,0xcc,sizeof(other.owner));
     assert(hddInstallCreateStage(&other)==-ENOENT&&other.ca_data);other.owned=0;other.recovery_attempts=0;
     hddInstallCleanup(&other);assert(!other.ca_data&&hddInstallFindStage(&in)==0);
-    snprintf(path,sizeof(path),"%s/ata/PSBBN_DP_TEMP/OSDMBR.XLF",work);fd=open(path,O_CREAT|O_WRONLY,0600);assert(fd>=0);close(fd);
+    snprintf(path,sizeof(path),"%s/common/tmp/OSDMBR.XLF",work);fd=open(path,O_CREAT|O_WRONLY,0600);assert(fd>=0);close(fd);
     hddInstallCleanup(&in);assert(!in.owned&&!in.stage[0]);assert(access(path,F_OK)<0);
+    assert(hddInstallUnmountStage(&in)==0&&!mounted);
     strcpy(other.stage,"pfs2:/PSBBN_DP_TEMP");other.jail=0;other.ca_data=malloc(2);memcpy(other.ca_data,"CA",2);other.ca_size=2;
     assert(hddInstallMountStage(&other)==0&&mounted);
     assert(hddInstallCreateStage(&other)==0&&other.owned);
     assert(hddInstallUnmountStage(&other)==0&&!mounted);
     assert(hddInstallMountStage(&other)==0);hddInstallCleanup(&other);assert(!other.owned);assert(hddInstallUnmountStage(&other)==0);
-    puts("PASS: create ATA/PFS temp folders, preserve CA before erasure, short I/O, refuse existing folders and ownership-checked cleanup");
+    puts("PASS: create PFS temp folders for both layouts, preserve CA before erasure, short I/O, refuse existing folders and ownership-checked cleanup");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='hdd-installer-stage-') as directory:

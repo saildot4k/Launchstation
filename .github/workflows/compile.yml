@@ -125,6 +125,7 @@ jobs:
           python3 tests/test_hdd_installer_finish.py
           python3 tests/test_hdd_installer_boot.py
           python3 tests/test_hdd_installer_stage.py
+          python3 tests/test_hdd_installer_pfs_stage.py
           python3 tests/test_hdd_installer_apply.py
           python3 tests/test_hdd_installer_launchers.py
           python3 tests/test_hdd_installer_progress.py

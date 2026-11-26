@@ -19,7 +19,8 @@ code=r'''
 typedef uint64_t u64;
 typedef struct {int init_count,max_count;} ee_sema_t;
 static u64 now=1000;
-static int locked,fail_write;
+static int locked,fail_write,fail_sync,syncs;
+static int fileXioSync(const char *dev,int flags){assert(!locked&&!strcmp(dev,"pfs2:")&&!flags);syncs++;return fail_sync?-EIO:0;}
 static const char *filename;
 static u64 Timer(void){return now;}
 static int CreateSema(ee_sema_t*s){assert(s->init_count==1&&s->max_count==1);return 1;}
@@ -29,7 +30,7 @@ static int SignalSema(int id){assert(id==1&&locked);locked=0;return 0;}
 #define FIO_O_WRONLY O_WRONLY
 #define FIO_O_CREAT O_CREAT
 #define FIO_O_APPEND O_APPEND
-static int genOpen(const char*path,int flags){assert(!locked&&!strcmp(path,"ata0:/PSBBN_DP_TEMP/INSTALLER.LOG"));return open(filename,flags,0600);}
+static int genOpen(const char*path,int flags){assert(!locked&&!strcmp(path,"pfs2:/tmp/INSTALLER.LOG"));return open(filename,flags,0600);}
 static int genWrite(int fd,void*data,unsigned n){assert(!locked);if(fail_write)return -EIO;if(n>3)n=3;return write(fd,data,n);}
 static int genClose(int fd){assert(!locked);return close(fd);}
 static void dashWorkerStatus(const char*s,int done,int total){(void)s;(void)done;(void)total;}
@@ -38,7 +39,7 @@ code+=s
 code+=r'''
 int main(int argc,char**argv){
  HddInstall in={0};HddInstallLogSnapshot snapshot;char line[HDD_INSTALL_LOG_COLS];
- assert(argc==2);filename=argv[1];in.owned=1;strcpy(in.stage,"ata0:/PSBBN_DP_TEMP");
+ assert(argc==2);filename=argv[1];in.owned=1;strcpy(in.stage,"pfs2:/tmp");
  hddInstallLogStart();hddInstallLog("URL: https://archive.org/a-very-long-download-path-with-enough-characters-to-wrap-over-multiple-lines.tar.gz");
  hddInstallStatus("Downloading system.tar.gz",100,1000);now+=2300;hddInstallStatus("Downloading system.tar.gz",200,1000);
  hddInstallLogSnapshot(&snapshot);unsigned initial_lines=snapshot.next;
@@ -54,6 +55,8 @@ int main(int argc,char**argv){
  assert(hddInstallLogRead(snapshot.next-1,line)&&strstr(line,"row 599"));hddInstallLogFlush(&in);
  hddInstallLog("checkpoint retry");fail_write=1;hddInstallLogFlush(&in);hddInstallLogSnapshot(&snapshot);assert(snapshot.disk_error==-EIO);
  fail_write=0;hddInstallLogFlush(&in);hddInstallLogSnapshot(&snapshot);assert(!snapshot.disk_error);
+ hddInstallLog("PFS sync failure");fail_sync=1;hddInstallLogFlush(&in);hddInstallLogSnapshot(&snapshot);assert(snapshot.disk_error==-EIO);
+ fail_sync=0;hddInstallLogFlush(&in);hddInstallLogSnapshot(&snapshot);assert(!snapshot.disk_error&&syncs>0);
  unsigned count=snapshot.next;hddInstallLogStop();hddInstallLog("must not appear");hddInstallLogSnapshot(&snapshot);assert(snapshot.next==count&&!hddInstallLogEnabled()&&!locked);
  /* Independent overall progress never resets with the current file, survives
   * log checkpoints, and reaches 100% only on an explicit successful finish. */

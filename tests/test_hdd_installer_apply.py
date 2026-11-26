@@ -103,7 +103,7 @@ code += r'''
 int main(int argc,char**argv){
     HddInstall in={0};FILE*f;char path[4096],hash[41];unsigned i,size;int ret;
     assert(argc==5);snprintf(work,sizeof(work),"%s",argv[1]);in.flags=atoi(argv[2]);in.jail=!!(in.flags&4);in.game_launcher=atoi(argv[4]);
-    in.ready=in.owned=1;strcpy(in.stage,in.jail?"ata0:/PSBBN_DP_TEMP":"pfs2:/PSBBN_DP_TEMP");memset(in.commit,'a',40);
+    in.ready=in.owned=1;strcpy(in.stage,in.jail?"pfs2:/tmp":"pfs2:/PSBBN_DP_TEMP");memset(in.commit,'a',40);
     snprintf(path,sizeof(path),"%s/manifest",work);f=fopen(path,"r");assert(f);
     while(fscanf(f,"%u %u %40s",&i,&size,hash)==3){assert(i<HDD_INSTALL_ASSETS);in.sizes[i]=size;strcpy(in.hashes[i],hash);}fclose(f);
     if(in.jail){
@@ -124,7 +124,8 @@ int main(int argc,char**argv){
     assert(ret==0);
     if(in.flags&4){
         assert(!fileXioMount("pfs0:","hdd0:__system",1));assert(!fileXioMount("pfs1:","hdd0:__sysconf",1));
-        assert(hddInstallWriteConfigs(&in)==0);assert(!fileXioUmount("pfs1:")&&!fileXioUmount("pfs0:"));
+        assert(!hddInstallMountStage(&in));assert(hddInstallWriteConfigs(&in)==0);assert(!hddInstallUnmountStage(&in));
+        assert(!fileXioUmount("pfs1:")&&!fileXioUmount("pfs0:"));
     }
     assert(attrcalls==(!in.jail&&(in.flags&2)?3:0));
     assert(partitions==(in.jail?3:0)&&injected==partitions&&psbbn_parts==(unsigned)in.jail);
@@ -180,7 +181,7 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
                                     (15,'ok',0),(15,'ok',1),(3,'hash-ignored',0),(3,'size',0),(3,'attr',0),(7,'launcher-size',0)):
         work = d / (str(flags) + failure + str(launcher)); work.mkdir()
         for part in ('stage','ata','__system','__sysconf','__common'): (work / part).mkdir()
-        stage = work / ('ata' if flags & 4 else '__common') / 'PSBBN_DP_TEMP'; stage.mkdir()
+        stage = work / '__common' / ('tmp' if flags & 4 else 'PSBBN_DP_TEMP'); stage.mkdir()
         if flags & 8: (work / '__system/p2lboot').mkdir()
         (stage / 'owner.bin').write_bytes(bytes(20))
         manifest = []

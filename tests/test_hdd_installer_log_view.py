@@ -105,7 +105,7 @@ with tempfile.TemporaryDirectory(prefix='hdd-log-view-') as directory:
  subprocess.run(['gcc','-std=c99','-Wall','-Wextra','-Werror','-I',str(root/'include'),str(d/'check.c'),'-o',str(d/'check')],check=True)
  subprocess.run([str(d/'check')],check=True,timeout=10)
 
-# Exercise the actual finalization path after an IOP reset. The ATA filesystem
+# Exercise the actual finalization path after an IOP reset. The PFS filesystem
 # must be restored before the log-saving job runs; no network is required.
 finish = r'''
 #include <assert.h>
@@ -123,14 +123,13 @@ static DashLoadingView debug_previous_view;
 static int debug_open=1,debug_review,debug_result,debug_top;
 static int drivers,saves,fail_driver,phase,stopped;
 static char last_line[256],saved_line[256];
-static int loadHddModules(void){drivers=1;return 1;}
-static int loadAtaModules(void){assert(drivers==1);drivers=2;return !fail_driver;}
+static int loadHddModules(void){drivers=1;return !fail_driver;}
 void hddInstallLog(const char *fmt,...){va_list args;va_start(args,fmt);vsnprintf(last_line,sizeof(last_line),fmt,args);va_end(args);}
 void hddInstallProgress(const char *s,int done,int total){assert(s&&!done&&!total);}
-int hddInstallMountStage(HddInstall*in){assert(drivers==(in->jail?2:1));return 0;}
+int hddInstallMountStage(HddInstall*in){assert(in&&drivers==1);return 0;}
 int hddInstallUnmountStage(HddInstall*in){assert(in);return 0;}
-void hddInstallLogFlush(HddInstall*in){assert(in&&drivers==2);strcpy(saved_line,last_line);saves++;}
-static int dashWorkerSubmit(const char*s,int flags,void(*fn)(void*),void(*done)(void*),void*arg){assert(s&&!flags&&!done&&drivers==2);fn(arg);return 1;}
+void hddInstallLogFlush(HddInstall*in){assert(in&&drivers==1);strcpy(saved_line,last_line);saves++;}
+static int dashWorkerSubmit(const char*s,int flags,void(*fn)(void*),void(*done)(void*),void*arg){assert(s&&!flags&&!done&&drivers==1);fn(arg);return 1;}
 int dashHddInstallAwait(int id,const char*s){assert(id==1&&s);return 1;}
 void hddInstallPhase(unsigned p){assert(p==HDD_INSTALL_PHASE_COMPLETE);phase++;}
 void hddInstallLogStop(void){stopped++;}
@@ -150,14 +149,14 @@ finish+=r'''
 static void reset(void){debug_open=1;drivers=saves=phase=stopped=fail_driver=0;last_line[0]=saved_line[0]=0;}
 int main(void){
  HddInstall in={0};in.owned=in.stage_ready=in.jail=1;
- reset();dashHddInstallDebugEnd(&in,0);assert(drivers==2&&saves==1&&phase==1&&stopped==1&&!debug_open);
+ reset();dashHddInstallDebugEnd(&in,0);assert(drivers==1&&saves==1&&phase==1&&stopped==1&&!debug_open);
  assert(!strcmp(saved_line,HDD_INSTALL_LOG_COMPLETE));
  reset();strcpy(in.error,"test failure");dashHddInstallDebugEnd(&in,-EIO);
  assert(saves==1&&!phase&&!strcmp(saved_line,"Installation incomplete."));
  reset();fail_driver=1;dashHddInstallDebugEnd(&in,0);assert(!saves&&!strcmp(last_line,HDD_INSTALL_LOG_COMPLETE));
  reset();dashHddInstallDebugEnd(&in,-502);assert(!drivers&&!saves&&!strcmp(last_line,"Installation incomplete."));
  reset();in.owned=0;dashHddInstallDebugEnd(&in,-ECANCELED);assert(!drivers&&!saves&&!strcmp(last_line,"Installation cancelled."));
- puts("PASS: final success/failure/cancel log lines and ATA/HDD restoration before final log save after IOP reset");
+ puts("PASS: final success/failure/cancel log lines and PFS/HDD restoration before final log save after IOP reset");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='hdd-log-finish-') as directory:

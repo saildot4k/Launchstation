@@ -185,8 +185,20 @@ Native HTTPS builds offer software installation as part of formatting. All
 application binaries, icons and system resources are downloaded; none are
 bundled in Launchstation. A working network connection and
 `WLE-UPDATE-CA.PEM` are required. After the two erase confirmations the HDD is
-formatted, then installer files are downloaded to `ata0:/PSBBN_DP_TEMP` for
-APA-Jail. Pure APA uses `__common/PSBBN_DP_TEMP` through a temporary PFS mount.
+formatted, then installer files are downloaded to `hdd0:__common:pfs:/tmp`
+for APA Jail (mounted as `pfs2:/tmp`). Pure APA uses
+`hdd0:__common:pfs:/PSBBN_DP_TEMP` on the same temporary PFS mount.
+Archives stream from this cache directly into their final filesystems; no
+second uncompressed archive copy is staged. Metadata is fetched first, then
+free PFS zones are checked against the remaining downloads plus 4 MiB for
+metadata, logs and journals. Completed cached downloads are excluded. This
+test keeps the standard `__common` size: selections that do not fit report
+the required/free space instead of switching to exFAT or filling the partition.
+The `__contents` extraction target uses `pfs3:` so that the `__common` cache,
+log and checkpoints remain mounted on `pfs2:` throughout extraction.
+Installed APA Jail apps and launcher runtimes still go to their configured
+`ata0:` destinations. Both filesystems still share the existing ATA backend;
+this change removes exFAT staging I/O, not the resident BDM/ATA modules.
 No USB or MMCE download folder is needed. The CA bundle is held in EE memory
 before erasing and written to the new temporary folder, so it also works when
 the original CA file was on the formatted HDD. Use the matching release CA
@@ -408,7 +420,7 @@ It never records certificate contents, credentials,
 request headers or response bodies.
 
 After the temporary folder exists, checkpoints append diagnostics to
-`ata0:/PSBBN_DP_TEMP/INSTALLER.LOG`. Successful installs remove downloaded
+`hdd0:__common:pfs:/tmp/INSTALLER.LOG` for APA Jail. Successful installs remove downloaded
 payloads but retain this log and its ownership marker. Failed installs retain
 the entire temporary folder. If the drive cannot write the log, the GUI reports
 the write error and keeps the latest 256 display lines in RAM. Before a log
@@ -492,13 +504,18 @@ launcher and space choices. This action cannot format the drive. Cancellation
 and failed validation preserve the cache.
 
 Two alternating `RESUME0.BIN` / `RESUME1.BIN` files live in the owned
-`PSBBN_DP_TEMP` folder, on `ata0:` for APA Jail or `__common` for pure APA.
+staging folder in `__common`: `tmp` for APA Jail, or `PSBBN_DP_TEMP` for
+pure APA. Resume detection, saved certificates and timeout retries all use
+these same PFS paths. Older ATA staging folders are not migrated or resumed
+by this test build; their contents are left alone.
 They contain a versioned little-endian record of the layout, owner, pinned
 repository revision, selected software, metadata and completed operations.
 Records are bounded to 64 KiB and checked with CRC32. If a checkpoint write is
 interrupted, the previous valid record remains available. Completed payloads
 are flushed before publishing their checkpoint, and the checkpoint itself is
-closed and flushed before advancing its sequence number. Journals are removed
+closed and flushed before advancing its sequence number. PFS metadata is
+synced before the HDD cache flush; log appends also sync PFS before reporting
+that diagnostics have been saved. Journals are removed
 after successful cleanup. The CRC checks the checkpoint, not downloaded files;
 payload content hashing remains disabled.
 

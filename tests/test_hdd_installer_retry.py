@@ -93,7 +93,7 @@ code += r'''
 int main(void){
  for(scenario=0;scenario<=10;scenario++){
   loading=0;submits=applies=populates=finishes=boots=cleanups=downloads=creates=finds=physical=core=prepared=rawloads=freed=0;
-  HddInstall in={.flags=7,.jail=1,.owned=1,.stage_ready=scenario!=2};strcpy(in.stage,"ata0:/PSBBN_DP_TEMP");
+  HddInstall in={.flags=7,.jail=1,.owned=1,.stage_ready=scenario!=2};strcpy(in.stage,"pfs2:/tmp");
   HddJob j={.op=scenario==2?HOP_DOWNLOAD_INSTALLER:HOP_INSTALL_SOFTWARE,.installer=&in,.format_plan={.apa_sectors=131072u*2048}};
   if(scenario==8||scenario==10){
    if(!setjmp(fatal)){runJob(&j,"Installing",0);assert(0);}

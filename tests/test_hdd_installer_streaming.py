@@ -44,7 +44,7 @@ code = r'''
 #define FIO_S_ISDIR S_ISDIR
 typedef struct {unsigned mode;} iox_stat_t;
 static const char *work;
-static unsigned mounted,unmounted,created,finished,config_writes,entries,archive_opens;
+static unsigned mounted,unmounted,created,finished,config_writes,entries,archive_opens,slots=4;
 static HddInstall settings;
 struct InstallExt2 {int unused;};
 int installExt2Create(InstallExt2 **out,const HddFormatIo *io,uint32_t a,uint32_t b,uint32_t serial){
@@ -66,7 +66,7 @@ void hddInstallOverall(uint64_t a,uint64_t b){assert(b&&a<=b);}
 int hddInstallWriteConfigs(HddInstall *in){assert(in);config_writes++;return 0;}
 static const char *translate(const char *p){
  static char path[2048];
- if(!strncmp(p,"pfs",3)){assert(p[3]>='0'&&p[3]<='2'&&p[4]==':');snprintf(path,sizeof(path),"%s/pfs%c%s",work,p[3],p+5);return path;}
+ if(!strncmp(p,"pfs",3)){assert(slots&(1u<<(p[3]-'0')));assert(p[3]>='0'&&p[3]<='3'&&p[4]==':');snprintf(path,sizeof(path),"%s/pfs%c%s",work,p[3],p+5);return path;}
  return p;
 }
 static int genOpen(const char *p,int flags){
@@ -79,8 +79,12 @@ static int64_t genLseek(int fd,int offset,int whence){return lseek(fd,offset,whe
 static int genClose(int fd){return close(fd);}
 static int genMkdir(const char *p,int mode){return mkdir(translate(p),mode)<0?-errno:0;}
 static int fileXioGetStat(const char *p,iox_stat_t *out){struct stat st;if(stat(translate(p),&st)<0)return -errno;out->mode=st.st_mode;return 0;}
-static int fileXioMount(const char *p,const char *partition,int mode){assert(p&&partition&&mode==1);mounted++;return 0;}
-static int fileXioUmount(const char *p){assert(p);unmounted++;return 0;}
+static int fileXioMount(const char *p,const char *partition,int mode){
+ unsigned slot=p[3]-'0';assert(slot<4&&!(slots&(1u<<slot))&&mode==1);
+ assert(!strcmp(partition,slot==0?"hdd0:__system":slot==1?"hdd0:__sysconf":"hdd0:__contents"));
+ slots|=1u<<slot;mounted++;return 0;
+}
+static int fileXioUmount(const char *p){unsigned slot=p[3]-'0';assert(slot<4&&slot!=2&&(slots&(1u<<slot)));slots&=~(1u<<slot);unmounted++;return 0;}
 '''
 a = source.index('static const char *const linux_names')
 code += source[a:source.index('static uint32_t le32(', a)] + function('static uint32_t le32(')
@@ -101,17 +105,17 @@ static int rawRead(void *ctx,uint32_t lba,unsigned n,void *p){
 static int rawFlush(void *ctx){assert(ctx);return 0;}
 int main(int argc,char **argv){
  assert(argc==3);work=argv[1];int scenario=atoi(argv[2]),linux=scenario>=5;
- settings.flags=7|(linux?HDD_INSTALL_PS2LINUX:0);settings.jail=1;strcpy(settings.stage,work);
+ settings.flags=7|(linux?HDD_INSTALL_PS2LINUX:0);settings.jail=1;strcpy(settings.stage,"pfs2:/tmp");
  for(unsigned i=0;i<10;i++){settings.linux[i].start=2048+i*10000000;settings.linux[i].sectors=hddInstallPartitionMb(&settings,i)*2048;}
  const unsigned assets[]={HI_SYSTEM,HI_LANGUAGE,HI_PS2LINUX};
  for(unsigned i=0;i<(linux?3u:2u);i++){
-  char path[2048];struct stat st;snprintf(path,sizeof(path),"%s/%s",work,hddInstallAssetName(assets[i]));assert(!stat(path,&st));settings.sizes[assets[i]]=st.st_size;
+  char path[2048];struct stat st;snprintf(path,sizeof(path),"%s/pfs2/tmp/%s",work,hddInstallAssetName(assets[i]));assert(!stat(path,&st));settings.sizes[assets[i]]=st.st_size;
  }
  HddFormatIo io={.context=&settings,.read=rawRead,.flush=rawFlush};
  int ret=hddInstallPsbbnPayload(&settings,&io);
  if(scenario==0||scenario==5){assert(!ret&&finished==created&&config_writes==1&&archive_opens==(linux?3u:2u));}
  else{assert(ret<0&&!finished&&!config_writes&&strstr(settings.error,"Boot MBR was not activated"));}
- assert(mounted==3&&unmounted==mounted&&entries>0);
+ assert(mounted==3&&unmounted==mounted&&entries>0&&slots==4);
  puts("PASS: single-pass extraction checks CRCs, required boot files, protected paths and capacity before clean/boot commit");
 }
 '''
@@ -140,16 +144,21 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-streaming-') as directory
     for scenario in range(7):
         work = d / str(scenario)
         work.mkdir()
-        for i in range(3): (work / f'pfs{i}').mkdir()
+        for i in range(4): (work / f'pfs{i}').mkdir()
+        stage = work / 'pfs2/tmp'; stage.mkdir()
         names = required[:-1] if scenario == 1 else required
         entries = [(name, b'fixture') for name in names]
         if scenario == 3: entries.append(('__system/osdmenu/hosdmenu.elf', b'protected'))
         if scenario == 4: entries.append(('__system/oversized', bytes(33 * 1024 * 1024)))
-        archive(work / 'system.tar.gz', entries)
-        archive(work / 'language.tar.gz', [('__linux.4/translation', b'localized')])
+        entries.append(('__contents/fixture', b'contents data'))
+        archive(stage / 'system.tar.gz', entries)
+        archive(stage / 'language.tar.gz', [('__linux.4/translation', b'localized')])
         if scenario == 2:
-            p = work / 'language.tar.gz'
+            p = stage / 'language.tar.gz'
             corrupted = bytearray(p.read_bytes()); corrupted[-8] ^= 1; p.write_bytes(corrupted)
         if scenario >= 5:
-            archive(work / 'PS2Linux.tar.gz', [('sbin/init', b'init')] + ([] if scenario == 6 else [('bin/sh', b'shell')]))
+            archive(stage / 'PS2Linux.tar.gz', [('sbin/init', b'init')] + ([] if scenario == 6 else [('bin/sh', b'shell')]))
         subprocess.run([str(d / 'test'), str(work), str(scenario)], check=True)
+        if scenario in (0, 5):
+            assert (work / 'pfs3/fixture').read_bytes() == b'contents data'
+            assert not (work / 'pfs2/fixture').exists()

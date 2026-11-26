@@ -1121,7 +1121,7 @@ static void actFormat(void)
 	format_ok = ret == 0;
 	if (ret == 0 && install.flags) {
 		hddInstallPhase(HDD_INSTALL_PHASE_DOWNLOAD);
-		hddInstallLog("Preparing network and ATA after format");
+		hddInstallLog("Preparing network and PFS after format");
 		ret = dashHddInstallPrepareStorage(&install);
 		hddInstallLog("Storage preparation rc=%d stage=%s", ret, install.stage);
 		if (ret >= 0) {
@@ -1194,9 +1194,6 @@ static void actResume(void)
 	if (!dashWorkerAwaitAll("Preparing installer resume")) return;
 	dashSoundShutdown(); releaseMounts();
 	if (!loadHddModules()) { dashSoundMaintain(); dashBgmStart(); return; }
-#ifdef EXFAT
-	loadAtaModules();
-#endif
 	j = jobNew(HOP_RESUME_LOOKUP); if (!j) { dashSoundMaintain(); dashBgmStart(); return; }
 	j->installer = &install;
 	if (!runJob(j, "Reading installer checkpoint", 0)) { hddInstallRelease(&install); dashSoundMaintain(); dashBgmStart(); return; }
@@ -1501,9 +1498,7 @@ static int resumeAvailable(void)
 #endif
 	if (hm.resume_checked) return hm.resume_available;
 	if (!dashWorkerAwaitAll("Checking installer status")) return 0;
-#ifdef EXFAT
-	if (jail && !loadAtaModules()) return 0;
-#else
+#ifndef EXFAT
 	if (jail) return 0;
 #endif
 	j = jobNew(HOP_RESUME_AVAILABLE);

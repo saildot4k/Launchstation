@@ -52,7 +52,7 @@ void hddInstallStatus(const char *s, int done, int total) { assert(s && done >= 
 void hddInstallProgress(const char *s, int done, int total) { hddInstallStatus(s,done,total); }
 void hddInstallOverall(uint64_t done,uint64_t total) { assert(total&&done>=overall_bytes&&done<=total);overall_bytes=done;overall_total=total; }
 static int genOpen(const char *p, int mode) {
-    char path[2048]; assert(!strncmp(p,"ata0:/stage/",12));
+    char path[2048]; assert(!strncmp(p,"pfs2:/stage/",12));
     snprintf(path,sizeof(path),"%s/stage/%s",work,p+12); return open(path,mode,0600);
 }
 static int genRead(int fd, void *data, unsigned n) { int r=read(fd,data,n > 97 ? 97 : n);if(r>0)read_bytes+=r;return r; }
@@ -101,12 +101,15 @@ for signature in ("static int pathJoin(", "static int readAll(", "static int clo
     code += function(signature)
 start = native.index("typedef struct { const char *name;")
 end = native.index("static void installerHttpsStatus(", start)
-code += native[start:end]
+# Capacity preflight has its own storage tests; this facade exercises downloads.
+section = native[start:end]
+section = section.replace(function("static int stageSpace(").rstrip(), "")
+code += section
 code += r'''
 int main(int argc,char **argv) {
     HddInstall in={.flags=7,.jail=1};const char *phase="metadata";int ret;
     assert(argc==4);work=argv[1];failure=argv[2];in.game_launcher=atoi(argv[3]);
-    strcpy(in.stage,"ata0:/stage");strcpy(in.ca_path,"fixture.pem");memset(in.commit,'a',40);
+    strcpy(in.stage,"pfs2:/stage");strcpy(in.ca_path,"fixture.pem");memset(in.commit,'a',40);
     ret=launcherMetadata(&in);
     if(!strncmp(failure,"resume",6))hddInstallRecoveryBegin();
     if(ret>=0)ret=downloadLaunchers(&in,&phase,0,downloadBytes(&in));
@@ -114,7 +117,7 @@ int main(int argc,char **argv) {
     if(resuming){
         assert(ret==-502&&in.downloaded_launchers==2&&hddInstallRecoveryFault()==-502);
         hddInstallRecoveryEnd();in.recovery_attempts=1;in.owned=1;overall_bytes=0;
-        if(corrupt_cache){int fd=genOpen("ata0:/stage/launcher-000.bin",FIO_O_WRONLY|FIO_O_TRUNC);assert(fd>=0);close(fd);}
+        if(corrupt_cache){int fd=genOpen("pfs2:/stage/launcher-000.bin",FIO_O_WRONLY|FIO_O_TRUNC);assert(fd>=0);close(fd);}
         unsigned saved_requests=requests;
         hddInstallRecoveryBegin();ret=downloadLaunchers(&in,&phase,0,downloadBytes(&in));
         assert(!hddInstallRecoveryFault()&&requests==saved_requests&&in.downloaded_launchers==in.launcher_count);

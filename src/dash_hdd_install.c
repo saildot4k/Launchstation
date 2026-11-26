@@ -154,7 +154,7 @@ int dashHddInstallPrepareStorage(HddInstall *in)
 {
 #if defined(ETH) && defined(WLE_NATIVE_HTTPS)
     /* Formatting resets the IOP. Restore network/storage before the worker
-     * mounts PFS or opens ata0; no external staging device is needed. */
+     * mounts the PFS staging folder; no external staging device is needed. */
     hddInstallLog("Preparing network stack");
     if (!ensureDashboardIpNetworkReady()) {
         snprintf(in->error, sizeof(in->error), "%s", dashboardIpNetworkError());
@@ -162,11 +162,8 @@ int dashHddInstallPrepareStorage(HddInstall *in)
     }
     hddInstallLog("Loading HDD/PFS modules");
     if (!loadHddModules()) return -ENODEV;
-#ifdef EXFAT
-    hddInstallLog("Loading ATA filesystem modules (jail=%d)", in->jail);
-    if (in->jail && !loadAtaModules()) return -ENODEV;
-#endif
-    snprintf(in->stage, sizeof(in->stage), "%s/PSBBN_DP_TEMP", in->jail ? "ata0:" : "pfs2:");
+    snprintf(in->stage, sizeof(in->stage), "pfs2:/%s", in->jail ? "tmp" : "PSBBN_DP_TEMP");
+    hddInstallLog("Installer cache: hdd0:__common:pfs:/%s", in->jail ? "tmp" : "PSBBN_DP_TEMP");
     return 0;
 #else
     (void)in;
@@ -332,11 +329,8 @@ void dashHddInstallDebugEnd(HddInstall *in, int result)
     if (!debug_open) return;
     int save_log = in->owned && in->stage_ready && result != HDD_INSTALL_ATA_TIMEOUT;
     /* MBR installation can reset the IOP just before this final save. Reload
-     * storage on the UI thread so the ATA installation log is reachable again. */
+     * storage on the UI thread so the PFS installation log is reachable again. */
     if (save_log && !loadHddModules()) save_log = 0;
-#ifdef EXFAT
-    if (save_log && in->jail && !loadAtaModules()) save_log = 0;
-#endif
     if (!save_log && in->owned && in->stage_ready)
         hddInstallLog("Final log could not be saved; installation status follows in RAM");
     hddInstallLog("SESSION %s: result=%d", result == -ECANCELED ? "CANCELLED" : result < 0 ? "FAILED" : "COMPLETE", result);

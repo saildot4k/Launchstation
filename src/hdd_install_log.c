@@ -194,6 +194,14 @@ void hddInstallLogFlush(HddInstall *in)
             if (ret >= 0) written = ++next;
         }
         { int closed = genClose(fd); if (ret >= 0) ret = closed; }
+        if (ret >= 0 && !strncmp(in->stage, "pfs", 3)) {
+            char volume[8]; const char *colon = strchr(in->stage, ':');
+            if (!colon || colon - in->stage >= (int)sizeof(volume) - 1) ret = -EINVAL;
+            else {
+                snprintf(volume, sizeof(volume), "%.*s", (int)(colon - in->stage + 1), in->stage);
+                ret = fileXioSync(volume, 0);
+            }
+        }
         if (ret >= 0) { lock(); log_state.saved = written; unlock(); }
     }
     lock(); previous = log_state.disk_error; log_state.disk_error = ret < 0 ? ret : 0;

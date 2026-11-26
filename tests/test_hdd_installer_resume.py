@@ -32,8 +32,13 @@ typedef struct {uint32_t lba,size;} hddAtaTransfer_t;
 static const char *directory;
 static int mounted,fail_after=-1,written,wrong_owner,wrong_disk,wrong_serial,flushes;
 static HddFormatPlan actual;
+static const char *expected_stage;
+static int sync_error;
+static unsigned synced;
+static int fileXioSync(const char *dev,int flags){assert(mounted&&!strcmp(dev,"pfs2:")&&!flags);synced++;return sync_error;}
 static int genOpen(const char *path,int flags){
  char local[2048];const char *p=strrchr(path,'/');assert(p&&p[1]);
+ if(strncmp(path,expected_stage,strlen(expected_stage))||path[strlen(expected_stage)]!='/')return -ENOENT;
  if(!strncmp(path,"pfs2:",5))assert(mounted);
  snprintf(local,sizeof(local),"%s/%s",directory,p+1);int fd=open(local,flags,0600);return fd<0?-errno:fd;
 }
@@ -60,8 +65,8 @@ static int fileXioDevctl(const char *dev,int cmd,void *arg,unsigned n,void *out,
 }
 static int fileXioGetStat(const char *path,iox_stat_t*st){(void)path;(void)st;return -ENOENT;}
 int hddGetApaCapacity(uint32_t *limit){*limit=actual.kind==HDD_FORMAT_APA_JAIL?actual.apa_sectors:actual.sectors;return 0;}
-int hddInstallFindStage(HddInstall *in){return in->owned&&!wrong_owner?0:-ENOENT;}
-int hddInstallLoadCa(HddInstall *in){assert(strstr(in->ca_path,"/INSTALL_CA.PEM"));in->ca_data=malloc(2);in->ca_size=2;return 0;}
+int hddInstallFindStage(HddInstall *in){assert(!strcmp(in->stage,expected_stage));return in->owned&&!wrong_owner?0:-ENOENT;}
+int hddInstallLoadCa(HddInstall *in){assert(mounted&&!strncmp(in->ca_path,expected_stage,strlen(expected_stage)));assert(strstr(in->ca_path,"/INSTALL_CA.PEM"));in->ca_data=malloc(2);in->ca_size=2;return 0;}
 void hddInstallRelease(HddInstall *in){free(in->ca_data);free(in->launcher_files);in->ca_data=NULL;in->launcher_files=NULL;in->launcher_count=in->ca_size=0;}
 void hddInstallLog(const char *s,...){assert(s);}
 '''
@@ -75,7 +80,8 @@ static void logText(const char *text){
 static int available(int jail){int result=hddInstallResumeAvailable(jail);mounted=0;return result;}
 static void original(HddInstall *in,int jail){
  memset(in,0,sizeof(*in));in->flags=3;in->jail=jail;in->owned=in->stage_ready=1;
- strcpy(in->stage,jail?"ata0:/PSBBN_DP_TEMP":"pfs2:/PSBBN_DP_TEMP");
+ strcpy(in->stage,jail?"pfs2:/tmp":"pfs2:/PSBBN_DP_TEMP");
+ expected_stage=jail?"pfs2:/tmp":"pfs2:/PSBBN_DP_TEMP";
  memset(in->owner,0x62,sizeof(in->owner));
  assert(!hddFormatPlan(&actual,jail?HDD_FORMAT_APA_JAIL:HDD_FORMAT_APA,1000215216u,jail?40960:0,12345));
 }
@@ -83,8 +89,9 @@ int main(int argc,char **argv){
  assert(argc==2);directory=argv[1];
  for(int jail=0;jail<2;jail++){
   HddInstall in={0},loaded={0};HddFormatPlan plan={0};unsigned sequence=0;
-  original(&in,jail);mounted=!jail;hddInstallResumeBegin(&in,&actual,0);
-  assert(!hddInstallResumeSave(&in)&&flushes>=2); /* seq 1 */
+  original(&in,jail);mounted=1;hddInstallResumeBegin(&in,&actual,0);
+  sync_error=-EIO;assert(hddInstallResumeSave(&in)==-EIO&&!current_sequence);sync_error=0;
+  assert(!hddInstallResumeSave(&in)&&flushes>=2&&synced>=3); /* seq 1 */
   in.downloaded_assets=1<<HI_MBR;assert(!hddInstallResumeSave(&in)); /* seq 2 */
   in.downloaded_assets|=1<<HI_HOSD;fail_after=31;written=0;
   assert(hddInstallResumeSave(&in)==-EIO); /* torn seq 3 cannot replace seq 2 */
@@ -108,9 +115,9 @@ int main(int argc,char **argv){
   /* The newest committed record wins over an older unfinished slot, even
    * when cleanup/log finalization did not finish after the actual install. */
   in.manifest_ready=in.applied=in.populated=in.committed=1;memset(in.commit,'a',40);
-  mounted=!jail;hddInstallResumeBegin(&in,&actual,3);assert(!hddInstallResumeSave(&in));hddInstallResumeEnd();mounted=0;
+  mounted=1;hddInstallResumeBegin(&in,&actual,3);assert(!hddInstallResumeSave(&in));hddInstallResumeEnd();mounted=0;
   assert(!available(jail));
-  mounted=!jail;assert(!hddInstallResumeRemove(&in));mounted=0;
+  mounted=1;assert(!hddInstallResumeRemove(&in));mounted=0;
   assert(!available(jail)); /* an incomplete log alone cannot be resumed */
   assert(hddInstallResumeLoad(&loaded,&plan,&sequence)==-ENOENT);hddInstallRelease(&loaded);
  }
@@ -177,7 +184,6 @@ static int dashWorkerAwaitAll(const char*s){assert(s);return 1;}
 static void dashSoundShutdown(void){}
 static void releaseMounts(void){}
 static int loadHddModules(void){return 1;}
-static void loadAtaModules(void){}
 static HddJob *jobNew(int op){HddJob*j=calloc(1,sizeof(*j));assert(j);j->op=op;return j;}
 static void hddJobFree(HddJob*j){free(j);}
 static int runJob(HddJob*j,const char *s,int cancelable){
@@ -185,7 +191,7 @@ static int runJob(HddJob*j,const char *s,int cancelable){
  if(j->op==HOP_RESUME_LOOKUP){
   lookups++;j->ret=lookup_error;if(j->ret)return 1;
   HddInstall*in=j->installer;in->flags=7;in->jail=1;in->owned=in->stage_ready=in->resumed=1;
-  in->committed=committed;strcpy(in->stage,"ata0:/PSBBN_DP_TEMP");strcpy(in->language.name,"English");
+  in->committed=committed;strcpy(in->stage,"pfs2:/tmp");strcpy(in->language.name,"English");
   in->music_mb=in->contents_mb=1024;j->resume_sequence=9;j->format_plan.kind=HDD_FORMAT_APA_JAIL;
  }else if(j->op==HOP_DOWNLOAD_INSTALLER){assert(confirmation&&!committed&&network);downloads++;j->ret=download_error;}
  else{assert(j->op==HOP_INSTALL_SOFTWARE&&confirmation);installs++;j->format_started=!committed;j->ret=0;}

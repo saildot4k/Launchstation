@@ -13,6 +13,8 @@ static const char *const linux_names[HDD_INSTALL_LINUX_PARTITIONS] = {
     "__linux.6", "__linux.7", "__linux.9", "__linux.8", "__linux.3", "__linux.10"
 };
 static const char *const pfs_names[3] = {"__system", "__sysconf", "__contents"};
+/* pfs2 stays mounted on __common for cached archives, logs and checkpoints. */
+static const unsigned pfs_slots[3] = {0, 1, 3};
 static uint32_t le32(const unsigned char *p)
 { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
 
@@ -66,10 +68,9 @@ int hddInstallPsbbnPartitions(HddInstall *in)
     }
     ret = hddInstallPfsPartition(in, in->contents_mb ? in->contents_mb : 1024, "__contents");
     if (ret != (int)(in->contents_mb ? in->contents_mb : 1024)) return ret < 0 ? ret : -ENOSPC;
-    ret = fileXioMount("pfs0:", "hdd0:__common", FIO_MT_RDWR);
-    if (ret < 0) return ret;
-    ret = genMkdir("pfs0:/Your Saves", 0777);
-    { int closed = fileXioUmount("pfs0:"); if (ret >= 0) ret = closed; }
+    /* Apply keeps __common mounted on pfs2 for its source files and log. */
+    ret = genMkdir("pfs2:/Your Saves", 0777);
+    if (ret >= 0) ret = fileXioSync("pfs2:", 0);
     return ret < 0 ? ret : fileXioDevctl("hdd0:", HDIOC_FLUSH, NULL, 0, NULL, 0);
 }
 
@@ -163,7 +164,7 @@ static int begin(void *context, const InstallTarEntry *entry)
         return installExt2Begin(p->fs[r], &e);
     }
     if (!*relative) return entry->type == '5' ? 0 : -EINVAL;
-    if (snprintf(e.name, sizeof(e.name), "pfs%u:/%s", r - HDD_INSTALL_LINUX_PARTITIONS, relative) >= (int)sizeof(e.name)) return -ENAMETOOLONG;
+    if (snprintf(e.name, sizeof(e.name), "pfs%u:/%s", pfs_slots[r - HDD_INSTALL_LINUX_PARTITIONS], relative) >= (int)sizeof(e.name)) return -ENAMETOOLONG;
     ret = mkdirParents(e.name); if (ret < 0) return ret;
     if (entry->type == '5') {
         iox_stat_t st;
@@ -283,7 +284,7 @@ int hddInstallPsbbnPayload(void *context, const HddFormatIo *io)
     }
     for (unsigned i = 0; i < 3; i++) {
         char mount[8], partition[32];
-        snprintf(mount, sizeof(mount), "pfs%u:", i); snprintf(partition, sizeof(partition), "hdd0:%s", pfs_names[i]);
+        snprintf(mount, sizeof(mount), "pfs%u:", pfs_slots[i]); snprintf(partition, sizeof(partition), "hdd0:%s", pfs_names[i]);
         ret = fileXioMount(mount, partition, FIO_MT_RDWR); if (ret < 0) goto done;
         mounts++;
     }
@@ -309,7 +310,7 @@ int hddInstallPsbbnPayload(void *context, const HddFormatIo *io)
 done:
     while (mounts && !hddInstallRecoveryFault()) {
         char mount[8]; int closed;
-        snprintf(mount, sizeof(mount), "pfs%u:", --mounts); closed = fileXioUmount(mount);
+        snprintf(mount, sizeof(mount), "pfs%u:", pfs_slots[--mounts]); closed = fileXioUmount(mount);
         if (ret >= 0 && closed < 0) ret = closed;
     }
     for (unsigned i = 0; i < HDD_INSTALL_LINUX_PARTITIONS; i++) installExt2Free(p->fs[i]);

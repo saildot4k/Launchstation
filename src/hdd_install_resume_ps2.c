@@ -8,7 +8,11 @@ void hddInstallResumeBegin(HddInstall *in, const HddFormatPlan *plan, unsigned s
 { current = in; current_plan = *plan; current_sequence = sequence; }
 void hddInstallResumeEnd(void) { current = NULL; }
 static int flush(void)
-{ return fileXioDevctl("hdd0:", HDIOC_FLUSH, NULL, 0, NULL, 0); }
+{
+    /* HDD FLUSH alone does not write dirty PFS metadata to the device. */
+    int ret = fileXioSync("pfs2:", 0);
+    return ret < 0 ? ret : fileXioDevctl("hdd0:", HDIOC_FLUSH, NULL, 0, NULL, 0);
+}
 static int journalPath(char *path, unsigned size, const HddInstall *in, unsigned slot)
 { int n = snprintf(path, size, "%s/RESUME%u.BIN", in->stage, slot); return n > 0 && (unsigned)n < size ? 0 : -ENAMETOOLONG; }
 int hddInstallResumeSave(HddInstall *in)
@@ -120,18 +124,13 @@ static int incompleteLog(const char *stage)
 int hddInstallResumeAvailable(int jail)
 {
     char stage[64];
-    if (jail) {
-#ifdef EXFAT
-        snprintf(stage, sizeof(stage), "ata0:/PSBBN_DP_TEMP");
-#else
-        return 0;
+#ifndef EXFAT
+    if (jail) return 0;
 #endif
-    } else {
-        /* Use the shared mount policy; never steal a fixed slot from a VMC. */
-        int slot = mountParty("hdd0:__common");
-        if (slot < 0) return slot;
-        snprintf(stage, sizeof(stage), "pfs%d:/PSBBN_DP_TEMP", slot);
-    }
+    /* Use the shared mount policy; never steal a fixed slot from a VMC. */
+    int mount = mountParty("hdd0:__common");
+    if (mount < 0) return mount;
+    snprintf(stage, sizeof(stage), "pfs%d:/%s", mount, jail ? "tmp" : "PSBBN_DP_TEMP");
     int ret = incompleteLog(stage);
     if (ret <= 0) return ret;
     HddInstall *candidate = calloc(1, sizeof(*candidate));
@@ -163,9 +162,9 @@ int hddInstallResumeLoad(HddInstall *in, HddFormatPlan *plan, unsigned *sequence
 #ifndef EXFAT
         if (jail) continue;
 #endif
-        int mounted = !jail && fileXioMount("pfs2:", "hdd0:__common", FIO_MT_RDONLY) >= 0;
-        if (!jail && !mounted) continue;
-        const char *stage = jail ? "ata0:/PSBBN_DP_TEMP" : "pfs2:/PSBBN_DP_TEMP";
+        int mounted = fileXioMount("pfs2:", "hdd0:__common", FIO_MT_RDONLY) >= 0;
+        if (!mounted) continue;
+        const char *stage = jail ? "pfs2:/tmp" : "pfs2:/PSBBN_DP_TEMP";
         for (unsigned slot = 0; slot < 2; slot++) {
             HddFormatPlan p; unsigned seq;
             memset(candidate, 0, sizeof(*candidate));
@@ -186,10 +185,10 @@ int hddInstallResumeLoad(HddInstall *in, HddFormatPlan *plan, unsigned *sequence
     if (!found) return ret;
     in->resumed = 1; in->recovery_attempts = 0;
     in->apa_sectors = in->jail ? plan->apa_sectors : plan->sectors;
-    snprintf(in->ca_path, sizeof(in->ca_path), "%s/PSBBN_DP_TEMP/INSTALL_CA.PEM", in->jail ? "ata0:" : "pfs2:");
+    snprintf(in->ca_path, sizeof(in->ca_path), "pfs2:/%s/INSTALL_CA.PEM", in->jail ? "tmp" : "PSBBN_DP_TEMP");
     /* Read the staged CA before starting HTTPS, which can reset this stack. */
-    int mounted = !in->jail && fileXioMount("pfs2:", "hdd0:__common", FIO_MT_RDONLY) >= 0;
-    if (!in->jail && !mounted) ret = -EIO;
+    int mounted = fileXioMount("pfs2:", "hdd0:__common", FIO_MT_RDONLY) >= 0;
+    if (!mounted) ret = -EIO;
     else ret = in->committed ? 0 : hddInstallLoadCa(in);
     if (mounted) fileXioUmount("pfs2:");
     if (ret < 0) {
