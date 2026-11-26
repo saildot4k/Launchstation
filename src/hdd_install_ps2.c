@@ -14,6 +14,7 @@
 /* Immutable archive referenced by DP's HOSDMenu-Installer.sh. Recorded from
  * https://archive.org/metadata/psbbn-definitive-english-patch-v2 . */
 #define EXTRAS_SIZE 5034301u
+#define EMBER_DEP_URL "https://archive.org/download/psbbn-definitive-project-dependencies/dep.zip"
 
 static const char *const app_folders[] = {"APP_WLE-R3Z", "SYS_R3CONFIGURATOR"};
 static const char *const app_boot[] = {"WLE-R3Z.ELF", "r3configurator.elf"};
@@ -118,7 +119,7 @@ static int checkFileSize(HddInstall *in, const char *name, uint32_t size)
 static int launcherStageName(const char *source, char name[192])
 {
     static const struct { const char *remote, *local; } roots[] = {
-        {"scripts/assets/OPL/", "OPL/"}, {"scripts/assets/NHDDL/", "NHDDL/"},
+        {"scripts/assets/Ember/", "Ember/"}, {"scripts/assets/OPL/", "OPL/"}, {"scripts/assets/NHDDL/", "NHDDL/"},
         {"scripts/assets/neutrino/", "Neutrino/"}, {"icons/", "Icons/"},
         {"scripts/licenses/", "Licenses/"}
     };
@@ -145,23 +146,31 @@ static int findLauncher(const HddInstall *in, const char *path)
     return -ENOENT;
 }
 static const char *launcherIcon(const HddInstall *in)
-{ return in->game_launcher == HDD_GAME_NEUTRINO ? "icons/ico/APP_NHDDL_LST.ico" : "icons/ico/APP_OPL_LST.ico"; }
+{ return in->game_launcher >= HDD_GAME_RIPTOPL ? "icons/ico/APP_RIPTOPL_LST.ico" : in->game_launcher == HDD_GAME_NEUTRINO ? "icons/ico/APP_NHDDL_LST.ico" : "icons/ico/APP_OPL_LST.ico"; }
 static const char *launcherArt(const HddInstall *in)
-{ return in->game_launcher == HDD_GAME_NEUTRINO ? "icons/art/APP_NHDDL.png" : "icons/art/APP_OPL.png"; }
+{ return in->game_launcher >= HDD_GAME_RIPTOPL ? "icons/art/APP_RIPTOPL.png" : in->game_launcher == HDD_GAME_NEUTRINO ? "icons/art/APP_NHDDL.png" : "icons/art/APP_OPL.png"; }
 static const char *const launcher_required[] = {
         "scripts/assets/OPL/OPNPS2LD.ELF", "scripts/assets/NHDDL/nhddl.elf", "scripts/assets/neutrino/neutrino.elf",
         "scripts/assets/neutrino/config/system.toml", "scripts/assets/neutrino/version.txt",
         "scripts/assets/OPL/version.txt", "scripts/assets/NHDDL/version.txt",
         "scripts/licenses/OPL", "scripts/licenses/nhddl", "scripts/licenses/neutrino"
 };
+static const char *const riptopl_required[] = {
+    "scripts/assets/OPL/RIPTOPL-RA-UNPAKT.ELF", "scripts/assets/Ember/ember.elf", "scripts/assets/neutrino/neutrino.elf",
+    "scripts/assets/Ember/version.txt", "scripts/assets/OPL/version.txt", "scripts/assets/neutrino/version.txt",
+    "scripts/assets/neutrino/config/system.toml", "scripts/licenses/EMBER-LICENSE-BETA.txt",
+    "scripts/licenses/RiptOPL.txt", "scripts/licenses/neutrino.txt"
+};
 static int launcherManifest(HddInstall *in)
 {
     if (!in->launcher_files || !in->launcher_count || in->launcher_count > HDD_INSTALL_LAUNCHER_FILES ||
-        in->game_launcher > HDD_GAME_NEUTRINO) return -EINVAL;
-    for (unsigned i = 0; i < sizeof(launcher_required) / sizeof(launcher_required[0]); i++) {
-        int index = findLauncher(in, launcher_required[i]);
+        in->game_launcher > HDD_GAME_RIPTOPL_NEUTRINO) return -EINVAL;
+    const char *const *required = in->game_launcher >= HDD_GAME_RIPTOPL ? riptopl_required : launcher_required;
+    unsigned count = in->game_launcher >= HDD_GAME_RIPTOPL ? sizeof(riptopl_required) / sizeof(*riptopl_required) : sizeof(launcher_required) / sizeof(*launcher_required);
+    for (unsigned i = 0; i < count; i++) {
+        int index = findLauncher(in, required[i]);
         if (index < 0 || !in->launcher_files[index].size) {
-            hddInstallLog("Missing/empty launcher asset: %s", launcher_required[i]); return -ENOENT;
+            hddInstallLog("Missing/empty launcher asset: %s", required[i]); return -ENOENT;
         }
     }
     if (findLauncher(in, launcherIcon(in)) < 0 || findLauncher(in, launcherArt(in)) < 0) return -ENOENT;
@@ -178,7 +187,8 @@ static int checkLaunchers(HddInstall *in)
         ret = checkFileSize(in, name, in->launcher_files[i].size);
         if (ret < 0) return ret;
         if (!strcmp(in->launcher_files[i].path, launcher_required[0]) || !strcmp(in->launcher_files[i].path, launcher_required[1]) ||
-            !strcmp(in->launcher_files[i].path, launcher_required[2])) {
+            !strcmp(in->launcher_files[i].path, launcher_required[2]) ||
+            !strcmp(in->launcher_files[i].path, riptopl_required[0]) || !strcmp(in->launcher_files[i].path, riptopl_required[1])) {
             char path[MAX_PATH]; unsigned char header[52]; int fd;
             if (in->launcher_files[i].size < sizeof(header) || pathJoin(path, sizeof(path), in->stage, name) < 0) return -EINVAL;
             fd = genOpen(path, FIO_O_RDONLY); if (fd < 0) return fd;
@@ -476,7 +486,8 @@ static int collectLauncher(void *context, const char *name, const char *hash, ui
     if (!strncmp(parent, "icons/", 6)) {
         if (directory || (strcmp(path, launcherIcon(in)) && strcmp(path, launcherArt(in)))) return 0;
     } else if (!strcmp(parent, "scripts/licenses")) {
-        if (directory || (strcmp(name, "OPL") && strcmp(name, "neutrino") && strcmp(name, "nhddl"))) return 0;
+        if (directory || (strcmp(name, "OPL") && strcmp(name, "neutrino") && strcmp(name, "nhddl") &&
+                          strcmp(name, "RiptOPL.txt") && strcmp(name, "neutrino.txt") && strcmp(name, "EMBER-LICENSE-BETA.txt"))) return 0;
     }
     /* These commit-pinned runtime trees use URL-safe names. Never follow
      * server-provided download URLs, symlinks or arbitrary repository roots. */
@@ -501,6 +512,7 @@ static int launcherMetadata(HddInstall *in)
     in->launcher_files = calloc(HDD_INSTALL_LAUNCHER_FILES, sizeof(*in->launcher_files));
     if (!in->launcher_files) return -ENOMEM;
     for (unsigned i = 0; i < 6; i++) strcpy(list.dirs[i], roots[i]);
+    if (in->game_launcher >= HDD_GAME_RIPTOPL) strcpy(list.dirs[1], "scripts/assets/Ember");
     for (; list.current < list.count; list.current++) {
         HttpsResponse response; char path[320]; int ret;
         snprintf(path, sizeof(path), HDD_INSTALL_API "/contents/%s?ref=%s", list.dirs[list.current], in->commit);
@@ -583,9 +595,22 @@ static int downloadInstaller(HddInstall *in, const char **phase)
     }
     if (in->flags & HDD_INSTALL_HOSD) {
         in->sizes[HI_EXTRAS] = EXTRAS_SIZE;
+        if ((in->flags & HDD_INSTALL_PSBBN) && in->game_launcher >= HDD_GAME_RIPTOPL) {
+            *phase = "Ember BIOS dependency metadata";
+            memset(&response, 0, sizeof(response));
+            hddInstallLog("GET https://archive.org/metadata/psbbn-definitive-project-dependencies");
+            ret = httpsRequest("GET", "archive.org", "/metadata/psbbn-definitive-project-dependencies",
+                               NULL, NULL, 0, in->ca_path, &response, in->error, sizeof(in->error));
+            if (ret < 0 || response.status != 200 || !response.body) {
+                httpsResponseFree(&response); return ret < 0 ? ret : -EIO;
+            }
+            ret = hddInstallDependencyMetadata(response.body, in->hashes[HI_EXTRAS], &in->sizes[HI_EXTRAS]) ? 0 : -EINVAL;
+            httpsResponseFree(&response);
+            if (ret < 0) goto invalid;
+        }
     }
     if (in->flags & HDD_INSTALL_PSBBN) {
-        *phase = "OPL / Neutrino package metadata";
+        *phase = "Game launcher package metadata";
         ret = launcherMetadata(in);
         if (ret < 0) goto invalid;
     }
@@ -623,7 +648,7 @@ static int downloadInstaller(HddInstall *in, const char **phase)
         }
         if (hddInstallRecoveryFault()) { ret = HDD_INSTALL_ATA_TIMEOUT; goto invalid; }
         in->downloaded_assets &= ~(1u << asset);
-        if (asset == HI_EXTRAS) snprintf(url, sizeof(url), "%s", EXTRAS_URL);
+        if (asset == HI_EXTRAS) snprintf(url, sizeof(url), "%s", in->game_launcher >= HDD_GAME_RIPTOPL ? EMBER_DEP_URL : EXTRAS_URL);
         else if (asset == HI_PS2LINUX)
             snprintf(url, sizeof(url), "https://archive.org/download/%s/PS2Linux.tar.gz", in->archive_item);
         else if (asset == HI_SYSTEM || asset == HI_LANGUAGE || asset == HI_CHANNELS)
@@ -919,12 +944,29 @@ static int installApps(HddInstall *in)
     return 0;
 }
 
+static int installEmberBios(HddInstall *in)
+{
+    char path[MAX_PATH];
+    ZipContext ctx = {-1, -1};
+    InstallArchiveIo io = {&ctx, zipRead, zipWrite};
+    uint32_t size = 0;
+    if (pathJoin(path, sizeof(path), in->stage, "extras.zip") < 0) return -ENAMETOOLONG;
+    ctx.input = genOpen(path, FIO_O_RDONLY);
+    if (ctx.input < 0) return ctx.input;
+    ctx.output = genOpen("ata0:/Ember/bios.bin", FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC);
+    if (ctx.output < 0) return closeResult(ctx.input, ctx.output);
+    hddInstallStatus("Installing Ember BIOS", 0, 0);
+    int ret = installZipExtract(&io, in->sizes[HI_EXTRAS], "dep/bios.bin", 512u * 1024, &size);
+    ret = closeResult(ctx.output, ret); ret = closeResult(ctx.input, ret);
+    return ret < 0 ? ret : size == 512u * 1024 ? 0 : -EINVAL;
+}
+
 /* Install commit-pinned launchers after system/language archive population.
  * Neutrino's complete runtime stays on
  * exFAT, matching NHDDL's ATA layout and DP's game installer. */
 static int installLaunchers(HddInstall *in)
 {
-    static const char *const folders[] = {"APPS", "ART", "CFG", "CHT", "LNG", "THM", "VMC", "CD", "DVD", "POPS", "nhddl"};
+    static const char *const folders[] = {"APPS", "ART", "CFG", "CHT", "LNG", "THM", "VMC", "CD", "DVD", "POPS", "nhddl", "Ember", "Ember/games"};
     char target[MAX_PATH], name[192];
     int ret;
     uint64_t total = 0, copied = 0;
@@ -941,6 +983,9 @@ static int installLaunchers(HddInstall *in)
         const char *source = file->path;
         if (!strncmp(source, "icons/", 6)) continue; /* PP.LAUNCHER metadata below. */
         if (!strcmp(source, "scripts/assets/OPL/OPNPS2LD.ELF")) strcpy(target, "pfs0:/launcher/OPNPS2LD.ELF");
+        else if (!strcmp(source, "scripts/assets/OPL/RIPTOPL-RA-UNPAKT.ELF")) strcpy(target, "pfs0:/launcher/RIPTOPL-RA-UNPAKT.ELF");
+        else if (!strncmp(source, "scripts/assets/Ember/", sizeof("scripts/assets/Ember/") - 1)) snprintf(target, sizeof(target), "ata0:/Ember/%s", source + sizeof("scripts/assets/Ember/") - 1);
+        else if (!strcmp(source, "scripts/licenses/EMBER-LICENSE-BETA.txt")) strcpy(target, "ata0:/Ember/LICENSE.txt");
         else if (!strcmp(source, "scripts/assets/NHDDL/nhddl.elf")) strcpy(target, "pfs0:/launcher/nhddl.elf");
         else if (!strcmp(source, "scripts/assets/OPL/version.txt")) strcpy(target, "pfs0:/launcher/OPL-version.txt");
         else if (!strcmp(source, "scripts/assets/NHDDL/version.txt")) strcpy(target, "pfs0:/launcher/NHDDL-version.txt");
@@ -955,20 +1000,34 @@ static int installLaunchers(HddInstall *in)
         copied += file->size;
         if (total) hddInstallOverall(900 + 80 * copied / total, 1000);
     }
+    if (in->game_launcher >= HDD_GAME_RIPTOPL) {
+        ret = installEmberBios(in); if (ret < 0) return ret;
+        static const char credit[] = "Ember by Gageformer\nhttps://github.com/Gageformer/Ember/releases\n";
+        ret = writeNew(in, "ata0:/Ember/README.txt", credit, sizeof(credit) - 1);
+        if (ret < 0) return ret;
+    }
     {
-        char config[256], path[128];
+        char config[512], path[128];
         const char *language = !strcmp(in->language.code, "por") ? "Portuguese_BR" : in->language.name;
         snprintf(path, sizeof(path), "scripts/assets/OPL/LNG/lang_%s.lng", language);
         if (!*language || findLauncher(in, path) < 0) language = "English";
         int n = snprintf(config, sizeof(config), "enable_coverart=1\ndefault_device=0\nusb_mode=2\napp_mode=2\nenable_bdm_hdd=1\nlanguage_text=%s\nswap_select_btn=0\n", language);
-        return writeNew(in, "ata0:/conf_opl.cfg", config, n);
+        if (in->game_launcher >= HDD_GAME_RIPTOPL) {
+            n = snprintf(config, sizeof(config),
+                "enable_notifications=1\nenable_coverart=1\nenable_discart=0\nenable_logoart=1\nenable_bgart=1\n"
+                "ps2logo=0\napply_gameid=1\nenable_rumble=0\ncfg_titles_in_lists=1\nigr_menu=1\nigr_alt_combo=0\n"
+                "language_text=%s\nswap_select_btn=0\ndefault_device=0\nusb_mode=2\napp_mode=2\nenable_bdm_hdd=1\ndefault_core=%u\n",
+                language, in->game_launcher == HDD_GAME_RIPTOPL_NEUTRINO ? 1u : 0u);
+        }
+        if (n < 0 || n >= (int)sizeof(config)) return -ENOSPC;
+        return writeNew(in, in->game_launcher >= HDD_GAME_RIPTOPL ? "ata0:/settings_riptopl.cfg" : "ata0:/conf_opl.cfg", config, n);
     }
 }
 
 static int installGamePartition(HddInstall *in)
 {
     const char *title = hddInstallGameName(in->game_launcher);
-    const char *id = in->game_launcher == HDD_GAME_NEUTRINO ? "APP_NHDDL" : "APP_OPL";
+    const char *id = in->game_launcher >= HDD_GAME_RIPTOPL ? "APP_RIPTOPL" : in->game_launcher == HDD_GAME_NEUTRINO ? "APP_NHDDL" : "APP_OPL";
     char path[MAX_PATH], name[192], elf[128], info[1024];
     unsigned char *icon;
     int index, art, fd, ret, n;

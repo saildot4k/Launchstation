@@ -15,7 +15,8 @@
 #define HDD_INSTALL_HOME_MAX_MB 16384u
 #define HDD_INSTALL_LAUNCHER_FILES 160
 
-enum { HDD_GAME_OPL, HDD_GAME_NEUTRINO };
+/* Keep legacy values for existing installation journals. */
+enum { HDD_GAME_OPL, HDD_GAME_NEUTRINO, HDD_GAME_RIPTOPL, HDD_GAME_RIPTOPL_NEUTRINO };
 typedef struct {
     char path[192], hash[41];
     uint32_t size;
@@ -78,6 +79,7 @@ int hddInstallAssetMetadata(const char *json, const char *name,
                              char hash[41], uint32_t *size);
 int hddInstallArchiveMetadata(const char *json, const char *prefix,
                               char name[128], char hash[41], uint32_t *size);
+int hddInstallDependencyMetadata(const char *json, char hash[41], uint32_t *size);
 int hddInstallLinuxMetadata(const char *json, char hash[41], uint32_t *size);
 /* Bounded directory metadata; callback receives leaf names, never remote URLs. */
 int hddInstallDirectory(const char *json, int (*entry)(void *, const char *, const char *, uint32_t, int), void *context);

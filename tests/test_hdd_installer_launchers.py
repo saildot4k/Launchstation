@@ -136,7 +136,7 @@ int main(int argc,char **argv) {
     if(resuming){
         assert(ret==-502&&in.downloaded_launchers==2&&hddInstallRecoveryFault()==-502);
         hddInstallRecoveryEnd();in.recovery_attempts=1;in.owned=1;overall_bytes=0;
-        if(corrupt_cache){int fd=genOpen("pfs2:/stage/OPL/OPNPS2LD.ELF",FIO_O_WRONLY|FIO_O_TRUNC);assert(fd>=0);close(fd);}
+        if(corrupt_cache){int fd=genOpen(in.game_launcher>=HDD_GAME_RIPTOPL?"pfs2:/stage/OPL/version.txt":"pfs2:/stage/OPL/OPNPS2LD.ELF",FIO_O_WRONLY|FIO_O_TRUNC);assert(fd>=0);close(fd);}
         unsigned saved_requests=requests;
         hddInstallRecoveryBegin();ret=downloadLaunchers(&in,&phase,0,downloadBytes(&in));
         assert(!hddInstallRecoveryFault()&&requests==saved_requests&&in.downloaded_launchers==in.launcher_count);
@@ -151,7 +151,7 @@ int main(int argc,char **argv) {
             assert(!fileXioRename(from,to));
         }
         if(!strcmp(failure,"legacy-partial")){
-            int fd=genOpen("pfs2:/stage/OPL/OPNPS2LD.ELF",FIO_O_WRONLY|FIO_O_CREAT);assert(fd>=0);assert(write(fd,"partial",7)==7);close(fd);
+            int fd=genOpen(in.game_launcher>=HDD_GAME_RIPTOPL?"pfs2:/stage/OPL/RIPTOPL-RA-UNPAKT.ELF":"pfs2:/stage/OPL/OPNPS2LD.ELF",FIO_O_WRONLY|FIO_O_CREAT);assert(fd>=0);assert(write(fd,"partial",7)==7);close(fd);
         }
         in.resumed=1;migration=1;ret=prepareLauncherStage(&in);
         if(!strcmp(failure,"legacy-rename")){assert(ret==-EIO);free(in.launcher_files);return 0;}
@@ -188,11 +188,18 @@ with tempfile.TemporaryDirectory(prefix="hdd-installer-launchers-") as directory
              **{f"scripts/licenses/{name}": b"license" for name in ("OPL", "nhddl", "neutrino")},
              **{f"icons/{kind}/APP_{app}{suffix}": b"icon" for app in ("OPL", "NHDDL")
                 for kind, suffix in (("art", ".png"), ("ico", "_LST.ico"))}}
-    for choice in (0, 1):
+    modern = {key:data for key,data in files.items() if not any(x in key for x in ('NHDDL','OPNPS2LD','scripts/licenses/','icons/'))}
+    modern.update({"scripts/assets/OPL/RIPTOPL-RA-UNPAKT.ELF":bytes(elf), "scripts/assets/Ember/ember.elf":bytes(elf),
+                   "scripts/assets/Ember/version.txt":b"0.8",
+                   **{f"scripts/licenses/{name}":b"license" for name in ("RiptOPL.txt","neutrino.txt","EMBER-LICENSE-BETA.txt")},
+                   "icons/art/APP_RIPTOPL.png":b"art", "icons/ico/APP_RIPTOPL_LST.ico":b"icon"})
+    legacy_files=files
+    for choice in (0, 1, 2, 3):
+        files = modern if choice>=2 else legacy_files
         for failure in ("ok", "hash-ignored", "resume", "resume-corrupt", "truncated", "request", "write", "missing", "duplicate", "symlink", "traversal", "oversize", "file-limit", "directory-limit", "mkdir", "legacy", "legacy-partial", "legacy-rename"):
             work = d / f"{choice}-{failure}"
             (work / "stage").mkdir(parents=True)
-            listings = {path: [] for path in ("scripts/assets/OPL", "scripts/assets/NHDDL", "scripts/assets/neutrino", "icons/art", "icons/ico", "scripts/licenses")}
+            listings = {path: [] for path in ("scripts/assets/OPL", "scripts/assets/Ember" if choice>=2 else "scripts/assets/NHDDL", "scripts/assets/neutrino", "icons/art", "icons/ico", "scripts/licenses")}
             def ensure_directory(parent):
                 if parent in listings:
                     return
@@ -228,7 +235,7 @@ with tempfile.TemporaryDirectory(prefix="hdd-installer-launchers-") as directory
             if failure in ('ok', 'hash-ignored', 'resume', 'resume-corrupt', 'legacy', 'legacy-partial'):
                 assert not list((work / 'stage').glob('launcher-*.bin'))
                 for remote, payload in files.items():
-                    if remote.startswith('icons/') and f'APP_{"NHDDL" if choice else "OPL"}' not in remote:
+                    if remote.startswith('icons/') and f'APP_{"RIPTOPL" if choice>=2 else "NHDDL" if choice else "OPL"}' not in remote:
                         continue
                     if remote.startswith('scripts/assets/'):
                         relative = remote[len('scripts/assets/'):]

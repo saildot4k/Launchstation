@@ -225,7 +225,7 @@ Progress counts bytes accepted by storage, including the final buffered flush.
   visibility attribute `0xc4a7` on APPS and each application folder. No separate
   app partitions or PSBBN/Linux partitions are created.
 - **APA Jail:** format only, or install English PSBBN DP, OSDMenu MBR,
-  HOSDMenu, WLE-R3Z, R3CONFIGURATOR, OPL, and NHDDL with Neutrino. Apps live on exFAT under `ata0:/APPS`.
+  HOSDMenu, WLE-R3Z, R3CONFIGURATOR, RiptOPL, Neutrino, and Ember. Apps live on exFAT under `ata0:/APPS`.
   Each has a standard 128 MiB PFS launcher with PATINFO, HDD icons, and PSBBN
   browser metadata. The installer does not enable 8 MiB APA partitions.
 
@@ -283,28 +283,40 @@ Boot configuration is generated for the actual installed components and paths.
 Pure APA boots HOSDMenu; PSBBN installs boot PSBBN with `-dev9=NICHDD` and offer
 HOSDMenu on Cross. Start/Select hotkeys launch the included apps when present.
 
-PSBBN installs ask for a default game launcher: **Open PS2 Loader (OPL)** or
-**Neutrino (NHDDL)**. Both launchers are downloaded from the same pinned DP
-commit. Their ELFs are installed in `__system/launcher`; the complete Neutrino
-runtime (including config files and IRX modules) goes to `ata0:/neutrino` and
-OPL's language assets go to `ata0:/LNG`. Matching licenses and version files are
-included. The generated OPL configuration enables BDM HDD, apps, and cover art.
-These binaries are copied after archive extraction.
+New PSBBN installations follow DP's November 2026 runtime layout. RiptOPL
+is the game frontend, with **Neutrino (RiptOPL)** listed first/default and
+**OPL (RiptOPL)** as the alternative PS2 core. Both selections install the same
+commit-pinned RiptOPL, Neutrino and Ember packages. RiptOPL's ELF goes to
+`__system/launcher/RIPTOPL-RA-UNPAKT.ELF`; Neutrino's complete runtime goes to
+`ata0:/neutrino`, language assets to `ata0:/LNG`, and Ember to `ata0:/Ember`,
+with `ata0:/Ember/games` created for PS1 titles. `settings_riptopl.cfg` enables
+BDM HDD, apps and cover art, selects the installed language, and sets
+`default_core=1` for Neutrino or `0` for OPL.
+
+Ember's unmodified ELF, version and beta license come from DP's pinned commit.
+The license is installed beside the ELF as `LICENSE.txt`, with a README crediting
+[Gageformer and linking the official releases](https://github.com/Gageformer/Ember/releases).
+Like DP, the installer downloads `dep.zip` from the
+`psbbn-definitive-project-dependencies` Archive.org item and extracts only
+`dep/bios.bin` to `ata0:/Ember/bios.bin`. Metadata supplies the bounded archive
+size; extraction checks ZIP CRC and requires a 512 KiB BIOS. The shared dependency
+asset retains its legacy `extras.zip` cache filename, but contains `dep.zip`
+for this profile. Pure APA profiles retain their HDD-OSD resources and do not
+install these game runtimes. No game images or PS1 save conversions are installed.
 
 Launcher downloads retain their original names and subfolders under
-`__common:/tmp/OPL`, `NHDDL` and `Neutrino`. Shared artwork/icons use
-`tmp/Icons/art` and `tmp/Icons/ico`; licenses use `tmp/Licenses`. For example,
-Neutrino's module cache is `tmp/Neutrino/modules/ata_bd.irx`, and OPL's
-language/font cache is `tmp/OPL/LNG`. Retries adopt completed numbered files
-from older caches by renaming them into this structure, without downloading
-them again. Cleanup removes manifest files and their empty parent directories,
-leaving unrelated files and retained diagnostics alone.
+`__common:/tmp/OPL`, `Ember` and `Neutrino`. Shared artwork/icons use
+`tmp/Icons/art` and `tmp/Icons/ico`; licenses use `tmp/Licenses`. Retries adopt
+completed numbered files from older caches by renaming them into the app folders.
+Cleanup removes manifest files and their empty parents, leaving unrelated files
+and retained diagnostics alone.
 
-The choice controls the Square boot shortcut, the first HOSDMenu launcher entry,
-and DP's standard `PP.LAUNCHER` partition, including its icon, artwork, and PSBBN
-Navigator shortcut. NHDDL receives `-mode=ata`. The other launcher remains in the
-HOSDMenu menu. The extra launcher uses a standard 128 MiB APA partition and is
-included in allocation calculations. Pure APA profiles are unchanged.
+Square boot, the first HOSDMenu launcher entry, and DP's `PP.LAUNCHER` partition
+all launch RiptOPL with matching DP artwork, icon, title ID and Navigator shortcut.
+The launcher uses a standard 128 MiB APA partition included in allocation
+calculations. Existing journals preserve their older OPL/NHDDL enum values,
+runtime paths and configuration generation; newly prepared installations no
+longer request those removed upstream assets.
 
 ### Download and failure behavior
 
@@ -385,7 +397,9 @@ asset metadata and the Linux boot hotkey.
 downloads against a local HTTPS facade, checking pinned URLs, recursive runtime
 trees, quick size/ELF-header checks without full-file reads, short I/O, missing files, duplicate/traversal/symlink
 metadata, and network/storage failures. Apply tests cover both defaults, archive
-replacement, runtime modules/configuration, OPL settings, and launcher resources.
+replacement, runtime modules/configuration, both RiptOPL core settings, Ember
+ELF/license/BIOS installation and launcher resources. Legacy OPL/NHDDL packages
+and installation journals remain covered.
 The stage test checks internal folder creation,
 CA preservation and ownership-checked cleanup. `tests/test_hdd_installer_finish.py` verifies software
 and flush/readback checks precede MBR activation, with failure cleanup.
@@ -593,9 +607,10 @@ only the cursor to indicate focus; initial defaults do not receive check marks.
 The APA Jail software menu offers **No software, format only** and
 **PSBBN DP, HOSDMenu**, with **EXPERIMENTAL** in the second row's detail column.
 Selecting PSBBN immediately shows the Sony Network Adapter / GameStar warning,
-then defaults the game launcher to **Neutrino (NHDDL)**, listed before OPL.
+then asks for the default PS2 game core: **Neutrino (RiptOPL)**, listed before
+**OPL (RiptOPL)**.
 After the unnumbered compatibility notice, its six numbered dialogs cover
-the game launcher, Music size, Contents size, standalone PS2 Linux, future APA
+the PS2 game core, Music size, Contents size, standalone PS2 Linux, future APA
 reserve and language. The format review and final erase confirmation are
 unnumbered. The Linux dialog
 lists **Do not install PS2 Linux**, then **1 GiB**, **2 GiB**, **4 GiB** and

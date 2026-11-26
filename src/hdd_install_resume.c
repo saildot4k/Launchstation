@@ -58,7 +58,10 @@ static int text(const char *s, unsigned capacity, const char *allowed, int empty
 static int runtimePath(const char *path)
 {
     if (!text(path, 192, SAFE "/", 0)) return 0;
-    if (strncmp(path, "scripts/assets/OPL/", 19) && strncmp(path, "scripts/assets/NHDDL/", 21) &&
+    if (strncmp(path, "scripts/assets/Ember/", sizeof("scripts/assets/Ember/") - 1) &&
+        strcmp(path, "scripts/licenses/EMBER-LICENSE-BETA.txt") && strcmp(path, "scripts/licenses/RiptOPL.txt") &&
+        strcmp(path, "scripts/licenses/neutrino.txt") && strcmp(path, "icons/ico/APP_RIPTOPL_LST.ico") &&
+        strcmp(path, "icons/art/APP_RIPTOPL.png") && strncmp(path, "scripts/assets/OPL/", 19) && strncmp(path, "scripts/assets/NHDDL/", 21) &&
         strncmp(path, "scripts/assets/neutrino/", 24) && strcmp(path, "scripts/licenses/OPL") &&
         strcmp(path, "scripts/licenses/nhddl") && strcmp(path, "scripts/licenses/neutrino") &&
         strcmp(path, "icons/ico/APP_OPL_LST.ico") && strcmp(path, "icons/ico/APP_NHDDL_LST.ico") &&
@@ -77,7 +80,7 @@ static int valid(const HddInstall *in, const HddFormatPlan *p)
         memcmp(p, &expected, sizeof(expected)) || in->jail != (p->kind == HDD_FORMAT_APA_JAIL) ||
         !in->flags || (in->flags & ~15u) || ((in->flags & HDD_INSTALL_PS2LINUX) && !(in->flags & HDD_INSTALL_PSBBN)) ||
         ((in->flags & HDD_INSTALL_PSBBN) && (!in->jail || (in->flags & 7) != 7)) ||
-        in->game_launcher > HDD_GAME_NEUTRINO || in->stage_ready != 1 || in->manifest_ready > 1 ||
+        in->game_launcher > HDD_GAME_RIPTOPL_NEUTRINO || in->stage_ready != 1 || in->manifest_ready > 1 ||
         in->ready > 1 || in->applied > 1 || in->populated > 1 || in->committed > 1 ||
         (in->downloaded_assets >> HDD_INSTALL_ASSETS) || in->launcher_count > HDD_INSTALL_LAUNCHER_FILES ||
         in->downloaded_launchers > in->launcher_count || (in->launcher_count && !in->launcher_files) ||
