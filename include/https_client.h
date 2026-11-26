@@ -27,6 +27,10 @@ void httpsSetCaBundle(const unsigned char *data, unsigned size);
  * end the scope before resetting the IOP or leaving the worker. */
 void httpsDownloadBatchBegin(void);
 void httpsDownloadBatchEnd(void);
+/* Inspect immediately after a failed serialized download, before another
+ * HTTPS operation. Only transport interruptions/temporary server errors qualify;
+ * certificate, framing, size and storage failures do not. */
+int httpsFailureRetryable(void);
 
 /* Download progress runs on the caller's thread after bytes are written.
  * A zero total means the server has not supplied a body length. */

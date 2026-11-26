@@ -138,6 +138,7 @@ jobs:
           python3 tests/test_hdd_installer_languages.py
           python3 tests/test_hdd_installer_raw.py
           python3 tests/test_hdd_installer_transport.py
+          python3 tests/test_hdd_installer_download_retry.py
           python3 tests/test_hdd_installer_log.py
           python3 tests/test_hdd_installer_log_view.py
           python3 tests/test_zack_oct_2026.py

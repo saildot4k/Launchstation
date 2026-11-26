@@ -332,6 +332,56 @@ static void transferProgress(int done, int total, void *context)
     hddInstallProgress(transfer->name, done, transfer->expected);
     hddInstallOverall(transfer->completed + (unsigned)done, transfer->total);
 }
+/* Three file attempts: wait 2s before each retry. Reopen with TRUNC before retrying
+ * a partial body; never append new bytes to an interrupted response. */
+static int downloadFile(HddInstall *in, const char *url, const char *name,
+                        uint32_t expected, InstallTransfer *transfer)
+{
+    char path[MAX_PATH];
+    int ret = pathJoin(path, sizeof(path), in->stage, name);
+    if (ret < 0) return ret;
+    for (unsigned attempt = 1; attempt <= 3; attempt++) {
+        int size = 0, retryable = 0, closed;
+        if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+        in->error[0] = 0;
+        int fd = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT |
+                        ((attempt > 1 || in->recovery_attempts || in->resumed) ? FIO_O_TRUNC : FIO_O_EXCL));
+        if (fd < 0) {
+            snprintf(in->error, sizeof(in->error), "Could not open download file (error %d).", fd);
+            return fd;
+        }
+        ret = 0;
+        if (expected) {
+            ret = httpsDownloadFd(url, fd, in->ca_path, expected, &size, NULL,
+                                  transferProgress, transfer, in->error, sizeof(in->error));
+            retryable = ret < 0 && httpsFailureRetryable();
+        }
+        if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+        closed = genClose(fd);
+        hddInstallLog("DOWNLOAD attempt %u/3 rc=%d bytes=%d expected=%u", attempt, ret, size, (unsigned)expected);
+        if (closed < 0) {
+            snprintf(in->error, sizeof(in->error), "Could not close download file (error %d).", closed);
+            return closed;
+        }
+        if (ret >= 0) {
+            if ((uint32_t)size == expected) return 0;
+            snprintf(in->error, sizeof(in->error), "Downloaded file has %d bytes; expected %u.", size, (unsigned)expected);
+            return -EIO;
+        }
+        if (!retryable || attempt == 3) return ret;
+        unsigned delay = 2;
+        hddInstallLog("DOWNLOAD retry %u/3 in %u s: %s; %s", attempt + 1, delay, name, in->error);
+        hddInstallLogFlush(in);
+        if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+        for (unsigned seconds = delay; seconds; seconds--) {
+            char status[160];
+            snprintf(status, sizeof(status), "Retry %u/3 in %u s: %.110s", attempt + 1, seconds, name);
+            hddInstallProgress(status, 0, 0);
+            DelayThread(1000000);
+        }
+    }
+    return ret;
+}
 static int request(HddInstall *in, const char *path, HttpsResponse *response)
 {
     const char headers[] = "User-Agent: Launchstation-PS2\r\nAccept: application/vnd.github+json\r\n";
@@ -466,26 +516,21 @@ static int downloadLaunchers(HddInstall *in, const char **phase, uint64_t comple
 {
     for (unsigned i = 0; i < in->launcher_count; i++) {
         HddInstallFile *file = &in->launcher_files[i];
-        char name[192], local[MAX_PATH], url[512];
-        int fd, size = 0, ret = launcherStageName(file->path, name);
+        char name[192], url[512];
+        int ret = launcherStageName(file->path, name);
         if (ret < 0) return ret;
-        if (pathJoin(local, sizeof(local), in->stage, name) < 0) return -ENAMETOOLONG;
         snprintf(url, sizeof(url), "https://raw.githubusercontent.com/" HDD_INSTALL_REPOSITORY "/%s/%s", in->commit, file->path);
         if (i < in->downloaded_launchers && checkFileSize(in, name, file->size) == 0) {
             completed += file->size; hddInstallOverall(completed, total); continue;
         }
         if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
         if (i < in->downloaded_launchers) in->downloaded_launchers = i;
-        fd = genOpen(local, FIO_O_WRONLY | FIO_O_CREAT | ((in->recovery_attempts || in->resumed) ? FIO_O_TRUNC : FIO_O_EXCL)); if (fd < 0) return fd;
         *phase = file->path;
         hddInstallLog("LAUNCHER download %u/%u: %s (%u bytes)", i + 1, in->launcher_count, file->path, (unsigned)file->size);
         hddInstallLogFlush(in);
-        ret = 0;
-        if (file->size) { InstallTransfer transfer = {file->path, completed, total, file->size};
-          ret = httpsDownloadFd(url, fd, in->ca_path, file->size, &size, NULL,
-                                transferProgress, &transfer, in->error, sizeof(in->error)); }
-        ret = closeResult(fd, ret);
-        if (ret < 0 || (uint32_t)size != file->size) return ret < 0 ? ret : -EIO;
+        InstallTransfer transfer = {file->path, completed, total, file->size};
+        ret = downloadFile(in, url, name, file->size, &transfer);
+        if (ret < 0) return ret;
         in->downloaded_launchers = i + 1;
         ret = hddInstallResumeSave(in); if (ret < 0) return ret;
         completed += file->size;
@@ -503,7 +548,7 @@ static int downloadInstaller(HddInstall *in, const char **phase)
 {
     HttpsResponse response;
     char path[256], url[512], local[MAX_PATH];
-    int ret, fd, size;
+    int ret, fd;
     uint64_t downloaded = 0, download_total;
     in->ready = 0; in->error[0] = 0;
     if (!in->manifest_ready) {
@@ -585,22 +630,17 @@ static int downloadInstaller(HddInstall *in, const char **phase)
             snprintf(url, sizeof(url), "https://archive.org/download/%s/%s", in->archive_item,
                      asset == HI_CHANNELS ? in->channels : in->archives[asset - HI_SYSTEM]);
         else snprintf(url, sizeof(url), "https://raw.githubusercontent.com/" HDD_INSTALL_REPOSITORY "/%s/%s", in->commit, hddInstallAssetPath(asset));
-        fd = genOpen(local, FIO_O_WRONLY | FIO_O_CREAT | ((in->recovery_attempts || in->resumed) ? FIO_O_TRUNC : FIO_O_EXCL));
-        if (fd < 0) { ret = fd; goto invalid; }
-        size = 0; *phase = hddInstallAssetName(asset);
+        *phase = hddInstallAssetName(asset);
         hddInstallLog("DOWNLOAD %u/%u: %s", asset + 1, (unsigned)HDD_INSTALL_ASSETS, *phase);
         hddInstallLog("URL: %s", url);
         hddInstallLog("Destination: %s; expected=%u bytes", local, (unsigned)in->sizes[asset]);
         hddInstallLogFlush(in);
         {
             InstallTransfer transfer = {hddInstallAssetName(asset), downloaded, download_total, in->sizes[asset]};
-            ret = httpsDownloadFd(url, fd, in->ca_path, in->sizes[asset], &size, NULL,
-                                  transferProgress, &transfer, in->error, sizeof(in->error));
+            ret = downloadFile(in, url, hddInstallAssetName(asset), in->sizes[asset], &transfer);
         }
-        ret = closeResult(fd, ret);
-        hddInstallLog("DOWNLOAD result rc=%d bytes=%d expected=%u", ret, size, (unsigned)in->sizes[asset]);
         hddInstallLogFlush(in);
-        if (ret < 0 || (uint32_t)size != in->sizes[asset]) { if (ret >= 0) ret = -EIO; goto invalid; }
+        if (ret < 0) goto invalid;
         in->downloaded_assets |= 1u << asset;
         ret = hddInstallResumeSave(in); if (ret < 0) goto invalid;
         downloaded += in->sizes[asset];

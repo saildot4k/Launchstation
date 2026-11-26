@@ -62,6 +62,9 @@ typedef struct { int sock, ssl, conf, ca, ctr, entropy; } HttpsTls;
 #define MBEDTLS_ERR_X509_CERT_VERIFY_FAILED -9984
 #define MBEDTLS_ERR_SSL_WANT_READ -10
 #define MBEDTLS_ERR_SSL_WANT_WRITE -11
+#define MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY -12
+#define MBEDTLS_ERR_SSL_CONN_EOF -13
+#define MBEDTLS_ERR_SSL_TIMEOUT -14
 #define MBEDTLS_X509_BADCERT_EXPIRED 0x01u
 #define MBEDTLS_X509_BADCERT_REVOKED 0x02u
 #define MBEDTLS_X509_BADCERT_CN_MISMATCH 0x04u
@@ -74,7 +77,7 @@ typedef struct { int sock, ssl, conf, ca, ctr, entropy; } HttpsTls;
 typedef int (*RngFn)(void *,unsigned char *,size_t);
 static int handshake_result, parse_result, want_once, timeout;
 static int required_mode, hostname_set, frees, handshakes, waits, verifies, connects, disconnects;
-static int file_unavailable, file_reads;
+static int file_unavailable, file_reads,connect_failure;
 static const char *expected_ca;
 static uint32_t verify_flags;
 static u32 https_entropy_network_ticks;
@@ -98,7 +101,7 @@ static int mbedtls_x509_crt_parse(int *ca,const unsigned char *pem,size_t n) {
     assert(*ca && n==strlen(expected_ca)+1 && !strcmp((const char *)pem,expected_ca));return parse_result;
 }
 static int ps2_tcp_connect(int *sock,const char *host) {
-    assert(!strcmp(host,"api.github.com"));*sock=42;connects++;return 0;
+    assert(!strcmp(host,"api.github.com"));*sock=42;connects++;return connect_failure?-1:0;
 }
 static int mbedtls_entropy_func(void *ctx,unsigned char *out,size_t n) {
     (void)ctx;(void)out;(void)n;return 0;
@@ -174,7 +177,7 @@ program += function("static int tls_open(")
 program += r'''
 static void reset(int result,uint32_t flags) {
     handshake_result=result;verify_flags=flags;
-    parse_result=want_once=timeout=0;
+    parse_result=want_once=timeout=connect_failure=https_retryable=0;
     file_unavailable=file_reads=0;expected_ca="CA";
     required_mode=hostname_set=frees=handshakes=waits=verifies=connects=disconnects=0;
 }
@@ -183,7 +186,7 @@ static void expect_failure(uint32_t flags,const char *detail) {
     reset(MBEDTLS_ERR_X509_CERT_VERIFY_FAILED,flags);
     assert(tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error))<0);
     assert(required_mode==1 && hostname_set==1 && verifies && frees==1);
-    assert(strstr(error,detail));
+    assert(strstr(error,detail)&&!httpsFailureRetryable());
 }
 static int status_updates;
 static void observe_status(const char *text,void *arg) {
@@ -240,13 +243,18 @@ int main(void) {
     assert(handshakes==2 && waits==1 && !frees);
     reset(0,0);want_once=timeout=1;
     assert(tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error))<0);
-    assert(strstr(error,"handshake timed out") && frees==1);
+    assert(strstr(error,"handshake timed out") && frees==1 && httpsFailureRetryable());
     reset(0,0);parse_result=-1;
     assert(tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error))<0);
     assert(strstr(error,"parse HTTPS CA") && !connects && !handshakes && frees==1);
     reset(0,0);
     assert(tls_open(&tls,"api.github.com","",error,sizeof(error))<0);
     assert(strstr(error,"CA bundle is required") && !connects && frees==1);
+    reset(0,0);connect_failure=1;
+    assert(tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error))<0&&httpsFailureRetryable());
+    assert(strstr(error,"TCP connection")&&disconnects==1&&frees==1);
+    reset(MBEDTLS_ERR_SSL_CONN_EOF,0);
+    assert(tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error))<0&&httpsFailureRetryable());
     /* Repeated fatal sessions release TCP and every TLS context before retry. */
     for(int i=0;i<100;i++) {
         reset(-29056,(uint32_t)-1);

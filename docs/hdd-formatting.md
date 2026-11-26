@@ -204,6 +204,15 @@ before erasing and written to the new temporary folder, so it also works when
 the original CA file was on the formatted HDD. Use the matching release CA
 bundle; it includes the Go Daddy G2 root required by Archive.org.
 
+Installer file downloads make up to three attempts for transient TCP/TLS
+transport failures, interrupted responses, and HTTP 408/502/503/504. Delays are
+2 seconds before attempt 2 and another 2 seconds before attempt 3, shown as a GUI
+countdown and logged with the file and error. Each attempt reconnects and
+reopens only that file with truncation; completed downloads remain cached.
+Certificate, malformed-response, size-limit and storage errors stop immediately.
+These network retries do not reset the IOP. Metadata requests retain their
+existing behavior.
+
 The HTTPS downloader combines arbitrary TLS/HTTP fragments into 16 KiB file
 writes from a 64-byte-aligned buffer. Writes start at sector boundaries and use
 DMA-aligned source buffers for direct FatFs/ATA transfers; the filesystem handles

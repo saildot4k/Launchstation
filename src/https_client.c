@@ -84,6 +84,13 @@ typedef struct {
 } HttpsTls;
 
 static HttpsStatusCallback https_status_callback;
+static int https_retryable;
+int httpsFailureRetryable(void) { return https_retryable; }
+static int tlsTransportError(int result)
+{
+    return result == 0 || result == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY ||
+           result == MBEDTLS_ERR_SSL_CONN_EOF || result == MBEDTLS_ERR_SSL_TIMEOUT;
+}
 static void *https_status_arg;
 static HttpsStatusCallback https_trace_callback;
 static void *https_trace_arg;
@@ -472,6 +479,7 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
     r = ps2_tcp_connect(&tls->sock, host);
     https_entropy_network_ticks ^= (cpu_ticks() - network_start) ^ cpu_ticks();
     if (r != 0) {
+        https_retryable = 1;
         set_error(error, error_size, "TCP connection", 0);
         goto fail;
     }
@@ -512,6 +520,7 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
             if (wait_tls_io(tls, r) == 0)
                 continue;
             httpsTrace("TLS handshake idle timeout host=%s", host);
+            https_retryable = 1;
             set_error(error, error_size, "TLS handshake timed out", 0);
             goto fail;
         }
@@ -519,8 +528,10 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
          * its flags here, before freeing the session, as well as on success. */
         if (r == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED)
             tls_verify_error(tls, host, error, error_size, r);
-        else
+        else {
+            https_retryable = tlsTransportError(r);
             set_error(error, error_size, "TLS handshake", r);
+        }
         goto fail;
     }
     u32 verified = mbedtls_ssl_get_verify_result(&tls->ssl);
@@ -548,10 +559,12 @@ static int ssl_write_all(HttpsTls *tls, const void *data, int len,
         if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {
             if (wait_tls_io(tls, r) == 0)
                 continue;
+            https_retryable = 1;
             set_error(error, error_size, "HTTPS write timed out", 0);
             return -1;
         }
         if (r <= 0) {
+            https_retryable = tlsTransportError(r);
             set_error(error, error_size, "HTTPS write", r);
             return -1;
         }
@@ -795,6 +808,7 @@ int httpsRequest(const char *method, const char *host, const char *path,
                  char *error, int error_size)
 {
     HttpsTls tls;
+    https_retryable = 0;
 
     if (response == NULL || method == NULL || host == NULL || path == NULL ||
         ca_path == NULL || body_len < 0)
@@ -1059,6 +1073,7 @@ static int downloadOnce(const char *url, int fd, const char *ca_path,
     char current[HTTPS_LOCATION_MAX];
     int redirect;
     *retry = 0;
+    https_retryable = 0;
 
     if (url == NULL || fd < 0 || ca_path == NULL || max_bytes <= 0)
         return -1;
@@ -1136,6 +1151,7 @@ static int downloadOnce(const char *url, int fd, const char *ca_path,
                 downloadDrop(tls);
                 free(raw);
                 free(io_buf);
+                https_retryable = 1;
                 set_error(error, error_size, "HTTPS download timed out", 0);
                 return -1;
             }
@@ -1144,6 +1160,7 @@ static int downloadOnce(const char *url, int fd, const char *ca_path,
                 downloadDrop(tls);
                 free(raw);
                 free(io_buf);
+                https_retryable = tlsTransportError(r);
                 set_error(error, error_size, "Truncated HTTPS download headers", 0);
                 return -1;
             }
@@ -1212,6 +1229,7 @@ static int downloadOnce(const char *url, int fd, const char *ca_path,
             free(io_buf);
             if (error != NULL && error_size > 0)
                 snprintf(error, error_size, "HTTPS download returned HTTP %d", status);
+            https_retryable = status == 408 || status == 502 || status == 503 || status == 504;
             return status == 404 ? -ENOENT : -1;
         }
 
@@ -1305,6 +1323,7 @@ static int downloadOnce(const char *url, int fd, const char *ca_path,
                 mbedtls_sha256_free(&sha);
                 downloadDrop(tls);
                 free(io_buf);
+                https_retryable = 1;
                 set_error(error, error_size, "HTTPS download timed out", 0);
                 return -1;
             }
@@ -1313,6 +1332,7 @@ static int downloadOnce(const char *url, int fd, const char *ca_path,
                     mbedtls_sha256_free(&sha);
                     downloadDrop(tls);
                     free(io_buf);
+                    https_retryable = 1;
                     set_error(error, error_size, "Truncated chunked HTTPS download", 0);
                     return -1;
                 }
@@ -1320,6 +1340,7 @@ static int downloadOnce(const char *url, int fd, const char *ca_path,
                     mbedtls_sha256_free(&sha);
                     downloadDrop(tls);
                     free(io_buf);
+                    https_retryable = 1;
                     set_error(error, error_size, "Truncated HTTPS download", 0);
                     return -1;
                 }
@@ -1330,6 +1351,7 @@ static int downloadOnce(const char *url, int fd, const char *ca_path,
                 mbedtls_sha256_free(&sha);
                 downloadDrop(tls);
                 free(io_buf);
+                https_retryable = tlsTransportError(r);
                 set_error(error, error_size, "HTTPS download read failed", r);
                 return -1;
             }
@@ -1403,6 +1425,9 @@ int httpsDownloadFd(const char *url, int fd, const char *ca_path,
     if (ret < 0 && retry)
         ret = downloadOnce(url, fd, ca_path, max_bytes, out_size, digest,
                             progress, progress_arg, error, error_size, &retry);
-    if (ret >= 0 && error && error_size > 0) error[0] = 0;
+    if (ret >= 0) {
+        https_retryable = 0;
+        if (error && error_size > 0) error[0] = 0;
+    }
     return ret;
 }

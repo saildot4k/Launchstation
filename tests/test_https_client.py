@@ -80,6 +80,8 @@ c = r'''
 #define MBEDTLS_ERR_SSL_WANT_READ -10
 #define MBEDTLS_ERR_SSL_WANT_WRITE -11
 #define MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY -12
+#define MBEDTLS_ERR_SSL_CONN_EOF -13
+#define MBEDTLS_ERR_SSL_TIMEOUT -14
 typedef struct { int ssl, waiting; } HttpsTls;
 static const unsigned char *https_ca_bundle;
 static unsigned https_ca_size;
@@ -349,20 +351,20 @@ int main(void) {
 
     reset();replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nABC";
     assert(download(100,&size,hash,error)<0 && size==0);
-    assert(strstr(error,"Truncated HTTPS download") && closed==1);
+    assert(strstr(error,"Truncated HTTPS download") && closed==1 && httpsFailureRetryable());
     assert(progress_done==0 && progress_total==6); /* Incomplete buffered bytes are not committed. */
     reset();replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nABCDEF";
     assert(download(5,&size,hash,error)<0 && !output_at);
-    assert(strstr(error,"size limit") && closed==1);
+    assert(strstr(error,"size limit") && closed==1 && !httpsFailureRetryable());
     reset();replies[0]="HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nAB";
     assert(download(100,&size,hash,error)<0 && size==0);
-    assert(strstr(error,"Truncated chunked HTTPS download"));
+    assert(strstr(error,"Truncated chunked HTTPS download") && httpsFailureRetryable());
     reset();replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nABCDEF";fail_write=1;
     assert(download(100,&size,hash,error)<0 && size==0 && closed==1);
-    assert(strstr(error,"Could not write downloaded update"));
+    assert(strstr(error,"Could not write downloaded update") && !httpsFailureRetryable());
 
     reset();replies[0]="HTTP/1.1 404 Missing\r\n\r\n";
-    assert(download(100,&size,hash,error)==-ENOENT && strstr(error,"HTTP 404"));
+    assert(download(100,&size,hash,error)==-ENOENT && strstr(error,"HTTP 404") && !httpsFailureRetryable());
     reset();replies[0]="HTTP/1.1 302 Found\r\nLocation: http://example.com/insecure\r\n\r\n";
     assert(download(100,&size,hash,error)<0 && connections==1);
     assert(strstr(error,"Unsupported HTTPS redirect"));
@@ -371,7 +373,7 @@ int main(void) {
     assert(strstr(error,"Too many HTTPS redirects"));
     reset();want_read=timeout=1;
     assert(download(100,&size,hash,error)<0 && closed==1);
-    assert(strstr(error,"HTTPS download timed out"));
+    assert(strstr(error,"HTTPS download timed out") && httpsFailureRetryable());
     reset();replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nABCDEF";
     read_step=3;write_step=2;
     assert(download_file("https://github.com/release","stage.psu","WLE-UPDATE-CA.PEM",100,hash,error,256)==6);
@@ -382,6 +384,15 @@ int main(void) {
         assert(download_file("https://github.com/release","stage.psu","WLE-UPDATE-CA.PEM",100,hash,error,256)<0);
         assert(download_closes==1 && download_removes==1);
     }
+    const int transient[]={408,502,503,504};
+    for(unsigned j=0;j<sizeof(transient)/sizeof(*transient);j++){
+        char reply[128];snprintf(reply,sizeof(reply),"HTTP/1.1 %d Temporary\r\n\r\n",transient[j]);
+        reset();replies[0]=reply;assert(download(100,&size,NULL,error)<0&&httpsFailureRetryable());
+    }
+    reset();replies[0]="HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\ninvalid\r\n";
+    assert(download(100,&size,NULL,error)<0&&!httpsFailureRetryable());
+    reset();replies[0]="HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nABC";
+    assert(!download(100,&size,NULL,error)&&!httpsFailureRetryable());
     puts("PASS: updater HTTPS byte progress and real download UI adapter, redirects, chunked streaming, checksums, short writes and failure cleanup");
     return 0;
 }

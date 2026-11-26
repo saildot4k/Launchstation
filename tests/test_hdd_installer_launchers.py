@@ -46,6 +46,8 @@ static const char *work, *failure;
 static unsigned requests, downloads, read_bytes;
 static int migration;
 static uint64_t overall_bytes, overall_total;
+int httpsFailureRetryable(void){return 0;}
+static void DelayThread(int us){(void)us;assert(0);}
 int hddInstallResumeSave(HddInstall *in){assert(in);return 0;}
 void hddInstallLog(const char *fmt, ...) { assert(fmt); }
 void hddInstallLogFlush(HddInstall *in) { assert(in); }
