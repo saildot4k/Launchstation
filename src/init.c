@@ -2035,6 +2035,18 @@ void rebootIopAndReloadCoreStackSilent(void)
 	resetRuntimeDeviceState(FALSE);
 }
 
+void rebootInstallerIopForExtraction(void)
+{
+#ifdef UDPTTY
+    int previous = network_stack_switching;
+    network_stack_switching = 1;
+#endif
+    resetRuntimeDeviceState(FALSE);
+#ifdef UDPTTY
+    network_stack_switching = previous;
+#endif
+}
+
 void ensureMemoryCardPortAccessible(int port)
 {
 #ifdef MX4SIO

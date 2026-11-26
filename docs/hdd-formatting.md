@@ -226,8 +226,10 @@ Progress counts bytes accepted by storage, including the final buffered flush.
   app partitions or PSBBN/Linux partitions are created.
 - **APA Jail:** format only, or install English PSBBN DP, OSDMenu MBR,
   HOSDMenu, WLE-R3Z, R3CONFIGURATOR, RiptOPL, Neutrino, and Ember. Apps live on exFAT under `ata0:/APPS`.
-  Each has a standard 128 MiB PFS launcher with PATINFO, HDD icons, and PSBBN
-  browser metadata. The installer does not enable 8 MiB APA partitions.
+  WLE-R3Z, R3CONFIGURATOR and the game frontend each get an **8 MiB PFS
+  launcher partition** with PATINFO, HDD icons and PSBBN browser metadata.
+  Their executables remain on exFAT or `__system`; they are not copied into
+  these small launcher partitions.
 
 APA-Jail software installs create DP's required Linux system/swap/data partitions.
 The user chooses Music and Contents sizes (both default to 1 GiB), whether to
@@ -235,7 +237,7 @@ install standalone PS2 Linux (default Off), and additional APA space to leave
 free for future use (default zero). The required allocation is calculated from
 the selected volumes, app launchers and standard APA allocator alignment, then
 the future reserve is added. The default PSBBN/media/apps layout requires
-**6528 MiB beyond the standard APA system partitions**, before any future reserve.
+**6272 MiB beyond the standard APA system partitions**, before any future reserve.
 The APA region is capped at 128 GiB for PSBBN. The existing driver must support a
 single 2 GiB APA extent (checked before download/format); smaller-capacity
 configurations are refused rather than inventing a subpartition mapping.
@@ -313,8 +315,11 @@ and retained diagnostics alone.
 
 Square boot, the first HOSDMenu launcher entry, and DP's `PP.LAUNCHER` partition
 all launch RiptOPL with matching DP artwork, icon, title ID and Navigator shortcut.
-The launcher uses a standard 128 MiB APA partition included in allocation
-calculations. Existing journals preserve their older OPL/NHDDL enum values,
+The launcher uses an 8 MiB APA partition included in allocation calculations.
+The installer reuses/splits free APA extents through the existing mini-partition
+allocator, and rounds the outer APA reservation to 128 MiB. Recovery accepts
+existing installer-owned 8 MiB launchers and preserves older 128 MiB launchers
+without resizing their extents; other unexpected sizes are rejected. Existing journals preserve their older OPL/NHDDL enum values,
 runtime paths and configuration generation; newly prepared installations no
 longer request those removed upstream assets.
 
@@ -473,6 +478,31 @@ and without Linux, individual file-write progress, and I/O errors. Log/view test
 check both bars, large byte counters, phase transitions, file resets and the
 success-only completion rule.
 
+### Planned reboot before local installation
+
+After successful downloads/cache checks, the worker saves its checkpoint/log,
+unmounts `__common` staging and flushes the HDD. Before queueing the local
+PSBBN installation job, the UI performs one normal IOP reboot and reloads the
+core/controller, HDD/PFS/ATA and raw-install services. It does not reload the
+download network stack; optional UDP debug networking is suppressed during
+this reset too. Both fresh and resumed installs use this path when filesystem
+population is still pending. Already populated or committed checkpoints skip
+the planned reboot. Preparation failures leave cached downloads intact and
+stop before the installation worker runs. This is a diagnostic mitigation,
+not evidence that IOP memory pressure causes the observed extraction failures.
+
+The archive reader recognizes `__linux.*` and PFS destinations from each tar
+entry. It logs and saves destination transitions, including revisits later in
+the same archive. These messages do not trigger additional resets. Extraction
+still uses one gzip pass; switching destinations is not proof that a partition
+is complete. Resetting inside that pass would require flushing ext2 metadata
+without marking filesystems clean, closing/remounting PFS and archive handles,
+and restarting the raw-write session while retaining the EE gzip state.
+
+`tests/test_hdd_installer_retry.py` covers preparation ordering/failures,
+completed-stage skips, durable download handoff and storage-only recovery.
+`tests/test_hdd_installer_streaming.py` covers destination changes and revisits.
+
 ### Recovery from ATA timeouts
 
 During installer download and software installation jobs, ATA timeout `-502`
@@ -481,7 +511,8 @@ installer RPC or server binding that does not complete within 60 seconds also
 requests recovery. The UI performs an emergency IOP reset without first calling
 unresponsive storage, audio or controller servers. Outstanding RPC buffers stay
 alive until the reset is acknowledged; only after the worker unwinds are the EE
-clients recreated and controller, network and storage drivers reloaded. This
+clients recreated and controller/storage drivers reloaded. Download retries
+also restore networking; local installation retries leave it unloaded. This
 does not depend on the controller responding. The DS34 polling thread is also
 stopped before its clients and buffers are reused.
 

@@ -27,11 +27,12 @@ code = r'''
 #include <string.h>
 #include "libapa.h"
 #include "hdd_format.h"
+#include "hdd_install.h"
 #include "hdd_partition_size.h"
 #define APA_IO_MODE_READ 0
 #define APA_IO_MODE_WRITE 1
 #define MB 2048u
-#define BLOCKS 512
+#define BLOCKS 8192 /* Includes the largest tested PSBBN/Linux layout. */
 static apa_header_t headers[BLOCKS];
 static apa_cache_t cache[BLOCKS];
 static apa_device_t hddDevices[1];
@@ -92,6 +93,33 @@ static void del(unsigned lba) {
     int error;assert(lba);apa_cache_t*c=apaCacheGetHeader(0,lba,APA_IO_MODE_READ,&error);
     assert(c->header->type==0x100 && !apaDelete(c));validate();
 }
+static void checkInstallPlan(unsigned base,unsigned home,unsigned music,unsigned contents,unsigned reserve) {
+    memset(headers,0,sizeof(headers));memset(cache,0,sizeof(cache));
+    hddDevices[0].totalLBA=65536u*MB;
+    HddInstall in={.flags=7|(home?HDD_INSTALL_PS2LINUX:0),.jail=1,.music_mb=music,.contents_mb=contents,.linux_home_mb=home,.reserved_mb=reserve};
+    int needed=hddInstallRequiredMb(&in,base);assert(needed>0&&!(needed%128));
+    apa_params_t m={0};m.type=1;int error=0;
+    apa_cache_t*c=apaFillHeader(0,&m,0,0,0,base*MB,&error);assert(c&&!error);
+    /* Apply the calculated A2 boundary before asking the real allocator. */
+    unsigned char *raw=(unsigned char*)&headers[0];
+    uint32_t first=2048,length=(base+needed)*MB-first;
+    raw[510]=0x55;raw[511]=0xaa;raw[450]=0x17;memcpy(raw+454,&first,4);memcpy(raw+458,&length,4);
+    first=(base+needed)*MB;length=hddDevices[0].totalLBA-first;
+    raw[466]=7;memcpy(raw+470,&first,4);memcpy(raw+474,&length,4);
+    c->flags|=APA_CACHE_FLAG_DIRTY;apaCacheFlushAllDirty(0);apaCacheFree(c);
+    for(unsigned i=0;i<HDD_INSTALL_LINUX_PARTITIONS;i++){
+        unsigned size=hddInstallPartitionMb(&in,i);if(size)assert(add(size));
+    }
+    assert(add(contents));
+    for(unsigned i=0;i<3;i++){
+        unsigned start=add(HDD_INSTALL_APP_MB);assert(start);
+        assert(headers[start/(8*MB)].length==HDD_INSTALL_APP_MB*MB);
+    }
+    apa_header_t *last=&headers[headers[0].prev/(8*MB)];
+    unsigned end=(last->start+last->length)/MB;
+    assert(((end+127u)&~127u)-base+reserve==(unsigned)needed);
+    validate();
+}
 int main(void) {
     /* Public sizes stay simple while the allocator below still uses 16/32/64
      * MiB free extents to satisfy the requested volume sizes. */
@@ -122,6 +150,10 @@ int main(void) {
         while(selected>8){int next=hddPartitionSizeStep(selected,-128,8,maximum);assert(next<selected);selected=next;}
     }
     assert(sizeof(apa_header_t)==1024);
+    checkInstallPlan(2048,0,1024,1024,0);
+    for(unsigned home=1024;home<=16384;home*=2)checkInstallPlan(2048,home,1024,1024,512);
+    checkInstallPlan(4096,0,4096,2048,0);
+    memset(headers,0,sizeof(headers));memset(cache,0,sizeof(cache));
     hddDevices[0].totalLBA=4096*MB;
     apa_params_t m={0};m.type=1;int error;
     apa_cache_t*c=apaFillHeader(0,&m,0,0,0,128*MB,&error);apaCacheFlushAllDirty(0);apaCacheFree(c);
@@ -166,5 +198,5 @@ with tempfile.TemporaryDirectory(prefix="apa-mini-") as tmp:
     (tmp / "test.c").write_text(code)
     subprocess.run(["gcc", "-std=c99", "-Wall", "-Wextra", "-Werror", "-fsanitize=undefined", "-fno-sanitize-recover=undefined", "-DAPA_OSD_VER", "-I", str(tmp),
                     "-I", str(root / "include"), "-I", str(root / "iop/ps2hdd_osd"), str(tmp / "test.c"),
-                    str(root / "src/hdd_apa_boundary.c"), "-o", str(tmp / "test")], check=True)
+                    str(root / "src/hdd_apa_boundary.c"), str(root / "src/hdd_install_plan.c"), str(root / "src/hdd_install_recovery.c"), "-o", str(tmp / "test")], check=True)
     subprocess.run([str(tmp / "test")], check=True, timeout=20)

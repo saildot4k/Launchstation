@@ -195,6 +195,7 @@ static void releaseMounts(void){}
 static int loadHddModules(void){return 1;}
 static HddJob *jobNew(int op){HddJob*j=calloc(1,sizeof(*j));assert(j);j->op=op;return j;}
 static void hddJobFree(HddJob*j){free(j);}
+int hddFormatLoad(void);
 static int runJob(HddJob*j,const char *s,int cancelable){
  assert(s&&!cancelable);
  if(j->op==HOP_RESUME_LOOKUP){
@@ -203,7 +204,7 @@ static int runJob(HddJob*j,const char *s,int cancelable){
   in->committed=committed;strcpy(in->stage,"pfs2:/tmp");strcpy(in->language.name,"English");
   in->music_mb=in->contents_mb=1024;j->resume_sequence=9;j->format_plan.kind=HDD_FORMAT_APA_JAIL;
  }else if(j->op==HOP_DOWNLOAD_INSTALLER){assert(confirmation&&!committed&&network);downloads++;j->ret=download_error;}
- else{assert(j->op==HOP_INSTALL_SOFTWARE&&confirmation);installs++;j->format_started=!committed;j->ret=0;}
+ else{assert(j->op==HOP_INSTALL_SOFTWARE&&confirmation);if(!committed)assert(hddFormatLoad()==0);installs++;j->format_started=!committed;j->ret=0;}
  return 1;
 }
 static void dashModalMessage(int icon,const char *title,const char *body,const char *detail){assert(icon==1&&title&&body);(void)detail;}

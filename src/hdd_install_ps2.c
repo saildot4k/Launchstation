@@ -880,11 +880,14 @@ int hddInstallPfsPartition(HddInstall *in, unsigned mb, const char *name)
         int ret = fileXioGetStat(path, &st);
         if (ret >= 0) {
             const int zone = 8192;
-            if (st.mode != 0x100 || st.size != mb * 2048u || st.attr || st.private_0 ||
+            /* Older journals may own an existing 128 MiB launcher. Keep
+             * its extent intact; all newly created launchers use 8 MiB. */
+            int legacy_launcher = mb == HDD_INSTALL_APP_MB && st.size == 128u * 2048;
+            if (st.mode != 0x100 || (st.size != mb * 2048u && !legacy_launcher) || st.attr || st.private_0 ||
                 in->apa_sectors < st.size || st.private_5 < 2048 || st.private_5 > in->apa_sectors - st.size) return -EINVAL;
             /* Apply has not completed. This new install owns this volume,
              * and an earlier timeout may have interrupted its PFS format. */
-            hddInstallLog("RECOVERY reinitializing owned PFS %s (%u MiB)", name, mb);
+            hddInstallLog("RECOVERY reinitializing owned PFS %s (%u MiB)", name, (unsigned)(st.size / 2048));
             ret = fileXioFormat("pfs:", path, (const char *)&zone, sizeof(zone));
             return ret < 0 ? ret : (int)mb;
         }
@@ -912,10 +915,10 @@ static int installApps(HddInstall *in)
             char elf[MAX_PATH];
             const SaveArchiveEntry *icon = NULL;
             for (unsigned i = 0; i < save.count; i++) if (!strcmp(save.files[i].name, "list.icn")) icon = &save.files[i];
-            hddInstallLog("Create app launcher: %s (128 MiB)", app_partitions[index]);
+            hddInstallLog("Create app launcher: %s (%u MiB)", app_partitions[index], HDD_INSTALL_APP_MB);
             hddInstallLogFlush(in);
-            ret = hddInstallPfsPartition(in, 128, app_partitions[index]);
-            if (ret != 128) ret = ret < 0 ? ret : -ENOSPC;
+            ret = hddInstallPfsPartition(in, HDD_INSTALL_APP_MB, app_partitions[index]);
+            if (ret != HDD_INSTALL_APP_MB) ret = ret < 0 ? ret : -ENOSPC;
             else if (!icon || pathJoin(elf, sizeof(elf), folder, app_boot[index]) < 0) ret = -EINVAL;
             else ret = InjectHddAppLauncher(app_partitions[index], elf, app_names[index], icon->data, icon->size);
             if (ret >= 0 && (in->flags & HDD_INSTALL_PSBBN)) {
@@ -1043,9 +1046,9 @@ static int installGamePartition(HddInstall *in)
         ret = fd < 0 ? fd : closeResult(fd, readAll(fd, icon, in->launcher_files[index].size));
     }
     if (ret >= 0) {
-        hddInstallLog("Creating PP.LAUNCHER (128 MiB): %s", title);
-        ret = hddInstallPfsPartition(in, 128, "PP.LAUNCHER");
-        ret = ret == 128 ? 0 : ret < 0 ? ret : -ENOSPC;
+        hddInstallLog("Creating PP.LAUNCHER (%u MiB): %s", HDD_INSTALL_APP_MB, title);
+        ret = hddInstallPfsPartition(in, HDD_INSTALL_APP_MB, "PP.LAUNCHER");
+        ret = ret == HDD_INSTALL_APP_MB ? 0 : ret < 0 ? ret : -ENOSPC;
     }
     snprintf(elf, sizeof(elf), "hdd0:__system:pfs:/launcher/%s", hddInstallGameElf(in->game_launcher));
     if (ret >= 0) ret = InjectHddAppLauncherWithArg("PP.LAUNCHER", elf, title, icon, in->launcher_files[index].size,

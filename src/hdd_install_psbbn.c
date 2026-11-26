@@ -116,7 +116,7 @@ static int begin(void *context, const InstallTarEntry *entry)
     Payload *p = context;
     InstallTarEntry e = *entry;
     const char *relative, *link;
-    int r, ret;
+    int r, ret, previous = p->route;
     snprintf(p->current, sizeof(p->current), "%s", entry->name);
     if (p->archive == HI_PS2LINUX) { r = 8; relative = entry->name; }
     else r = routePath(entry->name, &relative);
@@ -124,6 +124,11 @@ static int begin(void *context, const InstallTarEntry *entry)
     if (r == -1) return entry->type == '5' ? 0 : -EINVAL;
     if (r < 0 || r == 1 || r == 7 || (r < HDD_INSTALL_LINUX_PARTITIONS && !hddInstallPartitionMb(p->in, r))) return -EINVAL;
     if (p->archive != HI_PS2LINUX && (r == 8 || r == 9)) return -EINVAL;
+    if (r != previous) {
+        const char *destination = r < HDD_INSTALL_LINUX_PARTITIONS ? linux_names[r] : pfs_names[r - HDD_INSTALL_LINUX_PARTITIONS];
+        hddInstallLog("Archive destination: %s (%s)", destination, r < HDD_INSTALL_LINUX_PARTITIONS ? "ext2/raw HDD" : "PFS");
+        hddInstallLogFlush(p->in);
+    }
     p->entries++;
     if (entry->type == '1') {
         if (p->archive == HI_PS2LINUX) link = entry->link;
@@ -234,7 +239,7 @@ static int archives(Payload *p)
     for (unsigned a = 0; a < count; a++) {
         unsigned i = assets[a];
         if (snprintf(path, sizeof(path), "%s/%s", p->in->stage, hddInstallAssetName(i)) >= (int)sizeof(path)) return -ENAMETOOLONG;
-        p->archive = i;
+        p->archive = i; p->route = -1;
         p->input = genOpen(path, FIO_O_RDONLY); if (p->input < 0) return p->input;
         hddInstallStatus("Installing PSBBN archives", a, count);
         hddInstallLog("EXTRACT %s (%u compressed bytes)", path, (unsigned)p->in->sizes[i]);

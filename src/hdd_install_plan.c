@@ -110,11 +110,12 @@ int hddInstallRequiredMb(const HddInstall *in, unsigned base)
         if (size) sizes[count++] = size;
     }
     sizes[count++] = in->contents_mb ? in->contents_mb : 1024;
-    if (in->flags & HDD_INSTALL_APPS) { sizes[count++] = 128; sizes[count++] = 128; }
-    sizes[count++] = 128; /* DP's PP.LAUNCHER, targeting the chosen default. */
+    unsigned standard_count = count;
+    if (in->flags & HDD_INSTALL_APPS) { sizes[count++] = HDD_INSTALL_APP_MB; sizes[count++] = HDD_INSTALL_APP_MB; }
+    sizes[count++] = HDD_INSTALL_APP_MB; /* PATINFO/resources only; ELF lives elsewhere. */
     for (unsigned i = 0; i < count; i++) {
         unsigned size = sizes[i], best = free_count, start;
-        if (size < 128 || size > 32768 || (size & (size - 1))) return -EINVAL;
+        if (size < (i < standard_count ? 128u : HDD_INSTALL_APP_MB) || size > 32768 || (size & (size - 1))) return -EINVAL;
         for (unsigned j = 0; j < free_count; j++)
             if (free_blocks[j].size >= size && (best == free_count || free_blocks[j].size < free_blocks[best].size ||
                 (free_blocks[j].size == free_blocks[best].size && free_blocks[j].start < free_blocks[best].start))) best = j;
@@ -130,7 +131,7 @@ int hddInstallRequiredMb(const HddInstall *in, unsigned base)
         } else {
             start = (end + size - 1) & ~(size - 1);
             while (end < start) {
-                unsigned gap = 128;
+                unsigned gap = HDD_INSTALL_APP_MB;
                 while (!(end % (gap * 2)) && gap * 2 <= start - end) gap *= 2;
                 free_blocks[free_count].start = end;
                 free_blocks[free_count++].size = gap;
@@ -139,6 +140,8 @@ int hddInstallRequiredMb(const HddInstall *in, unsigned base)
             end = start + size;
         }
     }
+    /* The outer APA Jail reservation remains aligned to 128 MiB. */
+    end = (end + 127u) & ~127u;
     if (end > 131072 || in->reserved_mb > 131072 - end) return -ENOSPC;
     return end - base + in->reserved_mb;
 }

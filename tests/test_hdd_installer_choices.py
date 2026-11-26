@@ -30,15 +30,19 @@ with tempfile.TemporaryDirectory(prefix='hdd-install-choices-') as directory:
     lib.hddInstallLinuxMetadata.argtypes=[c.c_char_p,c.c_void_p,c.c_void_p]
     lib.hddInstallConfig.argtypes=[c.POINTER(Install),c.c_int,c.c_void_p,c.c_size_t]
     in_=Install(flags=7,jail=1)
-    assert lib.hddInstallRequiredMb(c.byref(in_),2048)==6528
+    assert lib.hddInstallRequiredMb(c.byref(in_),2048)==6272
     assert lib.hddInstallPartitionMb(c.byref(in_),7)==1024 and not lib.hddInstallPartitionMb(c.byref(in_),8)
     for asset in (10,11,12):assert not lib.hddInstallNeedsAsset(7,asset) and lib.hddInstallNeedsAsset(15,asset)
+    # Mini launchers do not permit shrinking PSBBN's system/media volumes.
+    in_.music_mb=8;assert lib.hddInstallRequiredMb(c.byref(in_),2048)<0
+    in_.music_mb=0;in_.contents_mb=8;assert lib.hddInstallRequiredMb(c.byref(in_),2048)<0
+    in_.contents_mb=0
     in_.flags=15
-    assert lib.hddInstallRequiredMb(c.byref(in_),2048)==9600
+    assert lib.hddInstallRequiredMb(c.byref(in_),2048)==9344
     for home in (1024,2048,4096,8192,16384):
         in_.linux_home_mb=home
         needed=lib.hddInstallRequiredMb(c.byref(in_),2048)
-        assert needed>=6528+2048+home and needed<=6528+2048+home+16384
+        assert needed>=6272+2048+home and needed<=6272+2048+home+16384
         assert lib.hddInstallPartitionMb(c.byref(in_),9)==home
         in_.reserved_mb=3072
         assert lib.hddInstallRequiredMb(c.byref(in_),2048)==needed+3072
@@ -46,7 +50,7 @@ with tempfile.TemporaryDirectory(prefix='hdd-install-choices-') as directory:
     in_.linux_home_mb=32768;assert lib.hddInstallRequiredMb(c.byref(in_),2048)<0
     in_.linux_home_mb=1024;in_.music_mb=1536;assert lib.hddInstallRequiredMb(c.byref(in_),2048)<0
     in_.music_mb=4096;in_.contents_mb=2048
-    assert lib.hddInstallRequiredMb(c.byref(in_),2048)>9600
+    assert lib.hddInstallRequiredMb(c.byref(in_),2048)>9344
     in_.reserved_mb=1;assert lib.hddInstallRequiredMb(c.byref(in_),2048)<0
     in_.reserved_mb=131072;assert lib.hddInstallRequiredMb(c.byref(in_),2048)<0
     in_.reserved_mb=0;in_.flags=8;assert lib.hddInstallRequiredMb(c.byref(in_),2048)<0

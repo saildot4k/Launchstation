@@ -107,7 +107,7 @@ static void dashSoundShutdown(void) { assert(loaded); stopped++; }
 static int runJob(HddJob *j, const char *title, int cancelable) {
     assert(title && cancelable == 0);
     if (j->op == HOP_DOWNLOAD_INSTALLER) { assert(confirms == 2 && stopped && reset == 1 && jobs == 1); assert(!strcmp(j->installer->stage, j->installer->jail ? "pfs2:/tmp" : "pfs2:/PSBBN_DP_TEMP")); downloads++; j->ret = download_error; return 1; }
-    if (j->op == HOP_INSTALL_SOFTWARE) { assert(reset && confirms == 2); installed++; j->ret = install_error; j->format_started = 1; return 1; }
+    if (j->op == HOP_INSTALL_SOFTWARE) { assert(reset && confirms == 2); assert(hddFormatLoad()==0); installed++; j->ret = install_error; j->format_started = 1; return 1; }
     assert(stopped); jobs++;
     actual = j->format_plan;
     if (queue_error) { hddJobFree(j); return 0; }

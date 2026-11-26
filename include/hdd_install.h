@@ -14,6 +14,7 @@
 #define HDD_INSTALL_LINUX_PARTITIONS 10
 #define HDD_INSTALL_HOME_MAX_MB 16384u
 #define HDD_INSTALL_LAUNCHER_FILES 160
+#define HDD_INSTALL_APP_MB 8u
 
 /* Keep legacy values for existing installation journals. */
 enum { HDD_GAME_OPL, HDD_GAME_NEUTRINO, HDD_GAME_RIPTOPL, HDD_GAME_RIPTOPL_NEUTRINO };
@@ -94,6 +95,8 @@ extern const char *const hddInstallOsdFiles[7];
 int dashHddInstallChoose(HddInstall *install, int jail);
 int dashHddInstallPrepare(HddInstall *install);
 int dashHddInstallPrepareStorage(HddInstall *install);
+/* UI thread, after download/checkpoint files are closed and PFS unmounted. */
+int dashHddInstallPrepareExtraction(HddInstall *install);
 int hddInstallLoadCa(HddInstall *install);
 void hddInstallRelease(HddInstall *install);
 int hddInstallMountStage(HddInstall *install);

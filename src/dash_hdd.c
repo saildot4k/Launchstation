@@ -409,9 +409,10 @@ static void hddJobRun(void *arg)
 			if (j->ret >= 0) {
 				j->ret = j->installer->stage_ready ? hddInstallFindStage(j->installer) : hddInstallCreateStage(j->installer);
 				if (j->ret >= 0) j->ret = hddInstallDownload(j->installer);
-				hddInstallLog("JOB download finished rc=%d", j->ret);
+				hddInstallLog("JOB download finished rc=%d; closing staging before local installation", j->ret);
 				hddInstallLogFlush(j->installer);
 				{ int closed = hddInstallUnmountStage(j->installer); if (j->ret >= 0) j->ret = closed; }
+				if (j->ret >= 0) j->ret = fileXioDevctl("hdd0:", HDIOC_FLUSH, NULL, 0, NULL, 0);
 			}
 			break;
 		case HOP_INSTALL_SOFTWARE:
@@ -481,6 +482,14 @@ static int runJob(HddJob *j, const char *title, int cancelable)
 	int recoverable = j->installer && (probing || j->op == HOP_DOWNLOAD_INSTALLER || j->op == HOP_INSTALL_SOFTWARE);
 	int owns_loading = recoverable && !dashLoadingActive();
 	if (owns_loading) dashLoadingBegin(title);
+	/* Both fresh and resumed installs reach here after the download worker has
+	 * closed/unmounted staging. Reset on the UI thread before any raw session
+	 * or archive is open. Never reset an already populated/committed install. */
+	if (j->installer && j->op == HOP_INSTALL_SOFTWARE && !j->installer->committed) {
+		j->ret = (j->installer->flags & HDD_INSTALL_PSBBN) && !j->installer->populated ?
+		         dashHddInstallPrepareExtraction(j->installer) : hddFormatLoad();
+		if (j->ret < 0) { if (owns_loading) dashLoadingEnd(); return 1; }
+	}
 	for (;;) {
 		int fault, was_reset;
 		if (recoverable) hddInstallRecoveryBegin();
@@ -507,7 +516,9 @@ static int runJob(HddJob *j, const char *title, int cancelable)
 		if ((!was_reset && !resetInstallerIopTransport()) || !reloadInstallerCoreAfterReset())
 			dashHddInstallRecoveryFailed();
 		if (probing) { j->ret = HDD_INSTALL_ATA_TIMEOUT; if (owns_loading) dashLoadingEnd(); return 1; }
-		j->ret = dashHddInstallPrepareStorage(j->installer);
+		/* Local installation retries do not need to restore TCP/IP or HTTPS. */
+		j->ret = j->op == HOP_DOWNLOAD_INSTALLER ? dashHddInstallPrepareStorage(j->installer) :
+		         loadHddModules() ? 0 : -ENODEV;
 		if (j->ret < 0) {
 			j->installer->stage_ready = 0;
 			snprintf(j->installer->error, sizeof(j->installer->error), "Could not reload storage after the ATA timeout (error %d). Cached downloads are retained.", j->ret);
@@ -1133,7 +1144,6 @@ static void actFormat(void)
 				else { ret = j->ret; hddJobFree(j); }
 			}
 		}
-		if (ret >= 0) ret = hddFormatLoad();
 		if (ret >= 0) {
 			j = jobNew(HOP_INSTALL_SOFTWARE);
 			if (!j) ret = -ENOMEM;
@@ -1234,7 +1244,6 @@ static void actResume(void)
 			else { j->installer = &install; if (!runJob(j, "Checking cached installer downloads", 0)) ret = -EBUSY; else { ret = j->ret; hddJobFree(j); } }
 		}
 	}
-	if (ret >= 0 && !install.committed) ret = hddFormatLoad();
 	if (ret >= 0) {
 		j = jobNew(HOP_INSTALL_SOFTWARE);
 		if (!j) ret = -ENOMEM;

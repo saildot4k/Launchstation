@@ -42,6 +42,8 @@ int isMemoryCardRpcReady(void);
 void ensureMemoryCardPortAccessible(int port);
 void rebootIopAndReloadCoreStack(void);
 void rebootIopAndReloadCoreStackSilent(void);
+/* Healthy UI-thread reset, suppressing optional UDP debug networking. */
+void rebootInstallerIopForExtraction(void);
 int loadSecrSifModule(void);
 int prepareExploitSignerIop(void);
 int isPathDeviceStackLoaded(const char *path);

@@ -171,6 +171,33 @@ int dashHddInstallPrepareStorage(HddInstall *in)
 #endif
 }
 
+/* A healthy, planned reboot before local installation discards the download
+ * network stack. The download worker has saved its checkpoint, closed files,
+ * unmounted staging and flushed the disk before this UI-thread handoff. */
+int dashHddInstallPrepareExtraction(HddInstall *in)
+{
+#ifdef NO_IOP_RESET
+    snprintf(in->error, sizeof(in->error), "PSBBN extraction requires IOP reset support. Cached downloads are retained.");
+    return -ENOSYS;
+#else
+    int ret;
+    if (!dashWorkerAwaitAll("Preparing PSBBN extraction")) {
+        snprintf(in->error, sizeof(in->error), "Could not finish pending I/O before the planned IOP reboot. Cached downloads are retained.");
+        return -EBUSY;
+    }
+    unsigned before = getIopResetGeneration();
+    hddInstallLog("PLANNED IOP reset: downloads closed; preparing local PSBBN installation");
+    hddInstallProgress("Restarting IOP before PSBBN extraction", 0, 0);
+    rebootInstallerIopForExtraction();
+    if (getIopResetGeneration() == before) ret = -EIO;
+    else if (!loadHddModules()) ret = -ENODEV;
+    else ret = hddFormatLoad();
+    hddInstallLog("Local installation stack rc=%d; IOP generation=%u; networking left unloaded", ret, getIopResetGeneration());
+    if (ret < 0) snprintf(in->error, sizeof(in->error), "Could not prepare local storage after the planned IOP reboot (error %d). Cached downloads are retained.", ret);
+    return ret;
+#endif
+}
+
 /* Installation log. The loading-view callback only draws; controller
  * polling belongs to the normal wait/review loops, never RPC wait frames. */
 static DashLoadingView debug_previous_view;

@@ -28,6 +28,7 @@ code = r'''
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -46,6 +47,7 @@ typedef struct {unsigned mode;} iox_stat_t;
 static const char *work;
 static unsigned mounted,unmounted,created,finished,config_writes,entries,archive_opens,slots=4;
 static HddInstall settings;
+static unsigned destinations,linux1,linux4;
 struct InstallExt2 {int unused;};
 int installExt2Create(InstallExt2 **out,const HddFormatIo *io,uint32_t a,uint32_t b,uint32_t serial){
  (void)a;(void)b;(void)serial;assert(io);*out=calloc(1,sizeof(**out));assert(*out);created++;return 0;
@@ -58,7 +60,16 @@ void installExt2Free(InstallExt2 *fs){free(fs);}
 int installPsbbnSwap(const HddFormatIo *io,uint32_t a,uint32_t b){(void)io;(void)a;(void)b;return 0;}
 int installPsbbnMusic(const HddFormatIo *io,uint32_t a,uint32_t b,uint32_t c){(void)io;(void)a;(void)b;(void)c;return 0;}
 int hddInstallResumeSave(HddInstall *in){assert(in);return 0;}
-void hddInstallLog(const char *s,...){assert(s);}
+void hddInstallLog(const char *s,...){
+ assert(s);
+ if(!strcmp(s,"Archive destination: %s (%s)")){
+  va_list a;va_start(a,s);const char *name=va_arg(a,const char*),*type=va_arg(a,const char*);
+  destinations++;
+  if(!strcmp(name,"__linux.1")){linux1++;assert(!strcmp(type,"ext2/raw HDD"));}
+  if(!strcmp(name,"__linux.4")){linux4++;assert(!strcmp(type,"ext2/raw HDD"));}
+  va_end(a);
+ }
+}
 void hddInstallLogFlush(HddInstall *in){assert(in);}
 void hddInstallStatus(const char *s,int a,int b){assert(s&&a>=0&&b>=a);}
 void hddInstallProgress(const char *s,int a,int b){assert(s&&a>=0&&b>=a);}
@@ -113,7 +124,7 @@ int main(int argc,char **argv){
  }
  HddFormatIo io={.context=&settings,.read=rawRead,.flush=rawFlush};
  int ret=hddInstallPsbbnPayload(&settings,&io);
- if(scenario==0||scenario==5){assert(!ret&&finished==created&&config_writes==1&&archive_opens==(linux?3u:2u));}
+ if(scenario==0||scenario==5){assert(!ret&&finished==created&&config_writes==1&&archive_opens==(linux?3u:2u)&&destinations>=6&&linux1==2&&linux4==2);}
  else{assert(ret<0&&!finished&&!config_writes&&strstr(settings.error,"Boot MBR was not activated"));}
  assert(mounted==3&&unmounted==mounted&&entries>0&&slots==4);
  puts("PASS: single-pass extraction checks CRCs, required boot files, protected paths and capacity before clean/boot commit");
@@ -151,6 +162,7 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-streaming-') as directory
         if scenario == 3: entries.append(('__system/osdmenu/hosdmenu.elf', b'protected'))
         if scenario == 4: entries.append(('__system/oversized', bytes(33 * 1024 * 1024)))
         entries.append(('__contents/fixture', b'contents data'))
+        entries.append(('__linux.1/revisit', b'partition revisited later in the same archive'))
         archive(stage / 'system.tar.gz', entries)
         archive(stage / 'language.tar.gz', [('__linux.4/translation', b'localized')])
         if scenario == 2:
