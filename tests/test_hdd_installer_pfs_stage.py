@@ -46,11 +46,20 @@ static int checkFileSize(HddInstall *in,const char *name,uint32_t size){
  return cached?0:-EIO;
 }
 '''
-code += function(native, "static void launcherStageName(")
+code += function(native, "static int launcherStageName(")
 code += function(native, "static int stageSpace(")
 code += function(ui, "int dashHddInstallPrepareStorage(")
 code += r'''
 int main(void){
+ char name[192];
+ assert(!launcherStageName("scripts/assets/neutrino/modules/ata_bd.irx",name)&&!strcmp(name,"Neutrino/modules/ata_bd.irx"));
+ assert(!launcherStageName("scripts/assets/OPL/LNG/lang_French.lng",name)&&!strcmp(name,"OPL/LNG/lang_French.lng"));
+ assert(!launcherStageName("icons/art/APP_NHDDL.png",name)&&!strcmp(name,"Icons/art/APP_NHDDL.png"));
+ const char *bad[]={"scripts/assets/OPL/../escape","scripts/assets/OPL//escape","scripts/assets/OPL/./escape",
+                    "scripts/assets/OPL/trailing/","scripts/assets/OPL/","scripts/assets/OPL/x:bad","other/root/file"};
+ for(unsigned i=0;i<sizeof(bad)/sizeof(*bad);i++)assert(launcherStageName(bad[i],name)==-EINVAL);
+ char longpath[256];memset(longpath,'a',sizeof(longpath));memcpy(longpath,"scripts/assets/neutrino/",24);longpath[255]=0;
+ assert(launcherStageName(longpath,name)==-ENAMETOOLONG);
  HddInstall in={.flags=7,.jail=1};
  assert(!dashHddInstallPrepareStorage(&in)&&!strcmp(in.stage,"pfs2:/tmp"));
  assert(strstr(last_log,"hdd0:__common:pfs:/tmp"));
@@ -61,6 +70,7 @@ int main(void){
  in.sizes[HI_SYSTEM]=300u*1024*1024;
  in.launcher_files=calloc(1,sizeof(*in.launcher_files));assert(in.launcher_files);
  in.launcher_count=1;in.launcher_files[0].size=1;
+ strcpy(in.launcher_files[0].path,"scripts/assets/OPL/version.txt");
  assert(!stageSpace(&in)&&!checks&&stats==2);
  /* Zone rounding plus diagnostic/journal headroom, not raw byte counts. */
  free_zones=(304u*1024*1024)/8192;

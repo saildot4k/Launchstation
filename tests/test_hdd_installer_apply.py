@@ -195,7 +195,17 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
                                    ('icons/art/APP_NHDDL.png' if launcher else 'icons/art/APP_OPL.png', b'launcher art')]
             manifest = []
             for i, (remote, data) in enumerate(package):
-                (stage / f'launcher-{i:03}.bin').write_bytes(data)
+                if remote.startswith('scripts/assets/'):
+                    relative = remote[len('scripts/assets/'):]
+                    if relative.startswith('neutrino/'):
+                        relative = 'Neutrino/' + relative[len('neutrino/'):]
+                elif remote.startswith('scripts/licenses/'):
+                    relative = 'Licenses/' + remote[len('scripts/licenses/'):]
+                else:
+                    relative = 'Icons/' + remote[len('icons/'):]
+                local = stage / relative
+                local.parent.mkdir(parents=True, exist_ok=True)
+                local.write_bytes(data)
                 digest = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
                 manifest.append(f'{i} {remote} {len(data)} {digest}\n')
             (work / 'launcher-manifest').write_text(''.join(manifest))

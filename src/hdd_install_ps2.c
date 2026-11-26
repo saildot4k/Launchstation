@@ -20,6 +20,9 @@ static const char *const app_boot[] = {"WLE-R3Z.ELF", "r3configurator.elf"};
 static const char *const app_names[] = {"wLaunchELF-R3Z", "R3CONFIGURATOR"};
 static const char *const app_partitions[] = {"PP.APP_WLE-R3Z", "PP.SYS_R3CONFIGURATOR"};
 
+static int makeDirectory(const char *path, int visible);
+static int makeParents(char *path);
+
 static int pathJoin(char *out, size_t capacity, const char *parent, const char *leaf)
 {
     size_t n = strlen(parent);
@@ -112,7 +115,29 @@ static int checkFileSize(HddInstall *in, const char *name, uint32_t size)
     if (fd < 0) return fd;
     return closeResult(fd, genLseek(fd, 0, SEEK_END) == size ? 0 : -EIO);
 }
-static void launcherStageName(unsigned index, char name[32])
+static int launcherStageName(const char *source, char name[192])
+{
+    static const struct { const char *remote, *local; } roots[] = {
+        {"scripts/assets/OPL/", "OPL/"}, {"scripts/assets/NHDDL/", "NHDDL/"},
+        {"scripts/assets/neutrino/", "Neutrino/"}, {"icons/", "Icons/"},
+        {"scripts/licenses/", "Licenses/"}
+    };
+    for (unsigned i = 0; i < sizeof(roots) / sizeof(roots[0]); i++) {
+        size_t n = strlen(roots[i].remote);
+        if (strncmp(source, roots[i].remote, n)) continue;
+        const char *relative = source + n;
+        if (!*relative || strspn(relative, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-/") != strlen(relative)) return -EINVAL;
+        for (const char *p = relative; *p;) {
+            const char *end = strchr(p, '/'); size_t length = end ? (size_t)(end - p) : strlen(p);
+            if (!length || (length == 1 && *p == '.') || (length == 2 && !memcmp(p, "..", 2)) || (end && !end[1])) return -EINVAL;
+            p += length + !!end;
+        }
+        return snprintf(name, 192, "%s%s", roots[i].local, relative) < 192 ? 0 : -ENAMETOOLONG;
+    }
+    return -EINVAL;
+}
+/* Only used to adopt/clean caches from builds with numbered staging files. */
+static void legacyLauncherStageName(unsigned index, char name[32])
 { snprintf(name, 32, "launcher-%03u.bin", index); }
 static int findLauncher(const HddInstall *in, const char *path)
 {
@@ -148,8 +173,8 @@ static int checkLaunchers(HddInstall *in)
     if (!(in->flags & HDD_INSTALL_PSBBN)) return 0;
     ready = launcherManifest(in); if (ready < 0) return ready;
     for (unsigned i = 0; i < in->launcher_count; i++) {
-        char name[32]; int ret;
-        launcherStageName(i, name);
+        char name[192]; int ret = launcherStageName(in->launcher_files[i].path, name);
+        if (ret < 0) return ret;
         ret = checkFileSize(in, name, in->launcher_files[i].size);
         if (ret < 0) return ret;
         if (!strcmp(in->launcher_files[i].path, launcher_required[0]) || !strcmp(in->launcher_files[i].path, launcher_required[1]) ||
@@ -246,6 +271,31 @@ static uint64_t downloadBytes(const HddInstall *in)
     for (unsigned i = 0; i < in->launcher_count; i++) total += in->launcher_files[i].size;
     return total;
 }
+static int prepareLauncherStage(HddInstall *in)
+{
+    unsigned moved = 0;
+    for (unsigned i = 0; i < in->launcher_count; i++) {
+        char name[192], local[MAX_PATH], old[32], previous[MAX_PATH];
+        int ret = launcherStageName(in->launcher_files[i].path, name);
+        if (ret < 0) return ret;
+        ret = pathJoin(local, sizeof(local), in->stage, name); if (ret < 0) return ret;
+        ret = makeParents(local); if (ret < 0) return ret;
+        if (!in->owned || !(in->resumed || in->recovery_attempts) || i >= in->downloaded_launchers) continue;
+        if (checkFileSize(in, name, in->launcher_files[i].size) == 0) continue;
+        if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+        legacyLauncherStageName(i, old);
+        if (checkFileSize(in, old, in->launcher_files[i].size) < 0) {
+            if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+            continue;
+        }
+        ret = pathJoin(previous, sizeof(previous), in->stage, old); if (ret < 0) return ret;
+        ret = genRemove(local); if (ret < 0 && ret != -ENOENT) return ret;
+        ret = fileXioRename(previous, local); if (ret < 0) return ret;
+        moved++;
+    }
+    if (moved) hddInstallLog("Reorganized %u cached launcher files into app folders", moved);
+    return 0;
+}
 /* Cached archives are streamed directly to their final filesystems. Only
  * compressed downloads, runtimes, journals and diagnostics occupy __common. */
 static int stageSpace(HddInstall *in)
@@ -262,7 +312,8 @@ static int stageSpace(HddInstall *in)
         needed += ((uint64_t)in->sizes[i] + zone_size - 1) / zone_size * zone_size;
     }
     for (unsigned i = 0; i < in->launcher_count; i++) {
-        char name[32]; launcherStageName(i, name);
+        char name[192]; int ret = launcherStageName(in->launcher_files[i].path, name);
+        if (ret < 0) return ret;
         if (i < in->downloaded_launchers && checkFileSize(in, name, in->launcher_files[i].size) == 0) continue;
         if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
         needed += ((uint64_t)in->launcher_files[i].size + zone_size - 1) / zone_size * zone_size;
@@ -415,9 +466,9 @@ static int downloadLaunchers(HddInstall *in, const char **phase, uint64_t comple
 {
     for (unsigned i = 0; i < in->launcher_count; i++) {
         HddInstallFile *file = &in->launcher_files[i];
-        char name[32], local[MAX_PATH], url[512];
-        int fd, size = 0, ret;
-        launcherStageName(i, name);
+        char name[192], local[MAX_PATH], url[512];
+        int fd, size = 0, ret = launcherStageName(file->path, name);
+        if (ret < 0) return ret;
         if (pathJoin(local, sizeof(local), in->stage, name) < 0) return -ENAMETOOLONG;
         snprintf(url, sizeof(url), "https://raw.githubusercontent.com/" HDD_INSTALL_REPOSITORY "/%s/%s", in->commit, file->path);
         if (i < in->downloaded_launchers && checkFileSize(in, name, file->size) == 0) {
@@ -515,6 +566,8 @@ static int downloadInstaller(HddInstall *in, const char **phase)
     }
     ret = hddInstallResumeSave(in); if (ret < 0) goto invalid;
     download_total = downloadBytes(in);
+    *phase = "Preparing app download folders";
+    ret = prepareLauncherStage(in); if (ret < 0) goto invalid;
     *phase = "Checking __common download space";
     ret = stageSpace(in); if (ret < 0) goto invalid;
     for (unsigned asset = 0; asset < HDD_INSTALL_ASSETS; asset++) {
@@ -647,6 +700,18 @@ int hddInstallFindStage(HddInstall *in)
     return in->owned && in->stage[0] && stageMatches(in, in->stage) ? 0 : -ENOENT;
 }
 
+static void removeLauncherStage(HddInstall *in, const char *name)
+{
+    char path[MAX_PATH];
+    if (pathJoin(path, sizeof(path), in->stage, name) < 0) return;
+    genRemove(path);
+    /* Remove only empty parents of manifest files, never unrelated contents. */
+    char *slash;
+    while (!hddInstallRecoveryFault() && (slash = strrchr(path, '/')) && slash > path + strlen(in->stage)) {
+        *slash = 0;
+        if (genRmdir(path) < 0) break;
+    }
+}
 void hddInstallCleanup(HddInstall *in)
 {
     char path[MAX_PATH];
@@ -657,7 +722,10 @@ void hddInstallCleanup(HddInstall *in)
         if (hddInstallRecoveryFault()) return;
     }
     for (unsigned i = 0; i < in->launcher_count; i++) {
-        char name[32]; launcherStageName(i, name);
+        char name[192];
+        if (launcherStageName(in->launcher_files[i].path, name) == 0) removeLauncherStage(in, name);
+        if (hddInstallRecoveryFault()) return;
+        legacyLauncherStageName(i, name);
         if (pathJoin(path, sizeof(path), in->stage, name) == 0) genRemove(path);
         if (hddInstallRecoveryFault()) return;
     }
@@ -684,6 +752,14 @@ static int makeDirectory(const char *path, int visible)
     if (!visible) return 0;
     memset(&stat, 0, sizeof(stat)); stat.attr = HDD_INSTALL_BROWSER_ATTR;
     return fileXioChStat(path, &stat, FIO_CST_ATTR);
+}
+static int makeParents(char *path)
+{
+    for (char *p = strchr(path, ':'); p && *p; p++) if (*p == '/' && p[1] && p[-1] != ':') {
+        *p = 0; int ret = makeDirectory(path, 0); *p = '/';
+        if (ret < 0) return ret;
+    }
+    return 0;
 }
 static int writeNew(HddInstall *in, const char *path, const void *data, unsigned size)
 {
@@ -803,13 +879,13 @@ static int installApps(HddInstall *in)
     return 0;
 }
 
-/* Installed after the system/language archives so their older launcher copies
- * cannot replace this commit's binaries. Neutrino's complete runtime stays on
+/* Install commit-pinned launchers after system/language archive population.
+ * Neutrino's complete runtime stays on
  * exFAT, matching NHDDL's ATA layout and DP's game installer. */
 static int installLaunchers(HddInstall *in)
 {
     static const char *const folders[] = {"APPS", "ART", "CFG", "CHT", "LNG", "THM", "VMC", "CD", "DVD", "POPS", "nhddl"};
-    char target[MAX_PATH], name[32];
+    char target[MAX_PATH], name[192];
     int ret;
     uint64_t total = 0, copied = 0;
     if (!(in->flags & HDD_INSTALL_PSBBN)) return 0;
@@ -832,12 +908,8 @@ static int installLaunchers(HddInstall *in)
         else if (!strncmp(source, "scripts/assets/neutrino/", sizeof("scripts/assets/neutrino/") - 1)) snprintf(target, sizeof(target), "ata0:/neutrino/%s", source + sizeof("scripts/assets/neutrino/") - 1);
         else if (!strncmp(source, "scripts/licenses/", 17)) snprintf(target, sizeof(target), "pfs0:/launcher/licenses/%s", source + 17);
         else return -EINVAL;
-        /* Target paths derive only from the validated manifest's leaf names. */
-        for (char *p = strchr(target, ':'); p && *p; p++) if (*p == '/' && p[1] && p[-1] != ':') {
-            *p = 0; ret = makeDirectory(target, 0); *p = '/';
-            if (ret < 0) return ret;
-        }
-        launcherStageName(i, name);
+        ret = makeParents(target); if (ret < 0) return ret;
+        ret = launcherStageName(source, name); if (ret < 0) return ret;
         ret = copyFile(in, name, file->size, target, 1);
         if (ret < 0) return ret;
         copied += file->size;
@@ -857,14 +929,15 @@ static int installGamePartition(HddInstall *in)
 {
     const char *title = hddInstallGameName(in->game_launcher);
     const char *id = in->game_launcher == HDD_GAME_NEUTRINO ? "APP_NHDDL" : "APP_OPL";
-    char path[MAX_PATH], name[32], elf[128], info[1024];
+    char path[MAX_PATH], name[192], elf[128], info[1024];
     unsigned char *icon;
     int index, art, fd, ret, n;
     if (!(in->flags & HDD_INSTALL_PSBBN)) return 0;
     index = findLauncher(in, launcherIcon(in)); art = findLauncher(in, launcherArt(in));
     if (index < 0 || art < 0 || in->launcher_files[index].size > 1024 * 1024) return -EINVAL;
     icon = malloc(in->launcher_files[index].size); if (!icon) return -ENOMEM;
-    launcherStageName(index, name);
+    ret = launcherStageName(in->launcher_files[index].path, name);
+    if (ret < 0) { free(icon); return ret; }
     ret = pathJoin(path, sizeof(path), in->stage, name);
     if (ret >= 0) {
         fd = genOpen(path, FIO_O_RDONLY);
@@ -889,7 +962,7 @@ static int installGamePartition(HddInstall *in)
         "copyright_viewflag = 0\ncopyright_imgcount = 0\ngenre = \nparental_lock = 1\n"
         "effective_date = 0\nexpire_date = 0\nviolence_flag = 0\ncontent_type = 255\ncontent_subtype = 0\n", title, id);
     if (ret >= 0) ret = writeNew(in, "pfs3:/res/info.sys", info, n);
-    launcherStageName(art, name);
+    if (ret >= 0) ret = launcherStageName(in->launcher_files[art].path, name);
     if (ret >= 0) ret = copyFile(in, name, in->launcher_files[art].size, "pfs3:/res/jkt_001.png", in->owned && (in->recovery_attempts || in->resumed));
     { int closed = fileXioUmount("pfs3:"); if (ret >= 0) ret = closed; }
     return ret;

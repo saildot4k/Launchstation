@@ -6,7 +6,7 @@ import tempfile
 root = Path(__file__).resolve().parents[1]
 s = (root / 'src/hdd_install_ps2.c').read_text()
 helpers = s[s.index('static int pathJoin('):s.index('static int checkFileSize(')]
-stage = s[s.index('int hddInstallClaimStage('):s.index('static int makeDirectory(')]
+stage = s[s.index('int hddInstallClaimStage('):s.index('static int makeDirectory(', s.index('int hddInstallClaimStage('))]
 code = r'''
 #define _POSIX_C_SOURCE 200809L
 #include "hdd_install.h"
@@ -61,7 +61,7 @@ int hddInstallLogEnabled(void) { return 0; }
 void hddInstallLogFlush(HddInstall *in) { (void)in; }
 void hddInstallStatus(const char *s,int done,int total) { (void)s;(void)done;(void)total; }
 '''
-a=s.index('static void launcherStageName('); b=s.index('static int findLauncher(',a)
+a=s.index('static int launcherStageName('); b=s.index('static int findLauncher(',a)
 code += helpers + s[a:b] + stage
 code += r'''
 int main(int argc,char**argv) {
@@ -83,6 +83,10 @@ int main(int argc,char**argv) {
     assert(hddInstallCreateStage(&in)==0&&in.stage_ready&&!in.ca_data);
     fd=genOpen(in.ca_path,FIO_O_RDONLY);assert(fd>=0);memset(ca,0,sizeof(ca));assert(read(fd,ca,16)==10&&!strcmp(ca,"CA fixture"));close(fd);
     in.launcher_files=calloc(1,sizeof(*in.launcher_files));assert(in.launcher_files);in.launcher_count=1;
+    strcpy(in.launcher_files[0].path,"scripts/assets/neutrino/modules/ata_bd.irx");
+    assert(!genMkdir("pfs2:/tmp/Neutrino",0777)&&!genMkdir("pfs2:/tmp/Neutrino/modules",0777));
+    fd=genOpen("pfs2:/tmp/Neutrino/modules/ata_bd.irx",FIO_O_CREAT|FIO_O_EXCL|FIO_O_WRONLY);assert(fd>=0);close(fd);
+    fd=genOpen("pfs2:/tmp/Neutrino/keep.txt",FIO_O_CREAT|FIO_O_EXCL|FIO_O_WRONLY);assert(fd>=0);close(fd);
     fd=genOpen("pfs2:/tmp/launcher-000.bin",FIO_O_CREAT|FIO_O_EXCL|FIO_O_WRONLY);assert(fd>=0);close(fd);
     other.jail=1;strcpy(other.stage,in.stage);other.ca_data=malloc(1);other.ca_data[0]=0;other.ca_size=1;
     assert(hddInstallCreateStage(&other)==-EEXIST&&!other.owned);
@@ -91,6 +95,9 @@ int main(int argc,char**argv) {
     hddInstallCleanup(&other);assert(!other.ca_data&&hddInstallFindStage(&in)==0);
     snprintf(path,sizeof(path),"%s/common/tmp/OSDMBR.XLF",work);fd=open(path,O_CREAT|O_WRONLY,0600);assert(fd>=0);close(fd);
     hddInstallCleanup(&in);assert(!in.owned&&!in.stage[0]);assert(access(path,F_OK)<0);
+    snprintf(path,sizeof(path),"%s/common/tmp/Neutrino/modules",work);assert(access(path,F_OK)<0);
+    snprintf(path,sizeof(path),"%s/common/tmp/launcher-000.bin",work);assert(access(path,F_OK)<0);
+    snprintf(path,sizeof(path),"%s/common/tmp/Neutrino/keep.txt",work);assert(!access(path,F_OK));
     assert(hddInstallUnmountStage(&in)==0&&!mounted);
     strcpy(other.stage,"pfs2:/PSBBN_DP_TEMP");other.jail=0;other.ca_data=malloc(2);memcpy(other.ca_data,"CA",2);other.ca_size=2;
     assert(hddInstallMountStage(&other)==0&&mounted);

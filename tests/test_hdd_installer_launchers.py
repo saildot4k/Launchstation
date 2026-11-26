@@ -29,6 +29,7 @@ code = r'''
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include "hdd_install.h"
 #include "https_client.h"
@@ -43,6 +44,7 @@ typedef int64_t s64;
 typedef uint64_t u64;
 static const char *work, *failure;
 static unsigned requests, downloads, read_bytes;
+static int migration;
 static uint64_t overall_bytes, overall_total;
 int hddInstallResumeSave(HddInstall *in){assert(in);return 0;}
 void hddInstallLog(const char *fmt, ...) { assert(fmt); }
@@ -54,6 +56,20 @@ void hddInstallOverall(uint64_t done,uint64_t total) { assert(total&&done>=overa
 static int genOpen(const char *p, int mode) {
     char path[2048]; assert(!strncmp(p,"pfs2:/stage/",12));
     snprintf(path,sizeof(path),"%s/stage/%s",work,p+12); return open(path,mode,0600);
+}
+static int makeDirectory(const char *p,int visible){
+ char path[2048];struct stat st;assert(!visible&&!strncmp(p,"pfs2:/stage",11));
+ if(!strcmp(failure,"mkdir"))return -EIO;
+ snprintf(path,sizeof(path),"%s/stage%s",work,p+11);
+ if(!mkdir(path,0700))return 0;
+ return errno==EEXIST&&!stat(path,&st)&&S_ISDIR(st.st_mode)?0:-EIO;
+}
+static int genRemove(char *p){char path[2048];assert(!strncmp(p,"pfs2:/stage/",12));snprintf(path,sizeof(path),"%s/stage/%s",work,p+12);return unlink(path)<0?-errno:0;}
+static int fileXioRename(const char *from,const char *to){
+ char a[2048],b[2048];assert(!strncmp(from,"pfs2:/stage/",12)&&!strncmp(to,"pfs2:/stage/",12));
+ if(migration&&!strcmp(failure,"legacy-rename"))return -EIO;
+ snprintf(a,sizeof(a),"%s/stage/%s",work,from+12);snprintf(b,sizeof(b),"%s/stage/%s",work,to+12);
+ return rename(a,b)<0?-errno:0;
 }
 static int genRead(int fd, void *data, unsigned n) { int r=read(fd,data,n > 97 ? 97 : n);if(r>0)read_bytes+=r;return r; }
 static int genWrite(int fd, const void *data, unsigned n) { return write(fd,data,n > 31 ? 31 : n); }
@@ -96,7 +112,7 @@ int httpsDownloadFd(const char *url,int fd,const char *ca,int maximum,int *size,
 start = native.index("static const char *const launcher_required[]")
 code += native[start:native.index("static int launcherManifest(", start)]
 for signature in ("static int pathJoin(", "static int readAll(", "static int closeResult(",
-                  "static int checkFileSize(", "static void launcherStageName(", "static int findLauncher(",
+                  "static int checkFileSize(", "static int launcherStageName(", "static void legacyLauncherStageName(", "static int makeParents(char *path)\n{", "static int findLauncher(",
                   "static const char *launcherIcon(", "static const char *launcherArt(", "static int launcherManifest(", "static int checkLaunchers("):
     code += function(signature)
 start = native.index("typedef struct { const char *name;")
@@ -107,25 +123,45 @@ section = section.replace(function("static int stageSpace(").rstrip(), "")
 code += section
 code += r'''
 int main(int argc,char **argv) {
-    HddInstall in={.flags=7,.jail=1};const char *phase="metadata";int ret;
+    HddInstall in={.flags=7,.jail=1,.owned=1};const char *phase="metadata";int ret;
     assert(argc==4);work=argv[1];failure=argv[2];in.game_launcher=atoi(argv[3]);
     strcpy(in.stage,"pfs2:/stage");strcpy(in.ca_path,"fixture.pem");memset(in.commit,'a',40);
     ret=launcherMetadata(&in);
+    if(ret>=0)ret=prepareLauncherStage(&in);
     if(!strncmp(failure,"resume",6))hddInstallRecoveryBegin();
     if(ret>=0)ret=downloadLaunchers(&in,&phase,0,downloadBytes(&in));
     int resuming=!strncmp(failure,"resume",6), corrupt_cache=!strcmp(failure,"resume-corrupt");
     if(resuming){
         assert(ret==-502&&in.downloaded_launchers==2&&hddInstallRecoveryFault()==-502);
         hddInstallRecoveryEnd();in.recovery_attempts=1;in.owned=1;overall_bytes=0;
-        if(corrupt_cache){int fd=genOpen("pfs2:/stage/launcher-000.bin",FIO_O_WRONLY|FIO_O_TRUNC);assert(fd>=0);close(fd);}
+        if(corrupt_cache){int fd=genOpen("pfs2:/stage/OPL/OPNPS2LD.ELF",FIO_O_WRONLY|FIO_O_TRUNC);assert(fd>=0);close(fd);}
         unsigned saved_requests=requests;
         hddInstallRecoveryBegin();ret=downloadLaunchers(&in,&phase,0,downloadBytes(&in));
         assert(!hddInstallRecoveryFault()&&requests==saved_requests&&in.downloaded_launchers==in.launcher_count);
         hddInstallRecoveryEnd();
     }
-    assert((ret==0)==(!strcmp(failure,"ok")||!strcmp(failure,"hash-ignored")||resuming));
+    int legacy=!strncmp(failure,"legacy",6);
+    if(legacy){
+        assert(!ret);unsigned before=downloads;
+        for(unsigned i=0;i<in.launcher_count;i++){
+            char name[192],from[1200],to[1200];assert(!launcherStageName(in.launcher_files[i].path,name));
+            snprintf(from,sizeof(from),"pfs2:/stage/%s",name);snprintf(to,sizeof(to),"pfs2:/stage/launcher-%03u.bin",i);
+            assert(!fileXioRename(from,to));
+        }
+        if(!strcmp(failure,"legacy-partial")){
+            int fd=genOpen("pfs2:/stage/OPL/OPNPS2LD.ELF",FIO_O_WRONLY|FIO_O_CREAT);assert(fd>=0);assert(write(fd,"partial",7)==7);close(fd);
+        }
+        in.resumed=1;migration=1;ret=prepareLauncherStage(&in);
+        if(!strcmp(failure,"legacy-rename")){assert(ret==-EIO);free(in.launcher_files);return 0;}
+        assert(!ret);overall_bytes=0;
+        ret=downloadLaunchers(&in,&phase,0,downloadBytes(&in));assert(!ret&&downloads==before);
+        for(unsigned i=0;i<in.launcher_count;i++){
+            char old[64];snprintf(old,sizeof(old),"pfs2:/stage/launcher-%03u.bin",i);assert(genOpen(old,FIO_O_RDONLY)<0);
+        }
+    }
+    assert((ret==0)==(!strcmp(failure,"ok")||!strcmp(failure,"hash-ignored")||resuming||legacy));
     unsigned nonempty=0;for(unsigned i=0;i<in.launcher_count;i++)nonempty+=!!in.launcher_files[i].size;
-    if(!ret){assert(in.launcher_count>=15&&downloads==nonempty+resuming+2*corrupt_cache&&requests>=8&&read_bytes==3*52);
+    if(!ret){assert(in.launcher_count>=15&&downloads==nonempty+resuming+2*corrupt_cache&&requests>=8&&read_bytes==(legacy?6u:3u)*52);
              assert(overall_bytes==downloadBytes(&in)&&overall_total==overall_bytes);
              assert(findLauncher(&in,launcherIcon(&in))>=0&&findLauncher(&in,launcherArt(&in))>=0);}
     free(in.launcher_files);return 0;
@@ -151,7 +187,7 @@ with tempfile.TemporaryDirectory(prefix="hdd-installer-launchers-") as directory
              **{f"icons/{kind}/APP_{app}{suffix}": b"icon" for app in ("OPL", "NHDDL")
                 for kind, suffix in (("art", ".png"), ("ico", "_LST.ico"))}}
     for choice in (0, 1):
-        for failure in ("ok", "hash-ignored", "resume", "resume-corrupt", "truncated", "request", "write", "missing", "duplicate", "symlink", "traversal", "oversize", "file-limit", "directory-limit"):
+        for failure in ("ok", "hash-ignored", "resume", "resume-corrupt", "truncated", "request", "write", "missing", "duplicate", "symlink", "traversal", "oversize", "file-limit", "directory-limit", "mkdir", "legacy", "legacy-partial", "legacy-rename"):
             work = d / f"{choice}-{failure}"
             (work / "stage").mkdir(parents=True)
             listings = {path: [] for path in ("scripts/assets/OPL", "scripts/assets/NHDDL", "scripts/assets/neutrino", "icons/art", "icons/ico", "scripts/licenses")}
@@ -187,6 +223,20 @@ with tempfile.TemporaryDirectory(prefix="hdd-installer-launchers-") as directory
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(json.dumps(entries))
             subprocess.run([str(d / "test"), str(work), failure, str(choice)], check=True, timeout=10)
+            if failure in ('ok', 'hash-ignored', 'resume', 'resume-corrupt', 'legacy', 'legacy-partial'):
+                assert not list((work / 'stage').glob('launcher-*.bin'))
+                for remote, payload in files.items():
+                    if remote.startswith('icons/') and f'APP_{"NHDDL" if choice else "OPL"}' not in remote:
+                        continue
+                    if remote.startswith('scripts/assets/'):
+                        relative = remote[len('scripts/assets/'):]
+                        if relative.startswith('neutrino/'):
+                            relative = 'Neutrino/' + relative[len('neutrino/'):]
+                    elif remote.startswith('scripts/licenses/'):
+                        relative = 'Licenses/' + remote[len('scripts/licenses/'):]
+                    else:
+                        relative = 'Icons/' + remote[len('icons/'):]
+                    assert (work / 'stage' / relative).read_bytes() == payload
     print("PASS: pinned launcher discovery, both defaults, size/header checks without content hashing, short I/O, download errors and bounded/restricted metadata")
     # Run the actual PATINFO writer, including the optional NHDDL argument,
     # against a raw-write facade that only inspects memory.

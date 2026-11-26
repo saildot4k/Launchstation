@@ -280,7 +280,16 @@ commit. Their ELFs are installed in `__system/launcher`; the complete Neutrino
 runtime (including config files and IRX modules) goes to `ata0:/neutrino` and
 OPL's language assets go to `ata0:/LNG`. Matching licenses and version files are
 included. The generated OPL configuration enables BDM HDD, apps, and cover art.
-These binaries are copied after archive extraction to replace any older copies.
+These binaries are copied after archive extraction.
+
+Launcher downloads retain their original names and subfolders under
+`__common:/tmp/OPL`, `NHDDL` and `Neutrino`. Shared artwork/icons use
+`tmp/Icons/art` and `tmp/Icons/ico`; licenses use `tmp/Licenses`. For example,
+Neutrino's module cache is `tmp/Neutrino/modules/ata_bd.irx`, and OPL's
+language/font cache is `tmp/OPL/LNG`. Retries adopt completed numbered files
+from older caches by renaming them into this structure, without downloading
+them again. Cleanup removes manifest files and their empty parent directories,
+leaving unrelated files and retained diagnostics alone.
 
 The choice controls the Square boot shortcut, the first HOSDMenu launcher entry,
 and DP's standard `PP.LAUNCHER` partition, including its icon, artwork, and PSBBN
