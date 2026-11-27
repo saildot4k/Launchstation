@@ -104,7 +104,15 @@ int main(int argc,char**argv) {
     assert(hddInstallCreateStage(&other)==0&&other.owned);
     assert(hddInstallUnmountStage(&other)==0&&!mounted);
     assert(hddInstallMountStage(&other)==0);hddInstallCleanup(&other);assert(!other.owned);assert(hddInstallUnmountStage(&other)==0);
-    puts("PASS: create PFS temp folders for both layouts, preserve CA before erasure, short I/O, refuse existing folders and ownership-checked cleanup");
+    other.stage_on_ata=other.jail=1;strcpy(other.stage,"ata0:/tmp");
+    other.ca_data=malloc(2);memcpy(other.ca_data,"CA",2);other.ca_size=2;
+    assert(hddInstallMountStage(&other)==0&&!mounted);
+    assert(hddInstallCreateStage(&other)==0&&other.owned&&other.stage_ready);
+    assert(!strcmp(other.ca_path,"ata0:/tmp/INSTALL_CA.PEM"));
+    assert(hddInstallFindStage(&other)==0);
+    hddInstallCleanup(&other);assert(!other.owned&&!other.stage[0]);
+    assert(hddInstallUnmountStage(&other)==0&&!mounted);
+    puts("PASS: create PFS and ATA temp folders, preserve CA before erasure, short I/O, refuse existing folders and ownership-checked cleanup");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='hdd-installer-stage-') as directory:

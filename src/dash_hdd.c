@@ -404,7 +404,7 @@ static void hddJobRun(void *arg)
 			j->ret = hddInstallResumeLoad(j->installer, &j->format_plan, &j->resume_sequence);
 			break;
 		case HOP_DOWNLOAD_INSTALLER:
-			hddInstallLog("JOB download: mounting temporary volume");
+			hddInstallLog("JOB download: opening temporary storage");
 			j->ret = hddInstallMountStage(j->installer);
 			if (j->ret >= 0) {
 				j->ret = j->installer->stage_ready ? hddInstallFindStage(j->installer) : hddInstallCreateStage(j->installer);
@@ -1085,6 +1085,7 @@ static void actFormat(void)
 		       install.flags & HDD_INSTALL_HOSD ? "MBR and HOSDMenu" : install.flags & HDD_INSTALL_APPS ? "WLE-R3Z and R3CONFIGURATOR" : "No software, format only");
 		if (install.flags & HDD_INSTALL_PSBBN) {
 			REVIEW("PSBBN language", "%s", install.language.name);
+			REVIEW("Download temp location", "%s", install.stage_on_ata ? HDD_INSTALL_ATA_TEMP : HDD_INSTALL_PFS_TEMP);
 			REVIEW("Default game launcher", "%s", hddInstallGameName(install.game_launcher));
 			REVIEW("Music", "%u MiB", install.music_mb);
 			REVIEW("Contents", "%u MiB", install.contents_mb);
@@ -1132,7 +1133,7 @@ static void actFormat(void)
 	format_ok = ret == 0;
 	if (ret == 0 && install.flags) {
 		hddInstallPhase(HDD_INSTALL_PHASE_DOWNLOAD);
-		hddInstallLog("Preparing network and PFS after format");
+		hddInstallLog("Preparing network and storage after format");
 		ret = dashHddInstallPrepareStorage(&install);
 		hddInstallLog("Storage preparation rc=%d stage=%s", ret, install.stage);
 		if (ret >= 0) {
@@ -1216,7 +1217,7 @@ static void actResume(void)
 #define RESUME_ROW(label_, ...) do { snprintf(values[count], sizeof(values[count]), __VA_ARGS__); rows[count].label = label_; rows[count].value = values[count]; count++; } while (0)
 	RESUME_ROW("Layout", "%s", install.jail ? "APA Jail (APA + exFAT)" : "APA");
 	RESUME_ROW("Drive capacity", "%u MiB", (unsigned)(plan.sectors / 2048));
-	RESUME_ROW("Cache", "%.95s", install.stage);
+	RESUME_ROW("Cache", "%.95s", (install.flags & HDD_INSTALL_PSBBN) && !install.stage_on_ata ? HDD_INSTALL_PFS_TEMP : install.stage);
 	RESUME_ROW("Repository", "%.7s", install.commit);
 	RESUME_ROW("Software", "%s", install.flags & HDD_INSTALL_PSBBN ? "PSBBN DP (Experimental), MBR, HOSDMenu, apps" : install.flags == 3 ? "MBR, HOSDMenu and apps" : install.flags & HDD_INSTALL_HOSD ? "MBR and HOSDMenu" : "WLE-R3Z and R3CONFIGURATOR");
 	if (install.flags & HDD_INSTALL_PSBBN) {

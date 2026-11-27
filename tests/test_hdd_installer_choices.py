@@ -115,12 +115,12 @@ static int dashModalMenu(const char *title,const char *subtitle,const DashMenuIt
         if(items[1].detail)assert(!strcmp(items[1].label,"PSBBN DP, HOSDMenu")&&!strcmp(items[1].detail,"EXPERIMENTAL"));
         else assert(!strcmp(items[1].label,"Install HOSDMenu and supporting apps"));
     }
-    if(strstr(title,"Default PS2 game core"))assert(!strcmp(title,"Choice 1 of 6: Default PS2 game core")&&messages==1&&!strcmp(items[0].label,"Neutrino (RiptOPL)")&&!strcmp(items[1].label,"OPL (RiptOPL)"));
-    if(strstr(title,"Music partition"))assert(!strcmp(title,"Choice 2 of 6: Music partition size"));
-    if(strstr(title,"Contents partition"))assert(!strcmp(title,"Choice 3 of 6: Contents partition size"));
+    if(strstr(title,"Default PS2 game core"))assert(!strcmp(title,"Choice 1 of 7: Default PS2 game core")&&messages==1&&!strcmp(items[0].label,"Neutrino (RiptOPL)")&&!strcmp(items[1].label,"OPL (RiptOPL)"));
+    if(strstr(title,"Music partition"))assert(!strcmp(title,"Choice 2 of 7: Music partition size"));
+    if(strstr(title,"Contents partition"))assert(!strcmp(title,"Choice 3 of 7: Contents partition size"));
     if(strstr(title,"Standalone PS2 Linux")){
         const char *linux_choices[]={"Do not install PS2 Linux","1 GiB","2 GiB","4 GiB","8 GiB"};
-        assert(!strcmp(title,"Choice 4 of 6: Standalone PS2 Linux")&&subtitle&&strstr(subtitle,"2 GiB system")&&count==5);
+        assert(!strcmp(title,"Choice 4 of 7: Standalone PS2 Linux")&&subtitle&&strstr(subtitle,"2 GiB system")&&count==5);
         for(int j=0;j<count;j++)assert(!strcmp(items[j].label,linux_choices[j]));
     }
     else assert(!subtitle);
@@ -156,7 +156,7 @@ int main(void){HddInstall in={.flags=7,.jail=1};
  assert(dashHddInstallConfigure(&in,8192)&&asked==3&&!messages&&in.flags==15&&in.music_mb==2048&&in.contents_mb==4096&&in.linux_home_mb==8192);
  asked=messages=0;assert(dashHddInstallConfigure(&in,32768)&&asked==3&&in.linux_home_mb==8192);
  for(cancel=0;cancel<3;cancel++){asked=0;assert(!dashHddInstallConfigure(&in,8192)&&asked==cancel+1);}
- for(unsigned step=1;step<=HDD_CHOICE_LANGUAGE;step++){char title[100],expected[100];snprintf(expected,sizeof(expected),"Choice %u of 6: Question",step);assert(!strcmp(dashHddInstallChoiceTitle(&in,step,"Question",title,sizeof(title)),expected));}
+ for(unsigned step=1;step<=HDD_CHOICE_TEMP;step++){char title[100],expected[100];snprintf(expected,sizeof(expected),"Choice %u of 7: Question",step);assert(!strcmp(dashHddInstallChoiceTitle(&in,step,"Question",title,sizeof(title)),expected));}
  puts("PASS: installer choice defaults/cancellation, single-extent sizes, APA allocation/reserve bounds, optional Linux metadata/assets and Circle boot config");}
 '''
     (d/'ui.c').write_text(code)

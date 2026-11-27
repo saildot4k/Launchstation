@@ -73,7 +73,7 @@ code += r'''
 #define WLE_NATIVE_HTTPS
 #define DI_WARNING 1
 #define DASH_JOB_VISIBLE 1
-static int ready=1,worker_error,worker_runs,cancel_choice,releases,modal_errors;
+static int ready=1,worker_error,worker_runs,cancel_choice,temp_choice,releases,modal_errors;
 static int dashWorkerAwaitAll(const char *s){assert(s);return 1;}
 static char LaunchElfBootDir[128]="udpfs:/apps/Launchstation/",LaunchElfDir[128]="mc0:/SYS-CONF/";
 static int source_ready,source_reads,snapshot_ready;
@@ -96,7 +96,11 @@ static int dashWorkerSubmit(const char *s,int flags,void(*run)(void*),void(*done
 }
 int dashHddInstallAwait(int id,const char *title){assert(id==1&&title);return 1;}
 static int dashModalSelect(const char *title,const char *const *items,int count,int initial){
- assert(!strcmp(title,"Choice 6 of 6: PSBBN language")&&count==4&&initial==0&&!strcmp(items[0],"English")&&!strcmp(items[3],"New language"));
+ if(!strcmp(title,"Choice 7 of 7: Download temp location")){
+  assert(count==2&&initial==0&&!strcmp(items[0],"hdd0:__common:pfs:/tmp")&&!strcmp(items[1],"ata0:/tmp"));
+  return temp_choice;
+ }
+ assert(!strcmp(title,"Choice 6 of 7: PSBBN language")&&count==4&&initial==0&&!strcmp(items[0],"English")&&!strcmp(items[3],"New language"));
  return cancel_choice?-1:3;
 }
 void hddInstallOverall(uint64_t a,uint64_t b){assert(a==1&&b==1);}
@@ -124,7 +128,9 @@ int main(void){
   requests=0;in.error[0]=0;assert(hddInstallLanguageChoices(&in,langs,32)<0&&!bundle&&in.error[0]);
  }
  fail_request=0;requests=0;
- assert(dashHddInstallPrepare(&in)==1&&source_reads==1&&!source_ready&&worker_runs==1&&!strcmp(in.language.code,"zzz")&&in.ca_data);
+ assert(dashHddInstallPrepare(&in)==1&&source_reads==1&&!source_ready&&worker_runs==1&&!strcmp(in.language.code,"zzz")&&in.ca_data&&!in.stage_on_ata);
+ temp_choice=1;assert(dashHddInstallPrepare(&in)==1&&in.stage_on_ata);
+ temp_choice=-1;assert(dashHddInstallPrepare(&in)==-ECANCELED&&!in.ca_data&&!modal_errors);temp_choice=0;
  cancel_choice=1;assert(dashHddInstallPrepare(&in)==-ECANCELED&&!in.ca_data&&!modal_errors);cancel_choice=0;
  worker_error=1;assert(dashHddInstallPrepare(&in)==0&&!in.ca_data&&modal_errors==1);worker_error=0;
  ready=0;assert(dashHddInstallPrepare(&in)==0&&!in.ca_data&&modal_errors==2);ready=1;

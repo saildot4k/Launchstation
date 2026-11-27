@@ -13,7 +13,7 @@ static const char *const linux_names[HDD_INSTALL_LINUX_PARTITIONS] = {
     "__linux.6", "__linux.7", "__linux.9", "__linux.8", "__linux.3", "__linux.10"
 };
 static const char *const pfs_names[3] = {"__system", "__sysconf", "__contents"};
-/* pfs2 stays mounted on __common for cached archives, logs and checkpoints. */
+/* Reserve pfs2 for __common when the installer cache is on PFS. */
 static const unsigned pfs_slots[3] = {0, 1, 3};
 static uint32_t le32(const unsigned char *p)
 { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
@@ -68,7 +68,7 @@ int hddInstallPsbbnPartitions(HddInstall *in)
     }
     ret = hddInstallPfsPartition(in, in->contents_mb ? in->contents_mb : 1024, "__contents");
     if (ret != (int)(in->contents_mb ? in->contents_mb : 1024)) return ret < 0 ? ret : -ENOSPC;
-    /* Apply keeps __common mounted on pfs2 for its source files and log. */
+    /* The caller mounts __common on pfs2. */
     ret = genMkdir("pfs2:/Your Saves", 0777);
     if (ret >= 0) ret = fileXioSync("pfs2:", 0);
     return ret < 0 ? ret : fileXioDevctl("hdd0:", HDIOC_FLUSH, NULL, 0, NULL, 0);

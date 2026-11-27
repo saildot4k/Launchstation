@@ -38,9 +38,10 @@ static unsigned synced;
 static int fileXioSync(const char *dev,int flags){assert(mounted&&!strcmp(dev,"pfs2:")&&!flags);synced++;return sync_error;}
 static int genOpen(const char *path,int flags){
  char local[2048];const char *p=strrchr(path,'/');assert(p&&p[1]);
- if(strncmp(path,expected_stage,strlen(expected_stage))||path[strlen(expected_stage)]!='/')return -ENOENT;
+ if(strncmp(path,expected_stage,strlen(expected_stage))||path[strlen(expected_stage)]!='/')return !strncmp(path,"ata0:",5)?-5:-ENOENT;
  if(!strncmp(path,"pfs2:",5))assert(mounted);
- snprintf(local,sizeof(local),"%s/%s",directory,p+1);int fd=open(local,flags,0600);return fd<0?-errno:fd;
+ snprintf(local,sizeof(local),"%s/%s",directory,p+1);int fd=open(local,flags,0600);
+ return fd<0?(errno==ENOENT&&!strncmp(path,"ata0:",5)?-4:-errno):fd;
 }
 static int genRead(int fd,void *p,unsigned n){return read(fd,p,n>37?37:n);}
 static int genWrite(int fd,const void*p,unsigned n){
@@ -49,7 +50,7 @@ static int genWrite(int fd,const void*p,unsigned n){
 }
 #define genLseek lseek
 #define genClose close
-static int genRemove(char *path){char local[2048];snprintf(local,sizeof(local),"%s/%s",directory,strrchr(path,'/')+1);return unlink(local)<0?-errno:0;}
+static int genRemove(char *path){char local[2048];snprintf(local,sizeof(local),"%s/%s",directory,strrchr(path,'/')+1);if(unlink(local)==0)return 0;return errno==ENOENT&&!strncmp(path,"ata0:",5)?-4:-errno;}
 static int fileXioMount(const char *m,const char*p,int flags){assert(!strcmp(m,"pfs2:")&&!strcmp(p,"hdd0:__common")&&flags==2&&!mounted);mounted=1;return 0;}
 static int mountParty(const char *p){assert(!strcmp(p,"hdd0:__common"));mounted=1;return 2;}
 static int fileXioUmount(const char *m){assert(!strcmp(m,"pfs2:")&&mounted);mounted=0;return 0;}
@@ -66,7 +67,7 @@ static int fileXioDevctl(const char *dev,int cmd,void *arg,unsigned n,void *out,
 static int fileXioGetStat(const char *path,iox_stat_t*st){(void)path;(void)st;return -ENOENT;}
 int hddGetApaCapacity(uint32_t *limit){*limit=actual.kind==HDD_FORMAT_APA_JAIL?actual.apa_sectors:actual.sectors;return 0;}
 int hddInstallFindStage(HddInstall *in){assert(!strcmp(in->stage,expected_stage));return in->owned&&!wrong_owner?0:-ENOENT;}
-int hddInstallLoadCa(HddInstall *in){assert(mounted&&!strncmp(in->ca_path,expected_stage,strlen(expected_stage)));assert(strstr(in->ca_path,"/INSTALL_CA.PEM"));in->ca_data=malloc(2);in->ca_size=2;return 0;}
+int hddInstallLoadCa(HddInstall *in){assert(mounted==!in->stage_on_ata&&!strncmp(in->ca_path,expected_stage,strlen(expected_stage)));assert(strstr(in->ca_path,"/INSTALL_CA.PEM"));in->ca_data=malloc(2);in->ca_size=2;return 0;}
 void hddInstallRelease(HddInstall *in){free(in->ca_data);free(in->launcher_files);in->ca_data=NULL;in->launcher_files=NULL;in->launcher_count=in->ca_size=0;}
 void hddInstallLog(const char *s,...){assert(s);}
 '''
@@ -120,6 +121,26 @@ int main(int argc,char **argv){
   mounted=1;assert(!hddInstallResumeRemove(&in));mounted=0;
   assert(!available(jail)); /* an incomplete log alone cannot be resumed */
   assert(hddInstallResumeLoad(&loaded,&plan,&sequence)==-ENOENT);hddInstallRelease(&loaded);
+ }
+ /* The ATA cache uses the existing journal format, without mounting or
+  * syncing PFS for writes, and accepts FatFs missing-file results. */
+ {
+  HddInstall in={0},loaded={0};HddFormatPlan plan={0};unsigned sequence=0;
+  original(&in,1);
+  in.flags=7;in.stage_on_ata=1;in.music_mb=in.contents_mb=1024;
+  strcpy(in.language.code,"eng");strcpy(in.language.name,"English");strcpy(in.archive_item,"fixture");
+  expected_stage="ata0:/tmp";strcpy(in.stage,expected_stage);
+  unsigned sync_count=synced;int flush_count=flushes;
+  hddInstallResumeBegin(&in,&actual,0);
+  assert(!hddInstallResumeSave(&in)&&synced==sync_count&&flushes==flush_count+2);
+  hddInstallResumeEnd();
+  logText("[ 1.000] Downloading system software\n");
+  assert(hddInstallResumeAvailable(1)==1&&!mounted);
+  assert(!hddInstallResumeLoad(&loaded,&plan,&sequence)&&!mounted&&sequence==1);
+  assert(loaded.resumed&&loaded.stage_on_ata&&loaded.ca_data&&!strcmp(loaded.stage,"ata0:/tmp"));
+  hddInstallRelease(&loaded);
+  assert(!hddInstallResumeRemove(&in)&&synced==sync_count&&flushes==flush_count+3);
+  assert(!available(1)&&hddInstallResumeLoad(&loaded,&plan,&sequence)==-ENOENT);
  }
  HddInstall in={0},out={0};HddFormatPlan p;unsigned seq;
  unsigned char buffer[HDD_INSTALL_RESUME_MAX],copy[HDD_INSTALL_RESUME_MAX];

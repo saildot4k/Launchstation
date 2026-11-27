@@ -79,9 +79,14 @@ int hddInstallLoadCa(HddInstall *in)
     return 0;
 }
 int hddInstallMountStage(HddInstall *in)
-{ (void)in; return fileXioMount("pfs2:", "hdd0:__common", FIO_MT_RDWR); }
+{
+    return in->stage_on_ata ? 0 : fileXioMount("pfs2:", "hdd0:__common", FIO_MT_RDWR);
+}
 int hddInstallUnmountStage(HddInstall *in)
-{ (void)in; return hddInstallRecoveryFault() ? HDD_INSTALL_ATA_TIMEOUT : fileXioUmount("pfs2:"); }
+{
+    if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+    return in->stage_on_ata ? 0 : fileXioUmount("pfs2:");
+}
 int hddInstallCreateStage(HddInstall *in)
 {
     char path[MAX_PATH];
@@ -311,8 +316,8 @@ static int prepareLauncherStage(HddInstall *in)
     if (moved) hddInstallLog("Reorganized %u cached launcher files into app folders", moved);
     return 0;
 }
-/* Cached archives are streamed directly to their final filesystems. Only
- * compressed downloads, runtimes, journals and diagnostics occupy __common. */
+/* Check PFS capacity for the compressed cache. Archive contents stream
+ * directly to their destination. BDMFS reports short writes on a full volume. */
 static int stageSpace(HddInstall *in)
 {
     int zones = fileXioDevctl("pfs2:", PDIOC_ZONEFREE, NULL, 0, NULL, 0);
@@ -645,8 +650,10 @@ static int downloadInstaller(HddInstall *in, const char **phase)
     download_total = downloadBytes(in);
     *phase = "Preparing app download folders";
     ret = prepareLauncherStage(in); if (ret < 0) goto invalid;
-    *phase = "Checking __common download space";
-    ret = stageSpace(in); if (ret < 0) goto invalid;
+    if (!in->stage_on_ata) {
+        *phase = "Checking __common download space";
+        ret = stageSpace(in); if (ret < 0) goto invalid;
+    }
     for (unsigned asset = 0; asset < HDD_INSTALL_ASSETS; asset++) {
         if (!hddInstallSelectedAsset(in, asset)) continue;
         if (pathJoin(local, sizeof(local), in->stage, hddInstallAssetName(asset)) < 0) { ret = -ENAMETOOLONG; goto invalid; }
@@ -1130,9 +1137,18 @@ int hddInstallApply(HddInstall *in)
     }
     if (ret >= 0) ret = checkLaunchers(in);
     if (ret < 0) goto failed;
-    /* Keep common on pfs2 for staging and diagnostics during APA creation. */
     if (in->flags & HDD_INSTALL_PSBBN) {
+        /* Partition setup uses __common for Your Saves. With ATA staging,
+         * mount it just for this step. PFS staging already holds the mount. */
+        if (in->stage_on_ata) {
+            ret = fileXioMount("pfs2:", "hdd0:__common", FIO_MT_RDWR);
+            if (ret < 0) goto failed;
+        }
         ret = hddInstallPsbbnPartitions(in);
+        if (in->stage_on_ata && !hddInstallRecoveryFault()) {
+            int closed = fileXioUmount("pfs2:");
+            if (ret >= 0) ret = closed;
+        }
         if (ret < 0) goto failed;
     }
     for (unsigned i = 0; i < 2; i++) {

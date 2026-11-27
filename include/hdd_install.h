@@ -15,6 +15,10 @@
 #define HDD_INSTALL_HOME_MAX_MB 16384u
 #define HDD_INSTALL_LAUNCHER_FILES 160
 #define HDD_INSTALL_APP_MB 8u
+#define HDD_INSTALL_APA_TEMP_DIR "PSBBN_DP_TEMP"
+#define HDD_INSTALL_PFS_TEMP_DIR "tmp"
+#define HDD_INSTALL_PFS_TEMP "hdd0:__common:pfs:/" HDD_INSTALL_PFS_TEMP_DIR
+#define HDD_INSTALL_ATA_TEMP "ata0:/tmp"
 
 /* Keep legacy values for existing installation journals. */
 enum { HDD_GAME_OPL, HDD_GAME_NEUTRINO, HDD_GAME_RIPTOPL, HDD_GAME_RIPTOPL_NEUTRINO };
@@ -54,6 +58,7 @@ typedef struct {
     unsigned applied, populated, committed;
     unsigned apa_sectors;
     unsigned resumed;
+    int stage_on_ata; /* Recovered from the checkpoint's directory on resume. */
 } HddInstall;
 
 unsigned hddInstallPartitionMb(const HddInstall *install, unsigned index);
@@ -62,7 +67,7 @@ unsigned hddInstallPartitionMb(const HddInstall *install, unsigned index);
 int hddInstallRequiredMb(const HddInstall *install, unsigned base_mb);
 int dashHddInstallConfigure(HddInstall *install, unsigned max_extent_mb);
 enum { HDD_CHOICE_LAUNCHER = 1, HDD_CHOICE_MUSIC, HDD_CHOICE_CONTENTS,
-       HDD_CHOICE_LINUX, HDD_CHOICE_RESERVE, HDD_CHOICE_LANGUAGE };
+       HDD_CHOICE_LINUX, HDD_CHOICE_RESERVE, HDD_CHOICE_LANGUAGE, HDD_CHOICE_TEMP };
 const char *dashHddInstallChoiceTitle(const HddInstall *install, unsigned choice, const char *title, char *out, size_t size);
 
 const char *hddInstallAssetPath(unsigned asset);
@@ -95,7 +100,7 @@ extern const char *const hddInstallOsdFiles[7];
 int dashHddInstallChoose(HddInstall *install, int jail);
 int dashHddInstallPrepare(HddInstall *install);
 int dashHddInstallPrepareStorage(HddInstall *install);
-/* UI thread, after download/checkpoint files are closed and PFS unmounted. */
+/* UI thread, after download/checkpoint files are closed and staging is released. */
 int dashHddInstallPrepareExtraction(HddInstall *install);
 int hddInstallLoadCa(HddInstall *install);
 void hddInstallRelease(HddInstall *install);

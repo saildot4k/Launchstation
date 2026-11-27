@@ -92,7 +92,7 @@ static int InjectHddAppLauncherWithArg(const char*p,const char*elf,const char*ti
     if(strstr(elf,"nhddl"))assert(arg&&!strcmp(arg,"-mode=ata"));else assert(!arg&&(strstr(elf,"OPNPS2LD.ELF")||strstr(elf,"RIPTOPL-RA-UNPAKT.ELF")));
     injected++;return 0;
 }
-int hddInstallPsbbnPartitions(HddInstall*in){assert(in->jail&&(in->flags&7)==7);psbbn_parts++;return 0;}
+int hddInstallPsbbnPartitions(HddInstall*in){assert(in->jail&&(in->flags&7)==7&&mounts==1&&!strcmp(mounted[2],"__common"));psbbn_parts++;return 0;}
 '''
 code += r'''
 
@@ -110,8 +110,9 @@ code += native
 code += r'''
 int main(int argc,char**argv){
     HddInstall in={0};FILE*f;char path[4096],hash[41];unsigned i,size;int ret;
-    assert(argc==5);snprintf(work,sizeof(work),"%s",argv[1]);in.flags=atoi(argv[2]);in.jail=!!(in.flags&4);in.game_launcher=atoi(argv[4]);jail_install=in.jail;
-    in.ready=in.owned=1;strcpy(in.stage,in.jail?"pfs2:/tmp":"pfs2:/PSBBN_DP_TEMP");memset(in.commit,'a',40);
+    assert(argc==6);snprintf(work,sizeof(work),"%s",argv[1]);in.flags=atoi(argv[2]);in.jail=!!(in.flags&4);in.game_launcher=atoi(argv[4]);jail_install=in.jail;
+    in.stage_on_ata=atoi(argv[5]);in.ready=in.owned=1;
+    strcpy(in.stage,in.stage_on_ata?"ata0:/tmp":in.jail?"pfs2:/tmp":"pfs2:/PSBBN_DP_TEMP");memset(in.commit,'a',40);
     snprintf(path,sizeof(path),"%s/manifest",work);f=fopen(path,"r");assert(f);
     while(fscanf(f,"%u %u %40s",&i,&size,hash)==3){assert(i<HDD_INSTALL_ASSETS);in.sizes[i]=size;strcpy(in.hashes[i],hash);}fclose(f);
     if(in.jail){
@@ -196,11 +197,13 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
         ('scripts/assets/OPL/LNG/lang_French.lng', b'French translation'),
         ('scripts/licenses/OPL', b'OPL license'), ('scripts/licenses/nhddl', b'NHDDL license'), ('scripts/licenses/neutrino', b'Neutrino license'),
     ]
-    for flags, failure, launcher in ((1,'ok',0),(2,'ok',0),(3,'ok',0),(7,'ok',0),(7,'ok',1),(7,'ok',2),(15,'ok',2),(7,'ok',3),
-                                    (15,'ok',0),(15,'ok',1),(3,'hash-ignored',0),(3,'size',0),(3,'attr',0),(3,'mini-create',0),(7,'launcher-size',0)):
-        work = d / (str(flags) + failure + str(launcher)); work.mkdir()
+    profiles = ((1,'ok',0),(2,'ok',0),(3,'ok',0),(7,'ok',0),(7,'ok',1),(7,'ok',2),(15,'ok',2),(7,'ok',3),
+                (15,'ok',0),(15,'ok',1),(3,'hash-ignored',0),(3,'size',0),(3,'attr',0),(3,'mini-create',0),(7,'launcher-size',0))
+    cases = [(*profile, 0) for profile in profiles] + [(7,'ok',3,1),(7,'launcher-size',0,1)]
+    for flags, failure, launcher, ata in cases:
+        work = d / (str(flags) + failure + str(launcher) + str(ata)); work.mkdir()
         for part in ('stage','ata','__system','__sysconf','__common'): (work / part).mkdir()
-        stage = work / '__common' / ('tmp' if flags & 4 else 'PSBBN_DP_TEMP'); stage.mkdir()
+        stage = work / ('ata' if ata else '__common') / ('tmp' if flags & 4 else 'PSBBN_DP_TEMP'); stage.mkdir()
         if flags & 8: (work / '__system/p2lboot').mkdir()
         (stage / 'owner.bin').write_bytes(bytes(20))
         manifest = []
@@ -244,7 +247,7 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
             (work / '__system/launcher').mkdir()
             for name in ('OPNPS2LD.ELF', 'nhddl.elf'):
                 (work / '__system/launcher' / name).write_bytes(b'older archive launcher')
-        subprocess.run([str(d / 'test'),str(work),str(flags),failure,str(launcher)],check=True,timeout=20)
+        subprocess.run([str(d / 'test'),str(work),str(flags),failure,str(launcher),str(ata)],check=True,timeout=20)
         if flags & 8:
             assert (work / '__system/p2lboot/ps2-linux-ntsc').read_bytes() == b'new NTSC kernel'
             assert (work / '__system/p2lboot/ps2-linux-vga').read_bytes() == b'new VGA kernel'

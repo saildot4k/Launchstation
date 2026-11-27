@@ -35,6 +35,7 @@ typedef struct { HddFormatPlan format_plan; HddInstall *installer; int format_st
 static int console_is_PSX, ftp, selected, reserve, total;
 static int confirms, cancel_confirm, loaded, load_error, jobs, started, job_error, queue_error;
 static unsigned install_flags;
+static int temp_on_ata;
 static int downloads, installed, download_error, install_error, cache_kept;
 static int messages, toasts, reset, reloaded, maintained, bgm, stopped, changed, freed;
 static int sel, top;
@@ -52,7 +53,7 @@ static int dashModalSelect(const char *title, const char *const *options, int co
 }
 static int pickSize(const char *title, int min, int max, int initial) {
     assert((strstr(title, "Additional APA") || strstr(title, "Reserved APA")) && min == (install_flags & HDD_INSTALL_PSBBN ? 0 : install_flags & HDD_INSTALL_APPS ? 256 : 0) && max % 128 == 0 && initial <= max);
-    if(install_flags&HDD_INSTALL_PSBBN)assert(strstr(title,"Choice 5 of 6:"));
+    if(install_flags&HDD_INSTALL_PSBBN)assert(strstr(title,"Choice 5 of 7:"));
     return reserve;
 }
 static void dashModalMessage(int icon, const char *title, const char *body, const char *detail) {
@@ -84,6 +85,7 @@ static int dashModalConfirmTable(const char *title,const DashTableRow *rows,int 
     if(install_flags&HDD_INSTALL_PSBBN){
         assert(!strcmp(reviewValue(rows,count,"PSBBN language"),"French"));
         assert(!strcmp(reviewValue(rows,count,"Music"),"1024 MiB"));
+        assert(!strcmp(reviewValue(rows,count,"Download temp location"),temp_on_ata?"ata0:/tmp":"hdd0:__common:pfs:/tmp"));
         assert(!strcmp(reviewValue(rows,count,"Console HDD boot"),"Enable"));
     }
     return confirms!=cancel_confirm;
@@ -94,8 +96,8 @@ void hddInstallLog(const char *format,...) { (void)format; }
 void hddInstallPhase(unsigned phase) { assert(phase==HDD_INSTALL_PHASE_FORMAT||phase==HDD_INSTALL_PHASE_DOWNLOAD); }
 int dashHddInstallChoose(HddInstall *in, int jail) { in->jail = jail; in->flags = install_flags; return 1; }
 int dashHddInstallConfigure(HddInstall *in,unsigned max) { assert(max>=2048); in->music_mb=in->contents_mb=1024; return 1; }
-int dashHddInstallPrepare(HddInstall *in) { assert(!confirms && !jobs); strcpy(in->language.name,"French"); return 1; }
-int dashHddInstallPrepareStorage(HddInstall *in) { assert(confirms == 2 && reset == 1 && jobs == 1); strcpy(in->stage, in->jail ? "pfs2:/tmp" : "pfs2:/PSBBN_DP_TEMP"); return 0; }
+int dashHddInstallPrepare(HddInstall *in) { assert(!confirms && !jobs); in->stage_on_ata = temp_on_ata; strcpy(in->language.name,"French"); return 1; }
+int dashHddInstallPrepareStorage(HddInstall *in) { assert(confirms == 2 && reset == 1 && jobs == 1); strcpy(in->stage, in->stage_on_ata ? "ata0:/tmp" : in->jail ? "pfs2:/tmp" : "pfs2:/PSBBN_DP_TEMP"); return 0; }
 void hddInstallResumeBegin(HddInstall *in,const HddFormatPlan *p,unsigned n){assert(in&&p&&!n);}
 void hddInstallResumeEnd(void){}
 void hddInstallRelease(HddInstall *in) { (void)in; }
@@ -106,7 +108,7 @@ int hddFormatLoad(void) { assert(confirms == 2); loaded++; return load_error; }
 static void dashSoundShutdown(void) { assert(loaded); stopped++; }
 static int runJob(HddJob *j, const char *title, int cancelable) {
     assert(title && cancelable == 0);
-    if (j->op == HOP_DOWNLOAD_INSTALLER) { assert(confirms == 2 && stopped && reset == 1 && jobs == 1); assert(!strcmp(j->installer->stage, j->installer->jail ? "pfs2:/tmp" : "pfs2:/PSBBN_DP_TEMP")); downloads++; j->ret = download_error; return 1; }
+    if (j->op == HOP_DOWNLOAD_INSTALLER) { assert(confirms == 2 && stopped && reset == 1 && jobs == 1); assert(!strcmp(j->installer->stage, temp_on_ata ? "ata0:/tmp" : j->installer->jail ? "pfs2:/tmp" : "pfs2:/PSBBN_DP_TEMP")); downloads++; j->ret = download_error; return 1; }
     if (j->op == HOP_INSTALL_SOFTWARE) { assert(reset && confirms == 2); assert(hddFormatLoad()==0); installed++; j->ret = install_error; j->format_started = 1; return 1; }
     assert(stopped); jobs++;
     actual = j->format_plan;
@@ -127,7 +129,7 @@ code += titles[titles.index('const char *dashHddInstallChoiceTitle('):titles.ind
 code += action
 code += r'''
 static void clear(void) {
-    install_flags = 0; downloads = installed = download_error = install_error = cache_kept = 0;
+    temp_on_ata = install_flags = 0; downloads = installed = download_error = install_error = cache_kept = 0;
     console_is_PSX = ftp = 0; selected = HDD_FORMAT_APA_JAIL; reserve = 512; total = 8 * 1024 * 2048;
     confirms = cancel_confirm = loaded = load_error = jobs = job_error = queue_error = 0; started = 1;
     messages = toasts = reset = reloaded = maintained = bgm = stopped = changed = freed = 0;
@@ -158,8 +160,10 @@ int main(void) {
     assert(messages == 1 && !toasts && reset == 1 && reloaded == 1 && changed == 1);
     clear(); job_error = -EBUSY; started = 0; actFormat();
     assert(messages == 1 && !toasts && !reset && !reloaded && changed == 1 && maintained && bgm);
-    clear(); total = 100 * 1024 * 2048; reserve = 8192; install_flags = 7; actFormat();
-    assert(downloads == 1 && installed == 1 && confirms == 2 && jobs == 1 && reset == 2 && !messages && toasts == 1);
+    for (int ata = 0; ata <= 1; ata++) {
+        clear(); total = 100 * 1024 * 2048; reserve = 8192; install_flags = 7; temp_on_ata = ata; actFormat();
+        assert(downloads == 1 && installed == 1 && confirms == 2 && jobs == 1 && reset == 2 && !messages && toasts == 1);
+    }
     clear(); total = 100 * 1024 * 2048; reserve = 8192; install_flags = 7; download_error = -EIO; actFormat();
     assert(downloads == 1 && confirms == 2 && jobs == 1 && stopped && reset == 1 && !installed && !toasts && cache_kept == 1 && messages == 1);
     clear(); total = 100 * 1024 * 2048; reserve = 8192; install_flags = 7; install_error = -EIO; actFormat();

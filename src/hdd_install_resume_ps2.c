@@ -7,10 +7,11 @@ static unsigned current_sequence;
 void hddInstallResumeBegin(HddInstall *in, const HddFormatPlan *plan, unsigned sequence)
 { current = in; current_plan = *plan; current_sequence = sequence; }
 void hddInstallResumeEnd(void) { current = NULL; }
-static int flush(void)
+static int flush(const HddInstall *in)
 {
-    /* HDD FLUSH alone does not write dirty PFS metadata to the device. */
-    int ret = fileXioSync("pfs2:", 0);
+    /* FatFs flushes filesystem data on close. PFS needs an explicit sync
+     * before flushing the drive's write cache. */
+    int ret = in->stage_on_ata ? 0 : fileXioSync("pfs2:", 0);
     return ret < 0 ? ret : fileXioDevctl("hdd0:", HDIOC_FLUSH, NULL, 0, NULL, 0);
 }
 static int journalPath(char *path, unsigned size, const HddInstall *in, unsigned slot)
@@ -27,7 +28,7 @@ int hddInstallResumeSave(HddInstall *in)
     if (size < 0) { free(bytes); return size; }
     /* Data and unmounted PFS volumes must precede the durable checkpoint. */
     ret = journalPath(path, sizeof(path), in, next & 1);
-    if (ret >= 0) ret = flush();
+    if (ret >= 0) ret = flush(in);
     fd = ret < 0 ? ret : genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC);
     if (fd < 0) ret = fd;
     else {
@@ -39,18 +40,23 @@ int hddInstallResumeSave(HddInstall *in)
         }
         if (!hddInstallRecoveryFault()) { int closed = genClose(fd); if (ret >= 0) ret = closed; }
         else ret = HDD_INSTALL_ATA_TIMEOUT;
-        if (ret >= 0) ret = flush();
+        if (ret >= 0) ret = flush(in);
     }
     free(bytes);
     if (ret >= 0) current_sequence = next;
     else hddInstallLog("ERROR resume checkpoint rc=%d; previous checkpoint retained", ret);
     return ret;
 }
+static int missingStageFile(const char *stage, int error)
+{
+    /* BDMFS returns negative FatFs results for open and remove. */
+    return error == -ENOENT || (!strcmp(stage, HDD_INSTALL_ATA_TEMP) && (error == -4 || error == -5));
+}
 static int readJournal(HddInstall *in, HddFormatPlan *plan, unsigned *sequence, const char *stage, unsigned slot)
 {
     char path[MAX_PATH]; int fd, ret = 0;
     snprintf(path, sizeof(path), "%s/RESUME%u.BIN", stage, slot);
-    fd = genOpen(path, FIO_O_RDONLY); if (fd < 0) return fd;
+    fd = genOpen(path, FIO_O_RDONLY); if (fd < 0) return missingStageFile(stage, fd) ? -ENOENT : fd;
     s64 size = genLseek(fd, 0, SEEK_END);
     unsigned char *data = NULL;
     if (size < 24 || size > HDD_INSTALL_RESUME_MAX || genLseek(fd, 0, SEEK_SET) != 0) ret = -EINVAL;
@@ -106,7 +112,7 @@ static int incompleteLog(const char *stage)
     char path[MAX_PATH], tail[512];
     snprintf(path, sizeof(path), "%s/INSTALLER.LOG", stage);
     int fd = genOpen(path, FIO_O_RDONLY);
-    if (fd < 0) return fd == -ENOENT ? 0 : fd;
+    if (fd < 0) return missingStageFile(stage, fd) ? 0 : fd;
     s64 size = genLseek(fd, 0, SEEK_END);
     unsigned count = size > (s64)sizeof(tail) ? sizeof(tail) : size > 0 ? (unsigned)size : 0;
     int ret = size < 0 ? (int)size : 0;
@@ -121,16 +127,8 @@ static int incompleteLog(const char *stage)
     if (ret < 0 || closed < 0) return ret < 0 ? ret : closed;
     return !hddInstallLogComplete(tail, count);
 }
-int hddInstallResumeAvailable(int jail)
+static int resumeAvailableAt(const char *stage, int jail, int on_ata)
 {
-    char stage[64];
-#ifndef EXFAT
-    if (jail) return 0;
-#endif
-    /* Use the shared mount policy; never steal a fixed slot from a VMC. */
-    int mount = mountParty("hdd0:__common");
-    if (mount < 0) return mount;
-    snprintf(stage, sizeof(stage), "pfs%d:/%s", mount, jail ? "tmp" : "PSBBN_DP_TEMP");
     int ret = incompleteLog(stage);
     if (ret <= 0) return ret;
     HddInstall *candidate = calloc(1, sizeof(*candidate));
@@ -141,8 +139,10 @@ int hddInstallResumeAvailable(int jail)
         HddFormatPlan plan; unsigned sequence;
         memset(candidate, 0, sizeof(*candidate));
         ret = readJournal(candidate, &plan, &sequence, stage, slot);
-        if (ret >= 0 && candidate->jail == !!jail && sequence > latest) {
+        if (ret >= 0 && candidate->jail == !!jail &&
+            (!on_ata || (candidate->flags & HDD_INSTALL_PSBBN)) && sequence > latest) {
             latest = sequence;
+            candidate->stage_on_ata = on_ata;
             candidate->owned = 1; snprintf(candidate->stage, sizeof(candidate->stage), "%s", stage);
             available = !candidate->committed && hddInstallFindStage(candidate) >= 0;
         }
@@ -152,24 +152,47 @@ int hddInstallResumeAvailable(int jail)
     free(candidate);
     return available;
 }
+int hddInstallResumeAvailable(int jail)
+{
+    char stage[64];
+#ifndef EXFAT
+    if (jail) return 0;
+#else
+    if (jail) {
+        int ret = resumeAvailableAt(HDD_INSTALL_ATA_TEMP, jail, 1);
+        if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+        if (ret > 0) return ret;
+    }
+#endif
+    /* Use the shared mount policy; never steal a fixed slot from a VMC. */
+    int mount = mountParty("hdd0:__common");
+    if (mount < 0) return mount;
+    snprintf(stage, sizeof(stage), "pfs%d:/%s", mount, jail ? HDD_INSTALL_PFS_TEMP_DIR : HDD_INSTALL_APA_TEMP_DIR);
+    return resumeAvailableAt(stage, jail, 0);
+}
 int hddInstallResumeLoad(HddInstall *in, HddFormatPlan *plan, unsigned *sequence)
 {
     HddInstall *candidate = calloc(1, sizeof(*candidate));
     if (!candidate) return -ENOMEM;
     int found = 0, ret = -ENOENT;
     /* Drivers are started on the UI thread. No network switch or write here. */
-    for (unsigned jail = 0; jail < 2; jail++) {
-#ifndef EXFAT
-        if (jail) continue;
+    static const struct { const char *path; int jail, on_ata; } stages[] = {
+        {"pfs2:/" HDD_INSTALL_APA_TEMP_DIR, 0, 0},
+#ifdef EXFAT
+        {"pfs2:/" HDD_INSTALL_PFS_TEMP_DIR, 1, 0},
+        {HDD_INSTALL_ATA_TEMP, 1, 1},
 #endif
-        int mounted = fileXioMount("pfs2:", "hdd0:__common", FIO_MT_RDONLY) >= 0;
-        if (!mounted) continue;
-        const char *stage = jail ? "pfs2:/tmp" : "pfs2:/PSBBN_DP_TEMP";
-        for (unsigned slot = 0; slot < 2; slot++) {
+    };
+    for (unsigned i = 0; i < sizeof(stages) / sizeof(stages[0]) && !hddInstallRecoveryFault(); i++) {
+        const char *stage = stages[i].path;
+        int on_ata = stages[i].on_ata;
+        if (!on_ata && fileXioMount("pfs2:", "hdd0:__common", FIO_MT_RDONLY) < 0) continue;
+        for (unsigned slot = 0; slot < 2 && !hddInstallRecoveryFault(); slot++) {
             HddFormatPlan p; unsigned seq;
             memset(candidate, 0, sizeof(*candidate));
             int read = readJournal(candidate, &p, &seq, stage, slot);
-            if (read >= 0 && candidate->jail == (int)jail) {
+            if (read >= 0 && candidate->jail == stages[i].jail && (!on_ata || (candidate->flags & HDD_INSTALL_PSBBN))) {
+                candidate->stage_on_ata = on_ata;
                 candidate->owned = 1; snprintf(candidate->stage, sizeof(candidate->stage), "%s", stage);
                 if (hddInstallFindStage(candidate) < 0 || verifyDisk(candidate, &p) < 0) ret = -EINVAL;
                 else if (!found || seq > *sequence) {
@@ -179,18 +202,21 @@ int hddInstallResumeLoad(HddInstall *in, HddFormatPlan *plan, unsigned *sequence
             } else if (read != -ENOENT) ret = -EINVAL;
             hddInstallRelease(candidate);
         }
-        if (mounted) fileXioUmount("pfs2:");
+        if (!on_ata && !hddInstallRecoveryFault()) fileXioUmount("pfs2:");
     }
     free(candidate);
+    if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
     if (!found) return ret;
     in->resumed = 1; in->recovery_attempts = 0;
     in->apa_sectors = in->jail ? plan->apa_sectors : plan->sectors;
-    snprintf(in->ca_path, sizeof(in->ca_path), "pfs2:/%s/INSTALL_CA.PEM", in->jail ? "tmp" : "PSBBN_DP_TEMP");
+    if (in->committed) return 0;
+    int length = snprintf(in->ca_path, sizeof(in->ca_path), "%s/INSTALL_CA.PEM", in->stage);
+    if (length < 0 || (size_t)length >= sizeof(in->ca_path)) return -ENAMETOOLONG;
     /* Read the staged CA before starting HTTPS, which can reset this stack. */
-    int mounted = fileXioMount("pfs2:", "hdd0:__common", FIO_MT_RDONLY) >= 0;
-    if (!mounted) ret = -EIO;
-    else ret = in->committed ? 0 : hddInstallLoadCa(in);
-    if (mounted) fileXioUmount("pfs2:");
+    int mounted = !in->stage_on_ata && fileXioMount("pfs2:", "hdd0:__common", FIO_MT_RDONLY) >= 0;
+    if (!in->stage_on_ata && !mounted) ret = -EIO;
+    else ret = hddInstallLoadCa(in);
+    if (mounted && !hddInstallRecoveryFault()) fileXioUmount("pfs2:");
     if (ret < 0) {
         snprintf(in->error, sizeof(in->error), "The checkpoint is valid, but its saved CA bundle could not be read (error %d).", ret);
         hddInstallRelease(in);
@@ -204,7 +230,7 @@ int hddInstallResumeRemove(HddInstall *in)
         char path[MAX_PATH];
         if (journalPath(path, sizeof(path), in, i) < 0) return -ENAMETOOLONG;
         int ret = genRemove(path);
-        if (ret < 0 && ret != -ENOENT) return ret;
+        if (ret < 0 && !missingStageFile(in->stage, ret)) return ret;
     }
-    return flush();
+    return flush(in);
 }

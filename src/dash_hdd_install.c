@@ -8,7 +8,7 @@
 const char *dashHddInstallChoiceTitle(const HddInstall *in, unsigned choice, const char *title, char *out, size_t size)
 {
     if (!(in->flags & HDD_INSTALL_PSBBN)) return title;
-    snprintf(out, size, "Choice %u of %u: %s", choice, (unsigned)HDD_CHOICE_LANGUAGE, title);
+    snprintf(out, size, "Choice %u of %u: %s", choice, (unsigned)HDD_CHOICE_TEMP, title);
     return out;
 }
 
@@ -139,6 +139,11 @@ int dashHddInstallPrepare(HddInstall *in)
         if (selected < 0) { hddInstallRelease(in); return -ECANCELED; }
         in->language = choices.languages[selected];
         hddInstallLog("PSBBN language: %s (%s); repository %.7s", in->language.name, in->language.code, in->commit);
+        static const char *const temp_locations[] = {HDD_INSTALL_PFS_TEMP, HDD_INSTALL_ATA_TEMP};
+        selected = dashModalSelect(dashHddInstallChoiceTitle(in, HDD_CHOICE_TEMP, "Download temp location", title, sizeof(title)),
+                                   temp_locations, 2, 0);
+        if (selected < 0) { hddInstallRelease(in); return -ECANCELED; }
+        in->stage_on_ata = selected == 1;
     }
     hddInstallOverall(1, 1);
     return 1;
@@ -151,8 +156,8 @@ int dashHddInstallPrepare(HddInstall *in)
 int dashHddInstallPrepareStorage(HddInstall *in)
 {
 #if defined(ETH) && defined(WLE_NATIVE_HTTPS)
-    /* Formatting resets the IOP. Restore network/storage before the worker
-     * mounts the PFS staging folder; no external staging device is needed. */
+    /* Formatting resets the IOP. Restore networking and the HDD stack
+     * (including ATA_BD in exFAT builds) before opening the staging folder. */
     hddInstallLog("Preparing network stack");
     if (!ensureDashboardIpNetworkReady()) {
         snprintf(in->error, sizeof(in->error), "%s", dashboardIpNetworkError());
@@ -160,8 +165,14 @@ int dashHddInstallPrepareStorage(HddInstall *in)
     }
     hddInstallLog("Loading HDD/PFS modules");
     if (!loadHddModules()) return -ENODEV;
-    snprintf(in->stage, sizeof(in->stage), "pfs2:/%s", in->jail ? "tmp" : "PSBBN_DP_TEMP");
-    hddInstallLog("Installer cache: hdd0:__common:pfs:/%s", in->jail ? "tmp" : "PSBBN_DP_TEMP");
+    if (in->stage_on_ata) {
+        snprintf(in->stage, sizeof(in->stage), "%s", HDD_INSTALL_ATA_TEMP);
+        hddInstallLog("Installer cache: %s", HDD_INSTALL_ATA_TEMP);
+    } else {
+        const char *dir = in->jail ? HDD_INSTALL_PFS_TEMP_DIR : HDD_INSTALL_APA_TEMP_DIR;
+        snprintf(in->stage, sizeof(in->stage), "pfs2:/%s", dir);
+        hddInstallLog("Installer cache: hdd0:__common:pfs:/%s", dir);
+    }
     return 0;
 #else
     (void)in;
@@ -356,7 +367,7 @@ void dashHddInstallDebugEnd(HddInstall *in, int result)
     if (!debug_open) return;
     int save_log = in->owned && in->stage_ready && result != HDD_INSTALL_ATA_TIMEOUT;
     /* MBR installation can reset the IOP just before this final save. Reload
-     * storage on the UI thread so the PFS installation log is reachable again. */
+     * storage on the UI thread so the installation log is reachable again. */
     if (save_log && !loadHddModules()) save_log = 0;
     if (!save_log && in->owned && in->stage_ready)
         hddInstallLog("Final log could not be saved; installation status follows in RAM");

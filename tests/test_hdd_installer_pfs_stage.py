@@ -65,7 +65,9 @@ int main(void){
  assert(!dashHddInstallPrepareStorage(&in)&&!strcmp(in.stage,"pfs2:/tmp"));
  assert(strstr(last_log,"hdd0:__common:pfs:/tmp"));
  in.jail=0;assert(!dashHddInstallPrepareStorage(&in)&&!strcmp(in.stage,"pfs2:/PSBBN_DP_TEMP"));
- in.jail=1;assert(!dashHddInstallPrepareStorage(&in));
+ in.jail=1;in.stage_on_ata=1;
+ assert(!dashHddInstallPrepareStorage(&in)&&!strcmp(in.stage,"ata0:/tmp")&&strstr(last_log,"ata0:/tmp"));
+ in.stage_on_ata=0;assert(!dashHddInstallPrepareStorage(&in));
  network=0;assert(dashHddInstallPrepareStorage(&in)==-EIO&&strstr(in.error,"network failed"));network=1;
  hdd=0;assert(dashHddInstallPrepareStorage(&in)==-ENODEV);hdd=1;
  in.sizes[HI_SYSTEM]=300u*1024*1024;
@@ -96,7 +98,7 @@ int main(void){
  for(unsigned i=0;i<HDD_INSTALL_ASSETS;i++)in.sizes[i]=1024u*1024*1024;
  free_zones=5*131072;assert(stageSpace(&in)==-ENOSPC);
  free(in.launcher_files);
- puts("PASS: PFS-only preparation, bounded free-space checks, cached-download reuse, zone rounding, I/O faults and 64-bit totals");
+ puts("PASS: PFS and ATA preparation, bounded free-space checks, cached-download reuse, zone rounding, I/O faults and 64-bit totals");
 }
 '''
 with tempfile.TemporaryDirectory(prefix="hdd-pfs-stage-") as directory:
