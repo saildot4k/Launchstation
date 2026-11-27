@@ -9,6 +9,7 @@
 #include "hdd_install_recovery.h"
 #include "hdd_install_resume.h"
 
+#include <malloc.h>
 #include <time.h>
 #define EXTRAS_URL "https://archive.org/download/psbbn-definitive-english-patch-v2/extras.zip"
 /* Immutable archive referenced by DP's HOSDMenu-Installer.sh. Recorded from
@@ -325,45 +326,120 @@ invalid:
     return ret < 0 ? ret : -EINVAL;
 }
 
-typedef struct { int input, output; } ZipContext;
-static int zipRead(void *ctx, uint32_t offset, void *data, unsigned size)
+enum { ZIP_IO_BLOCK = 16 * 1024, ZIP_DISK_SECTOR = 512 };
+typedef struct {
+    int input, output;
+    unsigned char *buffer;
+    uint32_t size, read_offset, write_offset;
+    unsigned read_size, pending;
+} ZipContext;
+
+static int zipOpen(ZipContext *z, const HddInstall *in, int writing)
 {
-    ZipContext *z = ctx;
-    if (genLseek(z->input, offset, SEEK_SET) != offset) return -EIO;
-    return readAll(z->input, data, size);
+    char path[MAX_PATH];
+    int ret = pathJoin(path, sizeof(path), in->stage, "extras.zip");
+    if (ret < 0) return ret;
+    z->size = in->sizes[HI_EXTRAS];
+    z->buffer = memalign(64, (writing ? 2 : 1) * ZIP_IO_BLOCK);
+    if (!z->buffer) return -ENOMEM;
+    z->input = genOpen(path, FIO_O_RDONLY);
+    if (z->input < 0) { free(z->buffer); z->buffer = NULL; return z->input; }
+    return 0;
 }
-static int zipWrite(void *ctx, const void *data, unsigned size)
+static int zipClose(ZipContext *z, int result)
 {
-    ZipContext *z = ctx;
-    return z->output < 0 ? 0 : writeAll(z->output, data, size);
+    free(z->buffer);
+    return closeResult(z->input, result);
+}
+/* ZIP member offsets are arbitrary. Read aligned disk blocks before slicing
+ * them, so FatFs can pass aligned buffers to ATA DMA for whole sectors. */
+static int zipRead(void *context, uint32_t offset, void *data, unsigned size)
+{
+    ZipContext *z = context;
+    unsigned char *out = data;
+    if (offset > z->size || size > z->size - offset) return -EINVAL;
+    while (size) {
+        if (offset < z->read_offset || offset - z->read_offset >= z->read_size) {
+            uint32_t start = offset & ~(uint32_t)(ZIP_IO_BLOCK - 1);
+            unsigned count = z->size - start;
+            if (count > ZIP_IO_BLOCK) count = ZIP_IO_BLOCK;
+            if (genLseek(z->input, start, SEEK_SET) != start) return -EIO;
+            int ret = readAll(z->input, z->buffer, count);
+            if (ret < 0) return ret;
+            z->read_offset = start;
+            z->read_size = count;
+        }
+        unsigned within = offset - z->read_offset, count = z->read_size - within;
+        if (count > size) count = size;
+        memcpy(out, z->buffer + within, count);
+        offset += count; out += count; size -= count;
+    }
+    return 0;
+}
+static int zipFlush(ZipContext *z)
+{
+    unsigned char *buffer = z->buffer + ZIP_IO_BLOCK;
+    while (z->pending) {
+        unsigned count = z->pending, within = z->write_offset % ZIP_DISK_SECTOR;
+        /* Recover the sector boundary if the filesystem returned a short write. */
+        if (within && count > ZIP_DISK_SECTOR - within) count = ZIP_DISK_SECTOR - within;
+        int n = genWrite(z->output, buffer, count);
+        if (n <= 0 || (unsigned)n > count) return n < 0 ? n : -EIO;
+        z->write_offset += n; z->pending -= n;
+        if (z->pending) memmove(buffer, buffer + n, z->pending);
+    }
+    return 0;
+}
+static int zipWrite(void *context, const void *data, unsigned size)
+{
+    ZipContext *z = context;
+    const unsigned char *input = data;
+    if (z->output < 0) return 0;
+    while (size) {
+        unsigned count = ZIP_IO_BLOCK - z->pending;
+        if (count > size) count = size;
+        memcpy(z->buffer + ZIP_IO_BLOCK + z->pending, input, count);
+        input += count; size -= count; z->pending += count;
+        if (z->pending == ZIP_IO_BLOCK) {
+            int ret = zipFlush(z);
+            if (ret < 0) return ret;
+        }
+    }
+    return 0;
+}
+static int zipExtract(ZipContext *z, const char *entry, uint32_t maximum, uint32_t expected)
+{
+    InstallArchiveIo io = {z, zipRead, zipWrite};
+    uint32_t size;
+    z->pending = z->write_offset = 0;
+    int ret = installZipExtract(&io, z->size, entry, maximum, &size);
+    if (ret < 0) return ret;
+    if (expected && size != expected) return -EINVAL;
+    return z->output < 0 ? 0 : zipFlush(z);
 }
 static int osdResources(HddInstall *in, const char *destination)
 {
     char path[MAX_PATH], entry[128];
-    ZipContext ctx = {-1, -1};
-    InstallArchiveIo io = {&ctx, zipRead, zipWrite};
-    int ret, replace = in->owned && (in->recovery_attempts || in->resumed);
-    if (pathJoin(path, sizeof(path), in->stage, "extras.zip") < 0) return -ENAMETOOLONG;
-    ctx.input = genOpen(path, FIO_O_RDONLY);
-    if (ctx.input < 0) return ctx.input;
+    ZipContext ctx = {.output = -1};
+    int replace = in->owned && (in->recovery_attempts || in->resumed);
+    int ret = zipOpen(&ctx, in, destination != NULL);
+    if (ret < 0) return ret;
     for (unsigned i = 0; i < 7; i++) {
         if (destination) {
-            if (pathJoin(path, sizeof(path), destination, hddInstallOsdFiles[i]) < 0) { ret = -ENAMETOOLONG; goto done; }
+            if (pathJoin(path, sizeof(path), destination, hddInstallOsdFiles[i]) < 0) { ret = -ENAMETOOLONG; break; }
             ctx.output = hddInstallOutputOpen(path, replace);
-            if (ctx.output < 0) { ret = ctx.output; goto done; }
+            if (ctx.output < 0) { ret = ctx.output; break; }
         }
         snprintf(entry, sizeof(entry), "extras/%s", hddInstallOsdFiles[i]);
         hddInstallStatus(destination ? "Installing HDD-OSD resources" : "Checking HDD-OSD resources", i, 7);
-        ret = installZipExtract(&io, in->sizes[HI_EXTRAS], entry, 4u * 1024 * 1024, NULL);
+        ret = zipExtract(&ctx, entry, 4u * 1024 * 1024, 0);
         if (ctx.output >= 0) {
             ret = hddInstallOutputFinish(path, replace, closeResult(ctx.output, ret));
             ctx.output = -1;
         }
-        if (ret < 0) goto done;
+        if (ret < 0) break;
     }
-    ret = 0;
-done:
-    return closeResult(ctx.input, ret);
+    return zipClose(&ctx, ret);
 }
 
 #if defined(ETH) && defined(WLE_NATIVE_HTTPS)
@@ -1053,11 +1129,9 @@ static int installApps(HddInstall *in)
 static int installEmberBios(HddInstall *in)
 {
     const uint32_t bios_size = 512u * 1024;
-    char target[] = EMBER_BIOS_PATH, staged[] = EMBER_BIOS_PATH ".tmp", path[MAX_PATH];
-    ZipContext ctx = {-1, -1};
-    InstallArchiveIo io = {&ctx, zipRead, zipWrite};
+    char target[] = EMBER_BIOS_PATH, staged[] = EMBER_BIOS_PATH ".tmp";
+    ZipContext ctx = {.output = -1};
     iox_stat_t st;
-    uint32_t size = 0;
     int present = genGetStat(target, &st), ret;
 
     if (present >= 0) {
@@ -1075,22 +1149,25 @@ static int installEmberBios(HddInstall *in)
         }
     } else if (present != -ENOENT) return present;
 
-    if (pathJoin(path, sizeof(path), in->stage, "extras.zip") < 0) return -ENAMETOOLONG;
-    ctx.input = genOpen(path, FIO_O_RDONLY);
-    if (ctx.input < 0) return ctx.input;
+    ret = zipOpen(&ctx, in, 1);
+    if (ret < 0) { hddInstallLog("Ember dependency ZIP open failed: %d", ret); return ret; }
     ctx.output = genOpen(staged, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC);
-    if (ctx.output < 0) return closeResult(ctx.input, ctx.output);
+    if (ctx.output < 0) {
+        hddInstallLog("Ember BIOS temporary file open failed: %d", ctx.output);
+        return zipClose(&ctx, ctx.output);
+    }
     hddInstallStatus("Installing Ember BIOS", 0, 0);
-    ret = installZipExtract(&io, in->sizes[HI_EXTRAS], "dep/bios.bin", bios_size, &size);
+    ret = zipExtract(&ctx, "dep/bios.bin", bios_size, bios_size);
+    hddInstallLog("Ember BIOS ZIP extraction and CRC check: %d", ret);
     ret = closeResult(ctx.output, ret);
-    ret = closeResult(ctx.input, ret);
+    ret = zipClose(&ctx, ret);
     if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
-    if (ret >= 0 && size != bios_size) ret = -EINVAL;
     if (ret >= 0) ret = genGetStat(staged, &st);
     if (ret >= 0 && (st.hisize || st.size != bios_size)) ret = -EIO;
     if (ret >= 0 && present >= 0) ret = genRemove(target);
     if (ret >= 0) ret = genRenameNoReplace(staged, target);
     if (ret < 0 && !hddInstallRecoveryFault()) genRemove(staged);
+    hddInstallLog("Ember BIOS publish result: %d", ret);
     return ret;
 }
 

@@ -112,6 +112,7 @@ jobs:
           python3 tests/test_hdd_manager_browse.py
           python3 tests/test_hdd_partition_rename.py
           python3 tests/test_hdd_manager_mounts.py
+          python3 tests/test_ata_bd_alignment.py
           python3 tests/test_hdd_filesystem.py
           python3 tests/test_hdd_format.py
           python3 tests/test_hdd_metadata.py

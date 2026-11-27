@@ -43,7 +43,13 @@ static const char *mounted[4];
 static unsigned mounts,attrcalls,partitions,injected,psbbn_parts;
 static int attr_error, replay, jail_install, partition_error, rename_error;
 static unsigned legacy_launcher_mb;
-static int publish_error;
+static int publish_error, check_zip_dma, zip_fd = -1, bios_fd = -1;
+static unsigned unsafe_reads, unsafe_writes;
+static int directMisaligned(uintptr_t buffer, off_t offset, unsigned length)
+{
+    unsigned head = (512 - offset % 512) % 512;
+    return length >= head + 512 && (buffer + head) % 4;
+}
 static u64 Timer(void){return 1;}
 static void dashWorkerStatus(const char*s,unsigned n,unsigned total){assert(s);(void)n;(void)total;}
 static int map(const char*p,char*out,size_t cap) {
@@ -58,9 +64,44 @@ static int map(const char*p,char*out,size_t cap) {
     if(snprintf(prefix,sizeof(prefix),"%s/%s",work,base)>=(int)sizeof(prefix))return -ENAMETOOLONG;
     return snprintf(out,cap,"%s%s",prefix,colon+1)<(int)cap?0:-ENAMETOOLONG;
 }
-static int genOpen(const char*p,int mode){char path[4096];int r=map(p,path,sizeof(path));return r<0?r:open(path,mode,0600);}
-static int genRead(int fd,void*p,unsigned n){if(n>97)n=97;return read(fd,p,n);}
-static int genWrite(int fd,const void*p,unsigned n){if(n>31)n=31;return write(fd,p,n);}
+static int genOpen(const char *p,int mode)
+{
+    char path[4096];
+    int r=map(p,path,sizeof(path));
+    int fd=r<0?r:open(path,mode,0600);
+    if(check_zip_dma && fd>=0) {
+        if(strstr(p,"/extras.zip"))zip_fd=fd;
+        if(strstr(p,"/Ember/") && (mode&O_WRONLY))bios_fd=fd;
+    }
+    return fd;
+}
+static int genRead(int fd,void *p,unsigned n)
+{
+    if(fd!=zip_fd) return read(fd,p,n>97?97:n);
+    off_t offset=lseek(fd,0,SEEK_CUR);
+    /* fileXio reads an unaligned EE prefix separately. Its main IOP
+       buffer starts aligned, but FatFs advances it past a partial sector. */
+    unsigned prefix=n<64?n:(64-(uintptr_t)p%64)%64;
+    unsigned main=(n-prefix)&~63u;
+    int ret=read(fd,p,n);
+    if(ret>0 && directMisaligned(0,offset+prefix,main)) {
+        unsigned head=(512-(offset+prefix)%512)%512;
+        if(prefix+head<(unsigned)ret)((unsigned char *)p)[prefix+head]^=0x80;
+        unsafe_reads++;
+    }
+    return ret;
+}
+static int genWrite(int fd,const void *p,unsigned n)
+{
+    if(fd!=bios_fd) return write(fd,p,n>31?31:n);
+    off_t offset=lseek(fd,0,SEEK_CUR);
+    unsigned prefix=(64-(uintptr_t)p%64)%64;
+    if(prefix>n)prefix=n;
+    if(directMisaligned(0,offset+prefix,n-prefix))unsafe_writes++;
+    /* Inject a short write crossing a sector boundary. */
+    if(!offset && n>517)n=517;
+    return write(fd,p,n);
+}
 #define genLseek lseek
 #define genClose close
 static int genMkdir(const char*p,int mode){char path[4096];int r=map(p,path,sizeof(path));return r<0?r:mkdir(path,mode)<0?-errno:0;}
@@ -168,8 +209,12 @@ int main(int argc,char**argv){
     if(!strncmp(argv[3],"bios-",4)){
         assert(!hddInstallMountStage(&in));
         rename_error=!strcmp(argv[3],"bios-publish-error")?-EIO:0;
+        check_zip_dma=!strcmp(argv[3],"bios-ata-alignment");
         ret=installEmberBios(&in);
+        if(check_zip_dma && (ret || unsafe_reads || unsafe_writes))
+            fprintf(stderr,"Ember extraction status %d, misaligned ATA reads %u, writes %u\n",ret,unsafe_reads,unsafe_writes);
         assert((ret<0)==(!strcmp(argv[3],"bios-invalid")||rename_error));
+        assert(!unsafe_reads&&!unsafe_writes);
         assert(!hddInstallUnmountStage(&in));
         hddInstallRelease(&in);
         return 0;
@@ -251,7 +296,8 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
                 (15,'ok',0),(15,'ok',1),(3,'hash-ignored',0),(3,'size',0),(3,'attr',0),(3,'mini-create',0),(7,'launcher-size',0))
     cases = [(*profile, 0) for profile in profiles] + [(7,'ok',3,1),(7,'launcher-size',0,1)]
     cases.append((1, 'partial-output', 0, 0))
-    cases += [(7, scenario, 3, 1) for scenario in ('bios-invalid', 'bios-repair', 'bios-preserve', 'bios-publish-error')]
+    cases += [(7, scenario, 3, 1) for scenario in ('bios-invalid', 'bios-repair', 'bios-preserve', 'bios-publish-error', 'bios-ata-alignment')]
+    unaligned_bios = hashlib.shake_256(b'Ember ZIP I/O fixture').digest(524288)
     for flags, failure, launcher, ata in cases:
         work = d / (str(flags) + failure + str(launcher) + str(ata)); work.mkdir()
         for part in ('stage','ata','__system','__sysconf','__common'): (work / part).mkdir()
@@ -273,7 +319,12 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
                     ('scripts/licenses/RiptOPL.txt',b'RiptOPL license'),('scripts/licenses/neutrino.txt',b'Neutrino license')]
                 dep=io.BytesIO()
                 with zipfile.ZipFile(dep,'w',zipfile.ZIP_DEFLATED) as z:
-                    if failure not in ('bios-invalid', 'bios-preserve'):
+                    if failure == 'bios-ata-alignment':
+                        # Padding puts the member payload at byte 417 within a
+                        # sector, matching the real Archive.org dependency.
+                        z.writestr('pad.bin', bytes(338), zipfile.ZIP_STORED)
+                        z.writestr('dep/bios.bin', unaligned_bios)
+                    elif failure not in ('bios-invalid', 'bios-preserve'):
                         z.writestr('dep/bios.bin',b'B'*524288)
                     z.writestr('dep/ignored.bin',b'unneeded')
                 (stage/'extras.zip').write_bytes(dep.getvalue())
@@ -331,6 +382,8 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
             assert not (ember / 'bios.bin.tmp').exists()
             if failure in ('bios-invalid', 'bios-publish-error'):
                 assert not bios.exists()
+            elif failure == 'bios-ata-alignment':
+                assert bios.read_bytes() == unaligned_bios
             else:
                 assert bios.read_bytes()==(b'C' if failure == 'bios-preserve' else b'B')*524288
         if flags & 8:
