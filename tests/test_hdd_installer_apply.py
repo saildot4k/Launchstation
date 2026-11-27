@@ -237,7 +237,7 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
                     relative = 'Icons/' + remote[len('icons/'):]
                 local = stage / relative
                 local.parent.mkdir(parents=True, exist_ok=True)
-                local.write_bytes(data)
+                if not remote.startswith('scripts/licenses/'): local.write_bytes(data)
                 digest = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
                 manifest.append(f'{i} {remote} {len(data)} {digest}\n')
             (work / 'launcher-manifest').write_text(''.join(manifest))
@@ -258,7 +258,7 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
                 assert (work/'__system/launcher/RIPTOPL-RA-UNPAKT.ELF').read_bytes()==bytes(elf)
                 assert (work/'ata/Ember/ember.elf').read_bytes()==bytes(elf)
                 assert (work/'ata/Ember/bios.bin').read_bytes()==b'B'*524288
-                assert (work/'ata/Ember/LICENSE.txt').read_bytes()==b'Ember license'
+                assert not (work/'ata/Ember/LICENSE.txt').exists()
                 assert b'Gageformer' in (work/'ata/Ember/README.txt').read_bytes()
                 assert (work/'ata/Ember/games').is_dir() and not (work/'ata/Ember/ignored.bin').exists()
             else:
@@ -271,7 +271,7 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
             assert b'enable_bdm_hdd=1' in (work / 'ata' / ('settings_riptopl.cfg' if launcher>=2 else 'conf_opl.cfg')).read_bytes()
             if launcher>=2:
                 assert f'default_core={int(launcher==3)}'.encode() in (work/'ata/settings_riptopl.cfg').read_bytes()
-            assert (work / '__system/launcher/licenses' / ('RiptOPL.txt' if launcher>=2 else 'OPL')).read_bytes() == (b'RiptOPL license' if launcher>=2 else b'OPL license')
+            assert not (work/'__system/launcher/licenses').exists()
             config = (work / '__sysconf/osdmenu/OSDMENU.CNF').read_bytes()
             assert b'name_OSDSYS_ITEM_1 = ' + (b'RiptOPL (Neutrino)' if launcher==3 else b'Open PS2 Loader: RiptOPL' if launcher>=2 else b'Neutrino (NHDDL)' if launcher else b'Open PS2 Loader') in config
         if flags & 2 and not flags & 4 and failure in ('ok','hash-ignored'):

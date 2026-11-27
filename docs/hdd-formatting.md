@@ -298,8 +298,7 @@ with `ata0:/Ember/games` created for PS1 titles. `settings_riptopl.cfg` enables
 BDM HDD, apps and cover art, selects the installed language, and sets
 `default_core=1` for Neutrino or `0` for OPL.
 
-Ember's unmodified ELF, version and beta license come from DP's pinned commit.
-The license is installed beside the ELF as `LICENSE.txt`, with a README crediting
+Ember's unmodified ELF and version come from DP's pinned commit, with a README crediting
 [Gageformer and linking the official releases](https://github.com/Gageformer/Ember/releases).
 Like DP, the installer downloads `dep.zip` from the
 `psbbn-definitive-project-dependencies` Archive.org item and extracts only
@@ -311,7 +310,9 @@ install these game runtimes. No game images or PS1 save conversions are installe
 
 Launcher downloads retain their original names and subfolders under
 `__common:/tmp/OPL`, `Ember` and `Neutrino`. Shared artwork/icons use
-`tmp/Icons/art` and `tmp/Icons/ico`; licenses use `tmp/Licenses`. Retries adopt
+`tmp/Icons/art` and `tmp/Icons/ico`. License files are not downloaded or installed.
+Old checkpoints may still list them; those entries are skipped without changing
+runtime indices or requiring the cached license files to exist. Retries adopt
 completed numbered files from older caches by renaming them into the app folders.
 Cleanup removes manifest files and their empty parents, leaving unrelated files
 and retained diagnostics alone.
@@ -406,7 +407,7 @@ downloads against a local HTTPS facade, checking pinned URLs, recursive runtime
 trees, quick size/ELF-header checks without full-file reads, short I/O, missing files, duplicate/traversal/symlink
 metadata, and network/storage failures. Apply tests cover both defaults, archive
 replacement, runtime modules/configuration, both RiptOPL core settings, Ember
-ELF/license/BIOS installation and launcher resources. Legacy OPL/NHDDL packages
+ELF/BIOS installation and launcher resources. Legacy OPL/NHDDL packages
 and installation journals remain covered.
 The stage test checks internal folder creation,
 CA preservation and ownership-checked cleanup. `tests/test_hdd_installer_finish.py` verifies software

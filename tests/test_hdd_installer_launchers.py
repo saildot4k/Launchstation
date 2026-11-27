@@ -87,7 +87,7 @@ int httpsRequest(const char *method,const char *host,const char *url,const char 
     const char *begin=strstr(url,"/contents/"),*end=strchr(url,'?');char path[2048];int n;
     (void)error;(void)error_size;
     assert(!strcmp(method,"GET")&&!strcmp(host,"api.github.com")&&headers&&!body&&!body_size&&ca&&begin&&end);
-    assert(!strcmp(end,"?ref=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));requests++;
+    assert(!strcmp(end,"?ref=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));assert(!strstr(url,"scripts/licenses"));requests++;
     if(!strcmp(failure,"request"))return -EIO;
     begin+=10;n=end-begin;snprintf(path,sizeof(path),"%s/api/%.*s.json",work,n,begin);
     response->body=load(path,&response->body_len);response->status=response->body?200:404;return 0;
@@ -114,7 +114,7 @@ int httpsDownloadFd(const char *url,int fd,const char *ca,int maximum,int *size,
 start = native.index("static const char *const launcher_required[]")
 code += native[start:native.index("static int launcherManifest(", start)]
 for signature in ("static int pathJoin(", "static int readAll(", "static int closeResult(",
-                  "static int checkFileSize(", "static int launcherStageName(", "static void legacyLauncherStageName(", "static int makeParents(char *path)\n{", "static int findLauncher(",
+                  "static int checkFileSize(", "static int launcherLicense(", "static int launcherStageName(", "static void legacyLauncherStageName(", "static int makeParents(char *path)\n{", "static int findLauncher(",
                   "static const char *launcherIcon(", "static const char *launcherArt(", "static int launcherManifest(", "static int checkLaunchers("):
     code += function(signature)
 start = native.index("typedef struct { const char *name;")
@@ -161,9 +161,31 @@ int main(int argc,char **argv) {
             char old[64];snprintf(old,sizeof(old),"pfs2:/stage/launcher-%03u.bin",i);assert(genOpen(old,FIO_O_RDONLY)<0);
         }
     }
-    assert((ret==0)==(!strcmp(failure,"ok")||!strcmp(failure,"hash-ignored")||resuming||legacy));
-    unsigned nonempty=0;for(unsigned i=0;i<in.launcher_count;i++)nonempty+=!!in.launcher_files[i].size;
-    if(!ret){assert(in.launcher_count>=15&&downloads==nonempty+resuming+2*corrupt_cache&&requests>=8&&read_bytes==(legacy?6u:3u)*52);
+    int saved=!strncmp(failure,"saved-manifest",14),saved_partial=!strcmp(failure,"saved-manifest-partial");
+    if(saved){
+        assert(!ret&&in.launcher_count+1<HDD_INSTALL_LAUNCHER_FILES);
+        /* An old checkpoint can interleave a missing license with its runtimes.
+         * Preserve the remaining entries' indices and completed-file count. */
+        memmove(in.launcher_files+2,in.launcher_files+1,(in.launcher_count-1)*sizeof(*in.launcher_files));
+        memset(in.launcher_files+1,0,sizeof(*in.launcher_files));
+        strcpy(in.launcher_files[1].path,"scripts/licenses/EMBER-LICENSE-BETA.txt");
+        in.launcher_files[1].size=4096;in.launcher_count++;in.downloaded_launchers++;in.resumed=1;
+        if(saved_partial){
+            in.downloaded_launchers=1;
+            for(unsigned i=2;i<in.launcher_count;i++){
+                char name[192],path[1200];assert(!launcherStageName(in.launcher_files[i].path,name));
+                snprintf(path,sizeof(path),"pfs2:/stage/%s",name);assert(!genRemove(path));
+            }
+        }
+        unsigned before=downloads;overall_bytes=0;
+        assert(!prepareLauncherStage(&in));
+        ret=downloadLaunchers(&in,&phase,0,downloadBytes(&in));
+        assert(!ret&&in.downloaded_launchers==in.launcher_count);
+        if(!saved_partial)assert(downloads==before);
+    }
+    assert((ret==0)==(!strcmp(failure,"ok")||!strcmp(failure,"hash-ignored")||resuming||legacy||saved));
+    unsigned nonempty=0;for(unsigned i=0;i<in.launcher_count;i++)nonempty+=!launcherLicense(in.launcher_files[i].path)&&!!in.launcher_files[i].size;
+    if(!ret){assert(in.launcher_count>=12&&downloads==nonempty+resuming+2*corrupt_cache+saved_partial*(nonempty-1)&&requests>=8&&read_bytes==((legacy||saved)?6u:3u)*52);
              assert(overall_bytes==downloadBytes(&in)&&overall_total==overall_bytes);
              assert(findLauncher(&in,launcherIcon(&in))>=0&&findLauncher(&in,launcherArt(&in))>=0);}
     free(in.launcher_files);return 0;
@@ -196,7 +218,7 @@ with tempfile.TemporaryDirectory(prefix="hdd-installer-launchers-") as directory
     legacy_files=files
     for choice in (0, 1, 2, 3):
         files = modern if choice>=2 else legacy_files
-        for failure in ("ok", "hash-ignored", "resume", "resume-corrupt", "truncated", "request", "write", "missing", "duplicate", "symlink", "traversal", "oversize", "file-limit", "directory-limit", "mkdir", "legacy", "legacy-partial", "legacy-rename"):
+        for failure in ("ok", "hash-ignored", "resume", "resume-corrupt", "truncated", "request", "write", "missing", "duplicate", "symlink", "traversal", "oversize", "file-limit", "directory-limit", "mkdir", "legacy", "legacy-partial", "legacy-rename", "saved-manifest", "saved-manifest-partial"):
             work = d / f"{choice}-{failure}"
             (work / "stage").mkdir(parents=True)
             listings = {path: [] for path in ("scripts/assets/OPL", "scripts/assets/Ember" if choice>=2 else "scripts/assets/NHDDL", "scripts/assets/neutrino", "icons/art", "icons/ico", "scripts/licenses")}
@@ -232,9 +254,12 @@ with tempfile.TemporaryDirectory(prefix="hdd-installer-launchers-") as directory
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(json.dumps(entries))
             subprocess.run([str(d / "test"), str(work), failure, str(choice)], check=True, timeout=10)
-            if failure in ('ok', 'hash-ignored', 'resume', 'resume-corrupt', 'legacy', 'legacy-partial'):
+            if failure in ('ok', 'hash-ignored', 'resume', 'resume-corrupt', 'legacy', 'legacy-partial', 'saved-manifest', 'saved-manifest-partial'):
                 assert not list((work / 'stage').glob('launcher-*.bin'))
+                assert not (work/'stage/Licenses').exists()
                 for remote, payload in files.items():
+                    if remote.startswith('scripts/licenses/'):
+                        continue
                     if remote.startswith('icons/') and f'APP_{"RIPTOPL" if choice>=2 else "NHDDL" if choice else "OPL"}' not in remote:
                         continue
                     if remote.startswith('scripts/assets/'):

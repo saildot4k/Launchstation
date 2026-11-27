@@ -46,6 +46,7 @@ static int checkFileSize(HddInstall *in,const char *name,uint32_t size){
  return cached?0:-EIO;
 }
 '''
+code += function(native, "static int launcherLicense(")
 code += function(native, "static int launcherStageName(")
 code += function(native, "static int stageSpace(")
 code += function(ui, "int dashHddInstallPrepareStorage(")
@@ -68,7 +69,7 @@ int main(void){
  network=0;assert(dashHddInstallPrepareStorage(&in)==-EIO&&strstr(in.error,"network failed"));network=1;
  hdd=0;assert(dashHddInstallPrepareStorage(&in)==-ENODEV);hdd=1;
  in.sizes[HI_SYSTEM]=300u*1024*1024;
- in.launcher_files=calloc(1,sizeof(*in.launcher_files));assert(in.launcher_files);
+ in.launcher_files=calloc(2,sizeof(*in.launcher_files));assert(in.launcher_files);
  in.launcher_count=1;in.launcher_files[0].size=1;
  strcpy(in.launcher_files[0].path,"scripts/assets/OPL/version.txt");
  assert(!stageSpace(&in)&&!checks&&stats==2);
@@ -80,6 +81,10 @@ int main(void){
  in.downloaded_assets=1u<<HI_SYSTEM;in.downloaded_launchers=1;cached=1;
  free_zones=(4u*1024*1024)/8192;
  assert(!stageSpace(&in)&&checks==2);
+ /* Old manifest licenses need neither cached files nor additional space. */
+ in.launcher_count=2;in.launcher_files[1].size=4u*1024*1024;
+ strcpy(in.launcher_files[1].path,"scripts/licenses/neutrino.txt");
+ assert(!stageSpace(&in)&&checks==4);in.launcher_count=1;
  cached=0;assert(stageSpace(&in)==-ENOSPC); /* corrupt/truncated cache cannot count as complete */
  free_zones=-EIO;assert(stageSpace(&in)==-EIO);free_zones=131072;
  zone_size=0;assert(stageSpace(&in)==-EIO);zone_size=-ENODEV;assert(stageSpace(&in)==-ENODEV);

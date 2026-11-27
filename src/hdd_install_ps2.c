@@ -116,6 +116,10 @@ static int checkFileSize(HddInstall *in, const char *name, uint32_t size)
     if (fd < 0) return fd;
     return closeResult(fd, genLseek(fd, 0, SEEK_END) == size ? 0 : -EIO);
 }
+/* Keep old manifest indices intact for numbered-cache adoption and resume,
+ * but do not fetch, check or install their obsolete license entries. */
+static int launcherLicense(const char *path)
+{ return !strncmp(path, "scripts/licenses/", sizeof("scripts/licenses/") - 1); }
 static int launcherStageName(const char *source, char name[192])
 {
     static const struct { const char *remote, *local; } roots[] = {
@@ -152,14 +156,12 @@ static const char *launcherArt(const HddInstall *in)
 static const char *const launcher_required[] = {
         "scripts/assets/OPL/OPNPS2LD.ELF", "scripts/assets/NHDDL/nhddl.elf", "scripts/assets/neutrino/neutrino.elf",
         "scripts/assets/neutrino/config/system.toml", "scripts/assets/neutrino/version.txt",
-        "scripts/assets/OPL/version.txt", "scripts/assets/NHDDL/version.txt",
-        "scripts/licenses/OPL", "scripts/licenses/nhddl", "scripts/licenses/neutrino"
+        "scripts/assets/OPL/version.txt", "scripts/assets/NHDDL/version.txt"
 };
 static const char *const riptopl_required[] = {
     "scripts/assets/OPL/RIPTOPL-RA-UNPAKT.ELF", "scripts/assets/Ember/ember.elf", "scripts/assets/neutrino/neutrino.elf",
     "scripts/assets/Ember/version.txt", "scripts/assets/OPL/version.txt", "scripts/assets/neutrino/version.txt",
-    "scripts/assets/neutrino/config/system.toml", "scripts/licenses/EMBER-LICENSE-BETA.txt",
-    "scripts/licenses/RiptOPL.txt", "scripts/licenses/neutrino.txt"
+    "scripts/assets/neutrino/config/system.toml"
 };
 static int launcherManifest(HddInstall *in)
 {
@@ -182,6 +184,7 @@ static int checkLaunchers(HddInstall *in)
     if (!(in->flags & HDD_INSTALL_PSBBN)) return 0;
     ready = launcherManifest(in); if (ready < 0) return ready;
     for (unsigned i = 0; i < in->launcher_count; i++) {
+        if (launcherLicense(in->launcher_files[i].path)) continue;
         char name[192]; int ret = launcherStageName(in->launcher_files[i].path, name);
         if (ret < 0) return ret;
         ret = checkFileSize(in, name, in->launcher_files[i].size);
@@ -278,13 +281,15 @@ static uint64_t downloadBytes(const HddInstall *in)
 {
     uint64_t total = 0;
     for (unsigned i = 0; i < HDD_INSTALL_ASSETS; i++) if (hddInstallSelectedAsset(in, i)) total += in->sizes[i];
-    for (unsigned i = 0; i < in->launcher_count; i++) total += in->launcher_files[i].size;
+    for (unsigned i = 0; i < in->launcher_count; i++)
+        if (!launcherLicense(in->launcher_files[i].path)) total += in->launcher_files[i].size;
     return total;
 }
 static int prepareLauncherStage(HddInstall *in)
 {
     unsigned moved = 0;
     for (unsigned i = 0; i < in->launcher_count; i++) {
+        if (launcherLicense(in->launcher_files[i].path)) continue;
         char name[192], local[MAX_PATH], old[32], previous[MAX_PATH];
         int ret = launcherStageName(in->launcher_files[i].path, name);
         if (ret < 0) return ret;
@@ -322,6 +327,7 @@ static int stageSpace(HddInstall *in)
         needed += ((uint64_t)in->sizes[i] + zone_size - 1) / zone_size * zone_size;
     }
     for (unsigned i = 0; i < in->launcher_count; i++) {
+        if (launcherLicense(in->launcher_files[i].path)) continue;
         char name[192]; int ret = launcherStageName(in->launcher_files[i].path, name);
         if (ret < 0) return ret;
         if (i < in->downloaded_launchers && checkFileSize(in, name, in->launcher_files[i].size) == 0) continue;
@@ -485,9 +491,6 @@ static int collectLauncher(void *context, const char *name, const char *hash, ui
     if (snprintf(path, sizeof(path), "%s/%s", parent, name) >= (int)sizeof(path)) return -ENAMETOOLONG;
     if (!strncmp(parent, "icons/", 6)) {
         if (directory || (strcmp(path, launcherIcon(in)) && strcmp(path, launcherArt(in)))) return 0;
-    } else if (!strcmp(parent, "scripts/licenses")) {
-        if (directory || (strcmp(name, "OPL") && strcmp(name, "neutrino") && strcmp(name, "nhddl") &&
-                          strcmp(name, "RiptOPL.txt") && strcmp(name, "neutrino.txt") && strcmp(name, "EMBER-LICENSE-BETA.txt"))) return 0;
     }
     /* These commit-pinned runtime trees use URL-safe names. Never follow
      * server-provided download URLs, symlinks or arbitrary repository roots. */
@@ -505,13 +508,13 @@ static int collectLauncher(void *context, const char *name, const char *hash, ui
 }
 static int launcherMetadata(HddInstall *in)
 {
-    LauncherListing list = {.in = in, .count = 6};
     static const char *const roots[] = {"scripts/assets/OPL", "scripts/assets/NHDDL", "scripts/assets/neutrino",
-                                       "icons/art", "icons/ico", "scripts/licenses"};
+                                       "icons/art", "icons/ico"};
+    LauncherListing list = {.in = in, .count = sizeof(roots) / sizeof(*roots)};
     free(in->launcher_files); in->launcher_count = 0;
     in->launcher_files = calloc(HDD_INSTALL_LAUNCHER_FILES, sizeof(*in->launcher_files));
     if (!in->launcher_files) return -ENOMEM;
-    for (unsigned i = 0; i < 6; i++) strcpy(list.dirs[i], roots[i]);
+    for (unsigned i = 0; i < list.count; i++) strcpy(list.dirs[i], roots[i]);
     if (in->game_launcher >= HDD_GAME_RIPTOPL) strcpy(list.dirs[1], "scripts/assets/Ember");
     for (; list.current < list.count; list.current++) {
         HttpsResponse response; char path[320]; int ret;
@@ -528,6 +531,10 @@ static int downloadLaunchers(HddInstall *in, const char **phase, uint64_t comple
 {
     for (unsigned i = 0; i < in->launcher_count; i++) {
         HddInstallFile *file = &in->launcher_files[i];
+        if (launcherLicense(file->path)) {
+            if (in->downloaded_launchers < i + 1) in->downloaded_launchers = i + 1;
+            continue;
+        }
         char name[192], url[512];
         int ret = launcherStageName(file->path, name);
         if (ret < 0) return ret;
@@ -981,7 +988,7 @@ static int installLaunchers(HddInstall *in)
     if (!(in->flags & HDD_INSTALL_PSBBN)) return 0;
     if (!in->jail || !in->launcher_count || !in->launcher_files) return -EINVAL;
     for (unsigned i = 0; i < in->launcher_count; i++)
-        if (strncmp(in->launcher_files[i].path, "icons/", 6)) total += in->launcher_files[i].size;
+        if (!launcherLicense(in->launcher_files[i].path) && strncmp(in->launcher_files[i].path, "icons/", 6)) total += in->launcher_files[i].size;
     for (unsigned i = 0; i < sizeof(folders) / sizeof(folders[0]); i++) {
         snprintf(target, sizeof(target), "ata0:/%s", folders[i]);
         ret = makeDirectory(target, 0); if (ret < 0) return ret;
@@ -989,17 +996,15 @@ static int installLaunchers(HddInstall *in)
     for (unsigned i = 0; i < in->launcher_count; i++) {
         const HddInstallFile *file = &in->launcher_files[i];
         const char *source = file->path;
-        if (!strncmp(source, "icons/", 6)) continue; /* PP.LAUNCHER metadata below. */
+        if (launcherLicense(source) || !strncmp(source, "icons/", 6)) continue; /* PP.LAUNCHER metadata below. */
         if (!strcmp(source, "scripts/assets/OPL/OPNPS2LD.ELF")) strcpy(target, "pfs0:/launcher/OPNPS2LD.ELF");
         else if (!strcmp(source, "scripts/assets/OPL/RIPTOPL-RA-UNPAKT.ELF")) strcpy(target, "pfs0:/launcher/RIPTOPL-RA-UNPAKT.ELF");
         else if (!strncmp(source, "scripts/assets/Ember/", sizeof("scripts/assets/Ember/") - 1)) snprintf(target, sizeof(target), "ata0:/Ember/%s", source + sizeof("scripts/assets/Ember/") - 1);
-        else if (!strcmp(source, "scripts/licenses/EMBER-LICENSE-BETA.txt")) strcpy(target, "ata0:/Ember/LICENSE.txt");
         else if (!strcmp(source, "scripts/assets/NHDDL/nhddl.elf")) strcpy(target, "pfs0:/launcher/nhddl.elf");
         else if (!strcmp(source, "scripts/assets/OPL/version.txt")) strcpy(target, "pfs0:/launcher/OPL-version.txt");
         else if (!strcmp(source, "scripts/assets/NHDDL/version.txt")) strcpy(target, "pfs0:/launcher/NHDDL-version.txt");
         else if (!strncmp(source, "scripts/assets/OPL/LNG/", sizeof("scripts/assets/OPL/LNG/") - 1)) snprintf(target, sizeof(target), "ata0:/LNG/%s", source + sizeof("scripts/assets/OPL/LNG/") - 1);
         else if (!strncmp(source, "scripts/assets/neutrino/", sizeof("scripts/assets/neutrino/") - 1)) snprintf(target, sizeof(target), "ata0:/neutrino/%s", source + sizeof("scripts/assets/neutrino/") - 1);
-        else if (!strncmp(source, "scripts/licenses/", 17)) snprintf(target, sizeof(target), "pfs0:/launcher/licenses/%s", source + 17);
         else return -EINVAL;
         ret = makeParents(target); if (ret < 0) return ret;
         ret = launcherStageName(source, name); if (ret < 0) return ret;
