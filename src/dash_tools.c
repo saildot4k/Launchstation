@@ -41,7 +41,7 @@ typedef struct
 static const Tool tools[] = {
     {TA_HEADER, -1, "ESSENTIALS", NULL, NULL, 0, 0},
     {TA_BROWSER, DI_FOLDER, "File Browser", "Browse every device, copy, move, rename, delete, create folders, build and extract PSU saves, mount VMC images and launch anything.", "Press Triangle inside the browser for file operations; Square selects.", 0, 0},
-    {TA_EDITOR, DI_TEXT, "Text Editor", "Edit CNF, CFG, TXT, INI and argument files. Also used to launch an ELF with custom arguments.", NULL, 0, 0},
+    {TA_EDITOR, DI_TEXT, "Text Editor", "Edit text files or launch an ELF with custom arguments.", NULL, 0, 0},
     {TA_MISC, DI_DISC, "Start disc", "Boot the disc in the drive: PS2 and PS1 games, DVD Video (with the console's player) and ESR discs.", NULL, 0, MISC(Misc_PS2Disc)},
     {TA_HEADER, -1, "STORAGE", NULL, NULL, 0, 0},
     {TA_USB_DIAG, DI_USB, "USB unit diagnostics", "Load USB drivers if needed, then inspect cached units or manually probe logical USB unit 0 or 1 one at a time.", "Each manual probe is a synchronous IOP request and could freeze a failing console. Logical units may not match physical USB ports.", 0, 0},
@@ -262,27 +262,21 @@ static void releaseUpdateTime(const char *json, char *out, int out_size)
     snprintf(out, out_size, "%.10s %.8s UTC", stamp, stamp + 11);
 }
 
-/* Prefer the CA shipped with the running ELF. Existing installs may
- * still keep a user-provided CA in the dashboard configuration folder. */
-static int launchstationUpdateCaPath(char *path, int path_size)
+void dashHttpsCaPath(char *path, int path_size)
 {
-    const char *dir = LaunchElfBootDir[0] ? LaunchElfBootDir : LaunchElfDir;
-    int n;
-
+    const char *dir = LaunchElfBootDir;
+    if (path_size <= 0) return;
     if (dir[0]) {
         size_t len = strlen(dir);
-        n = snprintf(path, path_size, "%s%sWLE-UPDATE-CA.PEM", dir,
-                     dir[len - 1] == '/' ? "" : "/");
-        if (n > 0 && n < path_size && ensurePathDeviceStackReady(path) && wleExists(path))
-            return 1;
+        int n = snprintf(path, path_size, "%s%sWLE-UPDATE-CA.PEM", dir,
+                         dir[len - 1] == '/' ? "" : "/");
+        if (n > 0 && n < path_size && ensurePathDeviceStackReady(path)) {
+            iox_stat_t stat;
+            /* A present but unreadable override should surface a CA error. */
+            if (wleExists(path) || genGetStat(path, &stat) >= 0) return;
+        }
     }
-    return dashStoreBuildPath(path, path_size, "WLE-UPDATE-CA.PEM") == 0 &&
-           ensurePathDeviceStackReady(path) && wleExists(path);
-}
-
-int dashHttpsCaPath(char *path, int path_size)
-{
-    return launchstationUpdateCaPath(path, path_size);
+    path[0] = '\0';
 }
 
 /* Compare the installed commit to the published release before offering to
@@ -406,45 +400,14 @@ static void updateCheckMessage(int icon, const char *title, const char *body, co
 	dashModalMessage(icon, title, body, detail);
 }
 
-void dashToolsCheckUpdates(void)
+static void checkUpdates(const char *ca_path)
 {
 	HttpsResponse response;
-	char ca_path[MAX_PATH], error[192], latest[80], asset_digest[80], updated[32], body[320];
+	char error[192], latest[80], asset_digest[80], updated[32], body[320];
 	const char headers[] =
 	    "User-Agent: Launchstation-PS2\r\n"
 	    "Accept: application/vnd.github+json\r\n";
 	int same = 0;
-
-	if (!updateIsCommitId(GIT_HASH)) {
-		snprintf(body, sizeof(body),
-		         "This ELF identifies its commit as '%.7s'. Update checks need a usable Git commit ID.",
-		         GIT_HASH);
-		dashModalMessage(DI_WARNING, "Update check needs build information", body,
-		                 "Install a complete release package built with commit information, then restart Launchstation.");
-		return;
-	}
-
-	/* CA/device access and network stack changes use synchronous IOP RPCs.
-	 * Finish queued IO and any root-card status request before starting. */
-	dashLoadingBegin("Checking for Launchstation updates");
-	if (!dashWorkerAwaitAll("Checking for Launchstation updates")) {
-		dashLoadingEnd();
-		return;
-	}
-	dashLoadingSetCancel(0);
-	filerRootMcPollIdle();
-
-	if (!launchstationUpdateCaPath(ca_path, sizeof(ca_path))) {
-		updateCheckMessage(DI_WARNING, "Update check needs the CA bundle",
-		                 "WLE-UPDATE-CA.PEM was not found beside the running ELF or in the dashboard settings folder.",
-		                 "Install the complete Launchstation ZIP/PSU package, or copy res/WLE-UPDATE-CA.PEM beside the boot ELF.");
-		return;
-	}
-	if (!ensureDashboardIpNetworkReady()) {
-		updateCheckMessage(DI_WARNING, "Update check unavailable",
-		                 dashboardIpNetworkError(), NULL);
-		return;
-	}
 
 	memset(&response, 0, sizeof(response));
 	error[0] = latest[0] = asset_digest[0] = '\0';
@@ -529,6 +492,53 @@ void dashToolsCheckUpdates(void)
 			                 "The updater stages and verifies the complete download before changing the running ELF.");
 		}
 	}
+}
+
+void dashToolsCheckUpdates(void)
+{
+	char ca_path[MAX_PATH], body[160];
+	unsigned ca_size;
+	unsigned char *ca_data;
+
+	if (!updateIsCommitId(GIT_HASH)) {
+		snprintf(body, sizeof(body),
+		         "This ELF identifies its commit as '%.7s'. Update checks need a usable Git commit ID.",
+		         GIT_HASH);
+		dashModalMessage(DI_WARNING, "Update check needs build information", body,
+		                 "Install a complete release package built with commit information, then restart Launchstation.");
+		return;
+	}
+
+	/* CA/device access and network stack changes use synchronous IOP RPCs.
+	 * Finish queued IO and any root-card status request before starting. */
+	dashLoadingBegin("Checking for Launchstation updates");
+	if (!dashWorkerAwaitAll("Checking for Launchstation updates")) {
+		dashLoadingEnd();
+		return;
+	}
+	dashLoadingSetCancel(0);
+	filerRootMcPollIdle();
+
+	/* Snapshot the chosen CA before network startup can switch IOP stacks. */
+	dashHttpsCaPath(ca_path, sizeof(ca_path));
+	ca_data = httpsLoadCaBundle(ca_path, &ca_size);
+	if (!ca_data) {
+		updateCheckMessage(DI_WARNING, "Update check needs the CA bundle",
+		                   "Could not read the HTTPS CA bundle.",
+		                   ca_path[0] ? ca_path : "Embedded CA bundle");
+		return;
+	}
+	if (!ensureDashboardIpNetworkReady()) {
+		free(ca_data);
+		updateCheckMessage(DI_WARNING, "Update check unavailable",
+		                   dashboardIpNetworkError(), NULL);
+		return;
+	}
+
+	httpsSetCaBundle(ca_data, ca_size);
+	checkUpdates(ca_path);
+	httpsSetCaBundle(NULL, 0);
+	free(ca_data);
 }
 #else
 void dashToolsCheckUpdates(void)
@@ -684,6 +694,20 @@ static void toolsUpdate(float dt)
 	tsel_anim = dashApproach(tsel_anim, (float)tsel, 14.0f * dashAnimSpeed(), dt);
 }
 
+static void drawEditorExtensions(float x, float y, float width)
+{
+	char list[128] = "";
+	size_t used = 0;
+	for (const char *const *ext = textEditorFileExtensions(); *ext; ext++) {
+		int n = snprintf(list + used, sizeof(list) - used, "%s.%s", used ? ", " : "", *ext);
+		if (n < 0 || (size_t)n >= sizeof(list) - used)
+			break;
+		used += n;
+	}
+	dashText(x, y, "Supported extensions", DASH_FS_CAPTION, DASH_C_ACCENT);
+	dashTextWrap(x, y + 20, width, 5, list, DASH_FS_CAPTION, DASH_C_TEXT2, 19);
+}
+
 static void toolsDraw(void)
 {
 	const float lx = DASH_SAFE_L, ly = 102, row_h = DASH_LIST_ROW_H, lw = 300;
@@ -728,6 +752,8 @@ static void toolsDraw(void)
 		dashIcon(t->icon, dx + dw * 0.5f - 30, dy + 34, 60, DASH_C_TEXT);
 		dashTextCenter(dx + dw * 0.5f, dy + 108, t->name, DASH_FS_BODY, DASH_C_TEXT);
 		dashTextWrap(dx + 16, dy + 142, dw - 32, 4, t->desc, DASH_FS_CAPTION, DASH_C_TEXT2, 19);
+		if (t->action == TA_EDITOR)
+			drawEditorExtensions(dx + 16, dy + 204, dw - 32);
 		if (t->note) {
 			DashColor wb = dashColorScale(DASH_C_WARM, 0.24f);
 			wb.a = 130;

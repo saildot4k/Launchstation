@@ -75,17 +75,17 @@ code += r'''
 #define DASH_JOB_VISIBLE 1
 static int ready=1,worker_error,worker_runs,cancel_choice,temp_choice,releases,modal_errors;
 static int dashWorkerAwaitAll(const char *s){assert(s);return 1;}
-static char LaunchElfBootDir[128]="udpfs:/apps/Launchstation/",LaunchElfDir[128]="mc0:/SYS-CONF/";
+static char LaunchElfBootDir[128]="udpfs:/apps/Launchstation/";
+typedef struct { int unused; } iox_stat_t;
 static int source_ready,source_reads,snapshot_ready;
 static void dashSoundMaintain(void){assert(!source_ready&&snapshot_ready);}
 static int ensurePathDeviceStackReady(const char *p){assert(strstr(p,"udpfs:")||strstr(p,"mc0:"));source_ready=1;return 1;}
 static int wleExists(const char *p){assert(source_ready&&strstr(p,"WLE-UPDATE-CA.PEM"));return 1;}
-static int dashStoreBuildPath(char *p,int size,const char *name){return snprintf(p,size,"mc0:/SYS-CONF/%s",name)>=size?-1:0;}
+static int genGetStat(const char *p,iox_stat_t *s){(void)p;(void)s;return -ENOENT;}
 
 '''
-code += function((root / 'src/dash_tools.c').read_text(), 'static int launchstationUpdateCaPath(')
+code += function((root / 'src/dash_tools.c').read_text(), 'void dashHttpsCaPath(')
 code += r'''
-static int dashHttpsCaPath(char *p,int size){return launchstationUpdateCaPath(p,size);}
 int hddInstallLoadCa(HddInstall *in){assert(source_ready&&strstr(in->ca_path,"udpfs:"));source_reads++;snapshot_ready=1;in->ca_data=(unsigned char*)"CA";in->ca_size=2;return 0;}
 void hddInstallRelease(HddInstall *in){in->ca_data=NULL;in->ca_size=0;releases++;}
 static int ensureDashboardIpNetworkReady(void){assert(snapshot_ready&&source_reads);source_ready=0;return ready;}

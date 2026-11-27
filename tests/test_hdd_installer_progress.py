@@ -23,13 +23,14 @@ code = r'''
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "hdd_install.h"
 #include "install_ext2.h"
 #define MAX_PATH 1025
 #define FIO_O_RDONLY 1
 '''
-a = source.index("typedef struct {\n    HddInstall *in;")
+a = source.index("typedef struct PendingPfsFile {")
 code += source[a:source.index("} Payload;", a) + len("} Payload;")]
 code += r'''
 static HddInstall settings;
@@ -61,6 +62,7 @@ void hddInstallProgress(const char *s,int done,int total){
 void hddInstallOverall(uint64_t done,uint64_t total){
  assert(total&&done<=total);uint64_t value=done*1000/total;assert(value>=overall);overall=value;
 }
+int hddInstallOutputFinish(const char *path,int replace,int result){(void)path;(void)replace;(void)result;assert(0);return -EINVAL;}
 static int begin(void *context,const InstallTarEntry *entry){(void)context;(void)entry;assert(0);return -EINVAL;}
 int installTarGzip(const InstallArchiveIo *io,uint32_t size,const InstallTarSink *sink){
  unsigned char bytes[128];assert(sink&&size>1&&size<=sizeof(bytes));
@@ -68,7 +70,7 @@ int installTarGzip(const InstallArchiveIo *io,uint32_t size,const InstallTarSink
  return ret<0?ret:io->read(io->context,1,bytes,size-1);
 }
 '''
-code += function("static int data(") + function("static int end(") + function("static int readArchive(") + function("static int archives(")
+code += function("static int data(") + function("static int end(") + function("static int readArchive(") + function("static int finishPfsFiles(") + function("static int archives(")
 code += r'''
 int main(void){
  strcpy(settings.stage,"ata0:/stage");settings.sizes[HI_SYSTEM]=100;settings.sizes[HI_LANGUAGE]=60;settings.sizes[HI_PS2LINUX]=40;

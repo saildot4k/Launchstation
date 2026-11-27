@@ -78,7 +78,7 @@ static int isPcCardCfOnline(void){return cf_online;}
 static int isHddRootPath(const char *p){return !strcmp(p,"hdd0:/");}
 static int isTitleCfgPathEligible(const char *p,int disabled){(void)p;return !disabled;}
 static int filerCanOrganizeFolderTimestamps(const char *p){(void)p;return 1;}
-''' + function(main_fileops, 'int IsTextEditorFileType(') + function(texteditor, 'static int isDirectoryEntry(') + function(texteditor, 'static int isParentEntry(') + function(texteditor, 'int canOpenInTextEditor(') + r'''
+''' + function(main_fileops, 'const char *const *textEditorFileExtensions(') + function(main_fileops, 'int IsTextEditorFileType(') + function(texteditor, 'static int isDirectoryEntry(') + function(texteditor, 'static int isParentEntry(') + function(texteditor, 'int canOpenInTextEditor(') + r'''
 static int genCanRenamePath(const char *p){(void)p;return 1;}
 static int filerIsExploitProtectedPath(const char *p,const FILEINFO *f){(void)p;(void)f;return 0;}
 static int filerCanImportClipboard(void){return nclipFiles>0&&import_eligible;}

@@ -42,6 +42,7 @@ sources = "".join(function(signature) for signature in (
     "static int updateRequest(",
     "static int updateCommitRelation(",
     "static void updateCheckMessage(",
+    "static void checkUpdates(",
     "void dashToolsCheckUpdates(void)\n{",
 ))
 enums = src[src.index("enum { UPDATE_RELATION_UNKNOWN"):src.index("static int updateIsCommitId(")]
@@ -70,7 +71,8 @@ static char release_target[80] = "51e1e0c7bc1efcb5b51c6cc9de056ee858694a03";
 static const char *last_title;
 static char last_body[320];
 static int requests, compares, confirmations, installs, response_status = 200;
-static int worker_ready, ca_ready, network_ready;
+static int worker_ready, ca_ready, no_sidecar, network_ready;
+static const unsigned char *current_ca;
 static int loading_active, loading_begins, loading_ends;
 static int launch_prompts,launches,launch_accept=1,install_failure;
 static int waits, polls, ca_checks, network_checks;
@@ -105,10 +107,18 @@ static int dashWorkerAwaitAll(const char *title) {
 static void filerRootMcPollIdle(void) {
     assert(waits==1 && worker_ready);polls++;
 }
-static int launchstationUpdateCaPath(char *path, int n) {
+static void dashHttpsCaPath(char *path, int n) {
     assert(waits==1 && polls==1);ca_checks++;
-    snprintf(path,n,"ca.pem");
-    return ca_ready;
+    snprintf(path,n,"%s",no_sidecar?"":"ca.pem");
+}
+static unsigned char *httpsLoadCaBundle(const char *path,unsigned *size) {
+    assert(ca_checks==1&&!network_checks&&!strcmp(path,no_sidecar?"":"ca.pem"));
+    if(!ca_ready)return NULL;
+    unsigned char *data=malloc(2);assert(data);memcpy(data,no_sidecar?"IN":"EX",2);*size=2;return data;
+}
+static void httpsSetCaBundle(const unsigned char *data,unsigned size) {
+    assert((data && size==2 && !current_ca) || (!data && !size && current_ca));
+    current_ca=data;
 }
 static int ensureDashboardIpNetworkReady(void) {
     assert(ca_checks==1 && ca_ready && loading_active);network_checks++;return network_ready;
@@ -142,7 +152,7 @@ static int dashModalConfirm(const char *title,const char *body,const char *actio
     confirmations++; return 1;
 }
 int selfUpdateInstall(const char *ca,const char *digest,char *result,int cap) {
-    assert(!in_worker && !status_callback && loading_active);(void)ca;(void)digest;
+    assert(!in_worker && !status_callback && loading_active && current_ca);(void)ca;(void)digest;
     installs++;
     snprintf(result,cap,"installed");
     return install_failure ? -1 : 0;
@@ -154,6 +164,7 @@ static int httpsRequest(const char *method,const char *host,const char *path,
     (void)headers;(void)body;(void)body_len;(void)ca;(void)err;(void)err_size;
     assert(!strcmp(method,"GET") && !strcmp(host,"api.github.com"));
     assert(network_checks==1 && network_ready && in_worker && status_callback);
+    assert(current_ca&&!memcmp(current_ca,no_sidecar?"IN":"EX",2));
     status_callback("Connecting to server",status_arg);
     status_callback("Verifying secure connection",status_arg);
     status_callback("Receiving server response",status_arg);
@@ -187,13 +198,13 @@ program += request_type + "\n" + enums + sources
 program += r'''
 static void reset(const char *status,const char *release,int code) {
     requests=compares=confirmations=installs=0;
-    assert(!in_worker && !pending_run && !status_callback && !loading_active);
+    assert(!in_worker && !pending_run && !status_callback && !loading_active && !current_ca);
     assert(loading_begins==loading_ends);
     loading_begins=loading_ends=launch_prompts=launches=install_failure=0;launch_accept=1;
     submits=job_waits=rendered_frames=status_updates=reject_submit=request_failure=0;
     strcpy(release_stamp,"2026-10-30T01:02:03Z");confirmation_body[0]='\0';
     waits=polls=ca_checks=network_checks=0;
-    worker_ready=ca_ready=network_ready=1;
+    worker_ready=ca_ready=network_ready=1;no_sidecar=0;
     last_title=NULL;
     last_body[0]='\0';
     snprintf(comparison,sizeof(comparison),"%s",status);
@@ -251,6 +262,9 @@ int main(void) {
     dashToolsCheckUpdates();
     assert(!network_checks && !requests && !installs);
     assert(!strcmp(last_title,"Update check needs the CA bundle"));
+    reset("ahead",old,200);no_sidecar=1;
+    dashToolsCheckUpdates();
+    assert(requests==2 && installs==1 && !current_ca);
     reset("ahead",old,200);network_ready=0;
     dashToolsCheckUpdates();
     assert(!requests && !installs);

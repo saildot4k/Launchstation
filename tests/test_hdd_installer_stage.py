@@ -5,10 +5,13 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 s = (root / 'src/hdd_install_ps2.c').read_text()
-helpers = s[s.index('static int pathJoin('):s.index('static int checkFileSize(')]
+helpers = s[s.index('static int pathJoin('):s.index('/* Short sibling names')]
+helpers += s[s.index('void hddInstallRelease('):s.index('static int checkFileSize(')]
 stage = s[s.index('int hddInstallClaimStage('):s.index('static int makeDirectory(', s.index('int hddInstallClaimStage('))]
 code = r'''
 #define _POSIX_C_SOURCE 200809L
+#define ETH
+#define WLE_NATIVE_HTTPS
 #include "hdd_install.h"
 #include "save_sign.h"
 #include <assert.h>
@@ -54,6 +57,11 @@ static int fileXioUmount(const char*m){assert(!strcmp(m,"pfs2:")&&mounted);mount
 '''
 code += r'''
 
+unsigned char *httpsLoadCaBundle(const char *path, unsigned *size){
+    assert(!*path);
+    unsigned char *data=malloc(9);assert(data);memcpy(data,"embedded",9);*size=8;
+    return data;
+}
 int hddInstallResumeSave(HddInstall *in){assert(in);return 0;}
 int hddInstallResumeRemove(HddInstall *in){assert(in);return 0;}
 void hddInstallLog(const char *format, ...) { (void)format; }
@@ -105,10 +113,14 @@ int main(int argc,char**argv) {
     assert(hddInstallUnmountStage(&other)==0&&!mounted);
     assert(hddInstallMountStage(&other)==0);hddInstallCleanup(&other);assert(!other.owned);assert(hddInstallUnmountStage(&other)==0);
     other.stage_on_ata=other.jail=1;strcpy(other.stage,"ata0:/tmp");
-    other.ca_data=malloc(2);memcpy(other.ca_data,"CA",2);other.ca_size=2;
+    other.ca_path[0]=0;
+    assert(!hddInstallLoadCa(&other)&&other.ca_size==8);
     assert(hddInstallMountStage(&other)==0&&!mounted);
     assert(hddInstallCreateStage(&other)==0&&other.owned&&other.stage_ready);
     assert(!strcmp(other.ca_path,"ata0:/tmp/INSTALL_CA.PEM"));
+    fd=genOpen(other.ca_path,FIO_O_RDONLY);assert(fd>=0);memset(ca,0,sizeof(ca));
+    assert(read(fd,ca,16)==8&&!strcmp(ca,"embedded"));close(fd);
+    assert(!hddInstallLoadCa(&other)&&other.ca_size==8&&!memcmp(other.ca_data,"embedded",8));
     assert(hddInstallFindStage(&other)==0);
     hddInstallCleanup(&other);assert(!other.owned&&!other.stage[0]);
     assert(hddInstallUnmountStage(&other)==0&&!mounted);

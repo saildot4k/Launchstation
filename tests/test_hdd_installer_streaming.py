@@ -31,6 +31,7 @@ code = r'''
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -43,16 +44,20 @@ code = r'''
 #define FIO_O_TRUNC O_TRUNC
 #define FIO_MT_RDWR 1
 #define FIO_S_ISDIR S_ISDIR
+#define FIO_S_ISREG S_ISREG
 typedef struct {unsigned mode;} iox_stat_t;
 static const char *work;
 static unsigned mounted,unmounted,created,finished,config_writes,entries,archive_opens,slots=4;
 static HddInstall settings;
 static unsigned destinations,linux1,linux4;
+static int scenario;
 struct InstallExt2 {int unused;};
 int installExt2Create(InstallExt2 **out,const HddFormatIo *io,uint32_t a,uint32_t b,uint32_t serial){
  (void)a;(void)b;(void)serial;assert(io);*out=calloc(1,sizeof(**out));assert(*out);created++;return 0;
 }
-int installExt2Begin(InstallExt2 *fs,const InstallTarEntry *e){assert(fs&&e);entries++;return 0;}
+int installExt2Begin(InstallExt2 *fs,const InstallTarEntry *e){
+ assert(fs&&e);entries++;return scenario==9&&!strcmp(e->name,"etc/httpd/conf/httpd.conf")?-EINVAL:0;
+}
 int installExt2Data(InstallExt2 *fs,const void *p,unsigned n){assert(fs&&p&&n);return 0;}
 int installExt2End(InstallExt2 *fs){assert(fs);return 0;}
 int installExt2Finish(InstallExt2 *fs){assert(fs);finished++;return 0;}
@@ -74,7 +79,7 @@ void hddInstallLogFlush(HddInstall *in){assert(in);}
 void hddInstallStatus(const char *s,int a,int b){assert(s&&a>=0&&b>=a);}
 void hddInstallProgress(const char *s,int a,int b){assert(s&&a>=0&&b>=a);}
 void hddInstallOverall(uint64_t a,uint64_t b){assert(b&&a<=b);}
-int hddInstallWriteConfigs(HddInstall *in){assert(in);config_writes++;return 0;}
+int hddInstallWriteConfigs(HddInstall *in){assert(in);config_writes++;return scenario==8?-EINVAL:0;}
 static const char *translate(const char *p){
  static char path[2048];
  if(!strncmp(p,"pfs",3)){assert(slots&(1u<<(p[3]-'0')));assert(p[3]>='0'&&p[3]<='3'&&p[4]==':');snprintf(path,sizeof(path),"%s/pfs%c%s",work,p[3],p+5);return path;}
@@ -90,6 +95,11 @@ static int64_t genLseek(int fd,int offset,int whence){return lseek(fd,offset,whe
 static int genClose(int fd){return close(fd);}
 static int genMkdir(const char *p,int mode){return mkdir(translate(p),mode)<0?-errno:0;}
 static int fileXioGetStat(const char *p,iox_stat_t *out){struct stat st;if(stat(translate(p),&st)<0)return -errno;out->mode=st.st_mode;return 0;}
+#define genGetStat fileXioGetStat
+static int genRemove(char *p){return unlink(translate(p))<0?-errno:0;}
+static int fileXioRename(const char *from,const char *to){
+ char src[2048];strcpy(src,translate(from));return rename(src,translate(to))<0?-errno:0;
+}
 static int fileXioMount(const char *p,const char *partition,int mode){
  unsigned slot=p[3]-'0';assert(slot<4&&!(slots&(1u<<slot))&&mode==1);
  assert(!strcmp(partition,slot==0?"hdd0:__system":slot==1?"hdd0:__sysconf":"hdd0:__contents"));
@@ -99,10 +109,13 @@ static int fileXioUmount(const char *p){unsigned slot=p[3]-'0';assert(slot<4&&sl
 '''
 a = source.index('static const char *const linux_names')
 code += source[a:source.index('static uint32_t le32(', a)] + function('static uint32_t le32(')
-a = source.index('typedef struct {\n    HddInstall *in;')
+output = (root / 'src/hdd_install_ps2.c').read_text()
+code += output[output.index('static int outputPath('):output.index('void hddInstallRelease(')]
+a = source.index('typedef struct PendingPfsFile {')
 code += source[a:source.index('} Payload;', a) + len('} Payload;')]
-for sig in ('static int routePath(', 'static int mkdirParents(', 'static int begin(', 'static int data(',
-            'static int end(', 'static int readArchive(', 'static int archives(', 'int hddInstallPsbbnPayload('):
+for sig in ('static int routePath(', 'static int mkdirParents(', 'static int stagePfsFile(', 'static int finishPfsFiles(',
+            'static int begin(', 'static int data(',
+            'static int end(', 'static int readArchive(', 'static int archives(', 'static int verifyRequired(', 'int hddInstallPsbbnPayload('):
     code += function(sig)
 code += r'''
 static void put32(unsigned char *p,uint32_t n){for(unsigned i=0;i<4;i++)p[i]=n>>(8*i);}
@@ -115,7 +128,7 @@ static int rawRead(void *ctx,uint32_t lba,unsigned n,void *p){
 }
 static int rawFlush(void *ctx){assert(ctx);return 0;}
 int main(int argc,char **argv){
- assert(argc==3);work=argv[1];int scenario=atoi(argv[2]),linux=scenario>=5;
+ assert(argc==3);work=argv[1];scenario=atoi(argv[2]);int linux=scenario==5||scenario==6;
  settings.flags=7|(linux?HDD_INSTALL_PS2LINUX:0);settings.jail=1;strcpy(settings.stage,"pfs2:/tmp");
  for(unsigned i=0;i<10;i++){settings.linux[i].start=2048+i*10000000;settings.linux[i].sectors=hddInstallPartitionMb(&settings,i)*2048;}
  const unsigned assets[]={HI_SYSTEM,HI_LANGUAGE,HI_PS2LINUX};
@@ -125,14 +138,23 @@ int main(int argc,char **argv){
  HddFormatIo io={.context=&settings,.read=rawRead,.flush=rawFlush};
  int ret=hddInstallPsbbnPayload(&settings,&io);
  if(scenario==0||scenario==5){assert(!ret&&finished==created&&config_writes==1&&archive_opens==(linux?3u:2u)&&destinations>=6&&linux1==2&&linux4==2);}
- else{assert(ret<0&&!finished&&!config_writes&&strstr(settings.error,"Boot MBR was not activated"));}
- assert(mounted==3&&unmounted==mounted&&entries>0&&slots==4);
+ else{
+  assert(ret<0&&!finished&&config_writes==(scenario==8));
+  assert(!strstr(settings.error,"Boot MBR"));
+  if(scenario==1)assert(strstr(settings.error,"required archive entry")&&strstr(settings.error,"__system/osd100/TEXIMAGE"));
+  if(scenario==2)assert(strstr(settings.error,"language.tar.gz")&&!strstr(settings.error,"__linux.1/revisit"));
+  if(scenario==6)assert(strstr(settings.error,"required archive entry")&&strstr(settings.error,"PS2Linux.tar.gz bin/sh"));
+  if(scenario==7)assert(strstr(settings.error,"after extracting __linux.1/etc/httpd/conf/httpd.conf"));
+  if(scenario==8)assert(strstr(settings.error,"Installing launchers and boot configuration")&&!strstr(settings.error,"httpd.conf"));
+  if(scenario==9)assert(strstr(settings.error,"while processing __linux.1/etc/httpd/conf/httpd.conf"));
+ }
+ assert(mounted==3&&unmounted==mounted&&(entries>0||scenario>=11)&&slots==4);
  puts("PASS: single-pass extraction checks CRCs, required boot files, protected paths and capacity before clean/boot commit");
 }
 '''
 
 
-def archive(path, entries):
+def archive(path, entries, bad_padding=False):
     payload = io.BytesIO()
     with tarfile.open(fileobj=payload, mode='w') as t:
         for name, content in entries:
@@ -140,7 +162,10 @@ def archive(path, entries):
             e.mode = 0o644
             e.size = len(content)
             t.addfile(e, io.BytesIO(content))
-    path.write_bytes(gzip.compress(payload.getvalue(), mtime=0))
+    tar_data = payload.getvalue()
+    if bad_padding:
+        tar_data = tar_data[:-1] + b"X"
+    path.write_bytes(gzip.compress(tar_data, mtime=0))
 
 
 with tempfile.TemporaryDirectory(prefix='hdd-installer-streaming-') as directory:
@@ -152,7 +177,7 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-streaming-') as directory
     required = ['__system/p2lboot/osdboot.elf', '__system/p2lboot/vmlinux', '__linux.1/sbin/init',
                 '__linux.1/bin/sh', '__linux.1/etc/fstab', '__linux.4/bn/script/utility/sysconf.xml']
     required += ['__system/osd100/' + name for name in ('OSDSYS_A.XLF', 'FNTOSD', 'ICOIMAGE', 'JISUCS', 'SKBIMAGE', 'SNDIMAGE', 'TEXIMAGE')]
-    for scenario in range(7):
+    for scenario in range(13):
         work = d / str(scenario)
         work.mkdir()
         for i in range(4): (work / f'pfs{i}').mkdir()
@@ -163,14 +188,37 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-streaming-') as directory
         if scenario == 4: entries.append(('__system/oversized', bytes(33 * 1024 * 1024)))
         entries.append(('__contents/fixture', b'contents data'))
         entries.append(('__linux.1/revisit', b'partition revisited later in the same archive'))
+        if scenario in (0, 5):
+            entries.extend((('__contents/fixture', b'last entry wins'), ('__contents/empty', b'')))
         archive(stage / 'system.tar.gz', entries)
-        archive(stage / 'language.tar.gz', [('__linux.4/translation', b'localized')])
-        if scenario == 2:
+        kernel = work / 'pfs0/p2lboot/vmlinux'
+        if scenario in (11, 12):
+            kernel.parent.mkdir()
+            kernel.write_bytes(b'previous good kernel')
+            entry = tarfile.TarInfo('__system/p2lboot/vmlinux')
+            entry.size = 65536
+            partial = b'X' * (0 if scenario == 11 else 32768)
+            (stage / 'system.tar.gz').write_bytes(gzip.compress(entry.tobuf() + partial, mtime=0))
+        language = [('__linux.4/translation', b'localized')]
+        if scenario == 10:
+            language.extend((('__system/p2lboot/vmlinux', b'bad overlay'), ('__contents/unpublished', b'new file')))
+        if scenario >= 7:
+            language.append(('__linux.1/etc/httpd/conf/httpd.conf', b'httpd fixture'))
+        archive(stage / 'language.tar.gz', language, bad_padding=scenario == 7)
+        if scenario in (2, 10):
             p = stage / 'language.tar.gz'
             corrupted = bytearray(p.read_bytes()); corrupted[-8] ^= 1; p.write_bytes(corrupted)
-        if scenario >= 5:
+        if scenario in (5, 6):
             archive(stage / 'PS2Linux.tar.gz', [('sbin/init', b'init')] + ([] if scenario == 6 else [('bin/sh', b'shell')]))
         subprocess.run([str(d / 'test'), str(work), str(scenario)], check=True)
         if scenario in (0, 5):
-            assert (work / 'pfs3/fixture').read_bytes() == b'contents data'
+            assert (work / 'pfs3/fixture').read_bytes() == b'last entry wins'
+            assert (work / 'pfs3/empty').read_bytes() == b''
             assert not (work / 'pfs2/fixture').exists()
+        if scenario == 10:
+            assert kernel.read_bytes() == b'fixture'
+            assert not (work / 'pfs3/unpublished').exists()
+        if scenario in (11, 12):
+            assert kernel.read_bytes() == b'previous good kernel'
+        assert not list(work.rglob('.LSINST-*'))
+    print('PASS: truncated entries and bad gzip CRC preserve existing PFS files without publishing partial files')

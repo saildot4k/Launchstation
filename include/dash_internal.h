@@ -857,7 +857,8 @@ enum {
 	DASH_PICK_FOLDER,
 	DASH_PICK_LAUNCH /* ELF files plus the built-in MISC commands */
 };
-int dashHttpsCaPath(char *path, int path_size);
+/* An empty path selects the embedded HTTPS CA bundle. */
+void dashHttpsCaPath(char *path, int path_size);
 int dashPickPath(const char *title, const char *start_dir, int mode, const char *ext, char *out, int out_size);
 /* Returns the count; caller frees each selected path and the array. */
 int dashPickFiles(const char *title, const char *start_dir, const char *ext, char ***paths);

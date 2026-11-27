@@ -63,6 +63,7 @@ static unsigned create_count,format_count,header_count,allocation_checks;
 static unsigned downloads,metadata_requests;static int asset_case;
 static int capacity_error, allocation_error;
 static int create_error, mount_error, header_error;
+static int write_error, fail_jacket_rename;
 static int recovery_fault, recovery_case, worker_complete, resets, core_reloads, hdd_reloads, ata_reloads;
 static int latestMount, Party_vmcIndex[MOUNT_LIMIT];
 static int loading;
@@ -74,12 +75,13 @@ static int result(int value){return value<0?-errno:value;}
 static int genOpen(const char*p,int mode){return result(open(p,mode,0600));}
 static s64 genLseek(int fd,s64 offset,int whence){return lseek(fd,offset,whence);}
 static int genRead(int fd,void*p,int n){return result(read(fd,p,n>173?173:n));}
-static int genWrite(int fd,void*p,int n){int r=result(write(fd,p,n>97?97:n));crashpoint();return r;}
+static int genWrite(int fd,void*p,int n){if(write_error)return -EIO;int r=result(write(fd,p,n>97?97:n));crashpoint();return r;}
 static int genClose(int fd){return result(close(fd));}
 static int genMkdir(const char*p,int mode){int r=result(mkdir(p,mode));crashpoint();return r;}
 static int genRemove(char*p){return result(unlink(p));}
 static int genRmdir(char*p){return result(rmdir(p));}
 static int genGetStat(const char*p,iox_stat_t*s){struct stat st;if(stat(p,&st)<0)return -errno;memset(s,0,sizeof(*s));s->mode=st.st_mode;s->size=st.st_size;return 0;}
+void hddInstallLog(const char *format,...){assert(format);}
 int hddInstallRecoveryFault(void){return recovery_fault;}
 void hddInstallRecoveryBegin(void){recovery_fault=0;}
 void hddInstallRecoveryEnd(void){}
@@ -102,7 +104,7 @@ static void partPath(char out[256],const char*path){assert(!strncmp(path,"hdd0:"
 static int fileXioGetStat(const char*p,iox_stat_t*s){char path[256];partPath(path,p);int r=genGetStat(path,s);if(r<0)return r;s->mode=0x100;s->attr=0;s->size=8*2048;s->private_5=2048*2048;return 0;}
 static int fileXioMount(const char*mount,const char*part,int mode){char path[256];(void)mode;assert(!strcmp(mount,"pfs3:"));partPath(path,part);if(access(path,F_OK))return -ENOENT;if(mount_error&&strstr(part,"+LSAPP."))return mount_error;assert(!symlink(path,"pfs3:"));return 0;}
 static int fileXioUmount(const char*p){assert(!strcmp(p,"pfs3:"));return result(unlink(p));}
-static int fileXioRename(const char*from,const char*to){char a[256],b[256];if(!strncmp(from,"hdd0:",5)){partPath(a,from);partPath(b,to);from=a;to=b;}int r=result(rename(from,to));crashpoint();return r;}
+static int fileXioRename(const char*from,const char*to){char a[256],b[256];if(fail_jacket_rename&&!strcmp(to,"pfs3:/res/jkt_001.png"))return -EIO;if(!strncmp(from,"hdd0:",5)){partPath(a,from);partPath(b,to);from=a;to=b;}int r=result(rename(from,to));crashpoint();return r;}
 static int fileXioFormat(const char*dev,const char*part,void*arg,int n){(void)arg;assert(!strcmp(dev,"pfs:")&&n==4&&!strncmp(part,"hdd0:+LSAPP.",12));format_count++;crashpoint();return 0;}
 static int hddMakeFilesystem(int mb,char*name,int type){char path[256];assert(mb==8&&type==FS_GROUP_APPLICATION&&!strncmp(name,"+LSAPP.",7));snprintf(path,sizeof(path),"part/%s",name);assert(!mkdir(path,0700));create_count++;crashpoint();return create_error?create_error:8;}
 int hddGetApaCapacity(uint32_t*sectors){*sectors=128*2048;return capacity_error;}
@@ -142,10 +144,12 @@ int httpsDownloadFd(const char*url,int fd,const char*ca,int max,int*size,unsigne
     assert(write(fd,data,n)==n);*size=n;progress(n,n,ctx);return 0;
 }
 '''
+output = (root / "src/hdd_install_ps2.c").read_text()
+code += output[output.index("static int outputPath("):output.index("void hddInstallRelease(")]
 # AppInstall is the actual frontend/backend context.
 code += source[source.index("typedef struct {"):source.index("static void context(")]
 for signature in ("static void context(", "static int join(", "static int flush(", "static int finish(", "static int transfer(",
-                  "static int writeFile(", "static int readFile(", "static int exists(", "static int mkdirChecked(",
+                  "static int writeFile(", "static int writePublishedFile(", "static int readFile(", "static int exists(", "static int mkdirChecked(",
                   "static int releasePfs(", "static int identity(", "static int checkOwner(", "static int writeOwner(",
                   "static int readJournal(", "static int checkpoint(", "static int mountPartition(",
                   "static int unmountPartition(", "static int partitionOwner(",
@@ -263,6 +267,24 @@ int main(int argc,char**argv){
         }
         saveArchiveFree(&in->save);free(in->package);free(in);return 0;
     }
+    if(update==11){
+        AppInstall *in=calloc(1,sizeof(*in));setup(in,1);
+        assert(!validateTarget(in));
+        const char *res="part/PP.APP_TEST/res";
+        rawFile("part/PP.APP_TEST/res/info.sys","old info",8);
+        rawFile("part/PP.APP_TEST/res/jkt_001.png","old art",7);
+        if(crash==0)assert(!truncate("ata0:/stage/JACKET.PNG",0));
+        if(crash==1)write_error=1;
+        if(crash==2)fail_jacket_rename=1;
+        assert(installHeader(in)==(crash==0?-EFBIG:-EIO)&&!in->mounted&&!header_count);
+        unsigned char *data=NULL;unsigned n=0;
+        if(crash!=2){
+            assert(!readFile("part/PP.APP_TEST/res/info.sys",&data,&n,100)&&n==8&&!memcmp(data,"old info",8));
+            free(data);data=NULL;
+        }
+        assert(!readFile("part/PP.APP_TEST/res/jkt_001.png",&data,&n,100)&&n==7&&!memcmp(data,"old art",7));
+        assert(!checkOwner(in,res,0));free(data);free(in);return 0;
+    }
     if(update==3){
         AppInstall*in=calloc(1,sizeof(*in));setup(in,0);
         assert(!validateTarget(in)&&allocation_checks==1);
@@ -315,7 +337,7 @@ with tempfile.TemporaryDirectory(prefix="hdd-app-install-") as tmp:
             subprocess.run([str(tmp / "test"), "5", str(case)], cwd=work, check=True)
         with tempfile.TemporaryDirectory(dir=tmp) as work:
             subprocess.run([str(tmp / "test"), "6", str(case)], cwd=work, check=True)
-        for mode in (8,10):
+        for mode in (8, 10, 11):
             with tempfile.TemporaryDirectory(dir=tmp) as work:
                 subprocess.run([str(tmp / "test"), str(mode), str(case)], cwd=work, check=True)
     for mode in (7,9):

@@ -330,14 +330,29 @@ static void set_error(char *error, int error_size, const char *where, int code)
         snprintf(error, error_size, "%s", where);
 }
 
-static unsigned char *read_file(const char *path, int *size)
+/* Keep the PEM as a tracked compiler dependency so bundle changes rebuild
+ * the native HTTPS client. The final byte terminates it for Mbed TLS. */
+static const unsigned char embedded_ca[] = {
+#embed "../res/WLE-UPDATE-CA.PEM" suffix(, 0)
+};
+_Static_assert(sizeof(embedded_ca) > 1 && sizeof(embedded_ca) <= 256 * 1024 + 1,
+               "Invalid embedded HTTPS CA bundle size");
+
+unsigned char *httpsLoadCaBundle(const char *path, unsigned *size)
 {
     unsigned char *buf;
     s64 len;
     int fd, done = 0;
 
-    if (size)
-        *size = 0;
+    *size = 0;
+    if (!path[0]) {
+        buf = malloc(sizeof(embedded_ca));
+        if (buf) {
+            memcpy(buf, embedded_ca, sizeof(embedded_ca));
+            *size = sizeof(embedded_ca) - 1;
+        }
+        return buf;
+    }
     fd = genOpen(path, FIO_O_RDONLY);
     if (fd < 0)
         return NULL;
@@ -353,17 +368,19 @@ static unsigned char *read_file(const char *path, int *size)
     }
     while (done < len) {
         int r = genRead(fd, buf + done, (int)(len - done));
-        if (r <= 0) {
+        if (r <= 0 || r > len - done) {
             free(buf);
             genClose(fd);
             return NULL;
         }
         done += r;
     }
-    genClose(fd);
+    if (genClose(fd) < 0) {
+        free(buf);
+        return NULL;
+    }
     buf[len] = 0;
-    if (size)
-        *size = (int)len;
+    *size = (unsigned)len;
     return buf;
 }
 
@@ -435,7 +452,7 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
 {
     static const unsigned char personal[] = "Launchstation HTTPS";
     unsigned char *ca_data = NULL;
-    int ca_len = 0;
+    unsigned ca_len = 0;
     u32 network_start;
     int r;
 
@@ -447,22 +464,22 @@ static int tls_open(HttpsTls *tls, const char *host, const char *ca_path,
     mbedtls_ctr_drbg_init(&tls->ctr);
     mbedtls_entropy_init(&tls->entropy);
 
-    if (ca_path == NULL || ca_path[0] == '\0') {
+    if (ca_path == NULL) {
         set_error(error, error_size, "HTTPS CA bundle is required", 0);
         goto fail;
     }
-    httpsTrace("TLS begin host=%s CA=%s", host, ca_path);
+    httpsTrace("TLS begin host=%s CA=%s", host, *ca_path ? ca_path : "embedded");
     httpsStatus("Loading trusted certificates");
     if (https_ca_bundle && https_ca_size && https_ca_size <= 256 * 1024) {
         ca_len = https_ca_size;
         ca_data = malloc(ca_len + 1);
         if (ca_data) { memcpy(ca_data, https_ca_bundle, ca_len); ca_data[ca_len] = 0; }
-    } else ca_data = read_file(ca_path, &ca_len);
+    } else ca_data = httpsLoadCaBundle(ca_path, &ca_len);
     if (ca_data == NULL) {
         set_error(error, error_size, "Could not read HTTPS CA bundle", 0);
         goto fail;
     }
-    httpsTrace("CA loaded: %d bytes", ca_len);
+    httpsTrace("CA loaded: %u bytes", ca_len);
     r = mbedtls_x509_crt_parse(&tls->ca, ca_data, (size_t)ca_len + 1);
     httpsTrace("CA parse rc=%d", r);
     free(ca_data);

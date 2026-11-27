@@ -58,6 +58,8 @@ program = r'''
 #include <string.h>
 typedef unsigned char u8;
 typedef uint32_t u32;
+typedef int64_t s64;
+#define FIO_O_RDONLY 1
 typedef struct { int sock, ssl, conf, ca, ctr, entropy; } HttpsTls;
 #define MBEDTLS_ERR_X509_CERT_VERIFY_FAILED -9984
 #define MBEDTLS_ERR_SSL_WANT_READ -10
@@ -91,12 +93,21 @@ static u32 cpu_ticks(void) { return 17; }
 static void mbedtls_strerror(int code,char *out,size_t cap) {
     snprintf(out,cap,"mock TLS error %d",code);
 }
-static unsigned char *read_file(const char *path,int *size) {
-    assert(!strcmp(path,"WLE-UPDATE-CA.PEM"));
-    file_reads++;
-    if(file_unavailable)return NULL;
-    unsigned char *out=malloc(3);assert(out);memcpy(out,"CA",3);*size=2;return out;
+static unsigned read_offset;
+static int genOpen(const char *path,int mode) {
+    assert(!strcmp(path,"WLE-UPDATE-CA.PEM") && mode==FIO_O_RDONLY);
+    file_reads++;read_offset=0;
+    return file_unavailable?-1:3;
 }
+static s64 genLseek(int fd,s64 offset,int whence){
+    assert(fd==3&&!offset&&(whence==SEEK_END||whence==SEEK_SET));
+    return whence==SEEK_END?2:0;
+}
+static int genRead(int fd,void *out,int size){
+    assert(fd==3&&size==(int)(2-read_offset)&&size>0);
+    *(char *)out="CA"[read_offset++];return 1;
+}
+static int genClose(int fd){assert(fd==3);return 0;}
 static int mbedtls_x509_crt_parse(int *ca,const unsigned char *pem,size_t n) {
     assert(*ca && n==strlen(expected_ca)+1 && !strcmp((const char *)pem,expected_ca));return parse_result;
 }
@@ -169,6 +180,10 @@ program += (root / "include/https_client.h").read_text()
 program += source[source.index('static HttpsStatusCallback https_status_callback;'):
                   source.index('mbedtls_ms_time_t mbedtls_ms_time(')]
 program += function("static void set_error(")
+embedded = source[source.index("static const unsigned char embedded_ca[]"):source.index("unsigned char *httpsLoadCaBundle(")]
+pem = (root / "res/WLE-UPDATE-CA.PEM").read_bytes()
+embedded = re.sub(r'^#embed .*$', lambda _: ",".join(map(str, pem + b"\0")), embedded, flags=re.M)
+program += embedded + function("unsigned char *httpsLoadCaBundle(")
 program += function("static void tls_free(")
 program += function("static void tls_verify_error(")
 program += source[source.index('static const unsigned char *https_ca_bundle;'):
@@ -247,8 +262,11 @@ int main(void) {
     reset(0,0);parse_result=-1;
     assert(tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error))<0);
     assert(strstr(error,"parse HTTPS CA") && !connects && !handshakes && frees==1);
+    reset(0,0);expected_ca=(const char *)embedded_ca;file_unavailable=1;
+    assert(!tls_open(&tls,"api.github.com","",error,sizeof(error)));
+    assert(!file_reads && required_mode==1 && verifies==1);tls_free(&tls);
     reset(0,0);
-    assert(tls_open(&tls,"api.github.com","",error,sizeof(error))<0);
+    assert(tls_open(&tls,"api.github.com",NULL,error,sizeof(error))<0);
     assert(strstr(error,"CA bundle is required") && !connects && frees==1);
     reset(0,0);connect_failure=1;
     assert(tls_open(&tls,"api.github.com","WLE-UPDATE-CA.PEM",error,sizeof(error))<0&&httpsFailureRetryable());

@@ -42,7 +42,9 @@ code += function(header, "static inline unsigned char wle_ascii_tolower(")
 code += function(header, "static inline int wle_stricmp(")
 code += "#define stricmp wle_stricmp\n"
 code += function((root / "src/filer_fileops.c").read_text(), "int genCmpFileExt(")
-code += function((root / "src/main_fileops.c").read_text(), "int IsTextEditorFileType(")
+fileops = (root / "src/main_fileops.c").read_text()
+code += function(fileops, "const char *const *textEditorFileExtensions(")
+code += function(fileops, "int IsTextEditorFileType(")
 for first in ("FB_SORT_TYPE", "FB_TYPE_FOLDER"):
     code += re.search(r"enum \{\s+" + first + r"[\s\S]+?\n\};", browser).group() + "\n"
 for name in ("fb_sort", "fb_sort_desc"):

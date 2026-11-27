@@ -15,6 +15,7 @@
  * https://archive.org/metadata/psbbn-definitive-english-patch-v2 . */
 #define EXTRAS_SIZE 5034301u
 #define EMBER_DEP_URL "https://archive.org/download/psbbn-definitive-project-dependencies/dep.zip"
+#define EMBER_BIOS_PATH "ata0:/Ember/bios.bin"
 
 static const char *const app_folders[] = {"APP_WLE-R3Z", "SYS_R3CONFIGURATOR"};
 static const char *const app_boot[] = {"WLE-R3Z.ELF", "r3configurator.elf"};
@@ -55,6 +56,82 @@ static int closeResult(int fd, int result)
     int closed = genClose(fd);
     return result < 0 ? result : closed < 0 ? closed : 0;
 }
+/* Short sibling names also work when the destination uses a full-length leaf.
+ * Keep the names stable so a retry can recover an interrupted FAT replacement. */
+static int outputPath(const char *path, char scratch[MAX_PATH], const char *suffix)
+{
+    const char *leaf = strrchr(path, '/');
+    uint32_t a = 2166136261u, b = 5381;
+    if (!leaf) return -EINVAL;
+    leaf++;
+    if (!*leaf || !strncasecmp(leaf, ".LSINST-", 8)) return -EINVAL;
+    for (const unsigned char *p = (const unsigned char *)leaf; *p; p++) {
+        a = (a ^ *p) * 16777619u;
+        b = b * 33 ^ *p;
+    }
+    int n = snprintf(scratch, MAX_PATH, "%.*s.LSINST-%08x%08x.%s", (int)(leaf - path), path,
+                     (unsigned)a, (unsigned)b, suffix);
+    return n < 0 || n >= MAX_PATH ? -ENAMETOOLONG : 0;
+}
+static int outputExists(const char *path)
+{
+    iox_stat_t st;
+    if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+    int ret = genGetStat(path, &st);
+    if (ret < 0) return ret == -ENOENT ? 0 : ret;
+    return FIO_S_ISREG(st.mode) ? 1 : -EEXIST;
+}
+int hddInstallOutputOpen(const char *path, int replace)
+{
+    char scratch[MAX_PATH], backup[MAX_PATH];
+    int ret = outputPath(path, scratch, "new");
+    if (ret < 0) return ret;
+    int present = outputExists(path);
+    if (present < 0) return present;
+    if (!strncmp(path, "ata", 3)) {
+        ret = outputPath(path, backup, "old");
+        if (ret < 0) return ret;
+        ret = outputExists(backup);
+        if (ret < 0) return ret;
+        if (ret) {
+            ret = present ? genRemove(backup) : fileXioRename(backup, path);
+            if (ret < 0) return ret;
+            present = 1;
+        }
+    }
+    if (present && !replace) return -EEXIST;
+    ret = outputExists(scratch);
+    if (ret < 0) return ret;
+    return genOpen(scratch, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC);
+}
+int hddInstallOutputFinish(const char *path, int replace, int result)
+{
+    char scratch[MAX_PATH], backup[MAX_PATH];
+    int ret = outputPath(path, scratch, "new"), saved = 0;
+    if (ret < 0) return result < 0 ? result : ret;
+    if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+    if (result >= 0) {
+        int present = outputExists(path);
+        if (present < 0) result = present;
+        else if (present && !replace) result = -EEXIST;
+        /* PFS can rename over a file. FAT needs the old name moved aside. */
+        else if (present && !strncmp(path, "ata", 3)) {
+            result = outputPath(path, backup, "old");
+            if (result >= 0) result = fileXioRename(path, backup);
+            saved = result >= 0;
+        }
+        if (result >= 0 && !hddInstallRecoveryFault()) result = fileXioRename(scratch, path);
+        if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+        if (saved) {
+            if (result >= 0) return genRemove(backup);
+            /* If restoration fails, the next open can recover the backup. */
+            if (fileXioRename(backup, path) < 0) hddInstallLog("Could not restore %s", path);
+        }
+        if (result >= 0) return 0;
+    }
+    if (!hddInstallRecoveryFault()) genRemove(scratch);
+    return result;
+}
 void hddInstallRelease(HddInstall *in)
 {
     free(in->ca_data); in->ca_data = NULL; in->ca_size = 0;
@@ -65,7 +142,13 @@ int hddInstallLoadCa(HddInstall *in)
     s64 size;
     int fd, ret;
     free(in->ca_data); in->ca_data = NULL; in->ca_size = 0;
-    hddInstallLog("Reading CA bundle: %s", in->ca_path);
+    hddInstallLog("Reading CA bundle: %s", in->ca_path[0] ? in->ca_path : "embedded");
+#if defined(ETH) && defined(WLE_NATIVE_HTTPS)
+    if (!in->ca_path[0]) {
+        in->ca_data = httpsLoadCaBundle(in->ca_path, &in->ca_size);
+        return in->ca_data ? 0 : -ENOMEM;
+    }
+#endif
     fd = genOpen(in->ca_path, FIO_O_RDONLY);
     if (fd < 0) return fd;
     size = genLseek(fd, 0, SEEK_END);
@@ -259,21 +342,24 @@ static int osdResources(HddInstall *in, const char *destination)
     char path[MAX_PATH], entry[128];
     ZipContext ctx = {-1, -1};
     InstallArchiveIo io = {&ctx, zipRead, zipWrite};
-    int ret;
+    int ret, replace = in->owned && (in->recovery_attempts || in->resumed);
     if (pathJoin(path, sizeof(path), in->stage, "extras.zip") < 0) return -ENAMETOOLONG;
     ctx.input = genOpen(path, FIO_O_RDONLY);
     if (ctx.input < 0) return ctx.input;
     for (unsigned i = 0; i < 7; i++) {
         if (destination) {
             if (pathJoin(path, sizeof(path), destination, hddInstallOsdFiles[i]) < 0) { ret = -ENAMETOOLONG; goto done; }
-            ctx.output = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | (in->owned && (in->recovery_attempts || in->resumed) ? FIO_O_TRUNC : FIO_O_EXCL));
+            ctx.output = hddInstallOutputOpen(path, replace);
             if (ctx.output < 0) { ret = ctx.output; goto done; }
         }
         snprintf(entry, sizeof(entry), "extras/%s", hddInstallOsdFiles[i]);
         hddInstallStatus(destination ? "Installing HDD-OSD resources" : "Checking HDD-OSD resources", i, 7);
         ret = installZipExtract(&io, in->sizes[HI_EXTRAS], entry, 4u * 1024 * 1024, NULL);
-        if (ctx.output >= 0) { ret = closeResult(ctx.output, ret); ctx.output = -1; }
-        if (ret < 0) { if (destination) genRemove(path); goto done; }
+        if (ctx.output >= 0) {
+            ret = hddInstallOutputFinish(path, replace, closeResult(ctx.output, ret));
+            ctx.output = -1;
+        }
+        if (ret < 0) goto done;
     }
     ret = 0;
 done:
@@ -842,10 +928,10 @@ static int makeParents(char *path)
 }
 static int writeNew(HddInstall *in, const char *path, const void *data, unsigned size)
 {
-    int fd, ret;
+    int fd, ret, replace = in->owned && (in->recovery_attempts || in->resumed);
     unsigned done = 0;
     hddInstallLog("WRITE %s (%u bytes)", path, size);
-    fd = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | (in->owned && (in->recovery_attempts || in->resumed) ? FIO_O_TRUNC : FIO_O_EXCL));
+    fd = hddInstallOutputOpen(path, replace);
     if (fd < 0) return fd;
     hddInstallProgress(path, 0, size);
     ret = 0;
@@ -855,9 +941,7 @@ static int writeNew(HddInstall *in, const char *path, const void *data, unsigned
         if (ret < 0) break;
         done += n; hddInstallProgress(path, done, size);
     }
-    ret = closeResult(fd, ret);
-    if (ret < 0) { char remove[MAX_PATH]; snprintf(remove, sizeof(remove), "%s", path); genRemove(remove); }
-    return ret;
+    return hddInstallOutputFinish(path, replace, closeResult(fd, ret));
 }
 static int copyFile(HddInstall *in, const char *name, uint32_t size, const char *destination, int replace)
 {
@@ -871,8 +955,8 @@ static int copyFile(HddInstall *in, const char *name, uint32_t size, const char 
     input = genOpen(source, FIO_O_RDONLY);
     if (input < 0) { free(buffer); return input; }
     hddInstallLog("COPY %s -> %s (%u bytes)", source, destination, (unsigned)size);
-    output = genOpen(destination, FIO_O_WRONLY | FIO_O_CREAT | (replace ? FIO_O_TRUNC : FIO_O_EXCL));
-    if (output < 0) { genClose(input); free(buffer); return output; }
+    output = hddInstallOutputOpen(destination, replace);
+    if (output < 0) { free(buffer); return closeResult(input, output); }
     hddInstallProgress(destination, 0, size);
     while (done < size) {
         unsigned n = size - done > 32768 ? 32768 : size - done;
@@ -882,7 +966,7 @@ static int copyFile(HddInstall *in, const char *name, uint32_t size, const char 
         done += n; hddInstallProgress(destination, done, size);
     }
     ret = closeResult(output, ret); ret = closeResult(input, ret); free(buffer);
-    return ret;
+    return hddInstallOutputFinish(destination, replace, ret);
 }
 static int copyAsset(HddInstall *in, unsigned asset, const char *destination)
 { return copyFile(in, hddInstallAssetName(asset), in->sizes[asset], destination, in->owned && (in->recovery_attempts || in->resumed)); }
@@ -968,19 +1052,46 @@ static int installApps(HddInstall *in)
 
 static int installEmberBios(HddInstall *in)
 {
-    char path[MAX_PATH];
+    const uint32_t bios_size = 512u * 1024;
+    char target[] = EMBER_BIOS_PATH, staged[] = EMBER_BIOS_PATH ".tmp", path[MAX_PATH];
     ZipContext ctx = {-1, -1};
     InstallArchiveIo io = {&ctx, zipRead, zipWrite};
+    iox_stat_t st;
     uint32_t size = 0;
+    int present = genGetStat(target, &st), ret;
+
+    if (present >= 0) {
+        if (!FIO_S_ISREG(st.mode) || st.hisize || st.size > bios_size) return -EEXIST;
+        if (st.size == bios_size) {
+            hddInstallLog("Keeping existing 512 KiB Ember BIOS");
+            return 0;
+        }
+        /* Clear an empty placeholder left by older installers even if
+         * this run encounters another extraction error. */
+        if (!st.size) {
+            ret = genRemove(target);
+            if (ret < 0) return ret;
+            present = -ENOENT;
+        }
+    } else if (present != -ENOENT) return present;
+
     if (pathJoin(path, sizeof(path), in->stage, "extras.zip") < 0) return -ENAMETOOLONG;
     ctx.input = genOpen(path, FIO_O_RDONLY);
     if (ctx.input < 0) return ctx.input;
-    ctx.output = genOpen("ata0:/Ember/bios.bin", FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC);
+    ctx.output = genOpen(staged, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC);
     if (ctx.output < 0) return closeResult(ctx.input, ctx.output);
     hddInstallStatus("Installing Ember BIOS", 0, 0);
-    int ret = installZipExtract(&io, in->sizes[HI_EXTRAS], "dep/bios.bin", 512u * 1024, &size);
-    ret = closeResult(ctx.output, ret); ret = closeResult(ctx.input, ret);
-    return ret < 0 ? ret : size == 512u * 1024 ? 0 : -EINVAL;
+    ret = installZipExtract(&io, in->sizes[HI_EXTRAS], "dep/bios.bin", bios_size, &size);
+    ret = closeResult(ctx.output, ret);
+    ret = closeResult(ctx.input, ret);
+    if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+    if (ret >= 0 && size != bios_size) ret = -EINVAL;
+    if (ret >= 0) ret = genGetStat(staged, &st);
+    if (ret >= 0 && (st.hisize || st.size != bios_size)) ret = -EIO;
+    if (ret >= 0 && present >= 0) ret = genRemove(target);
+    if (ret >= 0) ret = genRenameNoReplace(staged, target);
+    if (ret < 0 && !hddInstallRecoveryFault()) genRemove(staged);
+    return ret;
 }
 
 /* Install commit-pinned launchers after system/language archive population.
@@ -1021,7 +1132,11 @@ static int installLaunchers(HddInstall *in)
         if (total) hddInstallOverall(900 + 80 * copied / total, 1000);
     }
     if (in->game_launcher >= HDD_GAME_RIPTOPL) {
-        ret = installEmberBios(in); if (ret < 0) return ret;
+        ret = installEmberBios(in);
+        if (ret < 0) {
+            snprintf(in->error, sizeof(in->error), "Could not install the Ember BIOS at %s (error %d).", EMBER_BIOS_PATH, ret);
+            return ret;
+        }
         static const char credit[] = "Ember by Gageformer\nhttps://github.com/Gageformer/Ember/releases\n";
         ret = writeNew(in, "ata0:/Ember/README.txt", credit, sizeof(credit) - 1);
         if (ret < 0) return ret;

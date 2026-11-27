@@ -51,7 +51,7 @@ static void dashModalMessage(int icon,const char*t,const char*b,const char*d){
     if(strstr(b,"apps installed")){summary++;snprintf(summary_text,sizeof(summary_text),"%s",b);}
 }
 static int ensurePathDeviceStackReady(const char*p){assert(loading&&frames>0&&releases==loaded);loaded++;source_ready=1;strcpy(current,p);return 1;}
-static int dashHttpsCaPath(char*p,int size){assert(loading&&source_ready&&snaps==loaded);snprintf(p,size,"ca.pem");return 1;}
+static void dashHttpsCaPath(char*p,int size){assert(loading&&source_ready&&snaps==loaded);snprintf(p,size,"ca.pem");}
 int hddInstallLoadCa(HddInstall*in){assert(in&&loading&&source_ready);certificates++;return scenario==4&&loaded==2?-EIO:0;}
 static void dashSoundShutdown(void){assert(loading);}
 int dashHddInstallPrepareStorage(HddInstall*in){assert(loading&&in->jail&&source_ready&&certificates==loaded&&snaps==loaded);networks++;source_ready=0;return 0;}

@@ -391,6 +391,7 @@ void loadCdModules(void);
 void applyXPARAM(const char *gameID);
 int uLE_related(char *pathout, const char *pathin);
 int wleExists(const char *path);
+const char *const *textEditorFileExtensions(void); /* NULL-terminated */
 int IsTextEditorFileType(const char *path);
 void getIpConfig(void);
 void updateIpConfigRuntimeState(void);

@@ -69,6 +69,13 @@ static int writeFile(const char *path, const void *data, unsigned size)
     int fd = genOpen(path, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC);
     return fd < 0 ? fd : finish(fd, transfer(fd, (void *)data, size, 1));
 }
+static int writePublishedFile(const char *path, const void *data, unsigned size)
+{
+    int fd = hddInstallOutputOpen(path, 1);
+    if (fd < 0) return fd;
+    int ret = finish(fd, transfer(fd, (void *)data, size, 1));
+    return hddInstallOutputFinish(path, 1, ret);
+}
 static int readFile(const char *path, unsigned char **data, unsigned *size, unsigned maximum)
 {
     int ret = 0, fd = genOpen(path, FIO_O_RDONLY);
@@ -540,22 +547,31 @@ static int pendingPartition(AppInstall *in)
 static int installHeader(AppInstall *in)
 {
     char path[MAX_PATH], name[40];
-    unsigned char *list = NULL, *del = NULL;
-    unsigned list_size = 0, del_size = 0;
+    unsigned char *list = NULL, *del = NULL, *jacket = NULL;
+    unsigned list_size = 0, del_size = 0, jacket_size = 0;
     const char *part = in->journal.update ? in->installed_partition : in->pending;
     int ret = hddAppSystemCnf(&in->app, in->cnf);
     if (ret >= 0) ret = hddAppInfo(&in->app, in->info);
+    if (ret >= 0) {
+        ret = join(path, in->stage, "JACKET.PNG");
+        if (ret >= 0) {
+            context(in, "Reading app artwork", path);
+            ret = readFile(path, &jacket, &jacket_size, APP_MAX_ASSET);
+        }
+    }
     if (ret >= 0) ret = mountPartition(in, part);
     if (ret >= 0) ret = mkdirChecked("pfs3:/res");
     if (ret >= 0) {
         context(in, "Writing app metadata", "pfs3:/res/info.sys");
-        ret = writeFile("pfs3:/res/info.sys", in->info, strlen(in->info));
+        ret = writePublishedFile("pfs3:/res/info.sys", in->info, strlen(in->info));
     }
     if (ret >= 0) {
         context(in, "Installing app artwork", "pfs3:/res/jkt_001.png");
-        join(path, in->stage, "JACKET.PNG"); ret = copyFile(path, "pfs3:/res/jkt_001.png");
+        ret = writePublishedFile("pfs3:/res/jkt_001.png", jacket, jacket_size);
     }
-    if (ret >= 0) ret = writeOwner(in, "pfs3:/res", 0);
+    free(jacket);
+    /* The ownership record was created with the partition and is stable
+     * across app updates. */
     ret = unmountPartition(in, ret);
     if (ret >= 0) { join(path, in->stage, "LIST.ICO"); ret = readFile(path, &list, &list_size, APP_MAX_ASSET); }
     if (ret >= 0) { join(path, in->stage, "DELETE.ICO"); ret = readFile(path, &del, &del_size, APP_MAX_ASSET); }
@@ -736,9 +752,12 @@ static int installApp(const char *psu_path, int index, int count)
         hddAppChooseBoot(&in->save, &in->app, selected);
     }
     appLoading(in, "Reading HTTPS certificate");
-    if (!dashHttpsCaPath(in->network.ca_path, sizeof(in->network.ca_path)) || hddInstallLoadCa(&in->network) < 0) {
+    dashHttpsCaPath(in->network.ca_path, sizeof(in->network.ca_path));
+    if (hddInstallLoadCa(&in->network) < 0) {
         dashLoadingEnd(); result = -1;
-        dashModalMessage(DI_WARNING, "CA bundle unavailable", "Could not read WLE-UPDATE-CA.PEM beside Launchstation or in its settings folder.", NULL); goto cleanup;
+        dashModalMessage(DI_WARNING, "CA bundle unavailable", "Could not read the HTTPS CA bundle.",
+                         in->network.ca_path[0] ? in->network.ca_path : "Embedded CA bundle");
+        goto cleanup;
     }
     dashSoundShutdown();
     in->network.jail = 1;

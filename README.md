@@ -76,7 +76,7 @@ executable uses the same settings and optional sidecars as the standard build.
 The DS34 variant still needs console validation with USB/Bluetooth controllers
 and concurrent storage access.
 
-Background music is **not embedded** in either ELF. Both installable ZIP/PSU variants include `BGM.ADP` beside the boot ELF by default. For standalone/local ELF builds, music is optional: copy `res/music.sad` unchanged beside the ELF under the name `BGM.ADP`, or omit it for a music-free installation. Packaged `WLE-UPDATE-CA.PEM` is also stored beside the ELF so HTTPS update checks work without a separate manual CA installation (older settings-folder certificates remain supported).
+Background music is **not embedded** in either ELF. Both installable ZIP/PSU variants include `BGM.ADP` beside the boot ELF by default. For standalone/local ELF builds, music is optional: copy `res/music.sad` unchanged beside the ELF under the name `BGM.ADP`, or omit it for a music-free installation. Native HTTPS builds include the CA bundle in the ELF. A `WLE-UPDATE-CA.PEM` beside the running ELF takes precedence over the embedded bundle.
 Interface sound effects remain embedded. See
 [background music](docs/dashboard.md#optional-background-music).
 

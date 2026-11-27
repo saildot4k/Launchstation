@@ -183,8 +183,8 @@ reload. No test opens a physical disk. PS2 hardware validation is still needed.
 
 Native HTTPS builds offer software installation as part of formatting. All
 application binaries, icons and system resources are downloaded; none are
-bundled in Launchstation. A working network connection and
-`WLE-UPDATE-CA.PEM` are required. After the two erase confirmations the HDD is
+bundled in Launchstation. A working network connection is required. Launchstation
+uses its embedded HTTPS CA bundle unless `WLE-UPDATE-CA.PEM` is beside the ELF. After the two erase confirmations the HDD is
 formatted, then installer files are downloaded to `hdd0:__common:pfs:/tmp`
 for APA Jail (mounted as `pfs2:/tmp`). Pure APA uses
 `hdd0:__common:pfs:/PSBBN_DP_TEMP` on the same temporary PFS mount.

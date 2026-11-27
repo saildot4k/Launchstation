@@ -53,22 +53,21 @@ int uLE_related(char *pathout, const char *pathin)
 	return ret;
 }
 
+const char *const *textEditorFileExtensions(void)
+{
+	static const char *const extensions[] = {
+		"TXT", "LOG", "CHT", "CFG", "INI", "CNF", "PBT",
+		"JS", "LUA", "XML", "TOML", "YAML", "YML", "ARG", NULL
+	};
+	return extensions;
+}
+
 int IsTextEditorFileType(const char *path)
 {
-	return (genCmpFileExt(path, "TXT") ||
-	        genCmpFileExt(path, "LOG") ||
-	        genCmpFileExt(path, "CHT") ||
-	        genCmpFileExt(path, "CFG") ||
-	        genCmpFileExt(path, "INI") ||
-	        genCmpFileExt(path, "CNF") ||
-	        genCmpFileExt(path, "PBT") ||
-	        genCmpFileExt(path, "JS") ||
-	        genCmpFileExt(path, "LUA") ||
-	        genCmpFileExt(path, "XML") ||
-	        genCmpFileExt(path, "TOML") ||
-	        genCmpFileExt(path, "YAML") ||
-	        genCmpFileExt(path, "YML") ||
-	        genCmpFileExt(path, "ARG"));
+	for (const char *const *ext = textEditorFileExtensions(); *ext; ext++)
+		if (genCmpFileExt(path, *ext))
+			return 1;
+	return 0;
 }
 
 int IsSupportedFileType(char *path)

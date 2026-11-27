@@ -81,6 +81,11 @@ int main(void) {
         assert(!opened && access_no == ((byte & 3) == 2 ? 1 : 3));
         assert(calls[WRITE] == ((byte & 3) == 2 ? 0u : 1u));
     }
+    reset(&in, 0xa2);
+    assert(hddEnableBootFlag() == HDD_BOOT_ALREADY_ENABLED && calls[READ] == 1 && !calls[WRITE]);
+    reset(&in, 0xa1);
+    assert(hddEnableBootFlag() == HDD_BOOT_ENABLED && calls[READ] == 2 && calls[WRITE] == 1 && config[0] == 0xa2);
+    assert(hddEnableBootFlag() == HDD_BOOT_ALREADY_ENABLED && calls[WRITE] == 1);
     for (unsigned flags = 0; flags < 16; flags++) {
         if (flags & HDD_INSTALL_HOSD) continue;
         reset(&in, 3); in.flags = flags;
@@ -170,6 +175,55 @@ int main(void) {
 }
 '''
 
+menu = job_source[job_source.index("static void partitionMenu("):job_source.index("// Drawing", job_source.index("static void partitionMenu("))]
+assert 'if (!console_is_PSX && p && p->type == HP_SYSTEM && !strcmp(p->name, "__mbr"))' in menu
+assert menu.index('"Format HDD..."') < menu.index('"Enable HDD boot flag..."') < menu.index('"Resume installation..."')
+assert '"Enable HDD boot flag...", NULL, 0, A_ENABLE_BOOT_FLAG' in menu
+assert 'case A_ENABLE_BOOT_FLAG:\n\t\t\tactEnableBootFlag();' in menu
+worker = job_source[job_source.index("\t\tcase HOP_ENABLE_BOOT_FLAG:"):job_source.index("\t\tcase HOP_RESUME_AVAILABLE:")]
+manual = r'''
+#include <assert.h>
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+#include "hdd_install.h"
+enum { DI_CHECK, DI_WARNING, HOP_ENABLE_BOOT_FLAG };
+typedef struct { int ret; } HddJob;
+static HddJob job;
+static int idle=1, expected, jobs, modules, notices;
+static int dashWorkerAwaitAll(const char *title){assert(title&&*title);return idle;}
+static void loadCdModules(void){assert(idle);modules++;}
+static HddJob *jobNew(int op){assert(op==HOP_ENABLE_BOOT_FLAG&&modules>jobs);jobs++;return &job;}
+static void hddJobFree(HddJob *j){assert(j==&job);}
+int hddEnableBootFlag(void){return expected;}
+static int runJob(HddJob *j,const char *title,int cancelable){
+    assert(j==&job&&title&&*title&&!cancelable);
+    switch(HOP_ENABLE_BOOT_FLAG){
+''' + worker + r'''
+    }
+    return 1;
+}
+static void dashModalMessage(int icon,const char *title,const char *body,const char *detail){
+    assert(!detail&&body&&*body);
+    if(expected==HDD_BOOT_ALREADY_ENABLED) assert(icon==DI_CHECK&&!strcmp(title,"Already enabled!"));
+    else if(expected==HDD_BOOT_ENABLED) assert(icon==DI_CHECK&&!strcmp(title,"HDD boot is enabled"));
+    else assert(icon==DI_WARNING&&strstr(title,"could not be verified")&&strstr(body,"-5"));
+    notices++;
+}
+'''
+manual += job_source[job_source.index("static void actEnableBootFlag("):job_source.index("static void partitionMenu(")]
+manual += r'''
+int main(void){
+    idle=0;actEnableBootFlag();assert(!jobs&&!notices&&!modules);
+    idle=1;
+    expected=HDD_BOOT_ALREADY_ENABLED;actEnableBootFlag();
+    expected=HDD_BOOT_ENABLED;actEnableBootFlag();
+    expected=-EIO;actEnableBootFlag();
+    assert(jobs==3&&notices==3&&modules==3);
+    puts("PASS: __mbr offers a manual boot flag action with separate success and failure messages");
+}
+'''
+
 with tempfile.TemporaryDirectory(prefix="hdd-installer-boot-") as temp:
     p = Path(temp)
     (p / "kernel.h").write_text("#include <stdint.h>\ntypedef uint32_t u32;\n")
@@ -180,7 +234,7 @@ int sceCdReadConfig(void *, uint32_t *);
 int sceCdWriteConfig(const void *, uint32_t *);
 int sceCdCloseConfig(uint32_t *);
 """)
-    for name, body, sources in [("boot", code, [root / "src/hdd_install_boot.c"]), ("job", job_code, [])]:
+    for name, body, sources in [("boot", code, [root / "src/hdd_install_boot.c"]), ("job", job_code, []), ("manual", manual, [])]:
         (p / f"{name}.c").write_text(body)
         subprocess.run(["gcc", "-std=c99", "-Wall", "-Wextra", "-Werror", "-I", str(p),
                         "-I", str(root / "include"), str(p / f"{name}.c"),

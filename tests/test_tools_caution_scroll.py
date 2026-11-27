@@ -24,6 +24,7 @@ def function(source, signature):
 draw = function(tools, "static void toolsDraw(")
 assert "dashTextWrapScrollTimed(dx + 42, dy + dh - 58, dw - 62, 36, t->note," in draw
 assert "18, dashUiFocusAge()" in draw
+assert re.search(r"if \(t->action == TA_EDITOR\)\s*drawEditorExtensions\(", draw)
 literal = r'"(?:\\.|[^"\\])*"'
 table = tools[tools.index("static const Tool tools[]"):tools.index("#define NTOOLS")]
 notes = re.findall(r"\{TA_\w+,\s*\w+,\s*(" + literal + r"),\s*" + literal +
@@ -73,6 +74,16 @@ static void dashGfxScissorPop(void) { assert(depth==1);depth--;clip=saved_clip;p
 '''
 for signature in ("static int textWrap(", "int dashTextWrap(", "void dashTextWrapScrollTimed("):
     code += function(font, signature)
+code += r"""
+#define DASH_FS_CAPTION 0.60f
+#define DASH_C_ACCENT 1
+#define DASH_C_TEXT2 2
+static void dashText(float x,float y,const char *s,float scale,DashColor color) {
+    dashTextS(x,y,s,scale,color);
+}
+"""
+code += function((root / "src/main_fileops.c").read_text(), "const char *const *textEditorFileExtensions(")
+code += function(tools, "static void drawEditorExtensions(")
 code += "static const char *const notes[]={\n" + ",\n".join(note for _, note in notes) + "\n};\n"
 code += r'''
 static float ui_time,focus_since,focus_pop;
@@ -137,6 +148,16 @@ static void checkCycle(const char *text,float w,float h) {
 int main(void) {
     for(font_face=0;font_face<2;font_face++)for(font_scale=90;font_scale<=115;font_scale+=5) {
         for(unsigned i=0;i<sizeof(notes)/sizeof(notes[0]);i++)checkCycle(notes[i],166,36);
+        clear();
+        drawEditorExtensions(380,302,210);
+        assert(!strcmp(rendered[0].text,"Supported extensions")&&!fits);
+        char list[128]={0};
+        for(int i=1;i<rendered_count;i++) {
+            char row[128];
+            compact(row,rendered[i].text);strcat(list,row);
+            assert(rendered[i].y+dashTextLineH(DASH_FS_CAPTION)<=390);
+        }
+        assert(!strcmp(list,".TXT,.LOG,.CHT,.CFG,.INI,.CNF,.PBT,.JS,.LUA,.XML,.TOML,.YAML,.YML,.ARG"));
         checkCycle("Short warning",166,36);
         checkCycle("First line\nSecond line\nThird line\nFinal line",166,36);
         char word[401];memset(word,'W',400);word[400]=0;checkCycle(word,40,36);

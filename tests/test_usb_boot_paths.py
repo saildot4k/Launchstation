@@ -38,6 +38,7 @@ header = (root / "include/main_startup.h").read_text()
 boot_enum = header[header.index("enum BOOT_DEVICE {"):header.index("};") + 2]
 program = r"""
 #include <assert.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #define MAX_PATH 256
@@ -64,14 +65,16 @@ static int wleExists(const char *path) {
     strcpy(checked_ca[exists_checks++], path);
     return present_ca && !strcmp(path, present_ca);
 }
-static int dashStoreBuildPath(char *path, int size, const char *file) {
-    int n = snprintf(path, size, "mc0:/SYS-CONF/%s", file);
-    return n > 0 && n < size ? 0 : -1;
+typedef struct { int unused; } iox_stat_t;
+static const char *unreadable_ca;
+static int genGetStat(const char *path, iox_stat_t *stat) {
+    assert(stat && !strcmp(path,ready_path));
+    return unreadable_ca && !strcmp(path,unreadable_ca) ? 0 : -ENOENT;
 }
 """
 program += boot_enum + "\n"
 program += "".join(extract(sig.replace("\\n", "\n")) for sig in helpers)
-program += extract("static int launchstationUpdateCaPath(",
+program += extract("void dashHttpsCaPath(",
                    (root / "src/dash_tools.c").read_text())
 program += r"""
 static void normalized(const char *input, const char *expected) {
@@ -96,21 +99,25 @@ static void usbBoot(const char *input, const char *expected, const char *directo
     snprintf(expected_ca, sizeof(expected_ca), "%sWLE-UPDATE-CA.PEM", directory);
     present_ca = expected_ca;
     exists_checks = 0;
-    assert(launchstationUpdateCaPath(ca, sizeof(ca)));
+    dashHttpsCaPath(ca, sizeof(ca));
     assert(!strcmp(ca, expected_ca) && exists_checks == 1);
 
     present_ca = "mc0:/SYS-CONF/WLE-UPDATE-CA.PEM";
     exists_checks = 0;
-    assert(launchstationUpdateCaPath(ca, sizeof(ca)));
-    assert(!strcmp(ca, present_ca) && exists_checks == 2);
-    assert(!strcmp(checked_ca[0], expected_ca));
-    assert(!strcmp(checked_ca[1], present_ca));
+    dashHttpsCaPath(ca, sizeof(ca));
+    assert(!ca[0] && exists_checks == 1 && !strcmp(checked_ca[0], expected_ca));
+
+    unreadable_ca = expected_ca;
+    dashHttpsCaPath(ca, sizeof(ca));
+    assert(!strcmp(ca, expected_ca));
+    unreadable_ca = NULL;
 }
 int main(void) {
     char input[MAX_PATH], expected[MAX_PATH], directory[32], ca[MAX_PATH];
     strcpy(LaunchElfBootDir,"udpfs:/apps/Launchstation/");
     present_ca="udpfs:/apps/Launchstation/WLE-UPDATE-CA.PEM";exists_checks=0;ready_path[0]=0;
-    assert(launchstationUpdateCaPath(ca,sizeof(ca))&&!strcmp(ca,present_ca)&&exists_checks==1);
+    dashHttpsCaPath(ca,sizeof(ca));
+    assert(!strcmp(ca,present_ca)&&exists_checks==1);
     normalized("usb0:APPS\\L.ELF", "usb0:/APPS/L.ELF");
     normalized("ata:APPS/L.ELF", "ata0:/APPS/L.ELF");
     normalized("mc0:APPS/L.ELF", "mc0:/APPS/L.ELF");

@@ -133,14 +133,26 @@ int hddCheckAllocation(uint32_t sectors)
 static int readPhysicalSector(void *ctx, uint32_t lba, void *sector)
 { return readDisk(ctx, lba, 1, sector); }
 
+static int mbrPointerMatches(uint32_t start, uint32_t sectors)
+{
+    unsigned char header[1024] __attribute__((aligned(64)));
+    uint32_t installed_start, installed_sectors;
+    int ret = readDisk(NULL, 0, 2, header);
+    if (ret < 0) return ret;
+    memcpy(&installed_start, header + 304, sizeof(installed_start));
+    memcpy(&installed_sectors, header + 308, sizeof(installed_sectors));
+    return installed_start == start && installed_sectors == sectors;
+}
+
 int hddInstallFinish(const HddFormatPlan *plan, const char *mbr, int *started,
                      int (*populate)(void *, const HddFormatIo *), void *context)
 {
     HddFormatIo io = {NULL, readDisk, writeDisk, zeroDisk, flushDisk, apaDisk, progress};
     HddFormatPlan expected;
     unsigned char *buffer = NULL, *verify = NULL;
+    const uint32_t mbr_start = 8192;
     uint32_t bytes = 0, copied = 0, limit = 0;
-    int fd = -1, ret = 0, finish;
+    int fd = -1, ret = 0, finish, active_mbr = 0;
     if (!started) return -EINVAL;
     *started = 0;
     if (!plan || plan->kind == HDD_FORMAT_EXFAT ||
@@ -175,39 +187,51 @@ int hddInstallFinish(const HddFormatPlan *plan, const char *mbr, int *started,
         if (ret < 0) goto finish;
     }
     hddInstallPhase(HDD_INSTALL_PHASE_FINISH);
+    if (mbr) {
+        ret = mbrPointerMatches(mbr_start, bytes / 512);
+        if (ret < 0) goto finish;
+        active_mbr = ret;
+    }
     while (copied < bytes) {
         unsigned n = bytes - copied > 32768 ? 32768 : bytes - copied, read = 0;
+        uint32_t lba = mbr_start + copied / 512;
         while (read < n) {
             int got = genRead(fd, buffer + read, n - read);
             if (got <= 0 || (unsigned)got > n - read) { ret = got < 0 ? got : -EIO; goto finish; }
             read += got;
         }
         if (!copied && memcmp(buffer, "\x01\x00\x00\x04", 4)) { ret = -EINVAL; goto finish; }
-        hddInstallStatus("Installing OSDMenu MBR", copied, bytes);
-        ret = writeDisk(NULL, 8192 + copied / 512, n / 512, buffer);
-        if (ret >= 0) ret = readDisk(NULL, 8192 + copied / 512, n / 512, verify);
-        if (ret < 0 || memcmp(buffer, verify, n)) { if (ret >= 0) ret = -EIO; goto finish; }
+        if (active_mbr) {
+            hddInstallStatus("Verifying active OSDMenu MBR", copied, bytes);
+            ret = readDisk(NULL, lba, n / 512, verify);
+            if (ret < 0) goto finish;
+            /* If these bytes differ, rewrite from this sector onward.
+             * The preceding sectors have already been verified. */
+            active_mbr = !memcmp(buffer, verify, n);
+        }
+        if (!active_mbr) {
+            hddInstallStatus("Installing OSDMenu MBR", copied, bytes);
+            ret = writeDisk(NULL, lba, n / 512, buffer);
+            if (ret >= 0) ret = readDisk(NULL, lba, n / 512, verify);
+            if (ret < 0 || memcmp(buffer, verify, n)) { if (ret >= 0) ret = -EIO; goto finish; }
+        }
         copied += n;
         hddInstallProgress("Installing OSDMenu MBR", copied, bytes);
         hddInstallOverall(copied, (uint64_t)bytes * 4);
     }
     /* Persist the software and MBR payload before exposing its APA pointer. */
     ret = flushDisk(NULL); if (ret < 0) goto finish;
-    if (mbr) {
+    if (mbr && active_mbr) {
+        hddInstallLog("OSDMenu MBR is already active and verified");
+    } else if (mbr) {
         hddSetOsdMBR_t info;
-        unsigned char header[1024] __attribute__((aligned(64)));
-        info.start = 8192; info.size = bytes / 512;
+        info.start = mbr_start; info.size = bytes / 512;
         /* Update through the existing driver so its APA cache and checksum
          * preserve the A2 signature and MBR partition table. */
-        hddInstallLog("Activating verified OSDMenu MBR: LBA=%u bytes=%u", 8192u, (unsigned)bytes);
+        hddInstallLog("Activating verified OSDMenu MBR: LBA=%u bytes=%u", (unsigned)mbr_start, (unsigned)bytes);
         ret = fileXioDevctl("hdd0:", HDIOC_SETOSDMBR, &info, sizeof(info), NULL, 0);
-        if (ret >= 0) ret = readDisk(NULL, 0, 2, header);
-        if (ret < 0) goto finish;
-        {
-            uint32_t first, count;
-            memcpy(&first, header + 304, 4); memcpy(&count, header + 308, 4);
-            if (first != 8192 || count != bytes / 512) { ret = -EIO; goto finish; }
-        }
+        if (ret >= 0) ret = mbrPointerMatches(info.start, info.size);
+        if (ret <= 0) { if (!ret) ret = -EIO; goto finish; }
         ret = hddApaLimit(readPhysicalSector, NULL, plan->sectors, &limit);
         if (ret < 0) goto finish;
     }

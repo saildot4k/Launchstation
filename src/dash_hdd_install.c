@@ -108,9 +108,10 @@ int dashHddInstallPrepare(HddInstall *in)
 #if defined(ETH) && defined(WLE_NATIVE_HTTPS)
     if (!in->flags) return 1;
     if (!dashWorkerAwaitAll("Preparing installer")) return 0;
-    if (!dashHttpsCaPath(in->ca_path, sizeof(in->ca_path)) || hddInstallLoadCa(in) < 0) {
+    dashHttpsCaPath(in->ca_path, sizeof(in->ca_path));
+    if (hddInstallLoadCa(in) < 0) {
         dashModalMessage(DI_WARNING, "Installer needs the CA bundle",
-            "WLE-UPDATE-CA.PEM could not be read beside Launchstation or in its settings folder.", NULL);
+            "Could not read the HTTPS CA bundle.", in->ca_path[0] ? in->ca_path : "Embedded CA bundle");
         return 0;
     }
     hddInstallLog("Preparing network stack");

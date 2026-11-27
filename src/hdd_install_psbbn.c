@@ -15,6 +15,12 @@ static const char *const linux_names[HDD_INSTALL_LINUX_PARTITIONS] = {
 static const char *const pfs_names[3] = {"__system", "__sysconf", "__contents"};
 /* Reserve pfs2 for __common when the installer cache is on PFS. */
 static const unsigned pfs_slots[3] = {0, 1, 3};
+static const char *const required_paths[] = {
+    "__system/p2lboot/osdboot.elf", "__system/p2lboot/vmlinux",
+    "__linux.1/sbin/init", "__linux.1/bin/sh", "__linux.1/etc/fstab",
+    "__linux.4/bn/script/utility/sysconf.xml"
+};
+enum { REQUIRED_PATHS = sizeof(required_paths) / sizeof(*required_paths), REQUIRED_OSD = 7 };
 static uint32_t le32(const unsigned char *p)
 { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
 
@@ -74,10 +80,16 @@ int hddInstallPsbbnPartitions(HddInstall *in)
     return ret < 0 ? ret : fileXioDevctl("hdd0:", HDIOC_FLUSH, NULL, 0, NULL, 0);
 }
 
+typedef struct PendingPfsFile {
+    struct PendingPfsFile *next;
+    char path[];
+} PendingPfsFile;
+
 typedef struct {
     HddInstall *in;
     InstallExt2 *fs[HDD_INSTALL_LINUX_PARTITIONS];
-    int input, output, route;
+    PendingPfsFile *pending;
+    int input, output, route, entry_finished;
     unsigned entries, required, archive, linux_required;
     uint64_t archive_done, archive_total;
     uint32_t file_done, file_size;
@@ -111,12 +123,46 @@ static int mkdirParents(const char *path)
     }
     return 0;
 }
+static int stagePfsFile(Payload *p, const char *path)
+{
+    PendingPfsFile *file;
+    for (file = p->pending; file; file = file->next) {
+        /* A later entry with the same name replaces its staged copy. */
+        if (!strcmp(file->path, path)) {
+            p->output = hddInstallOutputOpen(path, 1);
+            return p->output < 0 ? p->output : 0;
+        }
+    }
+    file = malloc(sizeof(*file) + strlen(path) + 1);
+    if (!file) return -ENOMEM;
+    p->output = hddInstallOutputOpen(path, 1);
+    if (p->output < 0) { free(file); return p->output; }
+    strcpy(file->path, path);
+    file->next = p->pending;
+    p->pending = file;
+    return 0;
+}
+static int finishPfsFiles(Payload *p, int result)
+{
+    while (p->pending) {
+        PendingPfsFile *file = p->pending;
+        int ret = hddInstallOutputFinish(file->path, 1, result);
+        if (result >= 0 && ret < 0) {
+            snprintf(p->in->error, sizeof(p->in->error), "Could not publish %.130s (error %d).", file->path, ret);
+            result = ret;
+        }
+        p->pending = file->next;
+        free(file);
+    }
+    return result;
+}
 static int begin(void *context, const InstallTarEntry *entry)
 {
     Payload *p = context;
     InstallTarEntry e = *entry;
     const char *relative, *link;
     int r, ret, previous = p->route;
+    p->entry_finished = 0;
     snprintf(p->current, sizeof(p->current), "%s", entry->name);
     if (p->archive == HI_PS2LINUX) { r = 8; relative = entry->name; }
     else r = routePath(entry->name, &relative);
@@ -138,19 +184,14 @@ static int begin(void *context, const InstallTarEntry *entry)
     }
     if (r >= HDD_INSTALL_LINUX_PARTITIONS && ((entry->type != '0' && entry->type != '5') || strchr(relative, ':') || strchr(relative, '\\'))) return -EINVAL;
     {
-        static const char *const required[] = {
-            "__system/p2lboot/osdboot.elf", "__system/p2lboot/vmlinux",
-            "__linux.1/sbin/init", "__linux.1/bin/sh", "__linux.1/etc/fstab",
-            "__linux.4/bn/script/utility/sysconf.xml"
-        };
         if (p->archive == HI_PS2LINUX) {
             if (!strcmp(entry->name, "sbin/init") && entry->type == '0' && entry->size) p->linux_required |= 1;
             if (!strcmp(entry->name, "bin/sh") && (entry->type == '0' || entry->type == '2')) p->linux_required |= 2;
         }
-        for (unsigned i = 0; i < 6; i++) if (!strcmp(entry->name, required[i]) &&
+        for (unsigned i = 0; i < REQUIRED_PATHS; i++) if (!strcmp(entry->name, required_paths[i]) &&
             ((entry->type == '0' && entry->size) || (i == 3 && entry->type == '2' && *entry->link))) p->required |= 1u << i;
-        for (unsigned i = 0; i < 7; i++) if (r == HDD_INSTALL_LINUX_PARTITIONS && !strncmp(relative, "osd100/", 7) &&
-            !strcmp(relative + 7, hddInstallOsdFiles[i]) && entry->type == '0' && entry->size) p->required |= 1u << (i + 6);
+        for (unsigned i = 0; i < REQUIRED_OSD; i++) if (r == HDD_INSTALL_LINUX_PARTITIONS && !strncmp(relative, "osd100/", 7) &&
+            !strcmp(relative + 7, hddInstallOsdFiles[i]) && entry->type == '0' && entry->size) p->required |= 1u << (i + REQUIRED_PATHS);
         /* These are installed separately from the commit-pinned repository,
          * and configs are generated from this install's actual paths. */
         if (entry->type != '5' && (r == HDD_INSTALL_LINUX_PARTITIONS || r == HDD_INSTALL_LINUX_PARTITIONS + 1) && !strncmp(relative, "osdmenu/", 8)) return -EINVAL;
@@ -170,6 +211,12 @@ static int begin(void *context, const InstallTarEntry *entry)
     }
     if (!*relative) return entry->type == '5' ? 0 : -EINVAL;
     if (snprintf(e.name, sizeof(e.name), "pfs%u:/%s", pfs_slots[r - HDD_INSTALL_LINUX_PARTITIONS], relative) >= (int)sizeof(e.name)) return -ENAMETOOLONG;
+    /* A staged file already occupies its destination in this archive. */
+    for (PendingPfsFile *file = p->pending; file; file = file->next) {
+        size_t length = strlen(file->path);
+        if (!strncmp(e.name, file->path, length) &&
+            (e.name[length] == '/' || (!e.name[length] && entry->type == '5'))) return -ENOTDIR;
+    }
     ret = mkdirParents(e.name); if (ret < 0) return ret;
     if (entry->type == '5') {
         iox_stat_t st;
@@ -177,8 +224,7 @@ static int begin(void *context, const InstallTarEntry *entry)
         if (ret < 0 && fileXioGetStat(e.name, &st) >= 0 && FIO_S_ISDIR(st.mode)) ret = 0;
         return ret;
     }
-    p->output = genOpen(e.name, FIO_O_CREAT | FIO_O_TRUNC | FIO_O_WRONLY);
-    return p->output < 0 ? p->output : 0;
+    return stagePfsFile(p, e.name);
 }
 static int data(void *context, const void *bytes, unsigned size)
 {
@@ -205,9 +251,14 @@ static int data(void *context, const void *bytes, unsigned size)
 static int end(void *context)
 {
     Payload *p = context;
-    if (p->route >= 0 && p->route < HDD_INSTALL_LINUX_PARTITIONS) return installExt2End(p->fs[p->route]);
-    if (p->output >= 0 && !hddInstallRecoveryFault()) { int ret = genClose(p->output); p->output = -1; return ret < 0 ? ret : 0; }
-    return 0;
+    int ret = 0;
+    if (p->route >= 0 && p->route < HDD_INSTALL_LINUX_PARTITIONS) ret = installExt2End(p->fs[p->route]);
+    else if (p->output >= 0) {
+        if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+        ret = genClose(p->output); p->output = -1;
+    }
+    p->entry_finished = ret >= 0;
+    return ret < 0 ? ret : 0;
 }
 static int readArchive(void *context, uint32_t offset, void *bytes, unsigned size)
 {
@@ -238,31 +289,77 @@ static int archives(Payload *p)
     for (unsigned a = 0; a < count; a++) p->archive_total += p->in->sizes[assets[a]];
     for (unsigned a = 0; a < count; a++) {
         unsigned i = assets[a];
-        if (snprintf(path, sizeof(path), "%s/%s", p->in->stage, hddInstallAssetName(i)) >= (int)sizeof(path)) return -ENAMETOOLONG;
-        p->archive = i; p->route = -1;
-        p->input = genOpen(path, FIO_O_RDONLY); if (p->input < 0) return p->input;
+        const char *name = hddInstallAssetName(i);
+        if (snprintf(path, sizeof(path), "%s/%s", p->in->stage, name) >= (int)sizeof(path)) return -ENAMETOOLONG;
+        p->archive = i; p->route = -1; p->current[0] = 0; p->entry_finished = 0;
+        p->input = genOpen(path, FIO_O_RDONLY);
+        if (p->input < 0) {
+            snprintf(p->in->error, sizeof(p->in->error), "Could not open %s (error %d).", name, p->input);
+            return p->input;
+        }
         hddInstallStatus("Installing PSBBN archives", a, count);
         hddInstallLog("EXTRACT %s (%u compressed bytes)", path, (unsigned)p->in->sizes[i]);
         hddInstallLogFlush(p->in);
         ret = installTarGzip(&io, p->in->sizes[i], &sink);
+        if (ret < 0) {
+            if (!*p->current)
+                snprintf(p->in->error, sizeof(p->in->error), "Could not start extracting %s (error %d).", name, ret);
+            else if (p->entry_finished)
+                snprintf(p->in->error, sizeof(p->in->error),
+                         "Reading or validating %s failed (error %d) after extracting %.130s.", name, ret, p->current);
+            else
+                snprintf(p->in->error, sizeof(p->in->error),
+                         "Extraction of %s failed (error %d) while processing %.130s.", name, ret, p->current);
+        }
         hddInstallLog("ARCHIVE completed rc=%d entries=%u last=%s", ret, p->entries, p->current);
         hddInstallLogFlush(p->in);
         { int closed = hddInstallRecoveryFault() ? HDD_INSTALL_ATA_TIMEOUT : genClose(p->input); if (ret >= 0) ret = closed; }
         p->input = -1;
-        if (p->output >= 0 && !hddInstallRecoveryFault()) { int closed = genClose(p->output); p->output = -1; if (ret >= 0) ret = closed; }
-        if (ret < 0) break;
+        if (p->output >= 0) {
+            int closed = hddInstallRecoveryFault() ? HDD_INSTALL_ATA_TIMEOUT : genClose(p->output);
+            p->output = -1;
+            if (ret >= 0) ret = closed;
+        }
+        /* The gzip trailer can reject an archive after all entries have closed. */
+        ret = finishPfsFiles(p, ret);
+        if (ret < 0) {
+            if (!*p->in->error)
+                snprintf(p->in->error, sizeof(p->in->error), "Could not close %s (error %d).", name, ret);
+            break;
+        }
         p->archive_done += p->in->sizes[i];
     }
     return ret;
+}
+static int verifyRequired(const Payload *p)
+{
+    char osd_path[64];
+    const char *missing = NULL;
+    for (unsigned i = 0; i < REQUIRED_PATHS + REQUIRED_OSD; i++) {
+        if (p->required & (1u << i)) continue;
+        if (i < REQUIRED_PATHS) missing = required_paths[i];
+        else {
+            snprintf(osd_path, sizeof(osd_path), "__system/osd100/%s", hddInstallOsdFiles[i - REQUIRED_PATHS]);
+            missing = osd_path;
+        }
+        break;
+    }
+    if (!missing && (p->in->flags & HDD_INSTALL_PS2LINUX) && p->linux_required != 3)
+        missing = (p->linux_required & 1) ? "PS2Linux.tar.gz bin/sh" : "PS2Linux.tar.gz sbin/init";
+    if (!missing) return 0;
+    snprintf(p->in->error, sizeof(p->in->error), "A required archive entry is missing or invalid (%s).", missing);
+    return -EINVAL;
 }
 int hddInstallPsbbnPayload(void *context, const HddFormatIo *io)
 {
     HddInstall *in = context;
     Payload *p;
     int ret = -EINVAL, mounts = 0;
+    const char *step = "Preparing PSBBN filesystems";
     unsigned char header[1024];
     if (!in || !in->jail || !(in->flags & HDD_INSTALL_PSBBN)) return -EINVAL;
     p = calloc(1, sizeof(*p)); if (!p) return -ENOMEM;
+    in->error[0] = 0;
     p->in = in; p->input = p->output = -1;
     for (unsigned i = 0; i < HDD_INSTALL_LINUX_PARTITIONS; i++) {
         if (!hddInstallPartitionMb(in, i)) continue;
@@ -287,16 +384,19 @@ int hddInstallPsbbnPayload(void *context, const HddFormatIo *io)
         hddInstallLog("MKFS %s rc=%d", linux_names[i], ret);
         if (ret < 0) goto done;
     }
+    step = "Mounting PSBBN partitions";
     for (unsigned i = 0; i < 3; i++) {
         char mount[8], partition[32];
         snprintf(mount, sizeof(mount), "pfs%u:", pfs_slots[i]); snprintf(partition, sizeof(partition), "hdd0:%s", pfs_names[i]);
         ret = fileXioMount(mount, partition, FIO_MT_RDWR); if (ret < 0) goto done;
         mounts++;
     }
+    step = "Extracting PSBBN archives";
     ret = archives(p); if (ret < 0) goto done;
     /* Every archive is decompressed exactly once. Its CRC, routes, bounds
      * and required boot files must pass before marking clean or enabling boot. */
-    if (p->required != (1u << 13) - 1 || ((in->flags & HDD_INSTALL_PS2LINUX) && p->linux_required != 3)) { ret = -EINVAL; goto done; }
+    ret = verifyRequired(p); if (ret < 0) goto done;
+    step = "Writing the PSBBN game shortcut";
     {
         InstallTarEntry entry = {0}; char shortcut[1024];
         ret = hddInstallGameShortcut(in, shortcut, sizeof(shortcut));
@@ -309,19 +409,27 @@ int hddInstallPsbbnPayload(void *context, const HddFormatIo *io)
         if (ret < 0) goto done;
     }
     /* Tar overlays never supply our generated component-specific settings. */
+    step = "Installing launchers and boot configuration";
     ret = hddInstallWriteConfigs(in); if (ret < 0) goto done;
+    step = "Finalizing PSBBN filesystems";
     for (unsigned i = 0; i < HDD_INSTALL_LINUX_PARTITIONS; i++) if (p->fs[i]) { ret = installExt2Finish(p->fs[i]); if (ret < 0) goto done; }
     ret = io->flush(io->context);
 done:
     while (mounts && !hddInstallRecoveryFault()) {
         char mount[8]; int closed;
         snprintf(mount, sizeof(mount), "pfs%u:", pfs_slots[--mounts]); closed = fileXioUmount(mount);
-        if (ret >= 0 && closed < 0) ret = closed;
+        if (ret >= 0 && closed < 0) { step = "Unmounting PSBBN partitions"; ret = closed; }
     }
     for (unsigned i = 0; i < HDD_INSTALL_LINUX_PARTITIONS; i++) installExt2Free(p->fs[i]);
+    if (ret >= 0) {
+        step = "Saving the PSBBN installation checkpoint";
+        in->populated = 1; ret = hddInstallResumeSave(in);
+    }
+    if (ret < 0) {
+        if (!*in->error) snprintf(in->error, sizeof(in->error), "%s failed (error %d).", step, ret);
+        hddInstallLog("ERROR: %s", in->error);
+    }
     hddInstallLog("PSBBN population finished rc=%d entries=%u last=%s", ret, p->entries, p->current);
     hddInstallLogFlush(in);
-    if (ret < 0) snprintf(in->error, sizeof(in->error), "PSBBN installation failed (error %d): %.160s. Boot MBR was not activated.", ret, p->current);
-    if (ret >= 0) { in->populated = 1; ret = hddInstallResumeSave(in); }
     free(p); return ret;
 }

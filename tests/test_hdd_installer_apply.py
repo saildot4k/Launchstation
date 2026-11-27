@@ -18,6 +18,7 @@ code = r'''
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -31,16 +32,18 @@ code = r'''
 #define FIO_MT_RDWR 1
 #define FIO_CST_ATTR 1
 #define FIO_S_ISDIR S_ISDIR
+#define FIO_S_ISREG S_ISREG
 #define FS_GROUP_APPLICATION 1
 #define HDIOC_FLUSH 1
 typedef uint64_t u64;
 typedef int64_t s64;
-typedef struct { unsigned mode,attr,size,private_0,private_5; } iox_stat_t;
+typedef struct { unsigned mode,attr,size,hisize,private_0,private_5; } iox_stat_t;
 static char work[1024];
 static const char *mounted[4];
 static unsigned mounts,attrcalls,partitions,injected,psbbn_parts;
-static int attr_error, replay, jail_install, partition_error;
+static int attr_error, replay, jail_install, partition_error, rename_error;
 static unsigned legacy_launcher_mb;
+static int publish_error;
 static u64 Timer(void){return 1;}
 static void dashWorkerStatus(const char*s,unsigned n,unsigned total){assert(s);(void)n;(void)total;}
 static int map(const char*p,char*out,size_t cap) {
@@ -69,7 +72,22 @@ static int fileXioGetStat(const char*p,iox_stat_t*s){
         snprintf(path,sizeof(path),"%s/%s",work,p+5);if(stat(path,&st)<0)return -errno;
         memset(s,0,sizeof(*s));s->mode=0x100;s->size=(legacy_launcher_mb?legacy_launcher_mb:HDD_INSTALL_APP_MB)*2048u;s->private_5=1024*2048u;return 0;
     }
-    int r=map(p,path,sizeof(path));if(r<0)return r;if(stat(path,&st)<0)return -errno;s->mode=st.st_mode;return 0;
+    int r=map(p,path,sizeof(path));if(r<0)return r;if(stat(path,&st)<0)return -errno;
+    s->mode=st.st_mode;s->size=st.st_size;s->hisize=(uint64_t)st.st_size>>32;return 0;
+}
+#define genGetStat fileXioGetStat
+static int genRenameNoReplace(const char *from,const char *to){
+    char source[4096],target[4096];
+    assert(!map(from,source,sizeof(source))&&!map(to,target,sizeof(target)));
+    assert(access(target,F_OK)<0&&errno==ENOENT);
+    return rename_error?rename_error:rename(source,target)<0?-errno:0;
+}
+static int fileXioRename(const char *from,const char *to){
+    char source[4096],target[4096];
+    assert(!map(from,source,sizeof(source))&&!map(to,target,sizeof(target)));
+    if(publish_error&&strstr(from,".new"))return publish_error;
+    if(!strncmp(to,"ata0:",5)&&access(target,F_OK)==0)return -EEXIST;
+    return rename(source,target)<0?-errno:0;
 }
 static int fileXioFormat(const char*fs,const char*p,const char*args,int n){
     assert(!strcmp(fs,"pfs:")&&!strncmp(p,"hdd0:PP.",8)&&n==sizeof(int)&&*(const int*)args==8192&&replay);return 0;
@@ -123,6 +141,38 @@ int main(int argc,char**argv){
             assert(i==in.launcher_count&&i<HDD_INSTALL_LAUNCHER_FILES);
             strcpy(in.launcher_files[i].path,remote);strcpy(in.launcher_files[i].hash,hash);in.launcher_files[i].size=size;in.launcher_count++;
         }fclose(f);
+    }
+    if(!strcmp(argv[3],"partial-output")){
+        const char *fat="ata0:/existing.cfg", *kernel="pfs0:/kernel";
+        char backup[MAX_PATH];
+        assert(!hddInstallMountStage(&in));
+        assert(!fileXioMount("pfs0:","hdd0:__system",FIO_MT_RDWR));
+        in.resumed=1;
+        assert(osdResources(&in,"pfs0:/osd100")==-EINVAL);
+        assert(copyFile(&in,"hosdmenu.elf",in.sizes[HI_HOSD]+1,kernel,1)==-EIO);
+        assert(copyFile(&in,"hosdmenu.elf",in.sizes[HI_HOSD]+1,"pfs0:/missing",1)==-EIO);
+        assert(hddInstallOutputOpen(kernel,0)==-EEXIST);
+        assert(!outputPath(fat,backup,"old"));
+        publish_error=-EIO;
+        assert(writeNew(&in,fat,"new",3)==-EIO); /* Roll back a FAT rename failure. */
+        publish_error=0;
+        iox_stat_t st;
+        assert(!genGetStat(fat,&st)&&st.size==8&&genGetStat(backup,&st)==-ENOENT);
+        assert(!fileXioRename(fat,backup)); /* Resume after interrupted FAT replacement. */
+        int fd=hddInstallOutputOpen(fat,1);assert(fd>=0);
+        assert(!genGetStat(fat,&st)&&st.size==8&&genGetStat(backup,&st)==-ENOENT);
+        assert(hddInstallOutputFinish(fat,1,closeResult(fd,-EIO))==-EIO);
+        assert(!hddInstallUnmountStage(&in)&&!fileXioUmount("pfs0:"));
+        return 0;
+    }
+    if(!strncmp(argv[3],"bios-",4)){
+        assert(!hddInstallMountStage(&in));
+        rename_error=!strcmp(argv[3],"bios-publish-error")?-EIO:0;
+        ret=installEmberBios(&in);
+        assert((ret<0)==(!strcmp(argv[3],"bios-invalid")||rename_error));
+        assert(!hddInstallUnmountStage(&in));
+        hddInstallRelease(&in);
+        return 0;
     }
     if(!strcmp(argv[3],"hash-ignored"))in.hashes[2][0]^=1;
     if(!strcmp(argv[3],"attr"))attr_error=-EIO;
@@ -200,6 +250,8 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
     profiles = ((1,'ok',0),(2,'ok',0),(3,'ok',0),(7,'ok',0),(7,'ok',1),(7,'ok',2),(15,'ok',2),(7,'ok',3),
                 (15,'ok',0),(15,'ok',1),(3,'hash-ignored',0),(3,'size',0),(3,'attr',0),(3,'mini-create',0),(7,'launcher-size',0))
     cases = [(*profile, 0) for profile in profiles] + [(7,'ok',3,1),(7,'launcher-size',0,1)]
+    cases.append((1, 'partial-output', 0, 0))
+    cases += [(7, scenario, 3, 1) for scenario in ('bios-invalid', 'bios-repair', 'bios-preserve', 'bios-publish-error')]
     for flags, failure, launcher, ata in cases:
         work = d / (str(flags) + failure + str(launcher) + str(ata)); work.mkdir()
         for part in ('stage','ata','__system','__sysconf','__common'): (work / part).mkdir()
@@ -221,7 +273,8 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
                     ('scripts/licenses/RiptOPL.txt',b'RiptOPL license'),('scripts/licenses/neutrino.txt',b'Neutrino license')]
                 dep=io.BytesIO()
                 with zipfile.ZipFile(dep,'w',zipfile.ZIP_DEFLATED) as z:
-                    z.writestr('dep/bios.bin',b'B'*524288)
+                    if failure not in ('bios-invalid', 'bios-preserve'):
+                        z.writestr('dep/bios.bin',b'B'*524288)
                     z.writestr('dep/ignored.bin',b'unneeded')
                 (stage/'extras.zip').write_bytes(dep.getvalue())
                 manifest[4]=f'4 {len(dep.getvalue())} '+ 'a'*40+'\n'
@@ -247,7 +300,39 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
             (work / '__system/launcher').mkdir()
             for name in ('OPNPS2LD.ELF', 'nhddl.elf'):
                 (work / '__system/launcher' / name).write_bytes(b'older archive launcher')
+        if failure == 'partial-output':
+            osd = work / '__system/osd100'
+            osd.mkdir()
+            (osd / 'OSDSYS_A.XLF').write_bytes(b'old osd')
+            (work / '__system/kernel').write_bytes(b'old kernel')
+            (work / 'ata/existing.cfg').write_bytes(b'old conf')
+            bad_zip = io.BytesIO()
+            with zipfile.ZipFile(bad_zip, 'w', zipfile.ZIP_STORED) as z:
+                z.writestr('extras/OSDSYS_A.XLF', b'OSD payload before CRC check')
+            broken = bad_zip.getvalue().replace(b'OSD payload before CRC check', b'BAD payload before CRC check')
+            (stage / 'extras.zip').write_bytes(broken)
+            manifest[4] = f'4 {len(broken)} ' + 'a' * 40 + '\n'
+            (work / 'manifest').write_text(''.join(manifest))
+        if failure.startswith('bios-'):
+            ember = work / 'ata/Ember'
+            ember.mkdir()
+            bios = ember / 'bios.bin'
+            if failure != 'bios-publish-error':
+                bios.write_bytes(b'C'*524288 if failure == 'bios-preserve' else b'')
         subprocess.run([str(d / 'test'),str(work),str(flags),failure,str(launcher),str(ata)],check=True,timeout=20)
+        if failure == 'partial-output':
+            assert (osd / 'OSDSYS_A.XLF').read_bytes() == b'old osd'
+            assert (work / '__system/kernel').read_bytes() == b'old kernel'
+            assert not (work / '__system/missing').exists()
+            assert (work / 'ata/existing.cfg').read_bytes() == b'old conf'
+            assert not list(work.rglob('.LSINST-*'))
+            continue
+        if failure.startswith('bios-'):
+            assert not (ember / 'bios.bin.tmp').exists()
+            if failure in ('bios-invalid', 'bios-publish-error'):
+                assert not bios.exists()
+            else:
+                assert bios.read_bytes()==(b'C' if failure == 'bios-preserve' else b'B')*524288
         if flags & 8:
             assert (work / '__system/p2lboot/ps2-linux-ntsc').read_bytes() == b'new NTSC kernel'
             assert (work / '__system/p2lboot/ps2-linux-vga').read_bytes() == b'new VGA kernel'

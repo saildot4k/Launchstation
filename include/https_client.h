@@ -20,6 +20,9 @@ typedef void (*HttpsStatusCallback)(const char *status, void *arg);
 void httpsSetStatusCallback(HttpsStatusCallback callback, void *arg);
 /* Optional installer diagnostics; never emits headers, credentials or bodies. */
 void httpsSetTraceCallback(HttpsStatusCallback callback, void *arg);
+/* Load the explicit PEM path, or the embedded CA bundle when path is empty.
+ * Caller frees the returned buffer. The size excludes the trailing NUL. */
+unsigned char *httpsLoadCaBundle(const char *path, unsigned *size);
 /* Serialized, scoped CA snapshot for requests across an IOP/storage reset.
  * Caller owns the bytes until cleared with (NULL, 0), between requests. */
 void httpsSetCaBundle(const unsigned char *data, unsigned size);
