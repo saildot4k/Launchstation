@@ -19,7 +19,12 @@ code=r'''
 typedef uint64_t u64;
 typedef struct {int init_count,max_count;} ee_sema_t;
 static u64 now=1000;
-static int locked,fail_write,fail_sync,syncs;
+static int locked,fail_write,fail_sync,syncs,log_open,drive_flushes,fail_drive_flush;
+#define HDIOC_FLUSH 1
+static int fileXioDevctl(const char *dev,int cmd,void *in,int ilen,void *out,int olen){
+ assert(!locked&&!log_open&&!strcmp(dev,"hdd0:")&&cmd==HDIOC_FLUSH&&!in&&!ilen&&!out&&!olen);
+ drive_flushes++;return fail_drive_flush?-EIO:0;
+}
 static int fileXioSync(const char *dev,int flags){assert(!locked&&!strcmp(dev,"pfs2:")&&!flags);syncs++;return fail_sync?-EIO:0;}
 static const char *filename;
 static u64 Timer(void){return now;}
@@ -30,9 +35,12 @@ static int SignalSema(int id){assert(id==1&&locked);locked=0;return 0;}
 #define FIO_O_WRONLY O_WRONLY
 #define FIO_O_CREAT O_CREAT
 #define FIO_O_APPEND O_APPEND
-static int genOpen(const char*path,int flags){assert(!locked&&!strcmp(path,"pfs2:/tmp/INSTALLER.LOG"));return open(filename,flags,0600);}
+static int genOpen(const char*path,int flags){
+ assert(!locked&&!log_open&&(!strcmp(path,"pfs2:/tmp/INSTALLER.LOG")||!strcmp(path,"ata0:/tmp/INSTALLER.LOG")));
+ int fd=open(filename,flags,0600);if(fd>=0)log_open=1;return fd;
+}
 static int genWrite(int fd,void*data,unsigned n){assert(!locked);if(fail_write)return -EIO;if(n>3)n=3;return write(fd,data,n);}
-static int genClose(int fd){assert(!locked);return close(fd);}
+static int genClose(int fd){assert(!locked&&log_open);log_open=0;return close(fd);}
 static void dashWorkerStatus(const char*s,int done,int total){(void)s;(void)done;(void)total;}
 '''
 code+=s
@@ -57,6 +65,18 @@ int main(int argc,char**argv){
  fail_write=0;hddInstallLogFlush(&in);hddInstallLogSnapshot(&snapshot);assert(!snapshot.disk_error);
  hddInstallLog("PFS sync failure");fail_sync=1;hddInstallLogFlush(&in);hddInstallLogSnapshot(&snapshot);assert(snapshot.disk_error==-EIO);
  fail_sync=0;hddInstallLogFlush(&in);hddInstallLogSnapshot(&snapshot);assert(!snapshot.disk_error&&syncs>0);
+ assert(!drive_flushes);
+ int pfs_syncs=syncs;
+ hddInstallLog("checkpoint on PFS");hddInstallLogCheckpoint(&in);
+ assert(syncs==pfs_syncs+1&&drive_flushes==1);
+ hddInstallLogCheckpoint(&in);assert(drive_flushes==1);
+ strcpy(in.stage,"ata0:/tmp");in.stage_on_ata=1;
+ hddInstallLog("checkpoint on ATA");hddInstallLogCheckpoint(&in);
+ assert(syncs==pfs_syncs+1&&drive_flushes==2);
+ hddInstallLog("checkpoint disk flush failure");fail_drive_flush=1;hddInstallLogCheckpoint(&in);
+ hddInstallLogSnapshot(&snapshot);assert(snapshot.disk_error==-EIO&&drive_flushes==3);
+ fail_drive_flush=0;hddInstallLogCheckpoint(&in);hddInstallLogSnapshot(&snapshot);
+ assert(!snapshot.disk_error&&drive_flushes==4);
  unsigned count=snapshot.next;hddInstallLogStop();hddInstallLog("must not appear");hddInstallLogSnapshot(&snapshot);assert(snapshot.next==count&&!hddInstallLogEnabled()&&!locked);
  /* Independent overall progress never resets with the current file, survives
   * log checkpoints, and reaches 100% only on an explicit successful finish. */

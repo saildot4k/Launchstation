@@ -345,7 +345,7 @@ int dashHddInstallAwait(int id, const char *title)
             if (!resetInstallerIopTransport()) dashHddInstallRecoveryFailed();
             hddInstallRecoveryResetComplete();
         } else if (hddInstallRebootPending()) {
-            hddInstallProgress("Restarting IOP during PSBBN extraction", 0, 0);
+            hddInstallProgress("Writing back EE data cache before IOP reboot", 0, 0);
             dashLoadingFrame(NULL, 0, 0);
             if (!resetInstallerIopTransport() || !reloadInstallerCoreAfterReset())
                 dashHddInstallRecoveryFailed();

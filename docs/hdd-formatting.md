@@ -456,7 +456,11 @@ The log records the Launchstation build, disk layout and LBAs, Git revision,
 downloaded files, partition creation, filesystem setup, archive completion,
 MBR activation, recovery and errors. Byte counters and transient DNS/TLS/header
 status update the live display without adding history entries or disk checkpoints.
-Repeated status counters and sampled archive-entry records are omitted.
+During `system.tar.gz` extraction, the installer saves a progress record after
+every 100 completed entries per ext2 partition. It records the last completed
+path, partition and archive entry counts, and compressed bytes read from
+staging. Compressed bytes read include gzip read-ahead. The installer flushes
+the log through the drive cache at each record.
 It never records certificate contents, credentials,
 request headers or response bodies.
 
@@ -499,9 +503,11 @@ Extraction pauses after every 2,000 completed archive entries per ext2
 partition. The count includes directories, links and device nodes, and carries
 across archive and destination changes. Each pause writes pending ext2 metadata,
 closes the archive, unmounts PFS volumes and flushes the raw disk session.
-The UI restarts the IOP and loads controller and storage services. The worker
-then reopens the raw session, remounts the volumes and continues the same gzip
-stream from EE memory. The ext2 volumes remain unclean until every archive
+The UI stops EE RPC reception and writes back the EE data cache before
+restarting the IOP. It rebuilds the EE file, heap and raw disk RPC clients and
+reloads controller and storage services. The worker then reopens the raw
+session, remounts the volumes and continues the same gzip stream from EE memory.
+The ext2 volumes remain unclean until every archive
 passes validation. The log shows the partition, entry count and restart result.
 
 `tests/test_hdd_installer_retry.py` covers preparation ordering/failures,
@@ -531,8 +537,9 @@ reinitialized before copying their files again, including when their first PFS
 format was interrupted. The staging volume is preserved.
 
 An interrupted PSBBN filesystem population rebuilds its ext2 filesystems from
-the cached archives and reapplies PFS overlays and generated settings. It does
-not resume an arbitrary tar entry or a buffered filesystem write. Completed
+the cached archives and reapplies PFS overlays and generated settings.
+The saved 100-entry records identify extraction progress for troubleshooting.
+Resume checkpoints cover completed installation stages. Completed
 population is retained if the later MBR/boot stage needs retrying, and completed
 boot setup is not repeated for a cleanup retry. RAM diagnostics survive resets
 and disk logging resumes once storage is available again.

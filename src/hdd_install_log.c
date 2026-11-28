@@ -40,7 +40,7 @@ void hddInstallLogStart(void)
 void hddInstallLogStop(void) { lock(); log_state.stopped = Timer(); log_state.active = 0; unlock(); }
 void hddInstallLog(const char *format, ...)
 {
-    char text[1024];
+    char text[sizeof(log_state.path) + 128];
     const char *p;
     va_list args;
     u64 elapsed;
@@ -168,7 +168,7 @@ static int writeLog(int fd, const char *text, unsigned size)
     }
     return 0;
 }
-void hddInstallLogFlush(HddInstall *in)
+static void flushLog(HddInstall *in, int checkpoint)
 {
     HddInstallLogSnapshot snap;
     char path[sizeof(log_state.path)], line[HDD_INSTALL_LOG_COLS + 1];
@@ -202,6 +202,8 @@ void hddInstallLogFlush(HddInstall *in)
                 ret = fileXioSync(volume, 0);
             }
         }
+        if (ret >= 0 && checkpoint)
+            ret = fileXioDevctl("hdd0:", HDIOC_FLUSH, NULL, 0, NULL, 0);
         if (ret >= 0) { lock(); log_state.saved = written; unlock(); }
     }
     lock(); previous = log_state.disk_error; log_state.disk_error = ret < 0 ? ret : 0;
@@ -209,3 +211,6 @@ void hddInstallLogFlush(HddInstall *in)
     unlock();
     if (ret < 0 && ret != previous) hddInstallLog("LOG WRITE ERROR %d; diagnostics remain in RAM", ret);
 }
+
+void hddInstallLogFlush(HddInstall *in) { flushLog(in, 0); }
+void hddInstallLogCheckpoint(HddInstall *in) { flushLog(in, 1); }

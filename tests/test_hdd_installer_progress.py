@@ -55,6 +55,7 @@ int installExt2End(InstallExt2 *fs){assert(fs);return ext2_error;}
 int hddInstallResumeSave(HddInstall *in){assert(in);return 0;}
 void hddInstallLog(const char *s,...){assert(s);}
 void hddInstallLogFlush(HddInstall *in){assert(in);}
+void hddInstallLogCheckpoint(HddInstall *in){(void)in;assert(0);}
 void hddInstallStatus(const char *s,int done,int total){assert(s&&done>=0&&done<=total);}
 void hddInstallProgress(const char *s,int done,int total){
  assert(s&&done>=0&&done<=total);current_updates++;live_done=done;live_total=total;
@@ -70,7 +71,9 @@ int installTarGzip(const InstallArchiveIo *io,uint32_t size,const InstallTarSink
  return ret<0?ret:io->read(io->context,1,bytes,size-1);
 }
 '''
-code += "enum { EXT2_ENTRIES_PER_REBOOT = 2000 };\n"
+a = source.index('static const char *const linux_names')
+code += source[a:source.index('static const char *const pfs_names', a)]
+code += "enum { EXT2_ENTRIES_PER_LOG = 100, EXT2_ENTRIES_PER_REBOOT = 2000 };\n"
 code += "static int rebootBetweenEntries(Payload *p){(void)p;assert(0);return -EINVAL;}\n"
 code += function("static int data(") + function("static int end(") + function("static int readArchive(") + function("static int finishPfsFiles(") + function("static int archives(")
 code += r'''

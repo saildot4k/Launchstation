@@ -23,6 +23,7 @@ static const char *const required_paths[] = {
 enum {
     REQUIRED_PATHS = sizeof(required_paths) / sizeof(*required_paths),
     REQUIRED_OSD = 7,
+    EXT2_ENTRIES_PER_LOG = 100,
     EXT2_ENTRIES_PER_REBOOT = 2000
 };
 static uint32_t le32(const unsigned char *p)
@@ -100,7 +101,7 @@ typedef struct {
     char archive_path[MAX_PATH];
     unsigned entries, required, archive, linux_required;
     uint64_t archive_done, archive_total;
-    uint32_t file_done, file_size;
+    uint32_t archive_read, file_done, file_size;
     uint32_t blocks[HDD_INSTALL_LINUX_PARTITIONS + 3], inodes[HDD_INSTALL_LINUX_PARTITIONS + 3];
     char current[INSTALL_TAR_PATH];
 } Payload;
@@ -356,9 +357,21 @@ static int end(void *context)
         ret = genClose(p->output); p->output = -1;
     }
     p->entry_finished = ret >= 0;
-    if (ret >= 0 && ext2 && p->restart && p->inodes[p->route] % EXT2_ENTRIES_PER_REBOOT == 0)
+    if (ret < 0) return ret;
+    if (!ext2) return 0;
+
+    unsigned count = p->inodes[p->route];
+    if (p->archive == HI_SYSTEM && count % EXT2_ENTRIES_PER_LOG == 0) {
+        hddInstallLog("EXTRACT progress %s %s entries=%u archive_entries=%u compressed_read=%u last=%s",
+                      hddInstallAssetName(p->archive), linux_names[p->route], count,
+                      p->entries, (unsigned)p->archive_read, p->current);
+        hddInstallLogCheckpoint(p->in);
+        ret = hddInstallRecoveryFault();
+        if (ret < 0) return ret;
+    }
+    if (p->restart && count % EXT2_ENTRIES_PER_REBOOT == 0)
         return rebootBetweenEntries(p);
-    return ret < 0 ? ret : 0;
+    return 0;
 }
 static int readArchive(void *context, uint32_t offset, void *bytes, unsigned size)
 {
@@ -370,8 +383,9 @@ static int readArchive(void *context, uint32_t offset, void *bytes, unsigned siz
         if (n <= 0 || (unsigned)n > size - done) return n < 0 ? n : -EIO;
         done += n;
     }
+    p->archive_read = offset + size;
     if (p->archive_total) {
-        uint64_t completed = p->archive_done + offset + size;
+        uint64_t completed = p->archive_done + p->archive_read;
         hddInstallOverall(100 + 800 * completed / p->archive_total, 1000);
     }
     return 0;
@@ -391,7 +405,7 @@ static int archives(Payload *p)
         const char *name = hddInstallAssetName(i);
         if (snprintf(p->archive_path, sizeof(p->archive_path), "%s/%s", p->in->stage, name) >= (int)sizeof(p->archive_path))
             return -ENAMETOOLONG;
-        p->archive = i; p->route = -1; p->current[0] = 0; p->entry_finished = 0;
+        p->archive = i; p->archive_read = 0; p->route = -1; p->current[0] = 0; p->entry_finished = 0;
         p->input = genOpen(p->archive_path, FIO_O_RDONLY);
         if (p->input < 0) {
             snprintf(p->in->error, sizeof(p->in->error), "Could not open %s (error %d).", name, p->input);

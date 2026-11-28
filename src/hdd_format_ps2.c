@@ -22,6 +22,8 @@ int hddFormatLoad(void)
     unsigned gen = getIopResetGeneration();
     if (!loaded || generation != gen) {
         memset(&client, 0, sizeof(client));
+        /* The previous IOP cannot access this packet after boot is acknowledged. */
+        memset(&packet, 0, sizeof(packet));
         id = SifExecModuleBuffer(hdd_format_irx, size_hdd_format_irx, 0, NULL, &ret);
         if (id < 0 || ret != 0) return -EIO;
         loaded = 1; generation = gen;

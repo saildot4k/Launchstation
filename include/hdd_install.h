@@ -161,6 +161,8 @@ void hddInstallRawTrace(int command, uint32_t lba, unsigned count, int pending, 
 void hddInstallLogSnapshot(HddInstallLogSnapshot *snapshot);
 int hddInstallLogRead(unsigned index, char line[HDD_INSTALL_LOG_COLS]);
 void hddInstallLogFlush(HddInstall *install);
+/* Persist an installer progress record through the drive's write cache. */
+void hddInstallLogCheckpoint(HddInstall *install);
 void dashHddInstallDebugBegin(HddInstall *install, const HddFormatPlan *plan);
 void dashHddInstallDebugEnd(HddInstall *install, int result);
 int dashHddInstallAwait(int id, const char *title);

@@ -53,6 +53,7 @@ static HddInstall settings;
 static unsigned destinations,linux1,linux4;
 static int scenario;
 static unsigned reboots, syncs, stage_mounts, stage_unmounts, archive_offset;
+static unsigned checkpoint_lines, checkpoints, previous_routed, last_count[2];
 static char last_archive[2048];
 static int archive_fd=-1;
 struct InstallExt2 {unsigned entries, route;};
@@ -65,7 +66,9 @@ int installExt2Begin(InstallExt2 *fs,const InstallTarEntry *e){
  return scenario==9&&!strcmp(e->name,"etc/httpd/conf/httpd.conf")?-EINVAL:0;
 }
 int installExt2Data(InstallExt2 *fs,const void *p,unsigned n){assert(fs&&p&&n);return 0;}
-int installExt2End(InstallExt2 *fs){assert(fs);return 0;}
+int installExt2End(InstallExt2 *fs){
+ assert(fs);return scenario==18&&fs->route==0&&fs->entries==100?-EIO:0;
+}
 int installExt2Sync(InstallExt2 *fs){
  assert(fs&&archive_fd>=0&&!finished);
  if(scenario==17)return -EIO;
@@ -86,9 +89,25 @@ void hddInstallLog(const char *s,...){
   if(!strcmp(name,"__linux.1")){linux1++;assert(!strcmp(type,"ext2/raw HDD"));}
   if(!strcmp(name,"__linux.4")){linux4++;assert(!strcmp(type,"ext2/raw HDD"));}
   va_end(a);
+ }else if(!strncmp(s,"EXTRACT progress",16)){
+  va_list a;va_start(a,s);
+  const char *archive=va_arg(a,const char*),*partition=va_arg(a,const char*);
+  unsigned count=va_arg(a,unsigned),routed=va_arg(a,unsigned),read=va_arg(a,unsigned);
+  const char *last=va_arg(a,const char*);
+  va_end(a);
+  assert(!strcmp(archive,"system.tar.gz")&&!strncmp(last,partition,strlen(partition)));
+  assert(!strcmp(partition,"__linux.1")||!strcmp(partition,"__linux.4"));
+  unsigned index=!strcmp(partition,"__linux.4");
+  assert(count==last_count[index]+100&&routed>previous_routed&&read==archive_offset);
+  if(!index&&count==100)assert(!strcmp(last,"__linux.1/bulk/first95"));
+  last_count[index]=count;previous_routed=routed;checkpoint_lines++;
  }
 }
 void hddInstallLogFlush(HddInstall *in){assert(in);}
+void hddInstallLogCheckpoint(HddInstall *in){
+ assert(in==&settings&&archive_fd>=0&&strstr(last_archive,"system.tar.gz")&&checkpoint_lines==checkpoints+1);
+ checkpoints++;
+}
 void hddInstallStatus(const char *s,int a,int b){assert(s&&a>=0&&b>=a);}
 void hddInstallProgress(const char *s,int a,int b){assert(s&&a>=0&&b>=a);}
 void hddInstallOverall(uint64_t a,uint64_t b){assert(b&&a<=b);}
@@ -203,10 +222,13 @@ int main(int argc,char **argv){
   if(scenario==15)assert(ret==-ENODEV&&reboots==1&&archive_opens==1&&strstr(settings.error,"IOP reboot at __linux.1 entry 2000"));
   if(scenario==16)assert(reboots==2&&archive_opens==3&&strstr(settings.error,"Reading or validating system.tar.gz"));
   if(scenario==17)assert(ret==-EIO&&!reboots&&archive_opens==1&&strstr(settings.error,"syncing ext2 metadata"));
+  if(scenario==18)assert(ret==-EIO&&!reboots&&strstr(settings.error,"while processing __linux.1/bulk/first95"));
  }
  assert(mounted==3*(1+reboots)&&unmounted==mounted&&(entries>0||scenario>=11)&&slots==(settings.stage_on_ata?0u:4u));
  assert(stage_mounts==reboots&&stage_unmounts==reboots&&archive_fd<0);
  if(scenario>=13) assert(syncs==created*reboots);
+ unsigned expected=(scenario==13||scenario==14||scenario==16)?59:(scenario==15||scenario==17)?39:0;
+ assert(checkpoints==expected&&checkpoint_lines==expected);
  puts("PASS: single-pass extraction checks CRCs, required boot files, protected paths and capacity before clean/boot commit");
 }
 '''
@@ -240,7 +262,7 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-streaming-') as directory
     required = ['__system/p2lboot/osdboot.elf', '__system/p2lboot/vmlinux', '__linux.1/sbin/init',
                 '__linux.1/bin/sh', '__linux.1/etc/fstab', '__linux.4/bn/script/utility/sysconf.xml']
     required += ['__system/osd100/' + name for name in ('OSDSYS_A.XLF', 'FNTOSD', 'ICOIMAGE', 'JISUCS', 'SKBIMAGE', 'SNDIMAGE', 'TEXIMAGE')]
-    for scenario in range(18):
+    for scenario in range(19):
         work = d / str(scenario)
         work.mkdir()
         for i in range(4): (work / f'pfs{i}').mkdir()
@@ -303,5 +325,6 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-streaming-') as directory
             assert (work / 'pfs3/fixture').read_bytes() == b'contents data'
             assert kernel.read_bytes() == b'fixture'
         assert not list(work.rglob('.LSINST-*'))
+    print('PASS: 100-entry system extraction log records are saved per ext2 partition after completed entries')
     print('PASS: per-partition IOP checkpoints continue the same gzip stream from PFS and ATA staging')
     print('PASS: archive and reboot failures preserve existing PFS files without publishing partial files')

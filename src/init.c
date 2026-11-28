@@ -1932,6 +1932,13 @@ int resetInstallerIopTransport(void)
 	 * sending the reset command. This only touches EE state; old client/DMA
 	 * buffers remain alive until the IOP acknowledges its new boot. */
 	SifExitRpc();
+	if (hddInstallRebootPending()) {
+		/* The extraction worker has drained its I/O and still owns the
+		 * live gzip and ext2 state in EE memory. Preserve dirty data. */
+		hddInstallLog("PLANNED IOP reboot: EE data cache writeback starting");
+		FlushCache(WRITEBACK_DCACHE);
+		hddInstallLog("PLANNED IOP reboot: EE data cache writeback complete");
+	}
 	started = Timer();
 	while (!SifIopReset("", 0)) {
 		if (Timer() - started >= 15000) { installerResetTrace("reset queue timeout"); return 0; }

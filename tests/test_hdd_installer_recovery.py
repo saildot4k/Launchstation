@@ -136,10 +136,20 @@ static void SifInitRpc(int n){assert(!n&&!rebuilding);}
 #define SIF_REG_SMFLAG 1
 #define SIF_REG_MSFLAG 2
 #define SIF_SYSREG_SUBADDR 3
-static int exited_rpc;
+static int exited_rpc, cache_writebacks;
 static void SifExitRpc(void){assert(!rebuilding);exited_rpc++;}
+#define WRITEBACK_DCACHE 0
+static void FlushCache(int mode){
+    assert(mode==WRITEBACK_DCACHE&&hddInstallRebootPending()&&!hddInstallRecoveryFault());
+    assert(worker_alive&&suspended&&exited_rpc==1&&!reset_calls&&!rebuilding);
+    cache_writebacks++;
+}
 static unsigned SifGetReg(int reg){assert(reg>=1&&reg<=3);return 0x12345678;}
-static int SifIopReset(const char *s,int n){assert(s&&!s[0]&&!n&&suspended&&!rebuilding&&exited_rpc);reset_calls++;return !fail_reset&&reset_calls>=2;}
+static int SifIopReset(const char *s,int n){
+    assert(s&&!s[0]&&!n&&suspended&&!rebuilding&&exited_rpc);
+    assert(cache_writebacks==!!hddInstallRebootPending());
+    reset_calls++;return !fail_reset&&reset_calls>=2;
+}
 static int SifIopSync(void){assert(reset_calls>=2&&!rebuilding);sync_calls++;if(!fail_sync&&sync_calls>=2){stopped=1;return 1;}return 0;}
 static void padForgetAfterRecovery(void){assert(stopped&&!rebuilding);forgot++;}
 static void clearPadPressState(void){assert(stopped);}
@@ -189,7 +199,8 @@ transport += function(ui, 'void dashHddInstallRecoveryFailed(')
 transport += function(ui, 'int dashHddInstallAwait(')
 transport += r'''
 static void reset(void){
-    hddInstallRecoveryEnd();exited_rpc=0;worker_alive=1;done=suspended=stopped=forgot=reset_calls=sync_calls=0;
+    hddInstallRecoveryEnd();exited_rpc=cache_writebacks=0;worker_alive=1;
+    done=suspended=stopped=forgot=reset_calls=sync_calls=0;
     rebuilding=core_calls=pads=inputs=frames=pumps=fallback=loading=ds34=0;
     fail_reset=fail_sync=fail_pad=expect_terminal=storage=raw=fail_storage=0;pccf_bus_owned=pccf_loaded=1;now=0;
 }
@@ -218,7 +229,7 @@ int main(void){
     for(int failed=0;failed<2;failed++){
         reset();fail_storage=failed;hddInstallRecoveryBegin();hddInstallRebootRequest();
         assert(dashHddInstallAwait(1,"Planned reboot"));
-        assert(stopped&&forgot==1&&core_calls==1&&pads==1&&storage==1&&raw==!failed);
+        assert(stopped&&forgot==1&&core_calls==1&&pads==1&&storage==1&&raw==!failed&&cache_writebacks==1);
         assert(!worker_alive&&!hddInstallRebootPending()&&!hddInstallRecoveryWasReset());
         assert(hddInstallRebootResult()==(failed?-ENODEV:0));
     }
