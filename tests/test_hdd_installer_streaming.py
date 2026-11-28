@@ -11,7 +11,7 @@ root = Path(__file__).resolve().parents[1]
 source = (root / 'src/hdd_install_psbbn.c').read_text()
 
 
-def function(signature):
+def function(signature, source=source):
     a = source.index(signature)
     depth = 0
     for token in re.finditer(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|/\*.*?\*/|//[^\n]*|[{}]', source[a:], re.S):
@@ -111,6 +111,7 @@ a = source.index('static const char *const linux_names')
 code += source[a:source.index('static uint32_t le32(', a)] + function('static uint32_t le32(')
 output = (root / 'src/hdd_install_ps2.c').read_text()
 code += output[output.index('static int outputPath('):output.index('void hddInstallRelease(')]
+code += function('int hddInstallEnsureDirectory(', output)
 a = source.index('typedef struct PendingPfsFile {')
 code += source[a:source.index('} Payload;', a) + len('} Payload;')]
 for sig in ('static int routePath(', 'static int mkdirParents(', 'static int stagePfsFile(', 'static int finishPfsFiles(',
@@ -159,9 +160,14 @@ def archive(path, entries, bad_padding=False):
     with tarfile.open(fileobj=payload, mode='w') as t:
         for name, content in entries:
             e = tarfile.TarInfo(name)
-            e.mode = 0o644
-            e.size = len(content)
-            t.addfile(e, io.BytesIO(content))
+            if content is None:
+                e.type = tarfile.DIRTYPE
+                e.mode = 0o755
+                t.addfile(e)
+            else:
+                e.mode = 0o644
+                e.size = len(content)
+                t.addfile(e, io.BytesIO(content))
     tar_data = payload.getvalue()
     if bad_padding:
         tar_data = tar_data[:-1] + b"X"
@@ -190,8 +196,12 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-streaming-') as directory
         entries.append(('__linux.1/revisit', b'partition revisited later in the same archive'))
         if scenario in (0, 5):
             entries.extend((('__contents/fixture', b'last entry wins'), ('__contents/empty', b'')))
-        archive(stage / 'system.tar.gz', entries)
         kernel = work / 'pfs0/p2lboot/vmlinux'
+        if scenario == 0:
+            kernel.parent.mkdir()
+            (kernel.parent / 'keep').write_bytes(b'existing contents')
+            entries.append(('__system/p2lboot', None))
+        archive(stage / 'system.tar.gz', entries)
         if scenario in (11, 12):
             kernel.parent.mkdir()
             kernel.write_bytes(b'previous good kernel')
@@ -215,6 +225,9 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-streaming-') as directory
             assert (work / 'pfs3/fixture').read_bytes() == b'last entry wins'
             assert (work / 'pfs3/empty').read_bytes() == b''
             assert not (work / 'pfs2/fixture').exists()
+        if scenario == 0:
+            assert kernel.read_bytes() == b'fixture'
+            assert (kernel.parent / 'keep').read_bytes() == b'existing contents'
         if scenario == 10:
             assert kernel.read_bytes() == b'fixture'
             assert not (work / 'pfs3/unpublished').exists()

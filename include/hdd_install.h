@@ -108,6 +108,7 @@ int hddInstallMountStage(HddInstall *install);
 int hddInstallUnmountStage(HddInstall *install);
 int hddInstallCreateStage(HddInstall *install);
 int hddInstallDownload(HddInstall *install);
+int hddInstallEnsureDirectory(const char *path);
 /* Close the staged file before finishing. A negative result discards it. */
 int hddInstallOutputOpen(const char *path, int replace);
 int hddInstallOutputFinish(const char *path, int replace, int result);

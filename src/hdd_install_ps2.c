@@ -471,7 +471,13 @@ static int prepareLauncherStage(HddInstall *in)
             continue;
         }
         ret = pathJoin(previous, sizeof(previous), in->stage, old); if (ret < 0) return ret;
-        ret = genRemove(local); if (ret < 0 && ret != -ENOENT) return ret;
+        ret = outputExists(local);
+        if (ret < 0) return ret;
+        if (ret > 0) {
+            ret = genRemove(local);
+            if (ret < 0 && outputExists(local) != 0) return ret;
+        }
+        if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
         ret = fileXioRename(previous, local); if (ret < 0) return ret;
         moved++;
     }
@@ -986,13 +992,19 @@ void hddInstallCleanup(HddInstall *in)
 static int makeDirectory(const char *path, int visible)
 {
     iox_stat_t stat;
-    int ret = genMkdir(path, 0777);
-    if (ret < 0) {
-        if (fileXioGetStat(path, &stat) < 0 || !FIO_S_ISDIR(stat.mode)) return ret;
-    }
-    if (!visible) return 0;
+    int ret = hddInstallEnsureDirectory(path);
+    if (ret < 0 || !visible) return ret;
     memset(&stat, 0, sizeof(stat)); stat.attr = HDD_INSTALL_BROWSER_ATTR;
     return fileXioChStat(path, &stat, FIO_CST_ATTR);
+}
+int hddInstallEnsureDirectory(const char *path)
+{
+    iox_stat_t stat;
+    if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+    int ret = genMkdir(path, 0777);
+    if (ret < 0 && !hddInstallRecoveryFault() &&
+        genGetStat(path, &stat) >= 0 && FIO_S_ISDIR(stat.mode)) return 0;
+    return ret;
 }
 static int makeParents(char *path)
 {
@@ -1129,44 +1141,22 @@ static int installApps(HddInstall *in)
 static int installEmberBios(HddInstall *in)
 {
     const uint32_t bios_size = 512u * 1024;
-    char target[] = EMBER_BIOS_PATH, staged[] = EMBER_BIOS_PATH ".tmp";
     ZipContext ctx = {.output = -1};
-    iox_stat_t st;
-    int present = genGetStat(target, &st), ret;
-
-    if (present >= 0) {
-        if (!FIO_S_ISREG(st.mode) || st.hisize || st.size > bios_size) return -EEXIST;
-        if (st.size == bios_size) {
-            hddInstallLog("Keeping existing 512 KiB Ember BIOS");
-            return 0;
-        }
-        /* Clear an empty placeholder left by older installers even if
-         * this run encounters another extraction error. */
-        if (!st.size) {
-            ret = genRemove(target);
-            if (ret < 0) return ret;
-            present = -ENOENT;
-        }
-    } else if (present != -ENOENT) return present;
-
-    ret = zipOpen(&ctx, in, 1);
+    int ret = zipOpen(&ctx, in, 1);
     if (ret < 0) { hddInstallLog("Ember dependency ZIP open failed: %d", ret); return ret; }
-    ctx.output = genOpen(staged, FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC);
+
+    ctx.output = hddInstallOutputOpen(EMBER_BIOS_PATH, 1);
     if (ctx.output < 0) {
         hddInstallLog("Ember BIOS temporary file open failed: %d", ctx.output);
         return zipClose(&ctx, ctx.output);
     }
+
     hddInstallStatus("Installing Ember BIOS", 0, 0);
     ret = zipExtract(&ctx, "dep/bios.bin", bios_size, bios_size);
     hddInstallLog("Ember BIOS ZIP extraction and CRC check: %d", ret);
     ret = closeResult(ctx.output, ret);
     ret = zipClose(&ctx, ret);
-    if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
-    if (ret >= 0) ret = genGetStat(staged, &st);
-    if (ret >= 0 && (st.hisize || st.size != bios_size)) ret = -EIO;
-    if (ret >= 0 && present >= 0) ret = genRemove(target);
-    if (ret >= 0) ret = genRenameNoReplace(staged, target);
-    if (ret < 0 && !hddInstallRecoveryFault()) genRemove(staged);
+    ret = hddInstallOutputFinish(EMBER_BIOS_PATH, 1, ret);
     hddInstallLog("Ember BIOS publish result: %d", ret);
     return ret;
 }

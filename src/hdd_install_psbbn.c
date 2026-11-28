@@ -75,7 +75,7 @@ int hddInstallPsbbnPartitions(HddInstall *in)
     ret = hddInstallPfsPartition(in, in->contents_mb ? in->contents_mb : 1024, "__contents");
     if (ret != (int)(in->contents_mb ? in->contents_mb : 1024)) return ret < 0 ? ret : -ENOSPC;
     /* The caller mounts __common on pfs2. */
-    ret = genMkdir("pfs2:/Your Saves", 0777);
+    ret = hddInstallEnsureDirectory("pfs2:/Your Saves");
     if (ret >= 0) ret = fileXioSync("pfs2:", 0);
     return ret < 0 ? ret : fileXioDevctl("hdd0:", HDIOC_FLUSH, NULL, 0, NULL, 0);
 }
@@ -109,15 +109,14 @@ static int routePath(const char *name, const char **relative)
 static int mkdirParents(const char *path)
 {
     char buf[MAX_PATH];
-    iox_stat_t st;
     size_t n = strlen(path);
     if (n >= sizeof(buf)) return -ENAMETOOLONG;
     strcpy(buf, path);
     for (char *p = strchr(buf, ':'); p && *p; p++) if (*p == '/' && p[1]) {
         *p = 0;
         if (p > buf && p[-1] != ':') {
-            int ret = genMkdir(buf, 0777);
-            if (ret < 0 && (fileXioGetStat(buf, &st) < 0 || !FIO_S_ISDIR(st.mode))) return ret;
+            int ret = hddInstallEnsureDirectory(buf);
+            if (ret < 0) return ret;
         }
         *p = '/';
     }
@@ -218,12 +217,7 @@ static int begin(void *context, const InstallTarEntry *entry)
             (e.name[length] == '/' || (!e.name[length] && entry->type == '5'))) return -ENOTDIR;
     }
     ret = mkdirParents(e.name); if (ret < 0) return ret;
-    if (entry->type == '5') {
-        iox_stat_t st;
-        ret = genMkdir(e.name, 0777);
-        if (ret < 0 && fileXioGetStat(e.name, &st) >= 0 && FIO_S_ISDIR(st.mode)) ret = 0;
-        return ret;
-    }
+    if (entry->type == '5') return hddInstallEnsureDirectory(e.name);
     return stagePfsFile(p, e.name);
 }
 static int data(void *context, const void *bytes, unsigned size)

@@ -40,9 +40,11 @@ code = r'''
 #define FIO_O_CREAT O_CREAT
 #define FIO_O_EXCL O_EXCL
 #define FIO_O_TRUNC O_TRUNC
+#define FIO_S_ISREG S_ISREG
 typedef int64_t s64;
 typedef uint64_t u64;
-static const char *work, *failure;
+typedef struct { unsigned mode; } iox_stat_t;
+static const char *work, *failure, *stage;
 static unsigned requests, downloads, read_bytes;
 static int migration;
 static uint64_t overall_bytes, overall_total;
@@ -55,22 +57,38 @@ void httpsSetCaBundle(const unsigned char *data,unsigned size) { (void)data;(voi
 void hddInstallStatus(const char *s, int done, int total) { assert(s && done >= 0 && total >= 0); }
 void hddInstallProgress(const char *s, int done, int total) { hddInstallStatus(s,done,total); }
 void hddInstallOverall(uint64_t done,uint64_t total) { assert(total&&done>=overall_bytes&&done<=total);overall_bytes=done;overall_total=total; }
-static int genOpen(const char *p, int mode) {
-    char path[2048]; assert(!strncmp(p,"pfs2:/stage/",12));
-    snprintf(path,sizeof(path),"%s/stage/%s",work,p+12); return open(path,mode,0600);
+static void mapStage(const char *p,char *path,size_t capacity){
+ size_t length=strlen(stage);
+ assert(!strncmp(p,stage,length)&&(p[length]=='/'||!p[length]));
+ int n=snprintf(path,capacity,"%s/stage%s",work,p+length);
+ assert(n>=0&&(size_t)n<capacity);
+}
+static int genOpen(const char *p,int mode){
+ char path[2048];mapStage(p,path,sizeof(path));
+ int fd=open(path,mode,0600);return fd<0?-errno:fd;
+}
+static int genGetStat(const char *p,iox_stat_t *out){
+ char path[2048];struct stat st;mapStage(p,path,sizeof(path));
+ if(stat(path,&st)<0)return -errno;
+ out->mode=st.st_mode;return 0;
 }
 static int makeDirectory(const char *p,int visible){
- char path[2048];struct stat st;assert(!visible&&!strncmp(p,"pfs2:/stage",11));
+ char path[2048];struct stat st;assert(!visible);
  if(!strcmp(failure,"mkdir"))return -EIO;
- snprintf(path,sizeof(path),"%s/stage%s",work,p+11);
+ mapStage(p,path,sizeof(path));
  if(!mkdir(path,0700))return 0;
  return errno==EEXIST&&!stat(path,&st)&&S_ISDIR(st.st_mode)?0:-EIO;
 }
-static int genRemove(char *p){char path[2048];assert(!strncmp(p,"pfs2:/stage/",12));snprintf(path,sizeof(path),"%s/stage/%s",work,p+12);return unlink(path)<0?-errno:0;}
+static int genRemove(char *p){
+ char path[2048];mapStage(p,path,sizeof(path));
+ if(!unlink(path))return 0;
+ /* ATA passes through FatFs FR_NO_FILE for a missing file. */
+ return !strncmp(p,"ata0:",5)&&errno==ENOENT?-4:-errno;
+}
 static int fileXioRename(const char *from,const char *to){
- char a[2048],b[2048];assert(!strncmp(from,"pfs2:/stage/",12)&&!strncmp(to,"pfs2:/stage/",12));
+ char a[2048],b[2048];
  if(migration&&!strcmp(failure,"legacy-rename"))return -EIO;
- snprintf(a,sizeof(a),"%s/stage/%s",work,from+12);snprintf(b,sizeof(b),"%s/stage/%s",work,to+12);
+ mapStage(from,a,sizeof(a));mapStage(to,b,sizeof(b));
  return rename(a,b)<0?-errno:0;
 }
 static int genRead(int fd, void *data, unsigned n) { int r=read(fd,data,n > 97 ? 97 : n);if(r>0)read_bytes+=r;return r; }
@@ -113,7 +131,7 @@ int httpsDownloadFd(const char *url,int fd,const char *ca,int maximum,int *size,
 '''
 start = native.index("static const char *const launcher_required[]")
 code += native[start:native.index("static int launcherManifest(", start)]
-for signature in ("static int pathJoin(", "static int readAll(", "static int closeResult(",
+for signature in ("static int pathJoin(", "static int readAll(", "static int closeResult(", "static int outputExists(",
                   "static int checkFileSize(", "static int launcherLicense(", "static int launcherStageName(", "static void legacyLauncherStageName(", "static int makeParents(char *path)\n{", "static int findLauncher(",
                   "static const char *launcherIcon(", "static const char *launcherArt(", "static int launcherManifest(", "static int checkLaunchers("):
     code += function(signature)
@@ -127,7 +145,9 @@ code += r'''
 int main(int argc,char **argv) {
     HddInstall in={.flags=7,.jail=1,.owned=1};const char *phase="metadata";int ret;
     assert(argc==4);work=argv[1];failure=argv[2];in.game_launcher=atoi(argv[3]);
-    strcpy(in.stage,"pfs2:/stage");strcpy(in.ca_path,"fixture.pem");memset(in.commit,'a',40);
+    in.stage_on_ata=!strcmp(failure,"legacy-ata");
+    stage=in.stage_on_ata?"ata0:/tmp":"pfs2:/stage";
+    strcpy(in.stage,stage);strcpy(in.ca_path,"fixture.pem");memset(in.commit,'a',40);
     ret=launcherMetadata(&in);
     if(ret>=0)ret=prepareLauncherStage(&in);
     if(!strncmp(failure,"resume",6))hddInstallRecoveryBegin();
@@ -147,18 +167,20 @@ int main(int argc,char **argv) {
         assert(!ret);unsigned before=downloads;
         for(unsigned i=0;i<in.launcher_count;i++){
             char name[192],from[1200],to[1200];assert(!launcherStageName(in.launcher_files[i].path,name));
-            snprintf(from,sizeof(from),"pfs2:/stage/%s",name);snprintf(to,sizeof(to),"pfs2:/stage/launcher-%03u.bin",i);
+            snprintf(from,sizeof(from),"%s/%s",stage,name);snprintf(to,sizeof(to),"%s/launcher-%03u.bin",stage,i);
             assert(!fileXioRename(from,to));
         }
-        if(!strcmp(failure,"legacy-partial")){
-            int fd=genOpen(in.game_launcher>=HDD_GAME_RIPTOPL?"pfs2:/stage/OPL/RIPTOPL-RA-UNPAKT.ELF":"pfs2:/stage/OPL/OPNPS2LD.ELF",FIO_O_WRONLY|FIO_O_CREAT);assert(fd>=0);assert(write(fd,"partial",7)==7);close(fd);
+        if(in.stage_on_ata||!strcmp(failure,"legacy-partial")){
+            char target[1200];
+            snprintf(target,sizeof(target),"%s/OPL/%s",stage,in.game_launcher>=HDD_GAME_RIPTOPL?"RIPTOPL-RA-UNPAKT.ELF":"OPNPS2LD.ELF");
+            int fd=genOpen(target,FIO_O_WRONLY|FIO_O_CREAT);assert(fd>=0);assert(write(fd,"partial",7)==7);close(fd);
         }
         in.resumed=1;migration=1;ret=prepareLauncherStage(&in);
         if(!strcmp(failure,"legacy-rename")){assert(ret==-EIO);free(in.launcher_files);return 0;}
         assert(!ret);overall_bytes=0;
         ret=downloadLaunchers(&in,&phase,0,downloadBytes(&in));assert(!ret&&downloads==before);
         for(unsigned i=0;i<in.launcher_count;i++){
-            char old[64];snprintf(old,sizeof(old),"pfs2:/stage/launcher-%03u.bin",i);assert(genOpen(old,FIO_O_RDONLY)<0);
+            char old[64];snprintf(old,sizeof(old),"%s/launcher-%03u.bin",stage,i);assert(genOpen(old,FIO_O_RDONLY)<0);
         }
     }
     int saved=!strncmp(failure,"saved-manifest",14),saved_partial=!strcmp(failure,"saved-manifest-partial");
@@ -218,7 +240,7 @@ with tempfile.TemporaryDirectory(prefix="hdd-installer-launchers-") as directory
     legacy_files=files
     for choice in (0, 1, 2, 3):
         files = modern if choice>=2 else legacy_files
-        for failure in ("ok", "hash-ignored", "resume", "resume-corrupt", "truncated", "request", "write", "missing", "duplicate", "symlink", "traversal", "oversize", "file-limit", "directory-limit", "mkdir", "legacy", "legacy-partial", "legacy-rename", "saved-manifest", "saved-manifest-partial"):
+        for failure in ("ok", "hash-ignored", "resume", "resume-corrupt", "truncated", "request", "write", "missing", "duplicate", "symlink", "traversal", "oversize", "file-limit", "directory-limit", "mkdir", "legacy", "legacy-ata", "legacy-partial", "legacy-rename", "saved-manifest", "saved-manifest-partial"):
             work = d / f"{choice}-{failure}"
             (work / "stage").mkdir(parents=True)
             listings = {path: [] for path in ("scripts/assets/OPL", "scripts/assets/Ember" if choice>=2 else "scripts/assets/NHDDL", "scripts/assets/neutrino", "icons/art", "icons/ico", "scripts/licenses")}
@@ -254,7 +276,7 @@ with tempfile.TemporaryDirectory(prefix="hdd-installer-launchers-") as directory
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(json.dumps(entries))
             subprocess.run([str(d / "test"), str(work), failure, str(choice)], check=True, timeout=10)
-            if failure in ('ok', 'hash-ignored', 'resume', 'resume-corrupt', 'legacy', 'legacy-partial', 'saved-manifest', 'saved-manifest-partial'):
+            if failure in ('ok', 'hash-ignored', 'resume', 'resume-corrupt', 'legacy', 'legacy-ata', 'legacy-partial', 'saved-manifest', 'saved-manifest-partial'):
                 assert not list((work / 'stage').glob('launcher-*.bin'))
                 assert not (work/'stage/Licenses').exists()
                 for remote, payload in files.items():

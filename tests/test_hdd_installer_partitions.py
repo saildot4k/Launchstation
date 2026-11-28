@@ -21,6 +21,7 @@ code=r'''
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include "hdd_install.h"
 #define APA_PRINTF(...) ((void)0)
 #define FIO_O_CREAT 1
@@ -29,6 +30,7 @@ code=r'''
 #define FIO_MT_RDWR 1
 #define FS_GROUP_APPLICATION 1
 #define HDIOC_FLUSH 1
+#define FIO_S_ISDIR S_ISDIR
 typedef struct {unsigned private_5,size,mode,attr,private_0;} iox_stat_t;
 static unsigned expected_mb[]={512,128,512,512,128,256,2048,1024,2048,8192};
 static unsigned expected_count=8,contents_mb=1024;
@@ -36,7 +38,7 @@ static const char *const expected_names[]={"__linux.1","__linux.2","__linux.4","
 static unsigned allocated,opened,closed,stats,contents,mounted,flushed,mkdirs,current_lba;
 static unsigned starts[10];
 static int replay;
-static unsigned reused,formatted,bad_geometry;
+static unsigned reused,formatted,bad_geometry,saves_mode;
 static int fail_index,fail_phase;
 '''
 # Real stock-driver syntax. Its parser intentionally accepts 1G/2G, rather
@@ -68,6 +70,11 @@ static int fileXioOpen(const char *path,int flags,int mode){
 }
 static int fileXioClose(int fd){assert(fd==99+(int)opened);closed++;return fail_index==(int)opened-1&&fail_phase==3?-EIO:0;}
 static int fileXioGetStat(const char *path,iox_stat_t *out){
+    if(!strcmp(path,"pfs2:/Your Saves")){
+        if(!saves_mode)return -ENOENT;
+        out->mode=saves_mode;
+        return 0;
+    }
     unsigned i=opened-1;char expected[64];stats++;
     if(replay){
         if(!strcmp(path,"hdd0:__contents")){
@@ -95,12 +102,15 @@ static int fileXioFormat(const char *fs,const char *path,const char *args,int n)
 }
 static int hddMakeFilesystem(int mb,char *name,int group){assert(opened==expected_count&&closed==expected_count&&stats==expected_count&&mb==(int)contents_mb&&group==FS_GROUP_APPLICATION&&!strcmp(name,"__contents"));contents++;return mb;}
 /* The caller retains its staging PFS mount throughout APA creation. */
-static int genMkdir(const char *path,int mode){assert(contents==1&&!strcmp(path,"pfs2:/Your Saves")&&mode==0777);mkdirs++;return 0;}
+static int genMkdir(const char *path,int mode){assert(contents==1&&!strcmp(path,"pfs2:/Your Saves")&&mode==0777);mkdirs++;return saves_mode?-EEXIST:0;}
+#define genGetStat fileXioGetStat
 static int fileXioSync(const char *mount,int flags){assert(!strcmp(mount,"pfs2:")&&!flags&&mkdirs);return 0;}
 static int fileXioDevctl(const char *dev,int command,void*a,int n,void*b,int m){assert(!strcmp(dev,"hdd0:")&&command==HDIOC_FLUSH&&!a&&!b&&!n&&!m&&!mounted);flushed++;return 0;}
 '''
 code+=source[source.index('static const char *const linux_names'):source.index('static const char *const pfs_names')]
-code+=function((root/'src/hdd_install_ps2.c').read_text(),'int hddInstallPfsPartition(')
+native = (root/'src/hdd_install_ps2.c').read_text()
+code+=function(native,'int hddInstallPfsPartition(')
+code+=function(native,'int hddInstallEnsureDirectory(')
 code+=function(source,'int hddInstallPsbbnPartitions(')
 code+=r'''
 static void reset(void){allocated=opened=closed=stats=contents=mounted=flushed=mkdirs=0;current_lba=4194304;}
@@ -125,7 +135,13 @@ int main(void){
     /* A timeout after partial APA creation reuses validated extents.
      * Its contents PFS format may have been interrupted, so redo that. */
     in.owned=in.recovery_attempts=1;in.apa_sectors=131072u*2048;replay=1;reused=expected_count;
-    reset();assert(hddInstallPsbbnPartitions(&in)==0&&!opened&&!allocated&&formatted==1&&contents==1);
+    reset();saves_mode=0040000;
+    assert(hddInstallPsbbnPartitions(&in)==0&&!opened&&!allocated&&formatted==1&&contents==1&&mkdirs==1&&flushed==1);
+    reset();in.recovery_attempts=0;in.resumed=1;
+    assert(hddInstallPsbbnPartitions(&in)==0&&mkdirs==1&&flushed==1);
+    reset();saves_mode=0100000;
+    assert(hddInstallPsbbnPartitions(&in)==-EEXIST&&mkdirs==1&&!flushed);
+    saves_mode=0;
     for(bad_geometry=1;bad_geometry<=4;bad_geometry++){
         reset();assert(hddInstallPsbbnPartitions(&in)==-EINVAL&&!opened&&!allocated&&!contents);
     }

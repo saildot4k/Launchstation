@@ -41,7 +41,7 @@ typedef struct { unsigned mode,attr,size,hisize,private_0,private_5; } iox_stat_
 static char work[1024];
 static const char *mounted[4];
 static unsigned mounts,attrcalls,partitions,injected,psbbn_parts;
-static int attr_error, replay, jail_install, partition_error, rename_error;
+static int attr_error, replay, jail_install, partition_error;
 static unsigned legacy_launcher_mb;
 static int publish_error, check_zip_dma, zip_fd = -1, bios_fd = -1;
 static unsigned unsafe_reads, unsafe_writes;
@@ -117,12 +117,6 @@ static int fileXioGetStat(const char*p,iox_stat_t*s){
     s->mode=st.st_mode;s->size=st.st_size;s->hisize=(uint64_t)st.st_size>>32;return 0;
 }
 #define genGetStat fileXioGetStat
-static int genRenameNoReplace(const char *from,const char *to){
-    char source[4096],target[4096];
-    assert(!map(from,source,sizeof(source))&&!map(to,target,sizeof(target)));
-    assert(access(target,F_OK)<0&&errno==ENOENT);
-    return rename_error?rename_error:rename(source,target)<0?-errno:0;
-}
 static int fileXioRename(const char *from,const char *to){
     char source[4096],target[4096];
     assert(!map(from,source,sizeof(source))&&!map(to,target,sizeof(target)));
@@ -208,12 +202,14 @@ int main(int argc,char**argv){
     }
     if(!strncmp(argv[3],"bios-",4)){
         assert(!hddInstallMountStage(&in));
-        rename_error=!strcmp(argv[3],"bios-publish-error")?-EIO:0;
+        publish_error=!strcmp(argv[3],"bios-publish-error")?-EIO:0;
+        in.resumed=1;
         check_zip_dma=!strcmp(argv[3],"bios-ata-alignment");
         ret=installEmberBios(&in);
         if(check_zip_dma && (ret || unsafe_reads || unsafe_writes))
             fprintf(stderr,"Ember extraction status %d, misaligned ATA reads %u, writes %u\n",ret,unsafe_reads,unsafe_writes);
-        assert((ret<0)==(!strcmp(argv[3],"bios-invalid")||rename_error));
+        if(!strcmp(argv[3],"bios-directory"))assert(ret==-EEXIST);
+        else assert((ret<0)==(!strcmp(argv[3],"bios-invalid")||publish_error));
         assert(!unsafe_reads&&!unsafe_writes);
         assert(!hddInstallUnmountStage(&in));
         hddInstallRelease(&in);
@@ -296,7 +292,8 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
                 (15,'ok',0),(15,'ok',1),(3,'hash-ignored',0),(3,'size',0),(3,'attr',0),(3,'mini-create',0),(7,'launcher-size',0))
     cases = [(*profile, 0) for profile in profiles] + [(7,'ok',3,1),(7,'launcher-size',0,1)]
     cases.append((1, 'partial-output', 0, 0))
-    cases += [(7, scenario, 3, 1) for scenario in ('bios-invalid', 'bios-repair', 'bios-preserve', 'bios-publish-error', 'bios-ata-alignment')]
+    cases += [(7, scenario, 3, 1) for scenario in ('bios-invalid', 'bios-repair', 'bios-replace',
+                                                  'bios-publish-error', 'bios-directory', 'bios-ata-alignment')]
     unaligned_bios = hashlib.shake_256(b'Ember ZIP I/O fixture').digest(524288)
     for flags, failure, launcher, ata in cases:
         work = d / (str(flags) + failure + str(launcher) + str(ata)); work.mkdir()
@@ -324,11 +321,18 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
                         # sector, matching the real Archive.org dependency.
                         z.writestr('pad.bin', bytes(338), zipfile.ZIP_STORED)
                         z.writestr('dep/bios.bin', unaligned_bios)
-                    elif failure not in ('bios-invalid', 'bios-preserve'):
+                    elif failure == 'bios-invalid':
+                        z.writestr('dep/bios.bin', b'B'*524288, zipfile.ZIP_STORED)
+                    else:
                         z.writestr('dep/bios.bin',b'B'*524288)
                     z.writestr('dep/ignored.bin',b'unneeded')
-                (stage/'extras.zip').write_bytes(dep.getvalue())
-                manifest[4]=f'4 {len(dep.getvalue())} '+ 'a'*40+'\n'
+                dependency = dep.getvalue()
+                if failure == 'bios-invalid':
+                    corrupt = dependency.replace(b'B'*524288, b'X' + b'B'*524287, 1)
+                    assert corrupt != dependency
+                    dependency = corrupt
+                (stage/'extras.zip').write_bytes(dependency)
+                manifest[4]=f'4 {len(dependency)} '+ 'a'*40+'\n'
                 (work/'manifest').write_text(''.join(manifest))
             package = selected_launchers + [('icons/ico/APP_RIPTOPL_LST.ico' if launcher>=2 else 'icons/ico/APP_NHDDL_LST.ico' if launcher else 'icons/ico/APP_OPL_LST.ico', b'launcher icon'),
                                    ('icons/art/APP_RIPTOPL.png' if launcher>=2 else 'icons/art/APP_NHDDL.png' if launcher else 'icons/art/APP_OPL.png', b'launcher art')]
@@ -368,8 +372,13 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
             ember = work / 'ata/Ember'
             ember.mkdir()
             bios = ember / 'bios.bin'
-            if failure != 'bios-publish-error':
-                bios.write_bytes(b'C'*524288 if failure == 'bios-preserve' else b'')
+            if failure == 'bios-directory':
+                bios.mkdir()
+                (bios / 'keep').write_bytes(b'existing data')
+            elif failure in ('bios-invalid', 'bios-publish-error', 'bios-replace'):
+                bios.write_bytes(b'C'*524288)
+            else:
+                bios.touch()
         subprocess.run([str(d / 'test'),str(work),str(flags),failure,str(launcher),str(ata)],check=True,timeout=20)
         if failure == 'partial-output':
             assert (osd / 'OSDSYS_A.XLF').read_bytes() == b'old osd'
@@ -379,13 +388,15 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-apply-') as directory:
             assert not list(work.rglob('.LSINST-*'))
             continue
         if failure.startswith('bios-'):
-            assert not (ember / 'bios.bin.tmp').exists()
+            assert not list(ember.glob('.LSINST-*'))
             if failure in ('bios-invalid', 'bios-publish-error'):
-                assert not bios.exists()
+                assert bios.read_bytes() == b'C'*524288
+            elif failure == 'bios-directory':
+                assert (bios / 'keep').read_bytes() == b'existing data'
             elif failure == 'bios-ata-alignment':
                 assert bios.read_bytes() == unaligned_bios
             else:
-                assert bios.read_bytes()==(b'C' if failure == 'bios-preserve' else b'B')*524288
+                assert bios.read_bytes() == b'B'*524288
         if flags & 8:
             assert (work / '__system/p2lboot/ps2-linux-ntsc').read_bytes() == b'new NTSC kernel'
             assert (work / '__system/p2lboot/ps2-linux-vga').read_bytes() == b'new VGA kernel'
