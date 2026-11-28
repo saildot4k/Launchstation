@@ -1905,9 +1905,9 @@ static void stopDs34Input(void)
 }
 #endif
 
-/* Fault-only reset. No calls to dead storage, PAD, audio or card servers.
- * The UI can run this while the installer keeps an outstanding RPC's buffers
- * pinned. Its EE clients are rebuilt only after that worker has unwound. */
+/* Installer reset with bounded queue/boot waits. It does not call storage,
+ * PAD, audio or card servers. A faulted worker keeps its RPC buffers pinned
+ * until the reset is acknowledged. A planned pause has closed its handles. */
 static const char *installer_recovery_error = "IOP recovery failed. Restart the console.";
 const char *installerIopRecoveryError(void) { return installer_recovery_error; }
 static void installerResetTrace(const char *phase)
@@ -1954,7 +1954,8 @@ int resetInstallerIopTransport(void)
 }
 int reloadInstallerCoreAfterReset(void)
 {
-	/* Worker is finished; its old library mutexes and RPC buffers are free. */
+	/* The worker has unwound or is paused between archive entries with no
+	 * live IOP handles or RPCs. Its old library mutexes and buffers are free. */
 	installer_recovery_error = "IOP core services could not be loaded. Restart the console.";
 	hddInstallLog("IOP recovery: rebuilding EE file and heap clients");
 	fileXioExit(); SifLoadFileExit(); clearIopModuleState();

@@ -139,9 +139,11 @@ static void filerSizeCacheInvalidate(const char *s) { assert(s); }
 int hddInstallApply(HddInstall *in) { assert(in); applied++; return apply_error; }
 int hddInstallMountStage(HddInstall *in) { assert(in && applied); mounted++; return mount_error; }
 int hddInstallFindStage(HddInstall *in) { assert(in && mounted); return 0; }
-int hddInstallPsbbnPayload(void *in, const HddFormatIo *io) { (void)in; (void)io; return 0; }
+int hddInstallPsbbnPayload(void *in, const HddFormatIo *io, HddInstallRestart restart) {
+    (void)in; (void)io; (void)restart; return 0;
+}
 int hddInstallFinish(const HddFormatPlan *p, const char *mbr, int *started,
-                     int (*populate)(void *, const HddFormatIo *), void *context) {
+                     HddInstallPopulate populate, void *context) {
     HddInstall *in = context;
     assert(p && started && mounted && !enabled && !cleaned);
     assert(!!mbr == !!(in->flags & HDD_INSTALL_HOSD));

@@ -482,7 +482,7 @@ and without Linux, individual file-write progress, and I/O errors. Log/view test
 check both bars, large byte counters, phase transitions, file resets and the
 success-only completion rule.
 
-### Planned reboot before local installation
+### Planned reboots during PSBBN installation
 
 After successful downloads/cache checks, the worker saves its checkpoint/log,
 unmounts `__common` staging and flushes the HDD. Before queueing the local
@@ -495,13 +495,14 @@ the planned reboot. Preparation failures leave cached downloads intact and
 stop before the installation worker runs. This is a diagnostic mitigation,
 not evidence that IOP memory pressure causes the observed extraction failures.
 
-The archive reader recognizes `__linux.*` and PFS destinations from each tar
-entry. It logs and saves destination transitions, including revisits later in
-the same archive. These messages do not trigger additional resets. Extraction
-still uses one gzip pass; switching destinations is not proof that a partition
-is complete. Resetting inside that pass would require flushing ext2 metadata
-without marking filesystems clean, closing/remounting PFS and archive handles,
-and restarting the raw-write session while retaining the EE gzip state.
+Extraction pauses after every 2,000 completed archive entries per ext2
+partition. The count includes directories, links and device nodes, and carries
+across archive and destination changes. Each pause writes pending ext2 metadata,
+closes the archive, unmounts PFS volumes and flushes the raw disk session.
+The UI restarts the IOP and loads controller and storage services. The worker
+then reopens the raw session, remounts the volumes and continues the same gzip
+stream from EE memory. The ext2 volumes remain unclean until every archive
+passes validation. The log shows the partition, entry count and restart result.
 
 `tests/test_hdd_installer_retry.py` covers preparation ordering/failures,
 completed-stage skips, durable download handoff and storage-only recovery.

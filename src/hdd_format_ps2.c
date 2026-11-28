@@ -144,10 +144,73 @@ static int mbrPointerMatches(uint32_t start, uint32_t sectors)
     return installed_start == start && installed_sectors == sectors;
 }
 
-int hddInstallFinish(const HddFormatPlan *plan, const char *mbr, int *started,
-                     int (*populate)(void *, const HddFormatIo *), void *context)
+typedef struct {
+    const HddFormatPlan *plan;
+    int active;
+} InstallRawSession;
+
+static int startInstallRaw(InstallRawSession *session)
 {
-    HddFormatIo io = {NULL, readDisk, writeDisk, zeroDisk, flushDisk, apaDisk, progress};
+    const HddFormatPlan *plan = session->plan;
+    uint32_t limit = 0;
+    int ret;
+
+    packet.sectors = plan->sectors;
+    packet.write_limit = plan->exfat_start;
+    hddInstallLog("RAW INSTALL begin capacity=%u write-limit=%u", (unsigned)plan->sectors, (unsigned)plan->exfat_start);
+    ret = call(HF_INSTALL_BEGIN, 0, 0, 64, 64);
+    hddInstallLog("RAW INSTALL begin returned %d", ret);
+    if (ret < 0) return ret;
+    session->active = 1;
+    ret = hddApaLimit(readPhysicalSector, NULL, plan->sectors, &limit);
+    hddInstallLog("APA boundary rc=%d limit=%u expected=%u", ret, (unsigned)limit,
+                  (unsigned)(plan->kind == HDD_FORMAT_APA_JAIL ? plan->apa_sectors : plan->sectors));
+    if (ret < 0) return ret;
+    return limit == (plan->kind == HDD_FORMAT_APA_JAIL ? plan->apa_sectors : plan->sectors) ? 0 : -EINVAL;
+}
+
+static int stopInstallRaw(InstallRawSession *session)
+{
+    if (!session->active) return 0;
+    session->active = 0;
+    return hddInstallRecoveryFault() ? HDD_INSTALL_ATA_TIMEOUT : call(HF_FINISH, 0, 0, 64, 64);
+}
+
+static int restartInstallRaw(void *context)
+{
+    InstallRawSession *session = context;
+    if (!hddInstallRecoveryActive()) return -EINVAL;
+    int ret = stopInstallRaw(session);
+    hddInstallLog("Raw install flush/end before reboot rc=%d", ret);
+    if (ret < 0) return ret;
+
+    hddInstallRebootRequest();
+    while (hddInstallRebootPending()) DelayThread(1000);
+    ret = hddInstallRebootResult();
+    return ret < 0 ? ret : startInstallRaw(session);
+}
+
+static int openInstallMbr(const char *path, uint32_t *bytes)
+{
+    int fd = genOpen(path, FIO_O_RDONLY);
+    if (fd < 0) return fd;
+    s64 length = genLseek(fd, 0, SEEK_END);
+    int ret = length >= 512 && length <= 1024 * 1024 && !(length % 512)
+              && genLseek(fd, 0, SEEK_SET) == 0 ? 0 : -EINVAL;
+    if (hddInstallRecoveryFault()) return HDD_INSTALL_ATA_TIMEOUT;
+    if (ret < 0) {
+        genClose(fd);
+        return ret;
+    }
+    *bytes = (uint32_t)length;
+    return fd;
+}
+
+int hddInstallFinish(const HddFormatPlan *plan, const char *mbr, int *started,
+                     HddInstallPopulate populate, void *context)
+{
+    InstallRawSession session = {.plan = plan};
+    HddFormatIo io = {&session, readDisk, writeDisk, zeroDisk, flushDisk, apaDisk, progress};
     HddFormatPlan expected;
     unsigned char *buffer = NULL, *verify = NULL;
     const uint32_t mbr_start = 8192;
@@ -160,31 +223,30 @@ int hddInstallFinish(const HddFormatPlan *plan, const char *mbr, int *started,
         memcmp(&expected, plan, sizeof(expected))) return -EINVAL;
     if (!mbr && !populate && plan->kind != HDD_FORMAT_APA_JAIL) return 0;
     if (mbr) {
-        s64 length;
         buffer = malloc(32768); verify = malloc(32768);
         if (!buffer || !verify) { ret = -ENOMEM; goto done; }
-        fd = genOpen(mbr, FIO_O_RDONLY);
+        fd = openInstallMbr(mbr, &bytes);
         if (fd < 0) { ret = fd; goto done; }
-        length = genLseek(fd, 0, SEEK_END);
-        if (length < 512 || length > 1024 * 1024 || length % 512 || genLseek(fd, 0, SEEK_SET) < 0) { ret = -EINVAL; goto done; }
-        bytes = (uint32_t)length;
+        /* Population can reboot the IOP. No MBR descriptor may span it. */
+        if (populate) {
+            ret = genClose(fd); fd = -1;
+            if (ret < 0) goto done;
+        }
     }
-    packet.sectors = plan->sectors;
-    packet.write_limit = plan->exfat_start;
-    hddInstallLog("RAW INSTALL begin capacity=%u write-limit=%u", (unsigned)plan->sectors, (unsigned)plan->exfat_start);
-    ret = call(HF_INSTALL_BEGIN, 0, 0, 64, 64);
-    hddInstallLog("RAW INSTALL begin returned %d", ret);
-    if (ret < 0) goto done;
-    *started = 1;
-    ret = hddApaLimit(readPhysicalSector, NULL, plan->sectors, &limit);
-    hddInstallLog("APA boundary rc=%d limit=%u expected=%u", ret, (unsigned)limit,
-                  (unsigned)(plan->kind == HDD_FORMAT_APA_JAIL ? plan->apa_sectors : plan->sectors));
-    if (ret < 0 || limit != (plan->kind == HDD_FORMAT_APA_JAIL ? plan->apa_sectors : plan->sectors)) { if (ret >= 0) ret = -EINVAL; goto finish; }
+    ret = startInstallRaw(&session);
+    *started = session.active;
+    if (ret < 0) goto finish;
     if (populate) {
         hddInstallLog("Starting PSBBN filesystem population");
-        ret = populate(context, &io);
+        ret = populate(context, &io, restartInstallRaw);
         hddInstallLog("PSBBN filesystem population rc=%d", ret);
         if (ret < 0) goto finish;
+        if (mbr) {
+            uint32_t length;
+            fd = openInstallMbr(mbr, &length);
+            if (fd < 0) { ret = fd; goto finish; }
+            if (length != bytes) { ret = -EIO; goto finish; }
+        }
     }
     hddInstallPhase(HDD_INSTALL_PHASE_FINISH);
     if (mbr) {
@@ -242,7 +304,7 @@ int hddInstallFinish(const HddFormatPlan *plan, const char *mbr, int *started,
     }
 finish:
     hddInstallLog("Finishing raw install: rc=%d", ret);
-    finish = hddInstallRecoveryFault() ? HDD_INSTALL_ATA_TIMEOUT : call(HF_FINISH, 0, 0, 64, 64);
+    finish = stopInstallRaw(&session);
     hddInstallLog("Raw install flush/end rc=%d", finish);
     if (ret >= 0) ret = finish;
 done:

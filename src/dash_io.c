@@ -10,7 +10,7 @@
  */
 #include "dash_internal.h"
 #include "save_archive.h"
-#include "hdd_install_recovery.h"
+#include "hdd_install.h"
 #include <string.h>
 
 static int io_owner = -1;
@@ -89,6 +89,20 @@ static int installerRpcWait(SifRpcClientData_t *cd, u64 started)
 	}
 }
 
+static void checkInstallerReloadTimeout(u64 started)
+{
+	if (hddInstallRebootPending() && Timer() - started >= HDD_INSTALL_RPC_TIMEOUT_MS)
+		dashHddInstallRecoveryStop("IOP driver reload timed out. Restart the console.");
+}
+
+static void cooperativeRpcWait(SifRpcClientData_t *cd, u64 started)
+{
+	while (SifCheckStatRpc(cd)) {
+		checkInstallerReloadTimeout(started);
+		waitFrame();
+	}
+}
+
 int __wrap_sceSifCallRpc(SifRpcClientData_t *cd, int number, int mode,
                        void *send, int send_size, void *receive, int receive_size,
                        SifRpcEndFunc_t complete, void *arg)
@@ -122,7 +136,7 @@ int __wrap_sceSifCallRpc(SifRpcClientData_t *cd, int number, int mode,
 	                            send, send_size, receive, receive_size,
 	                            complete ? complete : rpcComplete, arg);
 	if (result >= 0)
-		while (SifCheckStatRpc(cd)) waitFrame();
+		cooperativeRpcWait(cd, Timer());
 	io_waiting--;
 	return result;
 }
@@ -143,9 +157,15 @@ int __wrap_sceSifBindRpc(SifRpcClientData_t *cd, int server, int mode)
 	if ((mode & SIF_RPC_M_NOWAIT) || !canCooperate())
 		return __real_sceSifBindRpc(cd, server, mode);
 	io_waiting++;
-	result = __real_sceSifBindRpc(cd, server, mode | SIF_RPC_M_NOWAIT);
-	if (result >= 0)
-		while (SifCheckStatRpc(cd)) waitFrame();
+	u64 started = Timer();
+	do {
+		result = __real_sceSifBindRpc(cd, server, mode | SIF_RPC_M_NOWAIT);
+		if (result < 0) break;
+		cooperativeRpcWait(cd, started);
+		if (cd->server || !hddInstallRebootPending()) break;
+		checkInstallerReloadTimeout(started);
+		waitFrame();
+	} while (1);
 	io_waiting--;
 	return result;
 }

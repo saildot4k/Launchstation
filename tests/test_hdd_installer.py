@@ -149,7 +149,12 @@ with tempfile.TemporaryDirectory(prefix='hdd-installer-') as directory:
     e = Entry(name=b'payload', type=b'0', size=32768 + 17, mode=0o644)
     assert lib.installExt2Begin(fs, c.byref(e)) == 0
     assert lib.installExt2Data(fs, b'Z' * e.size, e.size) == 0
+    assert lib.installExt2Sync(fs) == -errno.EINVAL
     assert lib.installExt2End(fs) == 0
+    assert lib.installExt2Sync(fs) == 0
+    assert os.pread(disk.fd, 2, 1024 + 58) == b'\x02\x00'
+    writes_after_sync = len(disk.writes)
+    assert lib.installExt2Sync(fs) == 0 and len(disk.writes) == writes_after_sync
     payload_writes = [w for w in disk.writes if w[2].startswith(b'Z' * 512)]
     # One complete 32 KiB batch, followed by a zero-padded final block.
     assert [(n, len(data)) for _, n, data in payload_writes] == [(64, 32768)]

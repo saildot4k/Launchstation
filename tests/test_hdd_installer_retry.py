@@ -52,16 +52,16 @@ int hddInstallCreateStage(HddInstall *in){assert(!in->stage_ready);creates++;in-
 int hddInstallFindStage(HddInstall *in){assert(in->stage_ready&&in->owned);finds++;return 0;}
 int hddInstallDownload(HddInstall *in){assert(in);downloads++;if(scenario==2&&downloads==1){hddInstallRecoveryObserve(-502);return -502;}return 0;}
 int hddInstallApply(HddInstall *in){assert(in&&!in->applied);applies++;return 0;}
-int hddInstallPsbbnPayload(void *context,const HddFormatIo *io){
- HddInstall *in=context;(void)io;populates++;
+int hddInstallPsbbnPayload(void *context,const HddFormatIo *io,HddInstallRestart restart){
+ HddInstall *in=context;(void)io;(void)restart;populates++;
  if((scenario==1||scenario==7||scenario==8||scenario==10)&&populates==1){hddInstallRecoveryObserve(-502);return -502;}
  if(scenario==3){hddInstallRecoveryObserve(-502);return -502;}
  if(scenario==6)return -EINVAL;
  in->populated=1;return 0;
 }
-int hddInstallFinish(const HddFormatPlan *p,const char *mbr,int *started,int(*populate)(void*,const HddFormatIo*),void *context){
+int hddInstallFinish(const HddFormatPlan *p,const char *mbr,int *started,HddInstallPopulate populate,void *context){
  assert(p&&mbr&&started&&context);finishes++;*started=1;
- int ret=populate?populate(context,NULL):0;
+ int ret=populate?populate(context,NULL,NULL):0;
  if(ret<0)return ret;
  if(scenario==4&&finishes==1){hddInstallRecoveryObserve(-502);return -502;}
  return 0;

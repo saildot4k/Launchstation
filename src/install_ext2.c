@@ -452,14 +452,18 @@ static int superblocks(InstallExt2 *f, unsigned state)
     }
     return 0;
 }
-int installExt2Finish(InstallExt2 *f)
+int installExt2Sync(InstallExt2 *f)
 {
     int ret;
     if (!f || f->active) return -EINVAL;
     ret = flushData(f); if (ret < 0) return ret;
     if (f->bbdirty) { ret = writeBlock(f, f->bbgroup * BPG + 2, f->bb); if (ret < 0) return ret; f->bbdirty = 0; }
     if (f->ibdirty) { ret = writeBlock(f, f->ibgroup * BPG + 3, f->ib); if (ret < 0) return ret; f->ibdirty = 0; }
-    ret = flushInodes(f); if (ret < 0) return ret;
+    return flushInodes(f);
+}
+int installExt2Finish(InstallExt2 *f)
+{
+    int ret = installExt2Sync(f); if (ret < 0) return ret;
     ret = f->io.flush(f->io.context); if (ret < 0) return ret;
     ret = superblocks(f, 1); return ret < 0 ? ret : f->io.flush(f->io.context);
 }

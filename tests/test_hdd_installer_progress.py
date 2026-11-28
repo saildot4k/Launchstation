@@ -70,6 +70,8 @@ int installTarGzip(const InstallArchiveIo *io,uint32_t size,const InstallTarSink
  return ret<0?ret:io->read(io->context,1,bytes,size-1);
 }
 '''
+code += "enum { EXT2_ENTRIES_PER_REBOOT = 2000 };\n"
+code += "static int rebootBetweenEntries(Payload *p){(void)p;assert(0);return -EINVAL;}\n"
 code += function("static int data(") + function("static int end(") + function("static int readArchive(") + function("static int finishPfsFiles(") + function("static int archives(")
 code += r'''
 int main(void){

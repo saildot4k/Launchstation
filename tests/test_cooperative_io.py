@@ -279,7 +279,9 @@ if not compiler:
 with tempfile.TemporaryDirectory(prefix="wle-cooperative-io-") as temp:
     tmp = Path(temp)
     (tmp / "dash_internal.h").write_text(header)
-    (tmp / "test.c").write_text(code)
+    (tmp / "test.c").write_text(
+        code + '\nvoid dashHddInstallRecoveryStop(const char *reason){(void)reason;__builtin_trap();}\n'
+    )
     flags = ["-std=c99", "-Wall", "-Wextra", "-Werror", "-g"]
     if os.getenv("SANITIZE"):
         flags += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]

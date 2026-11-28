@@ -16,4 +16,11 @@ int hddInstallRecoveryResetRequested(void);
 void hddInstallRecoveryResetComplete(void);
 int hddInstallRecoveryWasReset(void);
 
+/* A planned reset hands the IOP to the UI after the worker closes its RPC
+ * session and handles. The worker retains its extraction state in EE memory. */
+void hddInstallRebootRequest(void);
+int hddInstallRebootPending(void);
+void hddInstallRebootComplete(int result);
+int hddInstallRebootResult(void);
+
 #endif

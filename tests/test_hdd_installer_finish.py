@@ -30,14 +30,23 @@ static unsigned offset, activated, recovered, populated, flushed, reads, writes;
 static unsigned zeroed, zero_calls;
 static int zero_error;
 static int session, begun, finished, bad_read, bad_flush, bad_limit, populate_error;
+static int mbr_open, reboots, restart_requested, restart_result, restart_boundary_error;
 static int fail_pointer_read, fail_payload_read, fail_pointer_write;
 static HddFormatPlan plan;
-static int genOpen(const char *name, int mode) { assert(name && mode == FIO_O_RDONLY); offset = 0; return 9; }
+static int genOpen(const char *name, int mode) {
+    assert(name && mode == FIO_O_RDONLY && !mbr_open); mbr_open = 1; offset = 0; return 9;
+}
 static s64 genLseek(int fd, int pos, int whence) { assert(fd == 9 && pos == 0); if(whence == SEEK_END) return sizeof(payload); offset = 0; return 0; }
 static int genRead(int fd, void *buf, unsigned n) {
-    assert(fd == 9); if(n > 37) n = 37; assert(offset + n <= sizeof(payload)); memcpy(buf, payload + offset, n); offset += n; return n;
+    assert(fd == 9 && mbr_open); if(n > 37) n = 37; assert(offset + n <= sizeof(payload)); memcpy(buf, payload + offset, n); offset += n; return n;
 }
-static int genClose(int fd) { assert(fd == 9); return 0; }
+static int genClose(int fd) { assert(fd == 9 && mbr_open); mbr_open = 0; return 0; }
+static void DelayThread(int usec) {
+    assert(usec==1000 && !session && !mbr_open && hddInstallRebootPending());
+    reboots++;
+    if (restart_boundary_error) bad_limit=1;
+    hddInstallRebootComplete(restart_result);
+}
 static int call(int cmd, uint32_t lba, unsigned count, unsigned send, unsigned receive) {
     assert(send == 64 && receive == 64);
     if(cmd == HF_ZERO) { assert(count && count <= 2048); zero_calls++; if(zero_error) return -EIO; zeroed += count; return 0; }
@@ -77,7 +86,16 @@ static int fileXioDevctl(const char *path, int cmd, const void *data, unsigned s
     return 0;
 }
 int hddFormatRecovery(const HddFormatPlan *p, const HddFormatIo *io) { assert(p == &plan && io && session); recovered++; return 0; }
-static int populate(void *ctx, const HddFormatIo *io) { assert(ctx == &plan && io && !activated && !writes && session); populated++; return populate_error; }
+static int populate(void *ctx, const HddFormatIo *io, HddInstallRestart restart) {
+    assert(ctx == &plan && io && restart && !mbr_open && !activated && !writes && session);
+    populated++;
+    if (restart_requested) {
+        int ret = restart(io->context);
+        if (ret < 0) return ret;
+        assert(session && !mbr_open);
+    }
+    return populate_error;
+}
 '''
 code += r'''
 
@@ -97,6 +115,8 @@ static void clear(void) {
     offset=activated=recovered=populated=flushed=reads=writes=0;
     session=begun=finished=bad_read=bad_flush=bad_limit=populate_error=0;
     fail_pointer_read=fail_payload_read=fail_pointer_write=0;
+    assert(!mbr_open);
+    reboots=restart_requested=restart_result=restart_boundary_error=0;
     assert(hddFormatPlan(&plan,HDD_FORMAT_APA_JAIL,100u*1024*2048,8192,1)==0);
 }
 static void existingBootPayload(void) {
@@ -111,6 +131,17 @@ int main(void) {
     zero_error=0;
     clear(); assert(hddInstallFinish(&plan,"mbr",&started,populate,&plan)==0);
     assert(started && begun==1 && finished==1 && activated==1 && recovered==1 && populated==1 && !session);
+    clear(); restart_requested=1; hddInstallRecoveryBegin();
+    assert(hddInstallFinish(&plan,"mbr",&started,populate,&plan)==0);
+    assert(started && begun==2 && finished==2 && reboots==1 && activated==1 && recovered==1 && !mbr_open);
+    assert(!hddInstallRecoveryWasReset() && !hddInstallRecoveryFault());
+    clear(); restart_requested=1; restart_result=-ENODEV;
+    assert(hddInstallFinish(&plan,"mbr",&started,populate,&plan)==-ENODEV);
+    assert(started && begun==1 && finished==1 && reboots==1 && !activated && !recovered && !mbr_open);
+    clear(); restart_requested=1; restart_boundary_error=1;
+    assert(hddInstallFinish(&plan,"mbr",&started,populate,&plan)==-EINVAL);
+    assert(started && begun==2 && finished==2 && reboots==1 && !activated && !recovered && !mbr_open);
+    hddInstallRecoveryEnd();
     clear(); existingBootPayload();
     assert(hddInstallFinish(&plan,"mbr",&started,populate,&plan)==0);
     assert(started&&populated==1&&reads==4&&!writes&&!activated&&recovered==1&&finished==1);

@@ -123,7 +123,7 @@ int hddReadBootFlag(void);
 enum { HDD_BOOT_ENABLED, HDD_BOOT_ALREADY_ENABLED };
 int hddEnableBootFlag(void);
 int hddInstallPsbbnPartitions(HddInstall *install);
-int hddInstallPsbbnPayload(void *install, const HddFormatIo *io);
+int hddInstallPsbbnPayload(void *install, const HddFormatIo *io, HddInstallRestart restart);
 int hddInstallClaimStage(HddInstall *install);
 int hddInstallFindStage(HddInstall *install);
 int hddInstallPfsPartition(HddInstall *install, unsigned mb, const char *name);
@@ -164,6 +164,7 @@ void hddInstallLogFlush(HddInstall *install);
 void dashHddInstallDebugBegin(HddInstall *install, const HddFormatPlan *plan);
 void dashHddInstallDebugEnd(HddInstall *install, int result);
 int dashHddInstallAwait(int id, const char *title);
+void dashHddInstallRecoveryStop(const char *reason) __attribute__((noreturn));
 void dashHddInstallRecoveryFailed(void) __attribute__((noreturn));
 
 #endif

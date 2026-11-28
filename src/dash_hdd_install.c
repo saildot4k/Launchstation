@@ -321,14 +321,16 @@ void dashHddInstallDebugBegin(HddInstall *in, const HddFormatPlan *plan)
     hddInstallStatus("Preparing installer; the HDD has not been erased yet", 0, 0);
     dashLoadingBegin("PSBBN DP installer log (Experimental)");
 }
-void dashHddInstallRecoveryFailed(void)
+void dashHddInstallRecoveryStop(const char *reason)
 {
-    /* No acknowledgement means old DMA buffers must remain pinned. Keep an
-     * explicit terminal screen alive, with no more RPCs or automatic resets. */
-    const char *reason = installerIopRecoveryError();
+    /* Keep outstanding DMA buffers pinned and draw without issuing more RPCs. */
     hddInstallLog("ERROR IOP recovery failed: %s", reason);
     hddInstallProgress(reason, 0, 0);
     for (;;) dashLoadingFrame(reason, 0, 0);
+}
+void dashHddInstallRecoveryFailed(void)
+{
+    dashHddInstallRecoveryStop(installerIopRecoveryError());
 }
 int dashHddInstallAwait(int id, const char *title)
 {
@@ -342,6 +344,17 @@ int dashHddInstallAwait(int id, const char *title)
             hddInstallProgress("Recovering storage: resetting IOP", 0, 0);
             if (!resetInstallerIopTransport()) dashHddInstallRecoveryFailed();
             hddInstallRecoveryResetComplete();
+        } else if (hddInstallRebootPending()) {
+            hddInstallProgress("Restarting IOP during PSBBN extraction", 0, 0);
+            dashLoadingFrame(NULL, 0, 0);
+            if (!resetInstallerIopTransport() || !reloadInstallerCoreAfterReset())
+                dashHddInstallRecoveryFailed();
+
+            hddInstallProgress("Reloading PSBBN storage drivers", 0, 0);
+            hddInstallLog("PLANNED IOP reboot: reloading HDD/PFS/ATA drivers and raw install service");
+            int ret = loadHddModules() ? hddFormatLoad() : -ENODEV;
+            hddInstallLog("PLANNED IOP reboot: local storage rc=%d, generation=%u", ret, getIopResetGeneration());
+            hddInstallRebootComplete(ret);
         }
         dashWorkerPump();
         if (dashWorkerDone(id)) break;

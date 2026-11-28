@@ -9,6 +9,9 @@ int installExt2Create(InstallExt2 **out, const HddFormatIo *io,
 int installExt2Begin(InstallExt2 *, const InstallTarEntry *relative);
 int installExt2Data(InstallExt2 *, const void *, unsigned);
 int installExt2End(InstallExt2 *);
+/* Write cached allocation and inode blocks at an installer pause. The
+ * caller flushes the drive once all writers have been synced. */
+int installExt2Sync(InstallExt2 *);
 /* Flush pending writes and mark clean only after every selected archive and
  * its integrity/required-file checks succeeded. */
 int installExt2Finish(InstallExt2 *);

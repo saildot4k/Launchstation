@@ -42,11 +42,14 @@ int hddCheckAllocation(uint32_t sectors);
 int hddGetApaCapacity(uint32_t *sectors);
 int hddFormatLoad(void);
 int hddFormatDisk(const HddFormatPlan *plan, int *started);
+/* The installer can restart the raw session while retaining its EE state. */
+typedef int (*HddInstallRestart)(void *);
+typedef int (*HddInstallPopulate)(void *, const HddFormatIo *, HddInstallRestart);
 /* Commit a downloaded MBR only after its files/configs have been installed.
  * Also refresh A2 recovery metadata after new partitions. An optional populate
  * callback runs inside the raw session before activation. NULL mbr skips boot
  * activation. The UI reloads the IOP when started is set. */
 int hddInstallFinish(const HddFormatPlan *plan, const char *mbr, int *started,
-                     int (*populate)(void *, const HddFormatIo *), void *context);
+                     HddInstallPopulate populate, void *context);
 
 #endif
