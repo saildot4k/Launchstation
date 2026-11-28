@@ -94,16 +94,24 @@ typedef struct { int pressed; } DashInput;
 #define DASH_IN_BACK 1
 static u64 now;
 static int pumps,polls,ticks,renders,presents,begins,ends,frames,status_reads;
-static int finish_after,cancel_after,complete,loading_active;
+enum { CUR_IDLE, CUR_RUNNING };
+static int cur_state=CUR_RUNNING;
+static struct { char label[48]; } cur;
+static int finish_after,cancel_after,complete,loading_active,show_label_after;
 static u64 Timer(void) { return now; }
 static int dashWorkerDone(int id) { assert(id==7);return complete; }
-static void dashWorkerPump(void) { if(++pumps==finish_after)complete=1; }
+static void dashWorkerPump(void) {
+    if(++pumps==show_label_after)strcpy(cur.label,"Foreground job");
+    if(pumps==finish_after)complete=1;
+}
 static void dashInputPoll(DashInput *in) { in->pressed=++polls==cancel_after?DASH_IN_BACK:0; }
 static void dashVisualUpdate(void) { ticks++;now+=100; }
 static void dashRenderScene(void) { renders++; }
 static void dashGfxPresent(void) { presents++; }
 static int dashLoadingActive(void) { return loading_active; }
-static void dashLoadingBegin(const char *title) { assert(!strcmp(title,"Saving file"));begins++;loading_active=1; }
+static void dashLoadingBegin(const char *title) {
+    assert(cur.label[0] && !strcmp(title,"Saving file"));begins++;loading_active=1;
+}
 static void dashLoadingSetCancel(int enabled) { assert(enabled==0 || enabled==1); }
 static void dashWorkerGetStatus(char *out,int n,int *done,int *total) {
     status_reads++;snprintf(out,n,"Waiting for memory card status");*done=*total=0;
@@ -115,7 +123,8 @@ static void dashLoadingFrame(const char *status,int done,int total) {
 static void dashLoadingEnd(void) { ends++;loading_active=0; }
 static void reset(int delay,int cancel) {
     now=pumps=polls=ticks=renders=presents=begins=ends=frames=status_reads=complete=0;
-    finish_after=delay;cancel_after=cancel;loading_active=0;
+    finish_after=delay;cancel_after=cancel;loading_active=show_label_after=0;
+    strcpy(cur.label,"Foreground job");
 }
 '''
 wait_checks = r'''
@@ -143,6 +152,16 @@ int main(void) {
         assert(ticks==renders && presents==renders);
         if(quiet)assert(!begins && !ends && !frames && !status_reads);
     }
+    /* A slow unlabeled job stays quiet even when a menu waits with a title. */
+    reset(8,0);cur.label[0]='\0';
+    assert(dashWorkerAwait(7,"Saving file",0) && complete && renders>0);
+    assert(!begins && !ends && !frames && !status_reads);
+    reset(8,4);cur.label[0]='\0';
+    assert(!dashWorkerAwait(7,"Saving file",1) && !complete && polls==4);
+    assert(!begins && !ends && !frames && !status_reads);
+    reset(8,0);cur.label[0]='\0';show_label_after=4;
+    assert(dashWorkerAwait(7,"Saving file",0) && complete);
+    assert(begins==1 && ends==1 && frames==4);
     /* The caller keeps ownership across successive waits: no restart or close. */
     for(int cancel=0;cancel<2;cancel++) {
         reset(8,cancel?4:0);loading_active=1;

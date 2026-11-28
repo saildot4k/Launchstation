@@ -906,6 +906,7 @@ enum DashJobFlags {
 
 void dashWorkerInit(void);
 /* Positive job ID on acceptance; -1 leaves arg owned by the caller.
+ * A NULL label lets the job run without opening a progress popup.
  * Never waits or invokes callbacks inline, even if the worker is unavailable. */
 int dashWorkerSubmit(const char *label, int flags, DashJobFn run, DashJobFn done, void *arg);
 void dashWorkerPump(void);

@@ -43,8 +43,8 @@ int main(void) {
     foreground_io=0;parked=1;dashSoundMaintain();assert(!submitted);
     parked=0;reject_submit=1;dashSoundMaintain();assert(!submitted && !sound_job_id);
     reject_submit=0;dashSoundMaintain();assert(submitted==1);settle();assert(soundAlive());
-    /* A launch/shutdown drains queued initialization and suppresses music playback. */
-    reset();dashSoundMaintain();status_quiet=1;dashSoundShutdown();
+    /* A launch/shutdown drains queued initialization quietly and suppresses music playback. */
+    reset();dashSoundMaintain();dashSoundShutdown();
     assert(!q_count && !sound_job_id && !sound_ready && !allocations);
     assert(quits==1 && stops==1 && !plays[23]);
     /* Stale queued results never invoke old-generation RPC or publish samples. */

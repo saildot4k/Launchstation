@@ -87,7 +87,8 @@ enum {
 	HOP_RESUME_LOOKUP,
 	HOP_RESUME_AVAILABLE,
 	HOP_SYSTEM_APP,
-	HOP_ENABLE_BOOT_FLAG
+	HOP_ENABLE_BOOT_FLAG,
+	HOP_READ_BOOT_FLAG
 };
 
 typedef struct
@@ -397,6 +398,9 @@ static void hddJobRun(void *arg)
 			break;
 		case HOP_SYSTEM_APP:
 			systemAppRun(j);
+			break;
+		case HOP_READ_BOOT_FLAG:
+			j->ret = hddReadBootFlag();
 			break;
 		case HOP_ENABLE_BOOT_FLAG:
 			j->ret = hddEnableBootFlag();
@@ -1543,16 +1547,22 @@ static int systemAppAvailable(const char *relative_path)
     return available;
 }
 
+static int runBootFlagJob(int op, int *result)
+{
+	if (!dashWorkerAwaitAll("Preparing console HDD boot")) return 0;
+	loadCdModules();
+	HddJob *j = jobNew(op);
+	if (j == NULL || !runJob(j, "Checking console HDD boot flag", 0)) return 0;
+	*result = j->ret;
+	hddJobFree(j);
+	return 1;
+}
+
 static void actEnableBootFlag(void)
 {
-	HddJob *j;
+	int ret;
 
-	if (!dashWorkerAwaitAll("Preparing console HDD boot")) return;
-	loadCdModules();
-	j = jobNew(HOP_ENABLE_BOOT_FLAG);
-	if (j == NULL || !runJob(j, "Checking console HDD boot flag", 0)) return;
-	int ret = j->ret;
-	hddJobFree(j);
+	if (!runBootFlagJob(HOP_ENABLE_BOOT_FLAG, &ret)) return;
 	if (ret == HDD_BOOT_ALREADY_ENABLED)
 		dashModalMessage(DI_CHECK, "Already enabled!", "The console HDD boot flag is already enabled.", NULL);
 	else if (ret == HDD_BOOT_ENABLED)
@@ -1615,8 +1625,12 @@ static void partitionMenu(void)
 	ADD(DI_REFRESH, "Refresh", NULL, 0, A_REFRESH);
 	if (!console_is_PSX && hm.present)
 		ADD(DI_WARNING, "Format HDD...", NULL, 0, A_FORMAT);
-	if (!console_is_PSX && p && p->type == HP_SYSTEM && !strcmp(p->name, "__mbr"))
-		ADD(DI_CHECK, "Enable HDD boot flag...", NULL, 0, A_ENABLE_BOOT_FLAG);
+	if (!console_is_PSX && p && p->type == HP_SYSTEM && !strcmp(p->name, "__mbr")) {
+		int ret;
+		int enabled = runBootFlagJob(HOP_READ_BOOT_FLAG, &ret) && ret > 0;
+		ADD(enabled ? DI_BOOT_FLAG_ENABLED : DI_BOOT_FLAG,
+		    enabled ? "HDD boot flag enabled..." : "Enable HDD boot flag...", NULL, enabled, A_ENABLE_BOOT_FLAG);
+	}
 	if (resumeAvailable())
 		ADD(DI_REFRESH, "Resume installation...", NULL, 0, A_RESUME);
 #undef ADD

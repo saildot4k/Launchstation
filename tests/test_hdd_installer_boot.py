@@ -76,11 +76,18 @@ int main(void) {
     HddInstall in;
     for (unsigned byte = 0; byte < 256; byte++) {
         reset(&in, byte);
+        assert(hddReadBootFlag() == ((byte & 3) == 2));
+        assert(!opened && access_no == 1 && calls[READ] == 1 && !calls[WRITE]);
+        assert(!memcmp(config, original, sizeof(config)));
+        reset(&in, byte);
         assert(hddInstallEnableBoot(&in) == 0 && !in.error[0]);
         assert(config[0] == ((byte & ~3u) | 2) && !memcmp(config + 1, original + 1, 14));
         assert(!opened && access_no == ((byte & 3) == 2 ? 1 : 3));
         assert(calls[WRITE] == ((byte & 3) == 2 ? 0u : 1u));
     }
+    reset(&in, 0xa2);
+    fault_access = 0; fault_cmd = READ; fault_status = 0x80; fault_result = 1;
+    assert(hddReadBootFlag() == -EIO && !opened && !calls[WRITE]);
     reset(&in, 0xa2);
     assert(hddEnableBootFlag() == HDD_BOOT_ALREADY_ENABLED && calls[READ] == 1 && !calls[WRITE]);
     reset(&in, 0xa1);
@@ -178,27 +185,30 @@ int main(void) {
 menu = job_source[job_source.index("static void partitionMenu("):job_source.index("// Drawing", job_source.index("static void partitionMenu("))]
 assert 'if (!console_is_PSX && p && p->type == HP_SYSTEM && !strcmp(p->name, "__mbr"))' in menu
 assert menu.index('"Format HDD..."') < menu.index('"Enable HDD boot flag..."') < menu.index('"Resume installation..."')
-assert '"Enable HDD boot flag...", NULL, 0, A_ENABLE_BOOT_FLAG' in menu
+assert 'runBootFlagJob(HOP_READ_BOOT_FLAG, &ret) && ret > 0' in menu
+assert 'ADD(enabled ? DI_BOOT_FLAG_ENABLED : DI_BOOT_FLAG,' in menu
+assert 'enabled ? "HDD boot flag enabled..." : "Enable HDD boot flag...", NULL, enabled, A_ENABLE_BOOT_FLAG' in menu
 assert 'case A_ENABLE_BOOT_FLAG:\n\t\t\tactEnableBootFlag();' in menu
-worker = job_source[job_source.index("\t\tcase HOP_ENABLE_BOOT_FLAG:"):job_source.index("\t\tcase HOP_RESUME_AVAILABLE:")]
+worker = job_source[job_source.index("\t\tcase HOP_READ_BOOT_FLAG:"):job_source.index("\t\tcase HOP_RESUME_AVAILABLE:")]
 manual = r'''
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include "hdd_install.h"
-enum { DI_CHECK, DI_WARNING, HOP_ENABLE_BOOT_FLAG };
-typedef struct { int ret; } HddJob;
+enum { DI_CHECK, DI_WARNING, HOP_ENABLE_BOOT_FLAG, HOP_READ_BOOT_FLAG };
+typedef struct { int op, ret; } HddJob;
 static HddJob job;
-static int idle=1, expected, jobs, modules, notices;
+static int idle=1, expected, jobs, modules, notices, reads, writes;
 static int dashWorkerAwaitAll(const char *title){assert(title&&*title);return idle;}
 static void loadCdModules(void){assert(idle);modules++;}
-static HddJob *jobNew(int op){assert(op==HOP_ENABLE_BOOT_FLAG&&modules>jobs);jobs++;return &job;}
+static HddJob *jobNew(int op){assert(modules>jobs);jobs++;job.op=op;return &job;}
 static void hddJobFree(HddJob *j){assert(j==&job);}
-int hddEnableBootFlag(void){return expected;}
+int hddReadBootFlag(void){reads++;return expected;}
+int hddEnableBootFlag(void){writes++;return expected;}
 static int runJob(HddJob *j,const char *title,int cancelable){
     assert(j==&job&&title&&*title&&!cancelable);
-    switch(HOP_ENABLE_BOOT_FLAG){
+    switch(j->op){
 ''' + worker + r'''
     }
     return 1;
@@ -211,16 +221,23 @@ static void dashModalMessage(int icon,const char *title,const char *body,const c
     notices++;
 }
 '''
-manual += job_source[job_source.index("static void actEnableBootFlag("):job_source.index("static void partitionMenu(")]
+manual += job_source[job_source.index("static int runBootFlagJob("):job_source.index("static void partitionMenu(")]
 manual += r'''
 int main(void){
+    int result;
     idle=0;actEnableBootFlag();assert(!jobs&&!notices&&!modules);
+    assert(!runBootFlagJob(HOP_READ_BOOT_FLAG,&result));
     idle=1;
+    for (int state=-1; state<=1; state++) {
+        expected=state;
+        assert(runBootFlagJob(HOP_READ_BOOT_FLAG,&result)&&result==state);
+    }
+    assert(reads==3&&!writes&&!notices);
     expected=HDD_BOOT_ALREADY_ENABLED;actEnableBootFlag();
     expected=HDD_BOOT_ENABLED;actEnableBootFlag();
     expected=-EIO;actEnableBootFlag();
-    assert(jobs==3&&notices==3&&modules==3);
-    puts("PASS: __mbr offers a manual boot flag action with separate success and failure messages");
+    assert(jobs==6&&notices==3&&modules==6&&writes==3);
+    puts("PASS: __mbr reads the boot flag without writing, disables the row when enabled and reports manual results");
 }
 '''
 

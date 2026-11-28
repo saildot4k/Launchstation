@@ -317,8 +317,8 @@ int dashWorkerAwait(int id, const char *title, int cancelable)
 		}
 		/* A NULL title keeps the scene visible for the whole wait.
 		 * Reuse a caller's overlay without restarting its animation or closing it.
-		 * Otherwise, titled jobs show progress after 150ms. */
-		if (title != NULL && !shown && Timer() - start >= 150) {
+		 * Only a named job can open a new overlay. */
+		if (title != NULL && !shown && cur_state != CUR_IDLE && cur.label[0] && Timer() - start >= 150) {
 			dashLoadingBegin(title);
 			shown = owns_loading = 1;
 		}

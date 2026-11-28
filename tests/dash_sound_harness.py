@@ -32,8 +32,7 @@ u8 sfx_message_adp[16], sfx_connect_adp[16], sfx_disconnect_adp[16];
 int size_sfx_cursor_adp=16, size_sfx_confirm_adp=16, size_sfx_cancel_adp=16, size_sfx_transition_adp=16;
 int size_sfx_message_adp=16, size_sfx_connect_adp=16, size_sfx_disconnect_adp=16;
 static unsigned generation;
-static int worker_thread, active, parked, foreground_io, frame_active, reject_submit, status_quiet;
-static int isStartupDriverStatusQuiet(void) {return status_quiet;}
+static int worker_thread, active, parked, foreground_io, frame_active, reject_submit;
 static int module_failure, init_failure, adpcm_failure, sample_failures, upload_error;
 static int module_calls, init_calls, adpcm_calls, sample_uploads, music_uploads, warnings;
 static int quits, stops, rpc_calls, ui_steps, storage_steps;
@@ -57,16 +56,15 @@ static void finish_one(void);
 static void dashWorkerPump(void) {}
 static int DelayThread(int microseconds) {assert(microseconds==1000);finish_one();return 0;}
 static int dashWorkerSubmit(const char *label,int flags,JobFn run,JobFn done,void *arg) {
-    assert(!worker_thread && label);
-    if(!strcmp(label,"Preparing audio"))assert(flags==0);
-    else assert(flags==DASH_JOB_VISIBLE);
+    assert(!worker_thread);
+    assert(flags==(label ? DASH_JOB_VISIBLE : 0));
     if(reject_submit || q_count==32)return -1;
     int i=(q_head+q_count++)%32;
     jobs[i].id=next_id++;jobs[i].run=run;jobs[i].done=done;jobs[i].arg=arg;submitted++;
     return jobs[i].id;
 }
 static int dashWorkerAwait(int id,const char *label,int cancelable) {
-    assert(!worker_thread && !cancelable && (status_quiet ? label==NULL : label!=NULL));
+    assert(!worker_thread && !cancelable && label==NULL);
     while(completed_id<id)finish_one();
     return 1;
 }
@@ -142,7 +140,7 @@ static void dashToast(int kind,const char *message) {
 '''
 RESET = r'''
 static void reset(void) {
-    during_rpc=NULL;foreground_io=parked=frame_active=status_quiet=0;
+    during_rpc=NULL;foreground_io=parked=frame_active=0;
     dashSoundShutdown();assert(!allocations && !q_count);
     memset(&sound_job,0,sizeof(sound_job));sound_job_id=sound_closing=sound_volume_pending=sound_music_pending=0;
     sound_startup_preparing=0;

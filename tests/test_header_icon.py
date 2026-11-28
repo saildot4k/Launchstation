@@ -167,6 +167,9 @@ int main(void)
     assert(iconSdf(DI_CUT,(V2){-0.54f,-0.40f})>0); /* hollow handles */
     assert(iconSdf(DI_CUT,(V2){-0.54f,0.40f})>0);
     assert(iconSdf(DI_COPY,(V2){0.20f,0.20f})>0); /* hollow front square */
+    const V2 check_center={0.08f,-0.33f}, pole={-0.60f,0.38f}, flag_edge={0.82f,-0.01f};
+    assert(iconSdf(DI_BOOT_FLAG,check_center)<0 && iconSdf(DI_BOOT_FLAG_ENABLED,check_center)>0);
+    assert(iconSdf(DI_BOOT_FLAG_ENABLED,pole)<0 && iconSdf(DI_BOOT_FLAG_ENABLED,flag_edge)<0);
 
     check_at(0,0);check_at(1000,12);check_at(7500,90);
     check_at(15000,180);check_at(22500,270);

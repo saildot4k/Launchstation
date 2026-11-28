@@ -284,7 +284,7 @@ void dashSoundMaintain(void)
 	sound_job.effects_volume = dashCfg.sound_vol;
 	snprintf(sound_job.directory, sizeof(sound_job.directory), "%s", directory);
 	/* Routine background audio preparation does not need an activity popup. */
-	sound_job_id = dashWorkerSubmit("Preparing audio", 0,
+	sound_job_id = dashWorkerSubmit(NULL, 0,
 	                               soundJobRun, soundJobDone, &sound_job);
 	if (sound_job_id < 0) {
 		sound_job_id = 0; /* retry submission later; no blocking UI fallback */
@@ -302,7 +302,7 @@ void dashSoundShutdown(void)
 	 * Suppress automatic restarts while the queue is being drained. */
 	sound_closing = 1;
 	if (sound_job_id)
-		dashWorkerAwait(sound_job_id, isStartupDriverStatusQuiet() ? NULL : "Finishing audio", 0);
+		dashWorkerAwait(sound_job_id, NULL, 0);
 	sound_music_pending = 0;
 	sound_volume_pending = 0;
 	if (soundAlive()) {
